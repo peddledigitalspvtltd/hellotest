@@ -400,6 +400,46 @@ const renderBoardHtml = (config: TelemetryConfig) => {
       .button-danger {
         background: var(--danger);
       }
+      .button-secondary {
+        background: #edf2f7;
+        color: var(--text);
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(15, 23, 42, 0.46);
+      }
+      .modal-backdrop.is-open {
+        display: flex;
+      }
+      .modal-card {
+        width: min(420px, 100%);
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+      }
+      .modal-card h2 {
+        margin: 0 0 8px;
+        color: var(--danger);
+        font-size: 20px;
+      }
+      .modal-card p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+      }
       .toggle {
         display: inline-flex;
         align-items: center;
@@ -631,6 +671,17 @@ const renderBoardHtml = (config: TelemetryConfig) => {
       </div>
     </main>
 
+    <div class="modal-backdrop" id="deleteModal" role="presentation">
+      <div aria-labelledby="deleteModalTitle" aria-modal="true" class="modal-card" role="dialog">
+        <h2 id="deleteModalTitle">Delete telemetry logs?</h2>
+        <p>Delete all captured OPS telemetry logs from this Test Engine host? This cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="button-secondary" id="cancelDeleteButton" type="button">Cancel</button>
+          <button class="button-danger" id="confirmDeleteButton" type="button">Delete logs</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const EVENTS_PATH = ${JSON.stringify(config.eventsPath)};
       const SERVICES_PATH = ${JSON.stringify(config.servicesPath)};
@@ -650,6 +701,9 @@ const renderBoardHtml = (config: TelemetryConfig) => {
       const eventsMeta = document.getElementById("eventsMeta");
       const noticeBox = document.getElementById("noticeBox");
       const errorBox = document.getElementById("errorBox");
+      const deleteModal = document.getElementById("deleteModal");
+      const cancelDeleteButton = document.getElementById("cancelDeleteButton");
+      const confirmDeleteButton = document.getElementById("confirmDeleteButton");
 
       const initialService = SEARCH.get("service_name") || "";
       if (initialService) {
@@ -811,14 +865,12 @@ const renderBoardHtml = (config: TelemetryConfig) => {
       }
 
       async function clearTelemetryLogs() {
-        if (!window.confirm("Delete all captured OPS telemetry logs from this Test Engine host?")) {
-          return;
-        }
-
         setError("");
         setNotice("");
         clearButton.disabled = true;
+        confirmDeleteButton.disabled = true;
         clearButton.textContent = "Deleting...";
+        confirmDeleteButton.textContent = "Deleting...";
 
         try {
           const response = await fetch(EVENTS_PATH, {
@@ -838,12 +890,36 @@ const renderBoardHtml = (config: TelemetryConfig) => {
           setError(error instanceof Error ? error.message : "Unable to delete telemetry logs.");
         } finally {
           clearButton.disabled = false;
+          confirmDeleteButton.disabled = false;
           clearButton.textContent = "Delete Telemetry Logs";
+          confirmDeleteButton.textContent = "Delete logs";
+          closeDeleteModal();
         }
       }
 
+      function openDeleteModal() {
+        deleteModal.classList.add("is-open");
+        confirmDeleteButton.focus();
+      }
+
+      function closeDeleteModal() {
+        deleteModal.classList.remove("is-open");
+      }
+
       refreshButton.addEventListener("click", () => { void loadBoard(); });
-      clearButton.addEventListener("click", () => { void clearTelemetryLogs(); });
+      clearButton.addEventListener("click", () => { openDeleteModal(); });
+      cancelDeleteButton.addEventListener("click", () => { closeDeleteModal(); });
+      confirmDeleteButton.addEventListener("click", () => { void clearTelemetryLogs(); });
+      deleteModal.addEventListener("click", (event) => {
+        if (event.target === deleteModal) {
+          closeDeleteModal();
+        }
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && deleteModal.classList.contains("is-open")) {
+          closeDeleteModal();
+        }
+      });
 
       [serviceFilter, eventTypeFilter, statusFilter, executionFilter, searchFilter, limitFilter].forEach((element) => {
         element.addEventListener("change", () => { void loadBoard(); });

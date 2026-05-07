@@ -17,10 +17,11 @@ docker compose --env-file .env -f "$COMPOSE_FILE" exec -T postgres psql \
   -d "${POSTGRES_DB:-qaira}" \
   < db/03-local-integrations.sql
 
-echo "Updated local Test Engine integration:"
+echo "Updated local admin integrations:"
 echo "  API/container base URL: http://testengine:4301"
 echo "  Browser recorder URL:   http://localhost:4301"
 echo "  Browser OPS board URL:  http://localhost:4301/ops-telemetry"
+echo "  Mobile engine URL:      http://localhost:4312 / http://mobile-engine:4312"
 echo "  Web execution engine:   playwright/chromium"
 echo "  Queue polling:          0.5 minutes"
 echo

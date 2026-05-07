@@ -96,14 +96,48 @@ async function withDriver(input, fn) {
   }
 }
 
+async function createSessionDriver(input) {
+  const { appiumServerUrl, capabilities } = buildCapabilities(input);
+  const parsed = new URL(appiumServerUrl);
+  return remote({
+    protocol: parsed.protocol.replace(":", ""),
+    hostname: parsed.hostname,
+    port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80)),
+    path: parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "/",
+    capabilities
+  });
+}
+
+function recordAction(session, action) {
+  const next = {
+    index: session.actions.length + 1,
+    timestamp: nowIso(),
+    ...action
+  };
+  session.actions.push(next);
+  session.action_count = session.actions.length;
+  session.last_activity_at = next.timestamp;
+  sessions.set(session.id, session);
+  return next;
+}
+
 async function executeKeyword(driver, command) {
   const [selector, value, extra] = command.args;
   switch (command.keyword) {
     case "tap":
-      await driver.$(String(selector)).click();
+      if (String(selector).startsWith("point:")) {
+        const [x, y] = String(selector).replace(/^point:/, "").split(",").map((item) => Number(item.trim()) || 0);
+        await driver.action("pointer").move({ x, y }).down().up().perform();
+      } else {
+        await driver.$(String(selector)).click();
+      }
       return { status: "passed", note: `Tapped ${selector}` };
     case "type":
-      await driver.$(String(selector)).setValue(String(value || ""));
+      if (String(selector) === "focused") {
+        await driver.keys(String(value || ""));
+      } else {
+        await driver.$(String(selector)).setValue(String(value || ""));
+      }
       return { status: "passed", note: `Typed into ${selector}` };
     case "clear":
       await driver.$(String(selector)).clearValue();
@@ -202,9 +236,28 @@ app.post("/api/v1/mobile/recorder/sessions", async (request) => {
     actions: [],
     started_at: nowIso(),
     last_activity_at: nowIso(),
-    live_view_url: `/api/v1/mobile/recorder/sessions/${id}/live`
+    live_view_url: `/api/v1/mobile/recorder/sessions/${id}/live`,
+    driver: null,
+    driver_error: null
   };
   sessions.set(id, session);
+  createSessionDriver(payload)
+    .then((driver) => {
+      const current = sessions.get(id);
+      if (!current || current.status !== "running") {
+        return driver.deleteSession().catch(() => undefined);
+      }
+      current.driver = driver;
+      current.last_activity_at = nowIso();
+      sessions.set(id, current);
+    })
+    .catch((error) => {
+      const current = sessions.get(id);
+      if (!current) return;
+      current.driver_error = error instanceof Error ? error.message : "Unable to connect to Appium.";
+      current.last_activity_at = nowIso();
+      sessions.set(id, current);
+    });
   return session;
 });
 
@@ -214,7 +267,8 @@ app.get("/api/v1/mobile/recorder/sessions/:id", async (request, reply) => {
     reply.code(404);
     return { message: "Mobile recorder session not found" };
   }
-  return session;
+  const { driver, ...serializableSession } = session;
+  return serializableSession;
 });
 
 app.get("/api/v1/mobile/recorder/sessions/:id/live", async (request, reply) => {
@@ -224,7 +278,77 @@ app.get("/api/v1/mobile/recorder/sessions/:id/live", async (request, reply) => {
     return "Mobile recorder session not found";
   }
   reply.header("content-type", "text/html; charset=utf-8");
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>QAira Mobile Recorder</title><style>body{margin:0;background:#101827;color:#f8fafc;font-family:Inter,system-ui,sans-serif}.bar{padding:12px 14px;background:#172033;border-bottom:1px solid rgba(255,255,255,.14)}.stage{height:calc(100vh - 50px);display:grid;place-items:center;text-align:center;padding:24px}.device{width:min(380px,88vw);min-height:640px;border:10px solid #263246;border-radius:34px;background:#0b1220;display:grid;place-items:center;box-shadow:0 24px 80px rgba(0,0,0,.45)}code{color:#8bd3ff}</style></head><body><div class="bar"><strong>QAira Mobile Recorder</strong> · ${session.display_mode}</div><div class="stage"><div class="device"><div><h2>Connected Android device</h2><p>Use local ADB mirroring/scrcpy or your cloud provider live view to interact. QAira keeps this session open for captured Appium keyword import.</p><code>${session.id}</code></div></div></div></body></html>`;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>QAira Mobile Recorder</title><style>body{margin:0;background:#101827;color:#f8fafc;font-family:Inter,system-ui,sans-serif}.bar{padding:12px 14px;background:#172033;border-bottom:1px solid rgba(255,255,255,.14);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.stage{min-height:calc(100vh - 58px);display:grid;place-items:center;padding:18px}.device{width:min(390px,94vw);aspect-ratio:9/19.5;border:10px solid #263246;border-radius:34px;background:#0b1220;display:grid;place-items:center;box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden;position:relative}.device img{width:100%;height:100%;object-fit:contain;background:#000}.empty{padding:22px;text-align:center;color:#cbd5e1}.controls{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px;background:rgba(16,24,39,.92);border-top:1px solid rgba(255,255,255,.14)}input{flex:1;min-width:0;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#0b1220;color:#fff;padding:10px}button{border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#2563eb;color:#fff;padding:10px 12px;font-weight:700}code{color:#8bd3ff}</style></head><body><div class="bar"><strong>QAira Mobile Recorder</strong><span>${session.display_mode} · <code>${session.id}</code></span></div><div class="stage"><div class="device" id="device"><img id="screen" alt="" /><div class="empty" id="empty">Connecting to Appium/scrcpy-style browser view...</div></div></div><div class="controls"><input id="text" placeholder="Type text on focused field" /><button id="type">Type</button><button id="back">Back</button></div><script>
+const sessionId=${JSON.stringify(session.id)};
+const screen=document.getElementById("screen");
+const empty=document.getElementById("empty");
+const device=document.getElementById("device");
+const withPath=(path)=>"/api/v1/mobile/recorder/sessions/"+encodeURIComponent(sessionId)+path;
+async function refresh(){try{const response=await fetch(withPath("/screenshot")+"?t="+Date.now(),{cache:"no-store"});if(!response.ok)throw new Error(await response.text());const blob=await response.blob();screen.src=URL.createObjectURL(blob);screen.style.display="block";empty.style.display="none";}catch(error){screen.style.display="none";empty.style.display="block";empty.textContent=String(error.message||error||"Waiting for device screenshot");}}
+async function send(payload){await fetch(withPath("/input"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});setTimeout(refresh,250);}
+device.addEventListener("click",(event)=>{const rect=device.getBoundingClientRect();send({type:"tap",x:Math.round(event.clientX-rect.left),y:Math.round(event.clientY-rect.top),width:Math.round(rect.width),height:Math.round(rect.height)});});
+document.getElementById("type").addEventListener("click",()=>{const value=document.getElementById("text").value;send({type:"type",value});});
+document.getElementById("back").addEventListener("click",()=>send({type:"pressBack"}));
+refresh();setInterval(refresh,1000);
+</script></body></html>`;
+});
+
+app.get("/api/v1/mobile/recorder/sessions/:id/screenshot", async (request, reply) => {
+  const session = sessions.get(request.params.id);
+  if (!session) {
+    reply.code(404);
+    return "Mobile recorder session not found";
+  }
+  if (!session.driver) {
+    reply.code(503);
+    return session.driver_error || "Waiting for Appium device connection";
+  }
+  try {
+    const image = await session.driver.takeScreenshot();
+    reply.header("content-type", "image/png");
+    return Buffer.from(image, "base64");
+  } catch (error) {
+    reply.code(500);
+    return error instanceof Error ? error.message : "Unable to capture screenshot";
+  }
+});
+
+app.post("/api/v1/mobile/recorder/sessions/:id/input", async (request, reply) => {
+  const session = sessions.get(request.params.id);
+  if (!session) {
+    reply.code(404);
+    return { message: "Mobile recorder session not found" };
+  }
+  const payload = request.body || {};
+  try {
+    if (payload.type === "tap") {
+      const size = session.driver ? await session.driver.getWindowSize().catch(() => null) : null;
+      const x = Math.round(Number(payload.x) * (Number(size?.width) || Number(payload.width) || 1) / (Number(payload.width) || 1));
+      const y = Math.round(Number(payload.y) * (Number(size?.height) || Number(payload.height) || 1) / (Number(payload.height) || 1));
+      if (session.driver) {
+        await session.driver.action("pointer").move({ x, y }).down().up().perform();
+      }
+      return { action: recordAction(session, { type: "tap", x, y, locator: `point:${x},${y}` }) };
+    }
+    if (payload.type === "type") {
+      const value = String(payload.value || "");
+      if (session.driver) {
+        await session.driver.keys(value);
+      }
+      return { action: recordAction(session, { type: "type", value }) };
+    }
+    if (payload.type === "pressBack") {
+      if (session.driver) {
+        await session.driver.back();
+      }
+      return { action: recordAction(session, { type: "pressBack" }) };
+    }
+    reply.code(400);
+    return { message: "Unsupported mobile recorder input type" };
+  } catch (error) {
+    reply.code(500);
+    return { message: error instanceof Error ? error.message : "Unable to send mobile recorder input" };
+  }
 });
 
 app.post("/api/v1/mobile/recorder/sessions/:id/stop", async (request, reply) => {
@@ -235,8 +359,11 @@ app.post("/api/v1/mobile/recorder/sessions/:id/stop", async (request, reply) => 
   }
   session.status = "stopped";
   session.last_activity_at = nowIso();
+  await session.driver?.deleteSession().catch(() => undefined);
+  session.driver = null;
   sessions.set(session.id, session);
-  return session;
+  const { driver, ...serializableSession } = session;
+  return serializableSession;
 });
 
 app.listen({ port, host: "0.0.0.0" });

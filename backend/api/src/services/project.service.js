@@ -209,11 +209,6 @@ const deleteProjectWorkspaceTransactions = db.prepare(`
   WHERE project_id = ?
 `);
 
-const deleteProjectIntegrations = db.prepare(`
-  DELETE FROM integrations
-  WHERE config->>'project_id' = ?
-`);
-
 const deleteProjectAppTypes = db.prepare(`
   DELETE FROM app_types
   WHERE project_id = ?
@@ -394,7 +389,6 @@ exports.deleteProject = async (id) => {
     await deleteProjectTestDataSets.run(id);
     await deleteProjectAiGenerationJobs.run(id);
     await deleteProjectWorkspaceTransactions.run(id);
-    await deleteProjectIntegrations.run(id);
     await deleteProjectAppTypes.run(id);
     await deleteProjectMembers.run(id);
     await deleteProjectRecord.run(id);

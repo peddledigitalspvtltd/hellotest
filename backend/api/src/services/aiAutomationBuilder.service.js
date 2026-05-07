@@ -42,6 +42,14 @@ const selectStepsForCase = db.prepare(`
   ORDER BY step_order ASC, id ASC
 `);
 
+const selectCompanionApiCasesForSource = db.prepare(`
+  SELECT id, title
+  FROM test_cases
+  WHERE app_type_id = ?
+    AND external_references @> ?::jsonb
+  ORDER BY created_at ASC, id ASC
+`);
+
 const selectCasesForBatch = db.prepare(`
   SELECT test_cases.id
   FROM test_cases
@@ -1567,6 +1575,113 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
   return applied;
 };
 
+const buildMobileAutomationCode = (action) => {
+  if (action.type === "tap") {
+    return `await android.tap("${action.locator || `point:${action.x || 0},${action.y || 0}`}");`;
+  }
+
+  if (action.type === "type") {
+    return `await android.type("focused", ${JSON.stringify(action.value || "")});`;
+  }
+
+  if (action.type === "pressBack") {
+    return "await android.pressBack();";
+  }
+
+  return "";
+};
+
+const buildMobileStepCandidate = (action) => {
+  const automationCode = buildMobileAutomationCode(action);
+
+  if (!automationCode) {
+    return null;
+  }
+
+  if (action.type === "tap") {
+    return {
+      action: `Tap Android screen at ${action.locator || `${action.x || 0},${action.y || 0}`}`,
+      expected_result: "The Android app accepts the tap and continues the flow.",
+      automation_code: automationCode
+    };
+  }
+
+  if (action.type === "type") {
+    return {
+      action: "Type text into the focused Android field",
+      expected_result: "The value is entered in the Android app.",
+      automation_code: automationCode
+    };
+  }
+
+  return {
+    action: "Press Android back",
+    expected_result: "The Android app navigates back.",
+    automation_code: automationCode
+  };
+};
+
+const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy }) => {
+  const candidates = capturedActions.map(buildMobileStepCandidate).filter(Boolean);
+  const existingSteps = await selectStepsForCase.all(testCase.id);
+  const applied = [];
+  let createdCount = 0;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const existing = existingSteps[index];
+
+    if (existing) {
+      await testStepService.updateTestStep(existing.id, {
+        step_type: "android",
+        automation_code: candidate.automation_code,
+        api_request: null
+      });
+      applied.push({
+        step_id: existing.id,
+        step_order: existing.step_order,
+        step_type: "android",
+        action: existing.action || candidate.action,
+        expected_result: existing.expected_result || candidate.expected_result,
+        automation_code: candidate.automation_code,
+        operation: "updated",
+        has_code: true,
+        has_api_request: false
+      });
+      continue;
+    }
+
+    const stepOrder = existingSteps.length + createdCount + 1;
+    const created = await testStepService.createTestStep({
+      test_case_id: testCase.id,
+      step_order: stepOrder,
+      action: candidate.action,
+      expected_result: candidate.expected_result,
+      step_type: "android",
+      automation_code: candidate.automation_code,
+      api_request: null
+    });
+    applied.push({
+      step_id: created.id,
+      step_order: stepOrder,
+      step_type: "android",
+      action: candidate.action,
+      expected_result: candidate.expected_result,
+      automation_code: candidate.automation_code,
+      operation: "created",
+      has_code: true,
+      has_api_request: false
+    });
+    createdCount += 1;
+  }
+
+  if (applied.length) {
+    await updateCaseAutomated.run(createdBy || null, testCase.id);
+  }
+
+  return applied;
+};
+
 const isBusinessApiNetworkEntry = (entry) => {
   const method = normalizeText(entry?.method)?.toUpperCase() || "GET";
   const resourceType = normalizeText(entry?.resource_type)?.toLowerCase();
@@ -1698,9 +1813,54 @@ const buildApiStepFromNetwork = (entry, index, capturedActions = []) => {
   };
 };
 
+const getApiRequestKey = (request) => {
+  const normalized = normalizeApiRequest(request);
+
+  if (!normalized?.url) {
+    return null;
+  }
+
+  let url = normalized.url;
+
+  try {
+    const parsed = new URL(normalized.url);
+    parsed.hash = "";
+    url = parsed.toString();
+  } catch {
+    url = normalized.url;
+  }
+
+  return [
+    normalizeText(normalized.method)?.toUpperCase() || "GET",
+    url,
+    normalizeRichText(normalized.body) || ""
+  ].join(" ");
+};
+
+const listExistingCompanionApiRequestKeys = async (testCase) => {
+  const companions = await selectCompanionApiCasesForSource.all(
+    testCase.app_type_id,
+    JSON.stringify([`source-web-case:${testCase.id}`])
+  );
+  const keys = new Set();
+
+  for (const companion of companions) {
+    const steps = await selectStepsForCase.all(companion.id);
+
+    steps.forEach((step) => {
+      const key = getApiRequestKey(step.api_request);
+      if (key) {
+        keys.add(key);
+      }
+    });
+  }
+
+  return { companions, keys };
+};
+
 const createCompanionApiCaseFromNetwork = async ({ testCase, capturedActions, capturedNetwork, session, createdBy, transactionId }) => {
   const unique = new Set();
-  const steps = capturedNetwork
+  const candidateSteps = capturedNetwork
     .filter(isBusinessApiNetworkEntry)
     .filter((entry) => {
       const key = [
@@ -1719,8 +1879,28 @@ const createCompanionApiCaseFromNetwork = async ({ testCase, capturedActions, ca
     .slice(0, 25)
     .map((entry, index) => buildApiStepFromNetwork(entry, index, capturedActions))
     .filter(Boolean);
+  const existing = await listExistingCompanionApiRequestKeys(testCase);
+  const steps = candidateSteps.filter((step) => {
+    const key = getApiRequestKey(step.api_request);
+    return key && !existing.keys.has(key);
+  }).map((step, index) => ({
+    ...step,
+    step_order: index + 1
+  }));
 
   if (!steps.length) {
+    if (candidateSteps.length && existing.companions.length) {
+      await appendEvent(transactionId, {
+        level: "info",
+        phase: "recorder.api_case.skipped_duplicate",
+        message: "Recorder skipped companion API case creation because the captured endpoints already exist for this web case.",
+        details: {
+          source_test_case_id: testCase.id,
+          existing_api_case_ids: existing.companions.map((item) => item.id),
+          captured_api_step_count: candidateSteps.length
+        }
+      });
+    }
     return null;
   }
 
@@ -2521,7 +2701,9 @@ exports.startRecorderSession = async ({
 
   const localBaseUrl = recorderMode === "local" && recorderTarget === "web" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || integration.base_url || "").replace(/\/+$/, "");
-  const mobileBaseUrl = resolveMobileEngineBaseUrl(integration, recorderMode).replace(/\/+$/, "");
+  const mobileBaseUrl = (recorderTarget === "mobile" && recorderMode === "local"
+    ? normalizeText(engine_base_url) || resolveMobileEngineBaseUrl(integration, recorderMode)
+    : resolveMobileEngineBaseUrl(integration, recorderMode)).replace(/\/+$/, "");
   const publicBaseUrl = String(
     recorderTarget === "mobile"
       ? normalizeText(recorder_public_base_url) || mobileBaseUrl
@@ -2661,6 +2843,11 @@ exports.finishRecorderSession = async ({
   }).catch(() => null);
 
   if (target === "mobile") {
+    const stepUpdates = await applyMobileRecorderSteps({
+      testCase,
+      capturedActions,
+      createdBy: created_by
+    });
     await workspaceTransactionService.updateTransaction(transactionId, {
       status: "completed",
       metadata: {
@@ -2668,15 +2855,32 @@ exports.finishRecorderSession = async ({
         current_phase: "recorder.mobile.completed",
         progress_percent: 100,
         recorder_session_id: session.id,
-        action_count: capturedActions.length
+        action_count: capturedActions.length,
+        updated_step_count: stepUpdates.filter((step) => step.operation === "updated").length,
+        created_step_count: stepUpdates.filter((step) => step.operation === "created").length
       },
       completed_at: new Date().toISOString()
     }).catch(() => null);
+    await appendEvent(transactionId, {
+      level: stepUpdates.length ? "success" : "warning",
+      phase: "recorder.mobile.steps.created",
+      message: stepUpdates.length
+        ? `Mobile recorder saved ${stepUpdates.length} Android keyword step${stepUpdates.length === 1 ? "" : "s"}.`
+        : "Mobile recorder stopped without captured Android actions.",
+      details: {
+        recorder_session_id: session.id,
+        action_count: capturedActions.length,
+        step_count: stepUpdates.length
+      }
+    });
     return {
-      generated_step_count: 0,
-      created_step_count: 0,
-      updated_step_count: 0,
-      message: "Mobile recorder stopped. Review captured Android actions and add Appium keywords to the step code.",
+      generated_step_count: stepUpdates.length,
+      created_step_count: stepUpdates.filter((step) => step.operation === "created").length,
+      updated_step_count: stepUpdates.filter((step) => step.operation === "updated").length,
+      message: stepUpdates.length
+        ? "Mobile recorder stopped and Android keyword steps were saved."
+        : "Mobile recorder stopped. No Android actions were captured.",
+      step_updates: stepUpdates,
       recorder_session: {
         id: session.id,
         action_count: capturedActions.length,

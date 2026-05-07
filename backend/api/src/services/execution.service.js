@@ -763,7 +763,9 @@ exports.createExecution = async ({
   test_data_set_id,
   assigned_to,
   name,
-  created_by
+  created_by,
+  trigger = "manual",
+  initial_status = "queued"
 }) => {
   if (!project_id || !created_by) {
     throw new Error("Missing required fields");
@@ -885,6 +887,8 @@ exports.createExecution = async ({
   }
 
   const id = uuid();
+  const normalizedTrigger = trigger === "local" ? "local" : trigger === "ci" ? "ci" : "manual";
+  const normalizedInitialStatus = initial_status === "running" ? "running" : "queued";
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
@@ -908,12 +912,14 @@ exports.createExecution = async ({
         assigned_to,
         created_by
       )
-      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       project_id,
       app_type_id || null,
       name || "Execution Run",
+      normalizedTrigger,
+      normalizedInitialStatus,
       selectedEnvironment?.id || null,
       selectedEnvironment?.name || null,
       selectedEnvironment?.snapshot || null,
@@ -977,6 +983,33 @@ exports.createExecution = async ({
   await transaction();
 
   return { id };
+};
+
+exports.createLocalRun = async (input = {}) => {
+  const created = await exports.createExecution({
+    ...input,
+    trigger: "local",
+    initial_status: "running",
+    name: input.name || "Local Run"
+  });
+
+  try {
+    const result = await exports.startLocalExecution(created.id, {
+      initiated_by: input.created_by,
+      engine_base_url: input.engine_base_url
+    });
+    return {
+      id: created.id,
+      ...result
+    };
+  } catch (error) {
+    await db.prepare(`
+      UPDATE executions
+      SET status = 'failed', ended_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(created.id);
+    throw error;
+  }
 };
 
 exports.getExecutions = async ({ project_id, app_type_id, status }) => {
@@ -1334,6 +1367,63 @@ exports.startExecution = async (id, options = {}) => {
 
   return {
     started: true,
+    ...dispatchSummary
+  };
+};
+
+exports.startLocalExecution = async (id, options = {}) => {
+  const execution = await exports.getExecution(id, true);
+
+  if (execution.status !== "running") {
+    throw new Error("Local runs must be created in running state");
+  }
+
+  const initiatedBy = await resolveExecutionOwnershipCandidate(
+    execution.project_id,
+    options.initiated_by,
+    execution.assigned_to,
+    execution.created_by
+  );
+
+  if (initiatedBy) {
+    await assignExecutionOwnershipIfMissing.run(initiatedBy, id);
+    await assignExecutionCaseOwnershipIfMissing.run(initiatedBy, id);
+  }
+
+  const dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution);
+
+  if (!dispatchPlan.eligible_automated_case_count) {
+    throw new Error("Local run requires a recorded automated web test case.");
+  }
+
+  const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
+
+  if (!integration) {
+    throw new Error("Configure an active Test Engine integration before starting a local run.");
+  }
+
+  const localEngineBaseUrl = options.engine_base_url || process.env.QAIRA_LOCAL_RUN_ENGINE_URL || "http://host.docker.internal:4311";
+  const dispatchSummary = await testEngineDispatchService.runExecutionDirectLocal({
+    plan: dispatchPlan,
+    integration,
+    initiatedBy,
+    engineBaseUrl: localEngineBaseUrl
+  });
+
+  try {
+    await opsTelemetryService.emitExecutionHierarchyEvents({
+      execution_id: id,
+      source: "qaira.execution.local-start",
+      summary: "Local execution started."
+    });
+  } catch {
+    // OPS telemetry is best-effort and must not block local execution start.
+  }
+
+  return {
+    started: true,
+    execution_mode: "local",
+    engine_base_url: localEngineBaseUrl,
     ...dispatchSummary
   };
 };

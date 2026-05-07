@@ -118,7 +118,7 @@ type ExecutionStepBlock = {
 type ExecutionIssueFilter = "all" | "with-issues" | "clean";
 type ExecutionEvidenceFilter = "all" | "with-evidence" | "no-evidence";
 type ExecutionCreateMode = "manual" | "smart";
-type TestRunsView = "test-case-runs" | "suite-runs" | "scheduled-runs" | "batch-process";
+type TestRunsView = "test-case-runs" | "suite-runs" | "local-runs" | "scheduled-runs" | "batch-process";
 type CatalogViewMode = "tile" | "list";
 
 type ExecutionAssigneeOption = AssigneeOption;
@@ -190,6 +190,7 @@ const EMPTY_EXECUTION_RUN_SUMMARY: ExecutionRunSummary = {
 const DEFAULT_CATALOG_VIEW_MODE_BY_RUN_VIEW: Record<TestRunsView, CatalogViewMode> = {
   "test-case-runs": "tile",
   "suite-runs": "tile",
+  "local-runs": "tile",
   "scheduled-runs": "tile",
   "batch-process": "tile"
 };
@@ -197,6 +198,7 @@ const DEFAULT_CATALOG_VIEW_MODE_BY_RUN_VIEW: Record<TestRunsView, CatalogViewMod
 const DEFAULT_RUN_LIBRARY_SEARCH_BY_VIEW: Record<TestRunsView, string> = {
   "test-case-runs": "",
   "suite-runs": "",
+  "local-runs": "",
   "scheduled-runs": "",
   "batch-process": ""
 };
@@ -853,10 +855,14 @@ function averageDuration(values: Array<number | null | undefined>) {
 }
 
 function isExecutionRunsView(view: TestRunsView) {
-  return view === "test-case-runs" || view === "suite-runs";
+  return view === "test-case-runs" || view === "suite-runs" || view === "local-runs";
 }
 
-function resolveExecutionRunBucket(execution: Execution): Extract<TestRunsView, "test-case-runs" | "suite-runs"> {
+function resolveExecutionRunBucket(execution: Execution): Extract<TestRunsView, "test-case-runs" | "suite-runs" | "local-runs"> {
+  if (execution.trigger === "local") {
+    return "local-runs";
+  }
+
   return execution.suite_ids.length ? "suite-runs" : "test-case-runs";
 }
 
@@ -1732,7 +1738,7 @@ export function ExecutionsPage() {
     const requestedExecutionId = searchParams.get("execution");
     const requestedViewParam = searchParams.get("view");
     const requestedView =
-      requestedViewParam === "test-case-runs" || requestedViewParam === "suite-runs"
+      requestedViewParam === "test-case-runs" || requestedViewParam === "suite-runs" || requestedViewParam === "local-runs"
         ? requestedViewParam
         : null;
     const requestedTestCaseId = searchParams.get("testCase");
@@ -3144,6 +3150,8 @@ export function ExecutionsPage() {
       ? "Test case runs"
       : testRunsView === "suite-runs"
         ? "Suite runs"
+        : testRunsView === "local-runs"
+          ? "Local runs"
         : testRunsView === "scheduled-runs"
           ? "Scheduled runs"
           : "Batch process";
@@ -3152,6 +3160,8 @@ export function ExecutionsPage() {
       ? "Open direct case runs, review case outcomes quickly, and jump straight into the snapped test case details."
       : testRunsView === "suite-runs"
         ? "Browse suite-scoped runs, expand grouped coverage, and move into the focused run console when a case needs attention."
+        : testRunsView === "local-runs"
+          ? "Review runs launched directly against your local Playwright runner without using the Test Engine queue."
         : testRunsView === "scheduled-runs"
           ? "Keep recurring release checks separate from live runs, then launch one instantly when the team is ready."
           : "Track imports, exports, AI generation, and other long-running background work in one place.";
@@ -3160,7 +3170,7 @@ export function ExecutionsPage() {
       ? "Search scheduled runs"
       : testRunsView === "batch-process"
         ? "Search batch process records"
-        : `Search ${testRunsView === "test-case-runs" ? "test case runs" : "suite runs"}`;
+        : `Search ${testRunsView === "test-case-runs" ? "test case runs" : testRunsView === "local-runs" ? "local runs" : "suite runs"}`;
   const runLibrarySearchTitle =
     testRunsView === "scheduled-runs"
       ? "Filter scheduled runs"
@@ -3265,14 +3275,15 @@ export function ExecutionsPage() {
   );
   const executionRunCounts = useMemo(
     () =>
-      executions.reduce<Record<Extract<TestRunsView, "test-case-runs" | "suite-runs">, number>>(
+      executions.reduce<Record<Extract<TestRunsView, "test-case-runs" | "suite-runs" | "local-runs">, number>>(
         (counts, execution) => {
           counts[resolveExecutionRunBucket(execution)] += 1;
           return counts;
         },
         {
           "test-case-runs": 0,
-          "suite-runs": 0
+          "suite-runs": 0,
+          "local-runs": 0
         }
       ),
     [executions]
@@ -3282,6 +3293,8 @@ export function ExecutionsPage() {
       ? executionRunCounts["test-case-runs"]
       : testRunsView === "suite-runs"
         ? executionRunCounts["suite-runs"]
+        : testRunsView === "local-runs"
+          ? executionRunCounts["local-runs"]
         : 0;
 
   const filteredExecutions = useMemo(() => {
@@ -3331,14 +3344,20 @@ export function ExecutionsPage() {
     () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs"),
     [filteredExecutions]
   );
+  const filteredLocalExecutions = useMemo(
+    () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "local-runs"),
+    [filteredExecutions]
+  );
   const activeExecutionCatalogRows = useMemo(
     () =>
       testRunsView === "test-case-runs"
         ? filteredTestCaseExecutions
         : testRunsView === "suite-runs"
           ? filteredSuiteExecutions
+          : testRunsView === "local-runs"
+            ? filteredLocalExecutions
           : [],
-    [filteredSuiteExecutions, filteredTestCaseExecutions, testRunsView]
+    [filteredLocalExecutions, filteredSuiteExecutions, filteredTestCaseExecutions, testRunsView]
   );
   const availableExecutionCatalogRows = useMemo(
     () =>
@@ -3346,6 +3365,8 @@ export function ExecutionsPage() {
         ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "test-case-runs")
         : testRunsView === "suite-runs"
           ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs")
+          : testRunsView === "local-runs"
+            ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "local-runs")
           : [],
     [executions, testRunsView]
   );
@@ -3798,6 +3819,8 @@ export function ExecutionsPage() {
               ? "Test Case Runs"
               : testRunsView === "suite-runs"
                 ? "Suite Runs"
+                : testRunsView === "local-runs"
+                  ? "Local Runs"
                 : testRunsView === "scheduled-runs"
                   ? "Scheduled Runs"
                   : "Batch Process"
@@ -3807,6 +3830,8 @@ export function ExecutionsPage() {
               ? "Review direct case runs without forcing them through a default suite wrapper, then open any run or case tile for its full detail view."
               : testRunsView === "suite-runs"
                 ? "Launch suite-scoped runs, monitor live progress, and capture failure evidence without losing the surrounding suite and case context."
+                : testRunsView === "local-runs"
+                  ? "Watch runs started directly on your local Playwright runner and review the callback evidence they produce."
                 : testRunsView === "scheduled-runs"
                   ? "Plan recurring release checks separately from live runs so teams can see what is scheduled next without cluttering the active runs board."
                   : "Review imports, exports, AI generation, and other background jobs with full traceable details."
@@ -3818,11 +3843,13 @@ export function ExecutionsPage() {
                   ? "Case runs"
                   : testRunsView === "suite-runs"
                     ? "Suite runs"
+                    : testRunsView === "local-runs"
+                      ? "Local runs"
                     : testRunsView === "scheduled-runs"
                       ? "Schedules"
                       : "Batch records",
               value:
-                testRunsView === "test-case-runs" || testRunsView === "suite-runs"
+                isExecutionRunsView(testRunsView)
                   ? activeExecutionRowsCount
                   : testRunsView === "scheduled-runs"
                     ? executionSchedules.length
@@ -3830,13 +3857,13 @@ export function ExecutionsPage() {
             },
             {
               label:
-                testRunsView === "test-case-runs" || testRunsView === "suite-runs"
+                isExecutionRunsView(testRunsView)
                   ? "Blocking cases"
                   : testRunsView === "scheduled-runs"
                     ? "Active schedules"
                     : "Running now",
               value:
-                testRunsView === "test-case-runs" || testRunsView === "suite-runs"
+                isExecutionRunsView(testRunsView)
                   ? blockingCases.length
                   : testRunsView === "scheduled-runs"
                     ? executionSchedules.filter((schedule) => schedule.is_active).length
@@ -3844,13 +3871,13 @@ export function ExecutionsPage() {
             },
             {
               label:
-                testRunsView === "test-case-runs" || testRunsView === "suite-runs"
+                isExecutionRunsView(testRunsView)
                   ? "Completion"
                   : testRunsView === "scheduled-runs"
                     ? "Next due"
                     : "Failures",
               value:
-                testRunsView === "test-case-runs" || testRunsView === "suite-runs"
+                isExecutionRunsView(testRunsView)
                   ? `${executionProgress.percent}%`
                   : testRunsView === "scheduled-runs"
                     ? (filteredSchedules[0]?.next_run_at ? formatExecutionTimestamp(filteredSchedules[0].next_run_at, "Not set") : "Not set")
@@ -3885,6 +3912,7 @@ export function ExecutionsPage() {
         items={[
           { value: "test-case-runs", label: "Test Case Runs", meta: `${executionRunCounts["test-case-runs"]}`, icon: <TestCaseBoardIcon /> },
           { value: "suite-runs", label: "Suite Runs", meta: `${executionRunCounts["suite-runs"]}`, icon: <ExecutionSuiteIcon /> },
+          { value: "local-runs", label: "Local Runs", meta: `${executionRunCounts["local-runs"]}`, icon: <PlayIcon /> },
           { value: "scheduled-runs", label: "Scheduled Runs", meta: `${executionSchedules.length}`, icon: <ExecutionScheduleIcon /> }
         ]}
         onChange={handleTestRunsViewChange}
@@ -4080,7 +4108,11 @@ export function ExecutionsPage() {
                 ) : null}
                 {isExecutionRunsView(testRunsView) && !activeExecutionCatalogRows.length ? (
                   <div className="empty-state compact">
-                    {testRunsView === "test-case-runs" ? "No direct test case runs created yet." : "No suite runs created yet."}
+                    {testRunsView === "test-case-runs"
+                      ? "No direct test case runs created yet."
+                      : testRunsView === "local-runs"
+                        ? "No local runs created yet."
+                        : "No suite runs created yet."}
                   </div>
                 ) : null}
                 {testRunsView === "scheduled-runs" && !filteredSchedules.length ? <div className="empty-state compact">No schedules created yet.</div> : null}

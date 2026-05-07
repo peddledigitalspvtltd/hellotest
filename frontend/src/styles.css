@@ -2005,31 +2005,6 @@ textarea {
   gap: 0.75rem;
 }
 
-.authoring-lens-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-
-.authoring-lens-actions .ghost-button {
-  min-height: 2.25rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 8px;
-}
-
-.authoring-lens-actions .ghost-button.is-active {
-  background: rgba(231, 241, 255, 0.92);
-  color: var(--primary-strong);
-  box-shadow: inset 0 0 0 1px rgba(30, 92, 184, 0.24);
-}
-
-.authoring-lens-actions small {
-  color: var(--text-secondary);
-  font-size: 0.68rem;
-  font-weight: 800;
-}
-
 .automation-script-lens {
   display: grid;
   grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.2fr);
@@ -3293,14 +3268,6 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .authoring-lens-actions {
-    width: 100%;
-  }
-
-  .authoring-lens-actions .ghost-button {
-    flex: 1 1 5.5rem;
-  }
-
   .automation-inline-grid,
   .automation-validation-row {
     grid-template-columns: minmax(0, 1fr);
@@ -3801,6 +3768,8 @@ textarea {
   padding: 0.95rem 0.9rem;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .data-table th {
@@ -3932,9 +3901,8 @@ body.is-resizing-data-table-column * {
 
 .data-table-multiline-line {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .data-table-parameter-list {
@@ -17863,6 +17831,27 @@ html {
   color: var(--text);
 }
 
+.automation-run-context-section summary::before,
+.automation-learning-memory-head::before {
+  content: "⌄";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: var(--primary-strong);
+  font-size: 1rem;
+  line-height: 1;
+  transform: rotate(-90deg);
+  transition: transform 160ms ease;
+}
+
+.automation-run-context-section[open] summary::before,
+.automation-learning-memory[open] .automation-learning-memory-head::before {
+  transform: rotate(0deg);
+}
+
 .automation-run-context-section summary::marker {
   content: "";
 }
@@ -17887,14 +17876,21 @@ html {
 .automation-learning-memory-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.automation-learning-memory-head::-webkit-details-marker {
+  display: none;
 }
 
 .automation-learning-memory-head div {
   min-width: 0;
   display: grid;
   gap: 0.2rem;
+  flex: 1 1 auto;
 }
 
 .automation-learning-memory-head span {
@@ -17931,9 +17927,8 @@ html {
 .automation-learning-card code,
 .automation-learning-meta span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .automation-learning-card-head span {
@@ -18168,6 +18163,17 @@ body > .modal-backdrop {
   .step-editor-save-row > * {
     flex: 1 1 100%;
   }
+
+  .automation-step-type-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .automation-type-pill {
+    flex: 1 1 min(100%, 9rem);
+    min-width: 0;
+    white-space: normal;
+  }
 /* ==========================================================================
    VISUAL TEST BUILDER
    ========================================================================== */
@@ -18269,14 +18275,17 @@ body > .modal-backdrop {
     top: 0;
     z-index: 2;
     display: flex;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow-x: visible;
     padding: 0.5rem 0;
     background: var(--surface);
     scrollbar-gutter: stable;
   }
 
   .automation-type-pill {
-    flex: 0 0 auto;
+    flex: 1 1 min(100%, 9rem);
+    min-width: 0;
+    white-space: normal;
   }
 
   .recorder-live-frame {

@@ -66,6 +66,30 @@ module.exports = async function (fastify) {
     return service.createExecution(req.body);
   });
 
+  fastify.post("/executions/local-run", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      app_type_id: { required: true, type: "string" },
+      test_case_ids: { required: true, type: "array", items: "string" },
+      test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      assigned_to: { required: false, type: "string" },
+      name: { required: false, type: "string" },
+      created_by: { required: true, type: "string" },
+      engine_base_url: { required: false, type: "string" }
+    }, req.body);
+
+    await projectService.getProject(req.body.project_id, req.user.id);
+
+    return service.createLocalRun({
+      ...req.body,
+      created_by: req.user.id
+    });
+  });
+
 
   // GET ALL EXECUTIONS
   fastify.get("/executions", async (req) => {

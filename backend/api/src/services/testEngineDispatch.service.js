@@ -265,6 +265,27 @@ const buildProviderLiveViewUrl = (integration, provider) => {
   }
 };
 
+const resolveDirectCallbackBaseUrl = (integration) =>
+  normalizeText(process.env.QAIRA_LOCAL_CALLBACK_BASE_URL)
+  || normalizeText(process.env.QAIRA_PUBLIC_API_BASE_URL)
+  || normalizeText(integration?.config?.local_callback_base_url)
+  || "http://localhost:3000";
+
+const resolveCallbackSecret = (integration) =>
+  normalizeText(integration?.config?.callback_secret)
+  || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
+  || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
+  || normalizeText(process.env.QAIRA_TESTENGINE_SECRET)
+  || "qaira-testengine-dev-secret";
+
+const buildDirectCallback = (integration) => {
+  const baseUrl = resolveDirectCallbackBaseUrl(integration).replace(/\/+$/, "");
+  return {
+    url: `${baseUrl}/api/testengine/callbacks/runs`,
+    signing_secret: resolveCallbackSecret(integration)
+  };
+};
+
 const normalizeInlineEvidence = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -1017,6 +1038,134 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
   return {
     automated_case_count: plan.automated_case_count,
     queued_for_engine_count: plan.eligibleCases.length,
+    manual_case_count: plan.manual_case_count,
+    unsupported_automated_case_count: plan.unsupported_automated_case_count,
+    warnings: plan.warnings
+  };
+}
+
+async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineBaseUrl } = {}) {
+  if (!plan?.eligibleCases?.length) {
+    return {
+      automated_case_count: plan?.automated_case_count || 0,
+      local_run_count: 0,
+      manual_case_count: plan?.manual_case_count || 0,
+      unsupported_automated_case_count: plan?.unsupported_automated_case_count || 0,
+      warnings: plan?.warnings || []
+    };
+  }
+
+  const engineHost = normalizeEngineHostUrl(engineBaseUrl || integration?.base_url);
+  if (!engineHost) {
+    throw new Error("Local run requires a local host recorder URL. Start local-run/bin/start-host-recorder.sh first.");
+  }
+
+  const activeWebEngine = "playwright";
+  const directIntegration = {
+    ...(integration || {}),
+    base_url: engineHost,
+    config: {
+      ...(integration?.config || {}),
+      active_web_engine: activeWebEngine,
+      headless: false,
+      live_view_url: `${engineHost}/api/v1/live-session?provider=playwright`
+    }
+  };
+  const callback = buildDirectCallback(directIntegration);
+
+  for (const item of plan.eligibleCases) {
+    const envelope = {
+      ...buildEngineEnvelope({
+        engineRunId: item.engine_run_id,
+        execution: plan.execution,
+        project: plan.project,
+        appType: plan.appType,
+        caseSnapshot: item.case_snapshot,
+        steps: item.steps,
+        integration: directIntegration
+      }),
+      callback
+    };
+    const liveViewUrl = buildProviderLiveViewUrl(directIntegration, activeWebEngine);
+    const transactionMetadata = {
+      source: "qaira.local-run",
+      engine_run_id: item.engine_run_id,
+      execution_id: plan.execution.id,
+      test_case_id: item.case_snapshot.test_case_id,
+      engine_host: engineHost,
+      queue_mode: "direct-local",
+      active_web_engine: activeWebEngine,
+      live_view_url: liveViewUrl,
+      callback_url: callback.url
+    };
+    const transaction = await workspaceTransactionService.createTransaction({
+      project_id: plan.execution.project_id,
+      app_type_id: plan.execution.app_type_id || null,
+      category: "automation",
+      action: "testengine_run",
+      status: "running",
+      title: `Local run for ${item.case_snapshot.test_case_title}`,
+      description: "Running immediately on the local Playwright host recorder.",
+      metadata: transactionMetadata,
+      related_kind: "testengine_run",
+      related_id: item.engine_run_id,
+      created_by: initiatedBy || plan.execution.created_by || null,
+      started_at: new Date().toISOString()
+    });
+
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      level: "info",
+      phase: "local-run.started",
+      message: `Started ${item.case_snapshot.test_case_title} on the local Playwright runner.`,
+      details: {
+        execution_id: plan.execution.id,
+        test_case_id: item.case_snapshot.test_case_id,
+        engine_run_id: item.engine_run_id,
+        engine_host: engineHost,
+        live_view_url: liveViewUrl
+      }
+    });
+
+    let response;
+    try {
+      response = await fetch(`${engineHost}/api/v1/runs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json"
+        },
+        body: JSON.stringify(envelope)
+      });
+    } catch (error) {
+      await updateQueueTransaction(transaction.id, {
+        status: "failed",
+        metadata: {
+          ...transactionMetadata,
+          failure: error instanceof Error ? error.message : "Unable to reach local runner"
+        },
+        completed_at: new Date().toISOString()
+      });
+      throw new Error(`Unable to reach local Playwright runner at ${engineHost}: ${error instanceof Error ? error.message : "request failed"}`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      await updateQueueTransaction(transaction.id, {
+        status: "failed",
+        metadata: {
+          ...transactionMetadata,
+          failure: payload?.message || `Local runner failed with status ${response.status}`
+        },
+        completed_at: new Date().toISOString()
+      });
+      throw new Error(payload?.message || `Local runner failed with status ${response.status}`);
+    }
+  }
+
+  return {
+    automated_case_count: plan.automated_case_count,
+    local_run_count: plan.eligibleCases.length,
+    queued_for_engine_count: 0,
     manual_case_count: plan.manual_case_count,
     unsupported_automated_case_count: plan.unsupported_automated_case_count,
     warnings: plan.warnings
@@ -1814,5 +1963,6 @@ exports.failQueuedJob = async ({ job_id, message } = {}) => {
 exports.getQueuedJob = getQueuedJob;
 exports.planExecutionDispatch = planExecutionDispatch;
 exports.queueExecutionDispatch = queueExecutionDispatch;
+exports.runExecutionDirectLocal = runExecutionDirectLocal;
 exports.queueSingleStepDispatch = queueSingleStepDispatch;
 exports.settleExecutionIfComplete = settleExecutionIfComplete;

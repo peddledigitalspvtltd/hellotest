@@ -784,7 +784,6 @@ export function TestCasesPage() {
   const [cutStepSource, setCutStepSource] = useState<CutStepSource | null>(null);
   const [expandedStepIds, setExpandedStepIds] = useState<string[]>([]);
   const [expandedStepGroupIds, setExpandedStepGroupIds] = useState<string[]>([]);
-  const [authoringLens, setAuthoringLens] = useState<TestCaseAuthoringLens>("manual");
   const [stepDrafts, setStepDrafts] = useState<Record<string, StepDraft>>({});
   const [isStepGroupModalOpen, setIsStepGroupModalOpen] = useState(false);
   const [stepGroupName, setStepGroupName] = useState("");
@@ -925,7 +924,8 @@ export function TestCasesPage() {
     mutationFn: ({ id, testCaseIds }: { id: string; testCaseIds: string[] }) => api.testSuites.assignTestCases(id, testCaseIds)
   });
   const createExecution = useMutation({ mutationFn: api.executions.create });
-  const startExecution = useMutation({ mutationFn: (params: { id: string; mode?: "local" }) => api.executions.start(params.id, params.mode === "local" ? { execution_mode: "local" } : undefined) });
+  const createLocalRun = useMutation({ mutationFn: api.executions.createLocalRun });
+  const startExecution = useMutation({ mutationFn: (id: string) => api.executions.start(id) });
   const acceptGeneratedCase = useMutation({ mutationFn: api.testCases.acceptGeneratedCase });
   const rejectGeneratedCase = useMutation({ mutationFn: api.testCases.rejectGeneratedCase });
   const updateTestCase = useMutation({
@@ -4084,6 +4084,28 @@ export function TestCasesPage() {
     setSchedulerActionKind(mode === "local" ? "run-local" : "run");
 
     try {
+      if (mode === "local") {
+        const response = await createLocalRun.mutateAsync({
+          project_id: projectId,
+          app_type_id: appTypeId,
+          test_case_ids: [testCaseId],
+          assigned_to: selectedExecutionAssigneeId || undefined,
+          name: `${testCase.title} Local Run`,
+          created_by: session.user.id,
+          engine_base_url: "http://host.docker.internal:4311"
+        });
+
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["executions"] }),
+          queryClient.invalidateQueries({ queryKey: ["executions", projectId] }),
+          queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
+        ]);
+
+        navigate(`/executions?view=local-runs&execution=${response.id}&testCase=${testCaseId}`);
+        showSuccess(`Local run started for ${testCase.title}.`);
+        return;
+      }
+
       const response = await createExecution.mutateAsync({
         project_id: projectId,
         app_type_id: appTypeId,
@@ -4094,7 +4116,7 @@ export function TestCasesPage() {
       });
 
       try {
-        const startResponse = await startExecution.mutateAsync({ id: response.id, mode });
+        const startResponse = await startExecution.mutateAsync(response.id);
         showSuccess(summarizeExecutionStart(startResponse, `${testCase.title} run started.`));
       } catch (error) {
         await Promise.all([
@@ -4370,38 +4392,6 @@ export function TestCasesPage() {
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
   const stepCountLabel = `${displaySteps.length} step${displaySteps.length === 1 ? "" : "s"}`;
   const allStepsSelected = Boolean(displaySteps.length) && selectedStepIds.length === displaySteps.length;
-  const authoredStepProjections = useMemo<AuthoringStepProjection[]>(
-    () =>
-      displaySteps.map((step) => ({
-        id: step.id,
-        step_order: step.step_order,
-        action: stepDrafts[step.id]?.action ?? step.action,
-        expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result,
-        step_type: stepDrafts[step.id]?.step_type ?? step.step_type,
-        automation_code: stepDrafts[step.id]?.automation_code ?? step.automation_code,
-        api_request: stepDrafts[step.id]?.api_request ?? step.api_request
-      })),
-    [displaySteps, stepDrafts]
-  );
-  const uiScriptSteps = useMemo(
-    () => authoredStepProjections.filter((step) => normalizeStepType(step.step_type) !== "api"),
-    [authoredStepProjections]
-  );
-  const apiScriptSteps = useMemo(
-    () => authoredStepProjections.filter((step) => normalizeStepType(step.step_type) === "api"),
-    [authoredStepProjections]
-  );
-  const activeScriptSteps = authoringLens === "api-script" ? apiScriptSteps : uiScriptSteps;
-  const activeScriptCode = useMemo(
-    () =>
-      buildAuthoringLensCode(
-        caseDraft.title || selectedTestCase?.title || "Test case",
-        activeScriptSteps,
-        authoringLens === "api-script" ? "No API steps are authored for this test case yet." : "No UI/mobile steps are authored for this test case yet."
-      ),
-    [activeScriptSteps, authoringLens, caseDraft.title, selectedTestCase?.title]
-  );
-  const automatedStepCount = authoredStepProjections.filter(stepHasAutomation).length;
   const dirtyStepIds = useMemo(
     () =>
       displaySteps
@@ -4428,27 +4418,6 @@ export function TestCasesPage() {
   const selectionMaxOrder = selectedEditorSteps.length ? Math.max(...selectedEditorSteps.map((step) => step.step_order)) : null;
   const selectionPasteAboveIndex = selectionMinOrder ? Math.max(0, selectionMinOrder - 1) : null;
   const selectionPasteBelowIndex = selectionMaxOrder ? selectionMaxOrder : null;
-  const authoringLensActions = (
-    <div className="authoring-lens-actions" aria-label="Authoring view">
-      {([
-        ["manual", "Manual", displaySteps.length],
-        ["ui-script", "UI", uiScriptSteps.length],
-        ["api-script", "API", apiScriptSteps.length]
-      ] as Array<[TestCaseAuthoringLens, string, number]>).map(([lens, label, count]) => (
-        <button
-          className={authoringLens === lens ? "ghost-button compact is-active" : "ghost-button compact"}
-          key={lens}
-          onClick={() => setAuthoringLens(lens)}
-          title={`${label} authoring view`}
-          type="button"
-        >
-          {lens === "manual" ? <StandardStepIcon /> : <AutomationCodeIcon />}
-          <span>{label}</span>
-          <small>{count}</small>
-        </button>
-      ))}
-    </div>
-  );
   const editorStepActions: StepActionMenuAction[] = [
     {
       label: isCreating ? "Create test case" : "Save test case",
@@ -4589,7 +4558,6 @@ export function TestCasesPage() {
   const automationSectionSummary = automationTargetCaseIds.length
     ? `${automationTargetCaseIds.length} case${automationTargetCaseIds.length === 1 ? "" : "s"} selected for AI automation or recorder capture.`
     : "Select a saved case to automate with AI or recorder capture.";
-  const automationTargetManualCount = automationTargetCases.filter((testCase) => testCase.automated !== "yes").length;
   const historySectionSummary = selectedHistory.length
     ? "Review the latest recorded outcomes and preserved run evidence for this reusable test case."
     : "No run history has been recorded for this reusable test case yet.";
@@ -4749,9 +4717,9 @@ export function TestCasesPage() {
       {selectedTestCase && supportsLocalDesktopExecution ? (
         <button
           className="test-case-tile-action-button is-run test-case-header-run-button"
-          disabled={isSelectedCaseLocalRunning || !projectId || !appTypeId || !session?.user.id}
+          disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
           onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
-          title="Run the test case locally on your machine"
+          title={selectedTestCase.automated === "yes" ? "Run the recorded test case locally on your machine" : "Record or automate this test case before starting a local run"}
           type="button"
         >
           <TestCaseRunIcon />
@@ -6012,7 +5980,6 @@ export function TestCasesPage() {
                   <EditorAccordionSection
                     actions={(
                       <>
-                        {authoringLensActions}
                         <button
                           className="ghost-button"
                           onClick={() => setIsVisualBuilderActive((current) => !current)}
@@ -6038,14 +6005,7 @@ export function TestCasesPage() {
                     summary={stepSectionSummary}
                     title={isCreating ? "Draft steps" : "Test steps"}
                   >
-                    {authoringLens !== "manual" ? (
-                      <AutomationScriptLens
-                        code={activeScriptCode}
-                        lens={authoringLens}
-                        onEditStep={(stepId) => setEditingAutomationStepId(stepId)}
-                        steps={activeScriptSteps}
-                      />
-                    ) : isVisualBuilderActive ? (
+                    {isVisualBuilderActive ? (
                       <VisualTestBuilder testSteps={displaySteps} />
                     ) : (
                     <div className="step-editor step-editor--embedded">
@@ -6232,14 +6192,7 @@ export function TestCasesPage() {
                       title="Automation builder"
                     >
                       <div className="automation-builder-panel">
-                        <AutomationBuilderReadiness
-                          automatedStepCount={automatedStepCount}
-                          hasLlm={Boolean(integrations.length)}
-                          hasTestEngine={Boolean(testEngineIntegration)}
-                          manualTargetCount={automationTargetManualCount}
-                        />
-
-                        <details className="automation-run-context-section" open>
+                        <details className="automation-run-context-section">
                           <summary>
                             <ExecutionStepsIcon />
                             <span>Run context</span>
@@ -6901,66 +6854,13 @@ function AutomationScriptLens({
   );
 }
 
-function AutomationBuilderReadiness({
-  hasLlm,
-  hasTestEngine,
-  manualTargetCount,
-  automatedStepCount
-}: {
-  hasLlm: boolean;
-  hasTestEngine: boolean;
-  manualTargetCount: number;
-  automatedStepCount: number;
-}) {
-  const items = [
-    {
-      icon: <TestCaseSparkIcon />,
-      label: "AI builder",
-      value: hasLlm ? "Ready" : "Fallback",
-      tone: hasLlm ? "ready" : "warn"
-    },
-    {
-      icon: <TestCaseRunIcon />,
-      label: "Test engine",
-      value: hasTestEngine ? "Ready" : "Setup",
-      tone: hasTestEngine ? "ready" : "warn"
-    },
-    {
-      icon: <StandardStepIcon />,
-      label: "Manual targets",
-      value: String(manualTargetCount),
-      tone: manualTargetCount ? "ready" : "neutral"
-    },
-    {
-      icon: <AutomationCodeIcon />,
-      label: "Scripted steps",
-      value: String(automatedStepCount),
-      tone: automatedStepCount ? "ready" : "neutral"
-    }
-  ];
-
-  return (
-    <div className="automation-readiness-grid" aria-label="Automation builder readiness">
-      {items.map((item) => (
-        <div className={`automation-readiness-card is-${item.tone}`} key={item.label}>
-          <span className="automation-readiness-icon">{item.icon}</span>
-          <div>
-            <strong>{item.value}</strong>
-            <span>{item.label}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function AutomationLearningMemory({ entries }: { entries: AutomationLearningCacheEntry[] }) {
   const topEntries = entries.slice(0, 6);
   const strongEntries = entries.filter((entry) => Number(entry.confidence) >= 0.8).length;
 
   return (
-    <section className="automation-learning-memory" aria-label="Automation learning memory">
-      <div className="automation-learning-memory-head">
+    <details className="automation-learning-memory">
+      <summary className="automation-learning-memory-head">
         <div>
           <strong>Locator memory</strong>
           <span>
@@ -6970,7 +6870,7 @@ function AutomationLearningMemory({ entries }: { entries: AutomationLearningCach
           </span>
         </div>
         <AutomationCodeIcon />
-      </div>
+      </summary>
 
       {topEntries.length ? (
         <div className="automation-learning-grid">
@@ -6992,7 +6892,7 @@ function AutomationLearningMemory({ entries }: { entries: AutomationLearningCach
       ) : (
         <div className="empty-state compact">Run the recorder or AI builder once; learned locators will appear here and reduce future script repair work.</div>
       )}
-    </section>
+    </details>
   );
 }
 

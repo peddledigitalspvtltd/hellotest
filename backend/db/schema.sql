@@ -303,7 +303,7 @@ CREATE TABLE executions (
   project_id TEXT NOT NULL,
   app_type_id TEXT,
   name TEXT,
-  trigger TEXT CHECK(trigger IN ('manual','ci')),
+  trigger TEXT CHECK(trigger IN ('manual','ci','local')),
   status TEXT CHECK(status IN ('queued','running','completed','failed')),
   test_environment_id TEXT,
   test_environment_name TEXT,
@@ -483,6 +483,11 @@ ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT;
 
 ALTER TABLE executions
   ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+
+ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_trigger_check;
+ALTER TABLE executions
+  ADD CONSTRAINT executions_trigger_check
+  CHECK (trigger IN ('manual', 'ci', 'local'));
 
 ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_status_check;
 ALTER TABLE executions

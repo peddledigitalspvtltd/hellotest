@@ -194,9 +194,10 @@ const readResponsePayload = async (response) => {
 
 const testTestEngineConnection = async ({ base_url }) => {
   const engineBaseUrl = ensureAbsoluteHttpUrl(base_url, "Engine host URL");
-  const normalizedBaseUrl = normalizeAbsoluteBaseUrl(base_url, "Engine host URL");
-  const healthUrl = new URL("/health", engineBaseUrl).toString();
-  const capabilitiesUrl = new URL("/api/v1/capabilities", engineBaseUrl).toString();
+  let normalizedBaseUrl = normalizeAbsoluteBaseUrl(base_url, "Engine host URL");
+  let activeEngineBaseUrl = engineBaseUrl;
+  let healthUrl = new URL("/health", activeEngineBaseUrl).toString();
+  let capabilitiesUrl = new URL("/api/v1/capabilities", activeEngineBaseUrl).toString();
   const startedAt = Date.now();
 
   let healthResponse;
@@ -208,9 +209,34 @@ const testTestEngineConnection = async ({ base_url }) => {
       }
     });
   } catch (error) {
-    throw new Error(
-      `Unable to reach Test Engine health endpoint at ${healthUrl}: ${error instanceof Error ? error.message : "request failed"}`
-    );
+    const localhostFallbacks = ["localhost", "127.0.0.1"].includes(engineBaseUrl.hostname.toLowerCase())
+      ? ["http://host.docker.internal:4301", "http://testengine:4301"]
+      : [];
+    let fallbackError = error;
+
+    for (const fallbackBaseUrl of localhostFallbacks) {
+      try {
+        activeEngineBaseUrl = ensureAbsoluteHttpUrl(fallbackBaseUrl, "Engine host URL");
+        normalizedBaseUrl = normalizeAbsoluteBaseUrl(fallbackBaseUrl, "Engine host URL");
+        healthUrl = new URL("/health", activeEngineBaseUrl).toString();
+        capabilitiesUrl = new URL("/api/v1/capabilities", activeEngineBaseUrl).toString();
+        healthResponse = await fetchWithTimeout(healthUrl, {
+          headers: {
+            accept: "application/json"
+          }
+        });
+        fallbackError = null;
+        break;
+      } catch (nextError) {
+        fallbackError = nextError;
+      }
+    }
+
+    if (fallbackError) {
+      throw new Error(
+        `Unable to reach Test Engine health endpoint at ${new URL("/health", engineBaseUrl).toString()}: ${error instanceof Error ? error.message : "request failed"}`
+      );
+    }
   }
 
   const healthPayload = await readResponsePayload(healthResponse);

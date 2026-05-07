@@ -206,6 +206,8 @@ const statements = [
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_trigger_check`,
+  `ALTER TABLE executions ADD CONSTRAINT executions_trigger_check CHECK (trigger IN ('manual', 'ci', 'local'))`,
   `UPDATE executions SET created_at = COALESCE(created_at, started_at, ended_at, CURRENT_TIMESTAMP) WHERE created_at IS NULL`,
   `
     CREATE TABLE IF NOT EXISTS execution_schedules (

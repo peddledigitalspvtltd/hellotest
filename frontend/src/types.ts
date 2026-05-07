@@ -645,7 +645,7 @@ export type Execution = {
   case_snapshots?: ExecutionCaseSnapshot[];
   step_snapshots?: ExecutionStepSnapshot[];
   name: string | null;
-  trigger: "manual" | "ci" | null;
+  trigger: "manual" | "ci" | "local" | null;
   status: ExecutionStatus | null;
   test_environment?: {
     id: string | null;

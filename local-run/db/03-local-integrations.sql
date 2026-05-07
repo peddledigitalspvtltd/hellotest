@@ -1,46 +1,150 @@
-UPDATE integrations
-SET
-  base_url = 'http://testengine:4301',
-  config = jsonb_set(
-    jsonb_set(
-      jsonb_set(
-        jsonb_set(
-          jsonb_set(
-            jsonb_set(
-              jsonb_set(
-                jsonb_set(
-                  COALESCE(config, '{}'::jsonb),
-                  '{recorder_public_base_url}',
-                  '"http://localhost:4301"'::jsonb,
-                  true
-                ),
-                '{ops_public_base_url}',
-                '"http://localhost:4301"'::jsonb,
-                true
-              ),
-              '{public_base_url}',
-              '"http://localhost:4301"'::jsonb,
-              true
-            ),
-            '{live_view_url}',
-            '"http://localhost:4301"'::jsonb,
-            true
-          ),
-          '{active_web_engine}',
-          '"playwright"'::jsonb,
-          true
-        ),
-        '{browser}',
-        '"chromium"'::jsonb,
-        true
-      ),
-      '{headless}',
-      'true'::jsonb,
-      true
-    ),
-    '{queue_poll_interval_minutes}',
-    '0.5'::jsonb,
-    true
-  ),
-  updated_at = CURRENT_TIMESTAMP
-WHERE id = 'int_testengine_local';
+INSERT INTO integrations (
+  id,
+  type,
+  name,
+  base_url,
+  api_key,
+  model,
+  project_key,
+  username,
+  config,
+  is_active
+)
+VALUES
+(
+  'edff6911-be06-405b-8c88-261ba8bb962e',
+  'testengine',
+  'Test Engine',
+  'http://testengine:4301',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  '{
+    "project_id":null,
+    "runner":"hybrid",
+    "dispatch_mode":"qaira-pull",
+    "execution_scope":"api+web",
+    "active_web_engine":"playwright",
+    "browser":"chromium",
+    "headless":true,
+    "healing_enabled":false,
+    "max_repair_attempts":0,
+    "trace_mode":"off",
+    "video_mode":"retain-on-failure",
+    "capture_console":true,
+    "capture_network":true,
+    "artifact_retention_days":7,
+    "run_timeout_seconds":1800,
+    "navigation_timeout_ms":30000,
+    "action_timeout_ms":5000,
+    "assertion_timeout_ms":10000,
+    "recovery_wait_ms":750,
+    "max_video_attachment_mb":25,
+    "queue_poll_interval_minutes":0.5,
+    "qaira_api_base_url":"http://api:3000",
+    "promote_healed_patches":"review",
+    "public_base_url":"http://localhost:4301",
+    "recorder_public_base_url":"http://localhost:4301",
+    "ops_public_base_url":"http://localhost:4301",
+    "live_view_url":"http://localhost:4301/api/v1/live-session?provider=playwright",
+    "mobile_engine_url":"http://localhost:4312",
+    "mobile_engine_internal_url":"http://mobile-engine:4312",
+    "appium_server_url":"http://host.docker.internal:4723"
+  }'::jsonb,
+  TRUE
+),
+(
+  '382a96b2-fbed-4e1a-9a7a-50c0b399df60',
+  'google_auth',
+  'QAira',
+  'https://api.openai.com/v1',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  '{"client_id":"918974800113-i8i5r0im3705u8gceqbploemv3oeg32i.apps.googleusercontent.com"}'::jsonb,
+  TRUE
+),
+(
+  '08f12517-6229-4e4c-a6d2-4f88145fbff1',
+  'ops',
+  'Qaira',
+  'http://testengine:4301',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  '{
+    "project_id":null,
+    "events_path":"/api/v1/events",
+    "health_path":"/health",
+    "api_key_header":"Authorization",
+    "api_key_prefix":"Bearer",
+    "service_name":"qaira-testengine",
+    "environment":"local",
+    "timeout_ms":4000,
+    "emit_step_events":true,
+    "emit_case_events":true,
+    "emit_suite_events":true,
+    "emit_run_events":true
+  }'::jsonb,
+  TRUE
+),
+(
+  '17fa4724-6516-4ff2-b2aa-e7d27fe605b3',
+  'llm',
+  'Open AI',
+  'https://api.openai.com/v1',
+  '********',
+  'gpt-5.4-mini',
+  NULL,
+  NULL,
+  '{}'::jsonb,
+  TRUE
+),
+(
+  'df45e7d9-5167-4b30-a766-3c92a2a27a99',
+  'email',
+  'QAira',
+  'https://api.openai.com/v1',
+  NULL,
+  NULL,
+  NULL,
+  'contact@qualipal.in',
+  '{
+    "host":"smtp.hostinger.com",
+    "port":587,
+    "secure":false,
+    "password":"********",
+    "sender_email":"contact@qualipal.in",
+    "sender_name":"QAira Support"
+  }'::jsonb,
+  TRUE
+),
+(
+  '3078d5bf-993d-4aeb-9ff2-e2ea0d93c42a',
+  'llm',
+  'grok',
+  'https://api.groq.com/openai/v1',
+  '********',
+  'openai/gpt-oss-20b',
+  NULL,
+  NULL,
+  '{}'::jsonb,
+  TRUE
+)
+ON CONFLICT (id) DO UPDATE SET
+  type = EXCLUDED.type,
+  name = EXCLUDED.name,
+  base_url = EXCLUDED.base_url,
+  api_key = COALESCE(NULLIF(EXCLUDED.api_key, '********'), integrations.api_key, EXCLUDED.api_key),
+  model = EXCLUDED.model,
+  project_key = EXCLUDED.project_key,
+  username = EXCLUDED.username,
+  config = EXCLUDED.config,
+  is_active = EXCLUDED.is_active,
+  updated_at = CURRENT_TIMESTAMP;
+
+DELETE FROM integrations
+WHERE id IN ('int_testengine_local', 'int_ops_local');
