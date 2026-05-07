@@ -809,6 +809,14 @@ class PlaywrightWebSession implements WebSession {
 
   async fill(target: string, value: string) {
     const locator = await this.resolveLocator(target);
+    const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
+    const editableDescendantCount = await editableDescendant.count().catch(() => 0);
+
+    if (editableDescendantCount > 0) {
+      await editableDescendant.fill(value);
+      return;
+    }
+
     await locator.fill(value);
   }
 
@@ -1108,8 +1116,11 @@ class SeleniumWebSession implements WebSession {
 
   async fill(target: string, value: string) {
     const element = await this.resolveElement(target);
-    await element.clear();
-    await element.sendKeys(value);
+    const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
+    const targetElement = descendants[0] || element;
+
+    await targetElement.clear();
+    await targetElement.sendKeys(value);
   }
 
   async press(target: string | null, key: string) {

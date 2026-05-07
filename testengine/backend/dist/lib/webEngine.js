@@ -531,6 +531,12 @@ class PlaywrightWebSession {
     }
     async fill(target, value) {
         const locator = await this.resolveLocator(target);
+        const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
+        const editableDescendantCount = await editableDescendant.count().catch(() => 0);
+        if (editableDescendantCount > 0) {
+            await editableDescendant.fill(value);
+            return;
+        }
         await locator.fill(value);
     }
     async press(target, key) {
@@ -791,8 +797,10 @@ class SeleniumWebSession {
     }
     async fill(target, value) {
         const element = await this.resolveElement(target);
-        await element.clear();
-        await element.sendKeys(value);
+        const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
+        const targetElement = descendants[0] || element;
+        await targetElement.clear();
+        await targetElement.sendKeys(value);
     }
     async press(target, key) {
         const seleniumKey = Key[key.toUpperCase()] || key;

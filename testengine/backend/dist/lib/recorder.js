@@ -110,6 +110,31 @@ const touchSession = (session) => {
     session.last_activity_at = new Date().toISOString();
 };
 const pushRecorderAction = (session, action) => {
+    const actionType = String(action.type || "").toLowerCase();
+    const actionLocator = normalizeText(action.locator);
+    const actionPageId = normalizeText(action.page_id);
+    const actionTimestamp = action.timestamp || new Date().toISOString();
+    if ((actionType === "fill" || actionType === "change") && actionLocator) {
+        const recentEditableAction = [...session.actions].reverse().find((candidate) => {
+            const candidateType = String(candidate.type || "").toLowerCase();
+            const candidateTime = Date.parse(candidate.timestamp || "");
+            const nextTime = Date.parse(actionTimestamp);
+            return (candidateType === "fill" || candidateType === "change")
+                && candidate.locator === actionLocator
+                && (!actionPageId || !candidate.page_id || candidate.page_id === actionPageId)
+                && (!Number.isFinite(candidateTime) || !Number.isFinite(nextTime) || Math.abs(nextTime - candidateTime) <= 12_000);
+        });
+        if (recentEditableAction) {
+            recentEditableAction.type = action.type;
+            recentEditableAction.text = action.text ?? recentEditableAction.text;
+            recentEditableAction.value = action.value ?? recentEditableAction.value;
+            recentEditableAction.url = action.url ?? recentEditableAction.url;
+            recentEditableAction.page_id = action.page_id ?? recentEditableAction.page_id;
+            recentEditableAction.page_title = action.page_title ?? recentEditableAction.page_title;
+            recentEditableAction.timestamp = actionTimestamp;
+            return recentEditableAction;
+        }
+    }
     const entry = {
         index: action.index || session.actions.length + 1,
         type: action.type,
@@ -122,7 +147,7 @@ const pushRecorderAction = (session, action) => {
         x: action.x ?? null,
         y: action.y ?? null,
         source: action.source,
-        timestamp: action.timestamp || new Date().toISOString()
+        timestamp: actionTimestamp
     };
     pushBounded(session.actions, entry, MAX_ACTIONS);
     return entry;
@@ -214,6 +239,10 @@ const recorderInitScript = `
   };
   const locatorFor = (element) => {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return "body";
+    const editableChild = !["input", "textarea", "select"].includes(element.tagName.toLowerCase()) && !element.isContentEditable
+      ? element.querySelector("input,textarea,select,[contenteditable=true],[role=textbox]")
+      : null;
+    if (editableChild) return locatorFor(editableChild);
     const testId = attr(element, "data-testid") || attr(element, "data-test") || attr(element, "data-qa");
     if (testId) return "[data-testid=\\"" + testId.replaceAll('"', "\\\\\\"") + "\\"]";
     const aria = attr(element, "aria-label");
@@ -274,7 +303,7 @@ const recorderInitScript = `
     if (!target || !("value" in target)) return;
     const existing = inputTimers.get(target);
     if (existing) clearTimeout(existing);
-    inputTimers.set(target, setTimeout(() => recordInput(target, "fill"), 350));
+    inputTimers.set(target, setTimeout(() => recordInput(target, "fill"), 800));
   }, true);
 
   document.addEventListener("change", (event) => {
@@ -498,11 +527,12 @@ const renderLiveViewHtml = (session) => {
       min-height: 100vh;
       margin: 0;
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto auto minmax(0, 1fr);
       background: #f7f8f6;
     }
     header,
-    .toolbar {
+    .toolbar,
+    .inputbar {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -521,7 +551,8 @@ const renderLiveViewHtml = (session) => {
       color: #667066;
       font-size: 12px;
     }
-    .toolbar {
+    .toolbar,
+    .inputbar {
       flex-wrap: wrap;
     }
     input {
@@ -560,7 +591,7 @@ const renderLiveViewHtml = (session) => {
     main {
       min-height: 0;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
       background: #1e221f;
     }
     .viewport {
@@ -582,6 +613,11 @@ const renderLiveViewHtml = (session) => {
       cursor: pointer;
       user-select: none;
       touch-action: none;
+      outline: none;
+    }
+    #screen:focus {
+      border-color: #f4ad55;
+      box-shadow: 0 0 0 3px rgba(244, 173, 85, 0.25), 0 14px 40px rgba(0, 0, 0, 0.32);
     }
     .click-marker {
       position: fixed;
@@ -601,11 +637,6 @@ const renderLiveViewHtml = (session) => {
       transform: scale(1);
     }
     .inputbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding: 10px 12px;
-      border-top: 1px solid rgba(255, 255, 255, 0.14);
       background: #ffffff;
     }
     .status {
@@ -650,6 +681,31 @@ const renderLiveViewHtml = (session) => {
         background: rgba(243, 179, 159, 0.12);
       }
     }
+    @media (max-width: 720px) {
+      body {
+        grid-template-rows: auto auto auto minmax(58vh, 1fr);
+      }
+      header,
+      .toolbar,
+      .inputbar {
+        align-items: stretch;
+      }
+      input,
+      button {
+        min-height: 40px;
+      }
+      #address,
+      #textInput {
+        flex-basis: 100%;
+      }
+      .viewport {
+        justify-content: start;
+        align-content: start;
+      }
+      #screen {
+        max-width: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -668,15 +724,15 @@ const renderLiveViewHtml = (session) => {
     <button class="secondary" data-key="Escape" type="button">Esc</button>
     <button class="secondary" data-key="Backspace" type="button">Backspace</button>
   </div>
+  <div class="inputbar">
+    <input id="textInput" autocomplete="off" placeholder="Text to type into the focused field" />
+    <button id="typeButton" type="button">Type</button>
+    <span class="status" id="dimensionText"></span>
+  </div>
   <main>
     <div class="viewport">
-      <canvas id="screen" aria-label="Recorder browser viewport" role="img"></canvas>
+      <canvas id="screen" aria-label="Recorder browser viewport" role="img" tabindex="0"></canvas>
       <span class="click-marker" id="clickMarker"></span>
-    </div>
-    <div class="inputbar">
-      <input id="textInput" autocomplete="off" placeholder="Text to type into the focused field" />
-      <button id="typeButton" type="button">Type</button>
-      <span class="status" id="dimensionText"></span>
     </div>
   </main>
   <script>
@@ -819,7 +875,21 @@ const renderLiveViewHtml = (session) => {
       const x = Math.round((event.clientX - rect.left) * (screen.width / rect.width));
       const y = Math.round((event.clientY - rect.top) * (screen.height / rect.height));
       showClickMarker(event.clientX, event.clientY);
+      screen.focus({ preventScroll: true });
       send({ type: "click", x, y });
+    });
+
+    screen.addEventListener("keydown", (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.length === 1) {
+        event.preventDefault();
+        send({ type: "type", text: event.key });
+        return;
+      }
+      if (["Enter", "Tab", "Escape", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+        send({ type: "press", key: event.key });
+      }
     });
 
     screen.addEventListener("wheel", (event) => {

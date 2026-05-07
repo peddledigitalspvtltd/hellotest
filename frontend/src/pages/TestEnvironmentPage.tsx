@@ -11,7 +11,8 @@ import { TileCardStatusIndicator } from "../components/TileCardPrimitives";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
@@ -221,8 +222,9 @@ const formatConfigurationTarget = (configuration: Pick<TestConfiguration, "brows
 export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView }) {
   const queryClient = useQueryClient();
   const domainMetadataQuery = useDomainMetadata();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
@@ -335,6 +337,14 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -343,7 +353,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     if (!appTypes.some((item) => item.id === appTypeId)) {
       setAppTypeId(appTypes[0].id);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
     setSelectedEnvironmentId((current) => (current && environments.some((item) => item.id === current) ? current : ""));
@@ -470,7 +480,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   const handleDeleteEnvironment = async () => {
-    if (!selectedEnvironment || !window.confirm(`Delete test environment "${selectedEnvironment.name}"?`)) {
+    if (!selectedEnvironment || !(await confirmDelete({ message: `Delete test environment "${selectedEnvironment.name}"?` }))) {
       return;
     }
 
@@ -536,7 +546,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   const handleDeleteConfiguration = async () => {
-    if (!selectedConfiguration || !window.confirm(`Delete test configuration "${selectedConfiguration.name}"?`)) {
+    if (!selectedConfiguration || !(await confirmDelete({ message: `Delete test configuration "${selectedConfiguration.name}"?` }))) {
       return;
     }
 
@@ -586,7 +596,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   const handleDeleteDataSet = async () => {
-    if (!selectedDataSet || !window.confirm(`Delete test data "${selectedDataSet.name}"?`)) {
+    if (!selectedDataSet || !(await confirmDelete({ message: `Delete test data "${selectedDataSet.name}"?` }))) {
       return;
     }
 
@@ -602,6 +612,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
   return (
     <div className="page-content">
+      {confirmationDialog}
       <PageHeader
         eyebrow="Test Environment"
         title="Run context workspace"

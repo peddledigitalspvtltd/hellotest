@@ -180,8 +180,86 @@ type BatchQueueResponse = {
   id: string;
   transaction_id: string;
   job_id?: string;
+  transaction_ids?: string[];
+  job_ids?: string[];
+  split_count?: number;
   queued: boolean;
   status: string;
+};
+
+type TestCaseImportBatchInput = {
+  file_name?: string;
+  import_source: TestCaseImportSourceValue;
+  rows: Array<Record<string, unknown>>;
+};
+
+const MAX_IMPORT_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_IMPORT_ROWS_PER_BATCH = 250;
+
+const splitRowsForImport = (rows: Array<Record<string, unknown>>) => {
+  const chunks: Array<Array<Record<string, unknown>>> = [];
+  let current: Array<Record<string, unknown>> = [];
+  let currentBytes = 0;
+
+  rows.forEach((row) => {
+    const rowBytes = JSON.stringify(row).length + 2;
+    const shouldStartNext =
+      current.length > 0
+      && (current.length >= MAX_IMPORT_ROWS_PER_BATCH || currentBytes + rowBytes > MAX_IMPORT_REQUEST_BYTES);
+
+    if (shouldStartNext) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+
+    current.push(row);
+    currentBytes += rowBytes;
+  });
+
+  if (current.length) {
+    chunks.push(current);
+  }
+
+  return chunks;
+};
+
+const splitTestCaseImportInput = (input: {
+  app_type_id: string;
+  requirement_id?: string;
+  import_source?: TestCaseImportSourceValue;
+  rows?: Array<Record<string, unknown>>;
+  batches?: TestCaseImportBatchInput[];
+}) => {
+  const payloads: Array<typeof input> = [];
+
+  if (input.batches?.length) {
+    input.batches.forEach((batch) => {
+      splitRowsForImport(batch.rows || []).forEach((rows, index) => {
+        payloads.push({
+          app_type_id: input.app_type_id,
+          requirement_id: input.requirement_id,
+          import_source: input.import_source,
+          batches: [{
+            file_name: index ? `${batch.file_name || "import"} part ${index + 1}` : batch.file_name,
+            import_source: batch.import_source,
+            rows
+          }]
+        });
+      });
+    });
+  } else if (input.rows?.length) {
+    splitRowsForImport(input.rows).forEach((rows) => {
+      payloads.push({
+        app_type_id: input.app_type_id,
+        requirement_id: input.requirement_id,
+        import_source: input.import_source,
+        rows
+      });
+    });
+  }
+
+  return payloads.length ? payloads : [input];
 };
 
 export const api = {
@@ -473,15 +551,26 @@ export const api = {
       requirement_id?: string;
       import_source?: TestCaseImportSourceValue;
       rows?: Array<Record<string, unknown>>;
-      batches?: Array<{
-        file_name?: string;
-        import_source: TestCaseImportSourceValue;
-        rows: Array<Record<string, unknown>>;
-      }>;
+      batches?: TestCaseImportBatchInput[];
     }) => {
-      return request<BatchQueueResponse>("/test-cases/import", {
-        method: "POST",
-        body: JSON.stringify(input)
+      const payloads = splitTestCaseImportInput(input);
+
+      return Promise.all(
+        payloads.map((payload) =>
+          request<BatchQueueResponse>("/test-cases/import", {
+            method: "POST",
+            body: JSON.stringify(payload)
+          })
+        )
+      ).then((responses) => {
+        const first = responses[0];
+
+        return {
+          ...first,
+          transaction_ids: responses.map((response) => response.transaction_id),
+          job_ids: responses.map((response) => response.job_id).filter(Boolean) as string[],
+          split_count: responses.length
+        };
       });
     },
     exportCases: (input: { app_type_id: string; test_case_ids?: string[] }) =>
@@ -491,8 +580,13 @@ export const api = {
       }),
     learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
-    buildAutomation: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    buildAutomation: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
+        method: "POST",
+        body: JSON.stringify(input || {})
+      }),
+    queueAutomationGenerator: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+      request<BatchQueueResponse>(`/test-cases/${id}/automation/generator-jobs`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
@@ -501,12 +595,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    startRecorderSession: (id: string, input?: { start_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, {
         method: "POST",
         body: JSON.stringify(input || {})
@@ -640,7 +734,8 @@ export const api = {
       request<{ updated: boolean }>(`/executions/${executionId}/cases/${testCaseId}/assignment`, { method: "PUT", body: JSON.stringify(input) }),
     rerun: (id: string, input: { failed_only?: boolean; created_by: string; name?: string }) =>
       request<{ id: string }>(`/executions/${id}/rerun`, { method: "POST", body: JSON.stringify(input) }),
-    start: (id: string) => request<ExecutionStartResponse>(`/executions/${id}/start`, { method: "POST" }),
+    start: (id: string, input?: { execution_mode?: "local" | "remote"; engine_base_url?: string }) =>
+      request<ExecutionStartResponse>(`/executions/${id}/start`, { method: "POST", body: JSON.stringify(input || {}) }),
     downloadReportPdf: (id: string) => requestBlob(`/executions/${id}/report.pdf`),
     shareReport: (id: string, input: { recipients: string[] }) =>
       request<{ sent: boolean; recipients: number }>(`/executions/${id}/share-report`, {

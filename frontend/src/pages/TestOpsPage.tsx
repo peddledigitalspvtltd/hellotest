@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ActivityIcon, MousePointerIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
+import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { buildBrowserUrl } from "../lib/integrationUrls";
 import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
 
 type TestOpsView = "automation-builder" | "batch-process" | "ops-telemetry";
@@ -117,18 +121,6 @@ function formatLabel(value?: string | null) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function buildReadableUrl(baseUrl?: string | null, path = "/ops-telemetry") {
-  if (!baseUrl) {
-    return "";
-  }
-
-  try {
-    return new URL(path, baseUrl).toString();
-  } catch {
-    return "";
-  }
-}
-
 function resolveScopedIntegration(integrations: Integration[], type: Integration["type"], projectId: string) {
   const active = integrations.filter((integration) => integration.type === type && integration.is_active);
   const scoped = projectId
@@ -149,8 +141,9 @@ function isManualCase(testCase: TestCase) {
 export function TestOpsPage({ initialView = "batch-process" }: { initialView?: TestOpsView } = {}) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [view, setView] = useState<TestOpsView>(initialView);
   const [selectedTransactionId, setSelectedTransactionId] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
@@ -159,6 +152,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [builderContext, setBuilderContext] = useState("");
   const [builderMessage, setBuilderMessage] = useState("");
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
+  const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
   const isAdmin = session?.user.role === "admin";
 
   const projectsQuery = useQuery({
@@ -223,6 +217,14 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const testCases = testCasesQuery.data || [];
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((appType) => appType.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -234,7 +236,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       setSelectedCaseIds([]);
       setRecorderSession(null);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   const manualCases = useMemo(() => testCases.filter(isManualCase), [testCases]);
   const batchTransactions = useMemo(
@@ -249,7 +251,12 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const testEngineIntegration = resolveScopedIntegration(integrations, "testengine", projectId);
   const llmIntegration = resolveScopedIntegration(integrations, "llm", projectId);
   const opsIntegration = resolveScopedIntegration(integrations, "ops", projectId);
-  const opsBoardUrl = buildReadableUrl(testEngineIntegration?.base_url, "/ops-telemetry");
+  const opsBoardUrl = buildBrowserUrl(testEngineIntegration, "/ops-telemetry", [
+    "ops_public_base_url",
+    "public_base_url",
+    "recorder_public_base_url",
+    "live_view_url"
+  ]);
   const runningCount = batchTransactions.filter((transaction) => transaction.status === "queued" || transaction.status === "running").length;
   const failedCount = batchTransactions.filter((transaction) => transaction.status === "failed").length;
   const activeCase = testCases.find((testCase) => testCase.id === selectedCaseId) || manualCases[0] || null;
@@ -300,14 +307,16 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         throw new Error("Select a manual web case first.");
       }
 
-      return api.testCases.buildAutomation(activeCase.id, {
+      return api.testCases.queueAutomationGenerator(activeCase.id, {
         integration_id: llmIntegration?.id,
         start_url: startUrl || undefined,
         additional_context: builderContext || undefined
       });
     },
     onSuccess: (response) => {
-      setBuilderMessage(`AI automation associated with ${response.generated_step_count} step${response.generated_step_count === 1 ? "" : "s"}.`);
+      setBuilderMessage(`Automation generator queued as ${response.transaction_id}.`);
+      setSelectedTransactionId(response.transaction_id);
+      setView("batch-process");
       invalidateAutomationViews();
     },
     onError: (error) => setBuilderMessage(error instanceof Error ? error.message : "Unable to build automation.")
@@ -337,17 +346,21 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   });
 
   const startRecorder = useMutation({
-    mutationFn: () => {
+    mutationFn: (options: RecorderStartOptions) => {
       if (!activeCase) {
         throw new Error("Select a manual web case first.");
       }
 
       return api.testCases.startRecorderSession(activeCase.id, {
-        start_url: startUrl || undefined
+        start_url: startUrl || undefined,
+        recorder_mode: options.recorder_mode,
+        engine_base_url: options.engine_base_url,
+        recorder_public_base_url: options.recorder_public_base_url
       });
     },
-    onSuccess: (response) => {
+    onSuccess: (response, options) => {
       setRecorderSession(response);
+      setRecorderStartOptions(options);
       setBuilderMessage(response.live_view_url ? "Recorder live view is ready in QAira." : "Recorder started in the Test Engine browser session.");
       invalidateAutomationViews();
     },
@@ -363,7 +376,9 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       return api.testCases.finishRecorderSession(activeCase.id, recorderSession.id, {
         transaction_id: recorderSession.transaction_id,
         integration_id: llmIntegration?.id,
-        additional_context: builderContext || undefined
+        additional_context: builderContext || undefined,
+        recorder_mode: recorderStartOptions?.recorder_mode,
+        engine_base_url: recorderStartOptions?.engine_base_url
       });
     },
     onSuccess: (response) => {
@@ -373,6 +388,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
           : "Recorder stopped. No supported interactions were captured for step creation."
       );
       setRecorderSession(null);
+      setRecorderStartOptions(null);
       invalidateAutomationViews();
     },
     onError: (error) => setBuilderMessage(error instanceof Error ? error.message : "Unable to finish recorder session.")
@@ -411,7 +427,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   };
 
   const handleDeleteSelectedBatchLog = async () => {
-    if (!selectedTransaction || !window.confirm(`Delete batch process log "${selectedTransaction.title}"?`)) {
+    if (!selectedTransaction || !(await confirmDelete({ message: `Delete batch process log "${selectedTransaction.title}"?` }))) {
       return;
     }
 
@@ -424,7 +440,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   };
 
   const handleDeleteVisibleBatchLogs = async () => {
-    if (!deletableBatchTransactions.length || !window.confirm(`Delete ${deletableBatchTransactions.length} batch process log${deletableBatchTransactions.length === 1 ? "" : "s"}?`)) {
+    if (!deletableBatchTransactions.length || !(await confirmDelete({ message: `Delete ${deletableBatchTransactions.length} batch process log${deletableBatchTransactions.length === 1 ? "" : "s"}?` }))) {
       return;
     }
 
@@ -445,6 +461,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
   return (
     <div className="page-content page-content--testops">
+      {confirmationDialog}
       <PageHeader
         eyebrow="TestOps"
         title="TestOps"
@@ -477,7 +494,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         }}
         onProjectChange={(value) => {
           setProjectId(value);
-          setAppTypeId("");
           setSelectedTransactionId("");
           setSelectedCaseId("");
           setSelectedCaseIds([]);
@@ -620,15 +636,12 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                     <span>Starts a browser-backed Test Engine session, captures user actions once, suppresses duplicate typing, and records fetch/XHR traffic for API test suggestions.</span>
                   </div>
                   <div className="testops-recorder-actions">
-                    <button
-                      className="ghost-button"
-                      disabled={!activeCase || !testEngineIntegration || startRecorder.isPending || Boolean(recorderSession)}
-                      onClick={() => startRecorder.mutate()}
-                      type="button"
-                    >
-                      <MousePointerIcon size={16} />
-                      <span>{startRecorder.isPending ? "Starting…" : "Start recorder"}</span>
-                    </button>
+                    <RecorderStartControls
+                      disabled={!activeCase || !testEngineIntegration}
+                      hasSession={Boolean(recorderSession)}
+                      isStarting={startRecorder.isPending}
+                      onStart={(options) => startRecorder.mutate(options)}
+                    />
                     <button
                       className="primary-button"
                       disabled={!recorderSession || finishRecorder.isPending}
@@ -661,11 +674,13 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                 ) : null}
                 {recorderLiveUrl ? (
                   <iframe
+                    allow="clipboard-read; clipboard-write"
                     className="recorder-live-frame"
                     src={recorderLiveUrl}
                     title="QAira recorder live view"
                   />
                 ) : null}
+                <RecorderSessionInsights session={recorderSession} />
               </div>
 
               <div className="execution-context-summary-head">

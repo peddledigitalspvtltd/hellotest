@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qaira-local-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - qaira-local-postgres-data:/var/lib/postgresql/data
+      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./db/03-local-integrations.sql:/docker-entrypoint-initdb.d/03-local-integrations.sql:ro
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qaira}
+      POSTGRES_USER: ${POSTGRES_USER:-qaira}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qaira}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qaira} -d ${POSTGRES_DB:-qaira}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: ${QAIRA_BACKEND_IMAGE:-jayarajumetta/qaira-backend:latest}
+    container_name: qaira-local-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
+      SESSION_SECRET: ${SESSION_SECRET:-qaira-local-dev-secret}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    image: ${QAIRA_FRONTEND_IMAGE:-jayarajumetta/qaira-frontend:latest}
+    container_name: qaira-local-frontend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    environment:
+      QAIRA_API_BASE_URL: ${QAIRA_API_BASE_URL:-/api}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  testengine:
+    image: ${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}
+    container_name: qaira-local-testengine
+    ports:
+      - "${TESTENGINE_PORT:-4301}:4301"
+    environment:
+      PORT: 4301
+      ENGINE_NAME: ${ENGINE_NAME:-qaira-local-testengine}
+      ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
+      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
+      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_POLL_INTERVAL_MS:-30000}
+      TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_POLL_CONCURRENCY:-4}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
+      RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
+    volumes:
+      - qaira-local-testengine-artifacts:/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  qaira-local-postgres-data:
+  qaira-local-testengine-artifacts:

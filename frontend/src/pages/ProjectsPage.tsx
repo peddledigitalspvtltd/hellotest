@@ -22,6 +22,7 @@ import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
@@ -140,6 +141,7 @@ function ProjectProgressBar({
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
   const isAdmin = session?.user.role === "admin";
   const domainMetadataQuery = useDomainMetadata();
@@ -737,7 +739,7 @@ export function ProjectsPage() {
       return;
     }
 
-    const confirmed = window.confirm(`Delete project "${focusedProject.name}" and all related data? This cannot be undone.`);
+    const confirmed = await confirmDelete({ message: `Delete project "${focusedProject.name}" and all related data?` });
 
     if (!confirmed) {
       return;
@@ -829,9 +831,7 @@ export function ProjectsPage() {
 
   const handleRemoveMember = async (member: { id: string; user_id: string }) => {
     if (member.user_id === session?.user.id) {
-      const confirmed = window.confirm(
-        "You are removing yourself from this project. You will no longer be able to access it. Continue?"
-      );
+      const confirmed = await confirmDelete({ message: "Remove yourself from this project? You will no longer be able to access it." });
       if (!confirmed) return;
     }
 
@@ -848,6 +848,7 @@ export function ProjectsPage() {
 
   return (
     <div className="page-content">
+      {confirmationDialog}
       <PageHeader
         eyebrow="Projects & Scope"
         title="Projects"

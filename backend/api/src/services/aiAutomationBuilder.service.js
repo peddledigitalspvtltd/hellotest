@@ -1,6 +1,7 @@
 const db = require("../db");
 const { v4: uuid } = require("uuid");
 const integrationService = require("./integration.service");
+const testCaseService = require("./testCase.service");
 const testStepService = require("./testStep.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const testEnvironmentService = require("./testEnvironment.service");
@@ -596,12 +597,20 @@ const isRecorderActionSuperseded = (action, actions, index) => {
   }
 
   if ((type === "change" || type === "fill") && action.locator) {
-    return actions.slice(0, index).some((candidate) =>
+    const previousSameLocator = actions.slice(0, index).some((candidate) =>
       ["fill", "change"].includes(String(candidate.type || "").toLowerCase())
       && candidate.locator === action.locator
-      && candidate.value === action.value
-      && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 1_500
+      && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
     );
+    const laterSameLocator = actions.slice(index + 1).some((candidate) =>
+      ["fill", "change"].includes(String(candidate.type || "").toLowerCase())
+      && candidate.locator === action.locator
+      && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
+    );
+
+    return previousSameLocator && laterSameLocator
+      ? true
+      : laterSameLocator;
   }
 
   if (type === "navigation") {
@@ -1558,6 +1567,203 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
   return applied;
 };
 
+const isBusinessApiNetworkEntry = (entry) => {
+  const method = normalizeText(entry?.method)?.toUpperCase() || "GET";
+  const resourceType = normalizeText(entry?.resource_type)?.toLowerCase();
+  const url = normalizeText(entry?.url);
+
+  if (!url || method === "OPTIONS") {
+    return false;
+  }
+
+  let parsed;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const path = parsed.pathname || "/";
+  const host = parsed.hostname.toLowerCase();
+
+  if (/\.(?:css|js|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|mp3|wav|pdf)$/i.test(path)) {
+    return false;
+  }
+
+  if (/(analytics|segment|posthog|rudder|sentry|hotjar|googletagmanager|google-analytics|doubleclick)/i.test(host + path)) {
+    return false;
+  }
+
+  if (/\/(?:health|ops-telemetry|live-session|recorder\/sessions)(?:\/|$)/i.test(path)) {
+    return false;
+  }
+
+  return resourceType === "fetch" || resourceType === "xhr" || /\/api(?:\/|$)/i.test(path);
+};
+
+const resolveBodyMode = (entry) => {
+  const contentType = normalizeText(entry?.content_type)?.toLowerCase() || "";
+  const body = normalizeRichText(entry?.request_body);
+
+  if (!body) {
+    return "none";
+  }
+
+  if (contentType.includes("json") || /^[\[{]/.test(body)) {
+    return "json";
+  }
+
+  if (contentType.includes("xml") || /^<[\s\S]+>$/.test(body)) {
+    return "xml";
+  }
+
+  if (contentType.includes("x-www-form-urlencoded")) {
+    return "form";
+  }
+
+  return "text";
+};
+
+const summarizeTriggerAction = (networkEntry, capturedActions = []) => {
+  const requestTime = Date.parse(networkEntry?.timestamp || "");
+  const samePageActions = capturedActions
+    .filter((action) => !networkEntry?.page_id || action.page_id === networkEntry.page_id)
+    .map((action) => ({
+      action,
+      time: Date.parse(action.timestamp || "")
+    }))
+    .filter((item) => Number.isFinite(item.time));
+
+  if (!Number.isFinite(requestTime) || !samePageActions.length) {
+    return null;
+  }
+
+  const prior = samePageActions
+    .filter((item) => item.time <= requestTime + 1500)
+    .sort((a, b) => Math.abs(requestTime - a.time) - Math.abs(requestTime - b.time))[0];
+
+  if (!prior) {
+    return null;
+  }
+
+  return [
+    prior.action.type,
+    prior.action.text || prior.action.locator || prior.action.value || null
+  ].filter(Boolean).join(": ");
+};
+
+const buildApiStepFromNetwork = (entry, index, capturedActions = []) => {
+  const method = normalizeText(entry?.method)?.toUpperCase() || "GET";
+  const url = normalizeText(entry?.url);
+  const status = Number(entry?.status);
+  const trigger = summarizeTriggerAction(entry, capturedActions);
+  const bodyMode = resolveBodyMode(entry);
+  const request = normalizeApiRequest({
+    method,
+    url,
+    headers: [],
+    body_mode: bodyMode,
+    body: bodyMode === "none" ? null : normalizeRichText(entry?.request_body),
+    validations: Number.isFinite(status)
+      ? [{ kind: "status", expected: String(status) }]
+      : [{ kind: "status", expected: "200" }],
+    captures: []
+  });
+
+  if (!request) {
+    return null;
+  }
+
+  let pathLabel = url;
+
+  try {
+    const parsed = new URL(url);
+    pathLabel = `${parsed.pathname}${parsed.search || ""}`;
+  } catch {
+    pathLabel = url;
+  }
+
+  return {
+    step_order: index + 1,
+    action: trigger
+      ? `${method} ${pathLabel} after web action "${trigger}"`
+      : `${method} ${pathLabel}`,
+    expected_result: Number.isFinite(status)
+      ? `Response status is ${status}.`
+      : "Response returns a successful status.",
+    step_type: "api",
+    automation_code: "",
+    api_request: request
+  };
+};
+
+const createCompanionApiCaseFromNetwork = async ({ testCase, capturedActions, capturedNetwork, session, createdBy, transactionId }) => {
+  const unique = new Set();
+  const steps = capturedNetwork
+    .filter(isBusinessApiNetworkEntry)
+    .filter((entry) => {
+      const key = [
+        normalizeText(entry.method)?.toUpperCase() || "GET",
+        normalizeText(entry.url),
+        normalizeRichText(entry.request_body) || ""
+      ].join(" ");
+
+      if (unique.has(key)) {
+        return false;
+      }
+
+      unique.add(key);
+      return true;
+    })
+    .slice(0, 25)
+    .map((entry, index) => buildApiStepFromNetwork(entry, index, capturedActions))
+    .filter(Boolean);
+
+  if (!steps.length) {
+    return null;
+  }
+
+  const title = `[API capture] ${testCase.title}`;
+  const created = await testCaseService.createTestCase({
+    app_type_id: testCase.app_type_id,
+    title,
+    description: [
+      `Companion API test generated from recorder session ${session.id}.`,
+      `Source web case: ${testCase.title}.`,
+      "Steps are linked to the nearest captured web action when timing and page context are available."
+    ].join(" "),
+    external_references: [
+      `source-web-case:${testCase.id}`,
+      `recorder-session:${session.id}`
+    ],
+    automated: "yes",
+    status: testCase.status || "ready",
+    priority: testCase.priority,
+    created_by: createdBy,
+    updated_by: createdBy,
+    steps
+  });
+
+  await appendEvent(transactionId, {
+    level: "success",
+    phase: "recorder.api_case.created",
+    message: `Recorder created a companion API case with ${steps.length} captured request step${steps.length === 1 ? "" : "s"}.`,
+    details: {
+      source_test_case_id: testCase.id,
+      api_test_case_id: created.id,
+      recorder_session_id: session.id,
+      api_step_count: steps.length
+    }
+  });
+
+  return {
+    id: created.id,
+    title,
+    step_count: steps.length
+  };
+};
+
 const finalizeRecorderBuild = async ({
   testCase,
   session,
@@ -1652,6 +1858,14 @@ const finalizeRecorderBuild = async ({
     capturedNetwork,
     transactionId
   });
+  const apiCase = await createCompanionApiCaseFromNetwork({
+    testCase,
+    capturedActions,
+    capturedNetwork,
+    session,
+    createdBy,
+    transactionId
+  });
   let artifact = null;
 
   if (transactionId && appliedSteps.length) {
@@ -1689,6 +1903,8 @@ const finalizeRecorderBuild = async ({
       updated_steps: appliedSteps.filter((step) => step.operation === "updated").length,
       created_steps: appliedSteps.filter((step) => step.operation === "created").length,
       learned_locator_count: learnedCount,
+      api_test_case_id: apiCase?.id || null,
+      api_step_count: apiCase?.step_count || 0,
       artifact_id: artifact?.id || null
     }
   });
@@ -1709,6 +1925,8 @@ const finalizeRecorderBuild = async ({
       mapping_source: mappingSource,
       ai_mapping_fallback_reason: aiMappingFallbackReason,
       learned_locator_count: learnedCount,
+      api_test_case_id: apiCase?.id || null,
+      api_step_count: apiCase?.step_count || 0,
       artifact_id: artifact?.id || null
     },
     completed_at: new Date().toISOString()
@@ -1722,6 +1940,7 @@ const finalizeRecorderBuild = async ({
     created_step_count: appliedSteps.filter((step) => step.operation === "created").length,
     updated_step_count: appliedSteps.filter((step) => step.operation === "updated").length,
     learned_locator_count: learnedCount,
+    api_test_case: apiCase,
     cache_hits: 0,
     fallback_used: Boolean(aiMappingFallbackReason),
     fallback_reason: aiMappingFallbackReason,
@@ -1751,7 +1970,10 @@ exports.buildAutomationForCase = async ({
   captured_actions,
   captured_network,
   additional_context,
-  transaction_id
+  transaction_id,
+  transaction_action,
+  transaction_title,
+  transaction_description
 } = {}) => {
   const normalizedCaseId = normalizeText(test_case_id);
 
@@ -1771,10 +1993,10 @@ exports.buildAutomationForCase = async ({
         project_id: testCase.project_id || null,
         app_type_id: testCase.app_type_id || null,
         category: "automation_build",
-        action: "single_case_automation_build",
+        action: normalizeText(transaction_action) || "single_case_automation_build",
         status: "running",
-        title: `AI automation for ${testCase.title}`,
-        description: "Automating the manual web case with AI-assisted step mapping.",
+        title: normalizeText(transaction_title) || `AI automation for ${testCase.title}`,
+        description: normalizeText(transaction_description) || "Automating the manual web case with AI-assisted step mapping.",
         metadata: {
           current_phase: "automation.context",
           progress_percent: 10,
@@ -1791,10 +2013,10 @@ exports.buildAutomationForCase = async ({
         project_id: testCase.project_id || null,
         app_type_id: testCase.app_type_id || null,
         category: "automation_build",
-        action: "single_case_automation_build",
+        action: normalizeText(transaction_action) || "single_case_automation_build",
         status: "running",
-        title: `AI automation for ${testCase.title}`,
-        description: "Automating the manual web case with AI-assisted step mapping.",
+        title: normalizeText(transaction_title) || `AI automation for ${testCase.title}`,
+        description: normalizeText(transaction_description) || "Automating the manual web case with AI-assisted step mapping.",
         metadata: {
           current_phase: "automation.context",
           progress_percent: 10,
@@ -2091,6 +2313,50 @@ const buildEngineUrl = (baseUrl, value) => {
   }
 };
 
+const isPrivateAddress = (hostname) =>
+  hostname === "localhost"
+  || hostname === "host.docker.internal"
+  || hostname === "testengine"
+  || hostname === "127.0.0.1"
+  || hostname === "::1"
+  || /^10\./.test(hostname)
+  || /^192\.168\./.test(hostname)
+  || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+const normalizeLocalEngineBaseUrl = (value) => {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  let parsed;
+
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error("Local recorder engine URL must be an absolute http or https URL.");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Local recorder engine URL must use http or https.");
+  }
+
+  if (!isPrivateAddress(parsed.hostname)) {
+    throw new Error("Local recorder engine URL must point to localhost, the local Docker service, or a private network address.");
+  }
+
+  return parsed.toString().replace(/\/+$/, "");
+};
+
+const resolveRecorderPublicBaseUrl = (integration, fallbackBaseUrl) => {
+  const config = integration?.config && typeof integration.config === "object" ? integration.config : {};
+  return normalizeText(config.recorder_public_base_url)
+    || normalizeText(config.public_base_url)
+    || normalizeText(config.live_view_url)
+    || fallbackBaseUrl;
+};
+
 const parseTransactionMetadata = (transaction) => safeJson(transaction?.metadata, {});
 
 const isRecorderSessionPastOrphanTtl = (session, transaction) => {
@@ -2194,6 +2460,9 @@ exports.cleanupOrphanRecorderSessions = async ({ limit = 25 } = {}) => {
 exports.startRecorderSession = async ({
   test_case_id,
   start_url,
+  recorder_mode,
+  engine_base_url,
+  recorder_public_base_url,
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
@@ -2219,7 +2488,15 @@ exports.startRecorderSession = async ({
     test_data_set_id
   });
   const integration = await resolveTestEngineIntegration(testCase);
-  const baseUrl = String(integration.base_url || "").replace(/\/+$/, "");
+  const recorderMode = normalizeText(recorder_mode) === "local" ? "local" : "remote";
+  const localBaseUrl = recorderMode === "local" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  const baseUrl = String(localBaseUrl || integration.base_url || "").replace(/\/+$/, "");
+  const publicBaseUrl = String(
+    recorderMode === "local"
+      ? normalizeText(recorder_public_base_url) || resolveRecorderPublicBaseUrl(integration, baseUrl)
+      : resolveRecorderPublicBaseUrl(integration, baseUrl)
+    || baseUrl
+  ).replace(/\/+$/, "");
   const resolvedStartUrl = normalizeText(start_url) || buildContext.environment?.base_url || null;
   const session = await readEngineJson(`${baseUrl}/api/v1/recorder/sessions`, {
     method: "POST",
@@ -2254,7 +2531,9 @@ exports.startRecorderSession = async ({
       recorder_session_id: session.id,
       recorder_started_at: session.started_at || new Date().toISOString(),
       recorder_last_activity_at: session.last_activity_at || session.started_at || null,
-      engine_base_url: baseUrl
+      engine_base_url: baseUrl,
+      recorder_mode: recorderMode,
+      recorder_public_base_url: publicBaseUrl
     },
     related_kind: "test_case",
     related_id: testCase.id,
@@ -2270,6 +2549,7 @@ exports.startRecorderSession = async ({
     details: {
       recorder_session_id: session.id,
       engine_base_url: baseUrl,
+      recorder_mode: recorderMode,
       display_mode: session.display_mode || null,
       live_view_available: Boolean(session.live_view_path || session.live_view_url),
       start_url: resolvedStartUrl,
@@ -2283,8 +2563,8 @@ exports.startRecorderSession = async ({
     ...session,
     transaction_id: transaction.id,
     engine_base_url: baseUrl,
-    live_view_url: buildEngineUrl(baseUrl, session.live_view_url || session.live_view_path),
-    status_url: `${baseUrl}/api/v1/recorder/sessions/${session.id}`
+    live_view_url: buildEngineUrl(publicBaseUrl, session.live_view_url || session.live_view_path),
+    status_url: `${publicBaseUrl}/api/v1/recorder/sessions/${session.id}`
   };
 };
 
@@ -2294,6 +2574,8 @@ exports.finishRecorderSession = async ({
   transaction_id,
   integration_id,
   additional_context,
+  recorder_mode,
+  engine_base_url,
   created_by
 } = {}) => {
   const testCaseId = normalizeText(test_case_id);
@@ -2310,7 +2592,13 @@ exports.finishRecorderSession = async ({
   }
 
   const engineIntegration = await resolveTestEngineIntegration(testCase);
-  const baseUrl = String(engineIntegration.base_url || "").replace(/\/+$/, "");
+  const transactionId = normalizeText(transaction_id);
+  const transaction = transactionId
+    ? await workspaceTransactionService.getTransaction(transactionId).catch(() => null)
+    : null;
+  const metadata = parseTransactionMetadata(transaction);
+  const localBaseUrl = normalizeText(recorder_mode) === "local" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  const baseUrl = String(localBaseUrl || metadata.engine_base_url || engineIntegration.base_url || "").replace(/\/+$/, "");
   const session = await readEngineJson(`${baseUrl}/api/v1/recorder/sessions/${sessionId}`);
   const capturedActions = normalizeCapturedActions(session.actions || []);
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);

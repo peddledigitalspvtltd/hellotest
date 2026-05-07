@@ -32,10 +32,12 @@ import { ToastMessage } from "../components/ToastMessage";
 import { VirtualList } from "../components/VirtualList";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
+import { buildBrowserUrl } from "../lib/integrationUrls";
 import { buildCaseAutomationCode, buildGroupAutomationCode, resolveStepAutomationCode } from "../lib/stepAutomation";
 import {
   deriveCaseStatusFromSteps,
@@ -1026,7 +1028,7 @@ function deriveTestEngineLiveViewUrl(integration?: Integration | null) {
 
   if (
     configured
-    && !(provider === "playwright" && (configured.includes(":7900/") || configured.toLowerCase().includes("vnc")))
+    && !(provider === "playwright" && !configured.includes("/api/v1/live-session"))
     && !(provider === "selenium" && configured.includes("/api/v1/live-session"))
   ) {
     return configured;
@@ -1043,8 +1045,7 @@ function deriveTestEngineLiveViewUrl(integration?: Integration | null) {
       parsed.pathname = "/";
       parsed.search = "?autoconnect=1&resize=scale";
     } else {
-      parsed.pathname = "/api/v1/live-session";
-      parsed.search = "?provider=playwright";
+      return buildBrowserUrl(integration, "/api/v1/live-session?provider=playwright", ["live_view_url", "public_base_url"]);
     }
 
     parsed.hash = "";
@@ -1065,8 +1066,9 @@ export function ExecutionsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [executionCreateMode, setExecutionCreateMode] = useState<ExecutionCreateMode>("manual");
   const [testRunsView, setTestRunsView] = useState<TestRunsView>("suite-runs");
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<string[]>([]);
@@ -1131,6 +1133,7 @@ export function ExecutionsPage() {
   const [caseAssignmentDraft, setCaseAssignmentDraft] = useState("");
   const [caseReferenceDraft, setCaseReferenceDraft] = useState("");
   const [caseDefectDraft, setCaseDefectDraft] = useState("");
+  const [supportsLocalDesktopExecution, setSupportsLocalDesktopExecution] = useState(true);
   const executionCardMeasureRef = useRef<HTMLDivElement | null>(null);
   const executionSearch = runLibrarySearchByView[testRunsView];
   const catalogViewMode = catalogViewModeByView[testRunsView];
@@ -1271,7 +1274,18 @@ export function ExecutionsPage() {
       api.executions.rerun(id, input)
   });
   const previewSmartExecution = useMutation({ mutationFn: api.executions.previewSmartPlan });
-  const startExecution = useMutation({ mutationFn: api.executions.start });
+  const startExecution = useMutation({
+    mutationFn: (input: string | { id: string; options?: Parameters<typeof api.executions.start>[1] }) =>
+      typeof input === "string" ? api.executions.start(input) : api.executions.start(input.id, input.options)
+  });
+  const convertNetworkToApiCase = useMutation({
+    mutationFn: ({ testCaseId, network }: { testCaseId: string; network: NonNullable<ExecutionStepWebDetail["network"]> }) =>
+      api.testCases.buildAutomation(testCaseId, {
+        additional_context: "Create a companion API test case from the selected web execution network calls. Do not change the existing web test steps.",
+        captured_actions: [],
+        captured_network: network
+      })
+  });
   const completeExecution = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "completed" | "failed" | "aborted" }) => api.executions.complete(id, { status })
   });
@@ -1553,7 +1567,6 @@ export function ExecutionsPage() {
 
   const handleExecutionProjectChange = (value: string) => {
     setProjectId(value);
-    setAppTypeId("");
     setSelectedSuiteIds([]);
     setSelectedExecutionAssigneeId("");
     setSelectedSmartRequirementIds([]);
@@ -1669,6 +1682,14 @@ export function ExecutionsPage() {
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       setSelectedSuiteIds([]);
@@ -1683,7 +1704,7 @@ export function ExecutionsPage() {
       resetExecutionContextSelection();
       resetSmartExecutionPreview();
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, resetExecutionContextSelection, resetSmartExecutionPreview, setAppTypeId]);
 
   useEffect(() => {
     if (!integrations.length) {
@@ -1777,6 +1798,9 @@ export function ExecutionsPage() {
   const selectedExecutionSuiteIds = selectedExecution?.suite_ids || [];
   const selectedExecutionSuites = selectedExecution?.suite_snapshots || [];
   const currentExecutionStatus = normalizeExecutionStatus(selectedExecution?.status);
+  const selectedExecutionAppTypeKind = selectedExecution?.app_type_id
+    ? appTypes.find((appType) => appType.id === selectedExecution.app_type_id)?.type || null
+    : null;
   const selectedTestEngineIntegration = useMemo(() => {
     if (!selectedExecution) {
       return null;
@@ -1789,7 +1813,11 @@ export function ExecutionsPage() {
     return projectScoped || testEngineIntegrations.find((integration) => !String(integration.config?.project_id || "").trim()) || null;
   }, [selectedExecution, testEngineIntegrations]);
   const testEngineLiveViewUrl = selectedTestEngineIntegration ? deriveTestEngineLiveViewUrl(selectedTestEngineIntegration) : "";
-  const isExecutionScopeReadOnly = isExecutionRunsView(testRunsView) && Boolean(selectedExecution);
+  const isExecutionLiveViewEligible =
+    currentExecutionStatus === "running"
+    && Boolean(testEngineLiveViewUrl)
+    && (selectedExecutionAppTypeKind === "web" || selectedExecutionAppTypeKind === "unified");
+  const isExecutionScopeReadOnly = false;
   const isExecutionStarted = currentExecutionStatus === "running";
   const isExecutionLocked =
     currentExecutionStatus === "completed" || currentExecutionStatus === "failed" || currentExecutionStatus === "aborted";
@@ -1825,6 +1853,19 @@ export function ExecutionsPage() {
     const timer = window.setInterval(() => setLiveNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [currentExecutionStatus, selectedExecutionId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const query = window.matchMedia("(pointer: fine) and (min-width: 769px)");
+    const sync = () => setSupportsLocalDesktopExecution(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     setCaseTimerStartedAtById({});
@@ -2493,13 +2534,18 @@ export function ExecutionsPage() {
     }
   };
 
-  const handleStartSelectedExecution = async () => {
+  const handleStartSelectedExecution = async (mode: "remote" | "local" = "remote") => {
     if (!selectedExecution) {
       return;
     }
 
     try {
-      const response = await startExecution.mutateAsync(selectedExecution.id);
+      const response = await startExecution.mutateAsync({
+        id: selectedExecution.id,
+        options: mode === "local"
+          ? { execution_mode: "local", engine_base_url: "http://host.docker.internal:4301" }
+          : { execution_mode: "remote" }
+      });
       await refreshExecutionScope();
       showSuccess(summarizeExecutionStart(response));
     } catch (error) {
@@ -2582,7 +2628,7 @@ export function ExecutionsPage() {
   };
 
   const handleDeleteExecutionSchedule = async (scheduleId: string, scheduleName: string) => {
-    if (!window.confirm(`Delete schedule "${scheduleName}"?`)) {
+    if (!(await confirmDelete({ message: `Delete schedule "${scheduleName}"?` }))) {
       return;
     }
 
@@ -2738,6 +2784,10 @@ export function ExecutionsPage() {
       return;
     }
 
+    if (!(await confirmDelete({ message: "Delete this saved evidence image?" }))) {
+      return;
+    }
+
     try {
       await persistCaseResult(selectedTestCaseId, { stepNotesPatch: { [stepId]: note } });
     } catch (error) {
@@ -2823,6 +2873,21 @@ export function ExecutionsPage() {
   const selectedExecutionCaseReadableDescription = selectedExecutionCase
     ? resolveStepParameterText(selectedExecutionCase.description, executionStepParameterValues) || selectedExecutionCase.description || ""
     : "";
+
+  const handleConvertStepNetworkToApiCase = async (network: NonNullable<ExecutionStepWebDetail["network"]>) => {
+    if (!selectedExecutionCase?.id || !network.length) {
+      return;
+    }
+
+    try {
+      const response = await convertNetworkToApiCase.mutateAsync({ testCaseId: selectedExecutionCase.id, network });
+      const apiCase = response.api_test_case;
+      showSuccess(apiCase ? `API test case created: ${apiCase.title}` : "Captured network calls were sent for API test creation.");
+      await queryClient.invalidateQueries({ queryKey: ["global-test-cases"] });
+    } catch (error) {
+      showError(error, "Unable to create API test from network calls");
+    }
+  };
   const selectedExecutionCaseReferenceText = formatReferenceList(
     selectedExecutionResult?.external_references?.length
       ? selectedExecutionResult.external_references
@@ -3056,9 +3121,6 @@ export function ExecutionsPage() {
   );
   const resolvedEvidenceArtifactCount = resolvedStepNoteCount + resolvedStepImageCount;
 
-  const selectedExecutionAppTypeKind = selectedExecution?.app_type_id
-    ? appTypes.find((appType) => appType.id === selectedExecution.app_type_id)?.type || null
-    : null;
   const selectedExecutionAppTypeLabel =
     appTypeNameById[selectedExecution?.app_type_id || ""] || selectedExecution?.app_type_id || "No app type scoped";
   const selectedExecutionProjectLabel =
@@ -3736,6 +3798,7 @@ export function ExecutionsPage() {
 
   return (
     <div className="page-content page-content--executions-full">
+      {confirmationDialog}
       {showExecutionListHeader ? (
         <PageHeader
           eyebrow="Test Runs"
@@ -3838,23 +3901,30 @@ export function ExecutionsPage() {
       />
 
       <WorkspaceScopeBar
-        appTypeId={isExecutionRunsView(testRunsView) ? selectedExecution?.app_type_id || appTypeId : appTypeId}
+        appTypeId={appTypeId}
         appTypes={appTypes}
-        appTypeValueLabel={isExecutionRunsView(testRunsView) && selectedExecution ? selectedExecutionAppTypeLabel : undefined}
+        appTypeValueLabel={undefined}
         disabled={isExecutionScopeReadOnly}
         onAppTypeChange={(value) => {
           setAppTypeId(value);
+          setSelectedExecutionId("");
+          setFocusedSuiteId("");
+          setSelectedTestCaseId("");
           setSelectedSuiteIds([]);
           resetExecutionContextSelection();
+          syncExecutionSearchParams("", null);
         }}
         onProjectChange={(value) => {
           setProjectId(value);
-          setAppTypeId("");
+          setSelectedExecutionId("");
+          setFocusedSuiteId("");
+          setSelectedTestCaseId("");
           setSelectedSuiteIds([]);
           resetExecutionContextSelection();
+          syncExecutionSearchParams("", null);
         }}
-        projectId={isExecutionRunsView(testRunsView) ? selectedExecution?.project_id || projectId : projectId}
-        projectValueLabel={isExecutionRunsView(testRunsView) && selectedExecution ? selectedExecutionProjectLabel : undefined}
+        projectId={projectId}
+        projectValueLabel={undefined}
         projects={projects}
       />
 
@@ -4563,7 +4633,8 @@ export function ExecutionsPage() {
   onInspectApi={() => openExecutionApiDetail(step)}
   onNoteBlur={(value) => void handleSaveStepNote(step.id, value)}
   onPass={() => void handleRecordStep(step.id, "passed")}
-  onPreviewCode={() => openExecutionStepAutomationPreview(step)}
+                                            onPreviewCode={() => openExecutionStepAutomationPreview(step)}
+                                            onConvertNetworkToApiCase={(network) => void handleConvertStepNetworkToApiCase(network)}
   onRunStep={() => void handleRunExecutionApiStep(step)}
                                             onToggle={() =>
                                               setExpandedExecutionStepIds((current) =>
@@ -4613,6 +4684,7 @@ export function ExecutionsPage() {
   onNoteBlur={(value) => void handleSaveStepNote(step.id, value)}
   onPass={() => void handleRecordStep(step.id, "passed")}
   onPreviewCode={() => openExecutionStepAutomationPreview(step)}
+  onConvertNetworkToApiCase={(network) => void handleConvertStepNetworkToApiCase(network)}
   onRunStep={() => void handleRunExecutionApiStep(step)}
                                   onToggle={() =>
                                     setExpandedExecutionStepIds((current) =>
@@ -4784,6 +4856,17 @@ export function ExecutionsPage() {
                         <strong>{blockingCases.length}</strong>
                         <span>Blocking cases</span>
                       </div>
+                      <a
+                        aria-disabled={!isExecutionLiveViewEligible}
+                        className={isExecutionLiveViewEligible ? "mini-card execution-live-mini-card" : "mini-card execution-live-mini-card is-disabled"}
+                        href={isExecutionLiveViewEligible ? testEngineLiveViewUrl : undefined}
+                        rel="noreferrer"
+                        target="_blank"
+                        title={isExecutionLiveViewEligible ? "View the active browser execution" : "Live run is available only while a web browser execution is running"}
+                      >
+                        <strong>Live</strong>
+                        <span>View run</span>
+                      </a>
                     </div>
 
                     <ExecutionContextSnapshotSummary execution={selectedExecution} onViewFull={() => setIsExecutionContextModalOpen(true)} />
@@ -4835,6 +4918,17 @@ export function ExecutionsPage() {
                           <ExecutionStartIcon />
                           <span>{startExecution.isPending ? "Starting…" : "Start run"}</span>
                         </button>
+                        {supportsLocalDesktopExecution ? (
+                          <button
+                            className="ghost-button"
+                            disabled={currentExecutionStatus !== "queued" || startExecution.isPending || completeExecution.isPending}
+                            onClick={() => void handleStartSelectedExecution("local")}
+                            type="button"
+                          >
+                            <ExecutionStartIcon />
+                            <span>{startExecution.isPending ? "Starting…" : "Start local run"}</span>
+                          </button>
+                        ) : null}
                         <button
                           className="ghost-button"
                           disabled={!selectedExecution || downloadExecutionReport.isPending}
@@ -4854,12 +4948,12 @@ export function ExecutionsPage() {
                           <span>Email report</span>
                         </button>
                         <a
-                          aria-disabled={!testEngineLiveViewUrl || currentExecutionStatus !== "running"}
-                          className={!testEngineLiveViewUrl || currentExecutionStatus !== "running" ? "ghost-button is-disabled" : "ghost-button"}
-                          href={testEngineLiveViewUrl || undefined}
+                          aria-disabled={!isExecutionLiveViewEligible}
+                          className={!isExecutionLiveViewEligible ? "ghost-button is-disabled" : "ghost-button"}
+                          href={isExecutionLiveViewEligible ? testEngineLiveViewUrl : undefined}
                           rel="noreferrer"
                           target="_blank"
-                          title={testEngineLiveViewUrl ? "View live browser session" : "Configure a Test Engine live viewer URL to open the browser session"}
+                          title={isExecutionLiveViewEligible ? "View live browser session" : "Live run is available only while a web browser execution is running"}
                         >
                           <LiveRunIcon />
                           <span>View live run</span>
@@ -6507,6 +6601,7 @@ function ExecutionStepCard({
   onFail,
   onDeleteEvidence,
   onInspectApi,
+  onConvertNetworkToApiCase,
   onRunStep,
   onNoteBlur,
   onUploadEvidence,
@@ -6533,6 +6628,7 @@ function ExecutionStepCard({
   onFail: () => void;
   onDeleteEvidence: () => void;
   onInspectApi: () => void;
+  onConvertNetworkToApiCase: (network: NonNullable<ExecutionStepWebDetail["network"]>) => void;
   onRunStep: () => void;
   onNoteBlur: (value: string) => void;
   onUploadEvidence: (file: File) => void;
@@ -6695,6 +6791,20 @@ function ExecutionStepCard({
                   </span>
                 ) : null}
               </div>
+              {networkCount ? (
+                <div className="execution-network-call-list">
+                  {(webDetail.network || []).slice(-6).map((entry, index) => (
+                    <div className="execution-network-call-row" key={`${entry.method || "GET"}:${entry.url || index}:${entry.timestamp || index}`}>
+                      <strong>{entry.method || "GET"} {entry.status || "pending"}</strong>
+                      <span>{entry.url || "Unknown URL"}</span>
+                    </div>
+                  ))}
+                  <button className="ghost-button compact" onClick={() => onConvertNetworkToApiCase(webDetail.network || [])} type="button">
+                    <StepTypeIcon size={14} type="api" />
+                    <span>Convert network to API test</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

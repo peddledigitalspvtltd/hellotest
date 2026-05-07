@@ -39,7 +39,7 @@ export function ProjectDropdown({
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === value) || projects[0] || null,
+    () => projects.find((project) => project.id === value) || null,
     [projects, value]
   );
   const selectedIndex = useMemo(

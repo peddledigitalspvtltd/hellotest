@@ -37,6 +37,19 @@ const normalizeInteger = (value) => {
   return null;
 };
 
+const normalizeNumber = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
 const normalizeScheduleMode = (value, fallback = "manual") => {
   const normalized = normalizeText(value);
   return ["manual", "hourly", "daily", "weekly"].includes(normalized) ? normalized : fallback;
@@ -63,9 +76,9 @@ const normalizeTestEngineVideoMode = (value, fallback = "retain-on-failure") => 
 };
 
 const normalizeTestEnginePollIntervalMinutes = (value, fallback = 5) => {
-  const parsed = normalizeInteger(value);
-  const normalizedFallback = Math.max(1, normalizeInteger(fallback) || 5);
-  return Math.max(1, Math.min(1440, parsed ?? normalizedFallback));
+  const parsed = normalizeNumber(value);
+  const normalizedFallback = Math.max(0.5, normalizeNumber(fallback) || 5);
+  return Math.max(0.5, Math.min(1440, parsed ?? normalizedFallback));
 };
 
 const normalizeTestEngineTimeoutMs = (value, fallback, { min = 100, max = 300000 } = {}) => {
@@ -490,6 +503,9 @@ const normalizeConfig = (type, input, username) => {
       ),
       qaira_api_base_url: normalizeText(raw.qaira_api_base_url),
       promote_healed_patches: normalizeText(raw.promote_healed_patches) || String(integrationTypeConfig.promote_healed_patches || "review"),
+      public_base_url: normalizeText(raw.public_base_url),
+      recorder_public_base_url: normalizeText(raw.recorder_public_base_url),
+      ops_public_base_url: normalizeText(raw.ops_public_base_url),
       live_view_url: normalizeText(raw.live_view_url)
     };
   }

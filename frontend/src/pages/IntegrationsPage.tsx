@@ -18,8 +18,10 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { TileCardStatusIndicator } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
+import { buildBrowserUrl } from "../lib/integrationUrls";
 import type { Integration } from "../types";
 
 type IntegrationDraft = {
@@ -271,6 +273,15 @@ function buildReadableIntegrationUrl(baseUrl?: string | null, path?: string | nu
   } catch {
     return "";
   }
+}
+
+function buildReadableIntegrationBrowserUrl(integration: Integration | null | undefined, path?: string | null) {
+  return buildBrowserUrl(integration, String(path || "/health").trim() || "/", [
+    "ops_public_base_url",
+    "public_base_url",
+    "recorder_public_base_url",
+    "live_view_url"
+  ]);
 }
 
 function buildTestEngineLiveViewUrl(baseUrl: string, provider: IntegrationDraft["engine_active_web_engine"]) {
@@ -618,7 +629,7 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       assertion_timeout_ms: Number.parseInt(draft.engine_assertion_timeout_ms, 10) || 10000,
       recovery_wait_ms: Number.parseInt(draft.engine_recovery_wait_ms, 10) || 750,
       max_video_attachment_mb: Number.parseInt(draft.engine_max_video_attachment_mb, 10) || 25,
-      queue_poll_interval_minutes: Number.parseInt(draft.engine_queue_poll_interval_minutes, 10) || 5,
+      queue_poll_interval_minutes: Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5,
       live_view_url: draft.engine_live_view_url.trim() || null,
       promote_healed_patches: "review"
     };
@@ -697,7 +708,7 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
       typeof config.queue_poll_interval_minutes === "number"
         ? config.queue_poll_interval_minutes
         : typeof config.queue_poll_interval_minutes === "string"
-          ? Number.parseInt(config.queue_poll_interval_minutes, 10) || 5
+          ? Number.parseFloat(config.queue_poll_interval_minutes) || 5
           : 5;
 
     const qairaApiBaseUrl = typeof config.qaira_api_base_url === "string" && config.qaira_api_base_url.trim()
@@ -773,6 +784,7 @@ function IntegrationReadOnlyDetails({
 export function IntegrationsPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const integrationTypeDefinitions = useMemo(
     () => (domainMetadataQuery.data?.integrations.types || []) as IntegrationTypeDefinition[],
@@ -884,16 +896,16 @@ export function IntegrationsPage() {
   }, [availableTestEngineIntegrations, draft.ops_project_id, draft.type]);
   const resolvedOpsEngineHost = resolvedOpsEngineIntegration?.base_url || "";
   const opsHealthUrl = useMemo(
-    () => buildReadableIntegrationUrl(resolvedOpsEngineHost, draft.ops_health_path),
-    [draft.ops_health_path, resolvedOpsEngineHost]
+    () => buildReadableIntegrationBrowserUrl(resolvedOpsEngineIntegration, draft.ops_health_path),
+    [draft.ops_health_path, resolvedOpsEngineIntegration]
   );
   const opsEventsUrl = useMemo(
-    () => buildReadableIntegrationUrl(resolvedOpsEngineHost, draft.ops_events_path),
-    [draft.ops_events_path, resolvedOpsEngineHost]
+    () => buildReadableIntegrationBrowserUrl(resolvedOpsEngineIntegration, draft.ops_events_path),
+    [draft.ops_events_path, resolvedOpsEngineIntegration]
   );
   const opsBoardUrl = useMemo(
-    () => buildReadableIntegrationUrl(resolvedOpsEngineHost, "/ops-telemetry"),
-    [resolvedOpsEngineHost]
+    () => buildReadableIntegrationBrowserUrl(resolvedOpsEngineIntegration, "/ops-telemetry"),
+    [resolvedOpsEngineIntegration]
   );
   const opsEmitSummary = useMemo(
     () =>
@@ -984,7 +996,7 @@ export function IntegrationsPage() {
   };
 
   const handleDelete = async () => {
-    if (!selectedIntegration || !window.confirm(`Delete integration "${selectedIntegration.name}"?`)) {
+    if (!selectedIntegration || !(await confirmDelete({ message: `Delete integration "${selectedIntegration.name}"?` }))) {
       return;
     }
 
@@ -1047,6 +1059,7 @@ export function IntegrationsPage() {
 
   return (
     <div className="page-content">
+      {confirmationDialog}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone === "error" ? "error" : "success"} />
 
       <PageHeader
@@ -1436,8 +1449,11 @@ export function IntegrationsPage() {
                     <div className="record-grid">
                       <FormField label="Queue Poll Interval (min)">
                         <input
-                          inputMode="numeric"
-                          placeholder="5"
+                          inputMode="decimal"
+                          min="0.5"
+                          placeholder="0.5"
+                          step="0.5"
+                          type="number"
                           value={draft.engine_queue_poll_interval_minutes}
                           onChange={(event) => setDraft((current) => ({ ...current, engine_queue_poll_interval_minutes: event.target.value }))}
                         />
@@ -1646,7 +1662,7 @@ export function IntegrationsPage() {
                       </article>
                       <article className="integration-readable-card">
                         <span className="integration-readable-label">Queue polling</span>
-                        <strong className="integration-readable-value">Every {Number.parseInt(draft.engine_queue_poll_interval_minutes, 10) || 5} min</strong>
+                        <strong className="integration-readable-value">Every {Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5} min</strong>
                       </article>
                       <article className="integration-readable-card">
                         <span className="integration-readable-label">Runtime profile</span>

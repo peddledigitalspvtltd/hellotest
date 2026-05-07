@@ -30,7 +30,7 @@ const resolvePollIntervalMs = () => {
     return DEFAULT_POLL_INTERVAL_MS;
 };
 const POLL_INTERVAL_MS = resolvePollIntervalMs();
-const POLL_CONCURRENCY = Math.max(1, Math.min(8, Math.trunc(normalizeNumber(process.env.TESTENGINE_POLL_CONCURRENCY) ?? 1)));
+const POLL_CONCURRENCY = Math.max(1, Math.min(8, Math.trunc(normalizeNumber(process.env.TESTENGINE_POLL_CONCURRENCY) ?? 4)));
 const nowIso = () => new Date().toISOString();
 const serializeError = (error) => {
     if (error instanceof Error) {
@@ -135,6 +135,29 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
     let healingAttempted = Boolean(job.runtime_state?.healing_attempted);
     let healingSucceeded = Boolean(job.runtime_state?.healing_succeeded);
     const patchProposals = [];
+    const pendingStepReports = [];
+    const enqueueStepReport = (stepId, payload) => {
+        const reportPromise = reportQueuedStep(job.id, stepId, payload)
+            .then((report) => {
+            syncCapturedValuesToWebContext(report.captures, webRunSession);
+        })
+            .catch((error) => {
+            logger.error({ error, jobId: job.id, stepId }, "Unable to report queued step result back to QAira");
+            emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
+                event_type: "testengine.queue.step.report.failed",
+                status: "failed",
+                summary: "Unable to report queued step result back to QAira.",
+                error: serializeError(error)
+            }));
+        });
+        pendingStepReports.push(reportPromise);
+    };
+    const flushStepReports = async () => {
+        if (!pendingStepReports.length) {
+            return;
+        }
+        await Promise.allSettled(pendingStepReports);
+    };
     let webRunSessionStopped = false;
     const stopWebRunSession = async (finalStatus) => {
         if (!webRunSession || webRunSessionStopped) {
@@ -181,7 +204,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             updateRunState(accepted.id, "running", `${job.test_case_title}: executing ${step.step_type.toUpperCase()} step ${index + 1} of ${remainingSteps.length}.`);
             if (step.step_type === "api") {
                 const result = await executeApiStepInEngine(envelope, step, capturedValues);
-                const report = await reportQueuedStep(job.id, step.id, {
+                enqueueStepReport(step.id, {
                     status: result.status,
                     note: result.note,
                     evidence: result.evidence,
@@ -190,13 +213,14 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                 });
                 capturedValues = {
                     ...capturedValues,
-                    ...(report.captures || {})
+                    ...(result.captures || {})
                 };
-                syncCapturedValuesToWebContext(report.captures, webRunSession);
+                syncCapturedValuesToWebContext(result.captures, webRunSession);
                 if (result.status === "failed") {
                     const failureSummary = result.note || `${job.test_case_title} failed on step ${step.order}.`;
                     const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
                     updateRunState(accepted.id, "failed", failureSummary);
+                    await flushStepReports();
                     await completeQueuedJobWithMetadata(job.id, {
                         status: "failed",
                         error: failureSummary,
@@ -224,6 +248,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                 const message = `${job.test_case_title} includes unsupported step type ${step.step_type}.`;
                 const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
                 updateRunState(accepted.id, "failed", message);
+                await flushStepReports();
                 await completeQueuedJobWithMetadata(job.id, {
                     status: "failed",
                     error: message,
@@ -256,7 +281,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     target_path: `qaira://test-cases/${envelope.qaira_test_case_id}/steps/${step.id}`
                 });
             }
-            const report = await reportQueuedStep(job.id, step.id, {
+            enqueueStepReport(step.id, {
                 status: stepResult.status,
                 note: stepResult.note,
                 evidence: stepResult.evidence || null,
@@ -267,13 +292,14 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             });
             capturedValues = {
                 ...capturedValues,
-                ...(report.captures || {})
+                ...(stepResult.captures || {})
             };
-            syncCapturedValuesToWebContext(report.captures, webRunSession);
+            syncCapturedValuesToWebContext(stepResult.captures, webRunSession);
             if (stepResult.status === "failed") {
                 const failureSummary = stepResult.note || `${job.test_case_title} failed on step ${step.order}.`;
                 const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
                 updateRunState(accepted.id, "failed", failureSummary);
+                await flushStepReports();
                 await completeQueuedJobWithMetadata(job.id, {
                     status: "failed",
                     error: failureSummary,
@@ -299,6 +325,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         }
         const completionSummary = `${job.test_case_title} completed successfully.`;
         const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("passed"));
+        await flushStepReports();
         await completeQueuedJobWithMetadata(job.id, {
             status: "passed",
             summary: completionSummary,
@@ -326,6 +353,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         }));
         try {
             const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+            await flushStepReports();
             await completeQueuedJobWithMetadata(job.id, {
                 status: "failed",
                 error: message,

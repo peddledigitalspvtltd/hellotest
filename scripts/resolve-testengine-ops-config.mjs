@@ -42,6 +42,15 @@ const normalizeInteger = (value, fallback = null) => {
   return fallback;
 };
 
+const normalizeNumber = (value, fallback = null) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const shQuote = (value) => `'${String(value ?? "").replace(/'/g, `'\"'\"'`)}'`;
 
 const requestJson = async (url, init = {}) => {
@@ -110,7 +119,7 @@ const authEmail = normalizeText(process.env.QAIRA_AUTH_EMAIL);
 const authPassword = normalizeText(process.env.QAIRA_AUTH_PASSWORD);
 const projectId = normalizeText(process.env.QAIRA_PROJECT_ID);
 const fallbackEngineUrl = normalizeUrl(process.env.ENGINE_PUBLIC_URL);
-const fallbackPollIntervalMinutes = Math.max(1, normalizeInteger(process.env.TESTENGINE_POLL_INTERVAL_MINUTES, 5));
+const fallbackPollIntervalMinutes = Math.max(0.5, normalizeNumber(process.env.TESTENGINE_POLL_INTERVAL_MINUTES, 5));
 const fallbackOpsServiceName = normalizeText(
   process.env.OPS_TELEMETRY_SERVICE_NAME || process.env.OTEL_SERVICE_NAME || process.env.OPS_SERVICE_NAME
 );
@@ -179,12 +188,12 @@ if (!baseUrl) {
 }
 
 const enginePublicUrl = fallbackEngineUrl || normalizeUrl(engineIntegration?.base_url);
-const configuredPollIntervalMinutes = normalizeInteger(process.env.TESTENGINE_POLL_INTERVAL_MINUTES, null);
-const integrationPollIntervalMinutes = normalizeInteger(
+const configuredPollIntervalMinutes = normalizeNumber(process.env.TESTENGINE_POLL_INTERVAL_MINUTES, null);
+const integrationPollIntervalMinutes = normalizeNumber(
   engineIntegration?.config?.queue_poll_interval_minutes,
   fallbackPollIntervalMinutes
 );
-const testEnginePollIntervalMinutes = Math.max(1, configuredPollIntervalMinutes ?? integrationPollIntervalMinutes);
+const testEnginePollIntervalMinutes = Math.max(0.5, configuredPollIntervalMinutes ?? integrationPollIntervalMinutes);
 const testEnginePollIntervalMs = Math.max(
   1000,
   normalizeInteger(process.env.TESTENGINE_POLL_INTERVAL_MS, testEnginePollIntervalMinutes * 60 * 1000)

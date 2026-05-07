@@ -262,7 +262,7 @@ fastify.addHook("onReady", async () => {
   };
 
   await runBatchProcesses();
-  batchProcessTimer = setInterval(runBatchProcesses, 10 * 1000);
+  batchProcessTimer = setInterval(runBatchProcesses, 30 * 1000);
 });
 
 fastify.addHook("onReady", async () => {

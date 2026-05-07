@@ -3,7 +3,7 @@ const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
-const QUEUED_BATCH_LIMIT = 5;
+const QUEUED_BATCH_LIMIT = 1;
 
 const insertJob = db.prepare(`
   INSERT INTO batch_process_jobs (

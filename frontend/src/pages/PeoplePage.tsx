@@ -10,6 +10,7 @@ import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { TileCardFact, TileCardIconFrame, TileCardStatusIndicator, TileCardUsersIcon } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { parseUserCsv, type ImportedUserRow } from "../lib/userImport";
@@ -25,6 +26,7 @@ export function PeoplePage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { users, roles } = useWorkspaceData();
   const [feedback, setFeedback] = useState<{ message: string; tone: FeedbackTone } | null>(null);
   const [view, setView] = useState<PeopleView>(searchParams.get("view") === "roles" ? "roles" : "users");
@@ -358,21 +360,21 @@ export function PeoplePage() {
     createRole.mutate({ name: createRoleDraft.name });
   };
 
-  const confirmDeleteUser = (user: User) => {
+  const confirmDeleteUser = async (user: User) => {
     const warning =
       user.id === session?.user.id
         ? "This will remove your own workspace access."
         : "This removes the user from the workspace directory.";
 
-    if (!window.confirm(`Delete user "${user.name || user.email}"?\n\n${warning}`)) {
+    if (!(await confirmDelete({ message: `Delete user "${user.name || user.email}"? ${warning}` }))) {
       return;
     }
 
     deleteUser.mutate(user.id);
   };
 
-  const confirmDeleteRole = (role: Role) => {
-    if (!window.confirm(`Delete role "${role.name}"?\n\nUsers currently assigned to this role may need reassignment first.`)) {
+  const confirmDeleteRole = async (role: Role) => {
+    if (!(await confirmDelete({ message: `Delete role "${role.name}"? Users currently assigned to this role may need reassignment first.` }))) {
       return;
     }
 
@@ -472,6 +474,7 @@ export function PeoplePage() {
 
   return (
     <div className="page-content">
+      {confirmationDialog}
       <PageHeader
         eyebrow="People & Access"
         title="User Management"
@@ -616,7 +619,7 @@ export function PeoplePage() {
                         <button className="primary-button" disabled={updateUser.isPending} type="submit">
                           {updateUser.isPending ? "Saving…" : "Save user"}
                         </button>
-                        <button className="ghost-button danger" disabled={deleteUser.isPending || updateUser.isPending} onClick={() => confirmDeleteUser(selectedUser)} type="button">
+                        <button className="ghost-button danger" disabled={deleteUser.isPending || updateUser.isPending} onClick={() => void confirmDeleteUser(selectedUser)} type="button">
                           Delete user
                         </button>
                       </div>
@@ -702,7 +705,7 @@ export function PeoplePage() {
                         <button className="primary-button" disabled={updateRole.isPending} type="submit">
                           {updateRole.isPending ? "Saving…" : "Save role"}
                         </button>
-                        <button className="ghost-button danger" disabled={deleteRole.isPending || updateRole.isPending} onClick={() => confirmDeleteRole(selectedRole)} type="button">
+                        <button className="ghost-button danger" disabled={deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
                           Delete role
                         </button>
                       </div>

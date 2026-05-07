@@ -8,6 +8,7 @@ import { Panel } from "../components/Panel";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { TileCardStatusIndicator, formatTileCardLabel, getTileCardTone } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
@@ -28,6 +29,7 @@ const createEmptyFeedbackDraft = (defaultStatus = "open"): FeedbackDraft => ({
 export function FeedbackPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const { feedback } = useWorkspaceData();
   const defaultFeedbackStatus = domainMetadataQuery.data?.feedback.default_status || "open";
@@ -153,6 +155,7 @@ export function FeedbackPage() {
 
   return (
     <div className="page-content">
+      {confirmationDialog}
       <PageHeader
         eyebrow="Reporting & Feedback"
         title="Reporting & Feedback"
@@ -250,8 +253,8 @@ export function FeedbackPage() {
                 {!isCreating && selectedItem ? (
                   <button
                     className="ghost-button danger"
-                    onClick={() => {
-                      if (window.confirm(`Delete feedback "${selectedItem.title}"?`)) {
+                    onClick={async () => {
+                      if (await confirmDelete({ message: `Delete feedback "${selectedItem.title}"?` })) {
                         void deleteFeedback.mutateAsync(selectedItem.id);
                       }
                     }}

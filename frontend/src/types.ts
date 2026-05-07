@@ -404,6 +404,11 @@ export type AutomationBuildResponse = {
   summary: string;
   transaction_id?: string;
   artifact_id?: string | null;
+  api_test_case?: {
+    id: string;
+    title: string;
+    step_count: number;
+  } | null;
 };
 
 export type RecorderSessionResponse = {
@@ -416,6 +421,29 @@ export type RecorderSessionResponse = {
   display_mode?: "browser-live-view" | "local-browser-with-live-view" | string | null;
   action_count?: number;
   network_count?: number;
+  actions?: Array<{
+    index: number;
+    type: string;
+    locator?: string | null;
+    text?: string | null;
+    value?: string | null;
+    url?: string | null;
+    page_id?: string | null;
+    page_title?: string | null;
+    source?: string | null;
+    timestamp?: string | null;
+  }>;
+  network?: Array<{
+    index: number;
+    method: string;
+    url: string;
+    status?: number | null;
+    resource_type?: string | null;
+    content_type?: string | null;
+    page_id?: string | null;
+    page_title?: string | null;
+    timestamp?: string | null;
+  }>;
   transaction_id?: string;
   engine_base_url?: string;
   status_url?: string;

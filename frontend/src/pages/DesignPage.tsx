@@ -34,7 +34,8 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
 import {
@@ -206,9 +207,10 @@ export function DesignPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
   const [selectedSuiteActionIds, setSelectedSuiteActionIds] = useState<string[]>([]);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
@@ -410,6 +412,14 @@ export function DesignPage() {
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -418,7 +428,7 @@ export function DesignPage() {
     if (!appTypes.some((item) => item.id === appTypeId)) {
       setAppTypeId(appTypes[0].id);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
     if (usersQuery.isPending || projectMembersQuery.isPending) {
@@ -1030,7 +1040,6 @@ export function DesignPage() {
 
   const handleProjectChange = (value: string) => {
     setProjectId(value);
-    setAppTypeId("");
     setSelectedSuiteId("");
     setSelectedSuiteActionIds([]);
     setSelectedTestCaseId("");
@@ -1226,9 +1235,9 @@ export function DesignPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete ${selectedSuites.length} suite${selectedSuites.length === 1 ? "" : "s"}? Linked test cases will be kept, but their suite mappings will be removed.`
-    );
+    const confirmed = await confirmDelete({
+      message: `Delete ${selectedSuites.length} suite${selectedSuites.length === 1 ? "" : "s"}? Linked test cases will be kept, but their suite mappings will be removed.`
+    });
 
     if (!confirmed) {
       return;
@@ -1316,7 +1325,7 @@ export function DesignPage() {
   };
 
   const handleDeleteTestCase = async () => {
-    if (!selectedTestCase || !window.confirm(`Delete test case "${selectedTestCase.title}"? This will remove its steps and mappings.`)) {
+    if (!selectedTestCase || !(await confirmDelete({ message: `Delete test case "${selectedTestCase.title}"? This will remove its steps and mappings.` }))) {
       return;
     }
 
@@ -1462,6 +1471,10 @@ export function DesignPage() {
       return;
     }
 
+    if (!(await confirmDelete({ message: "Delete this step?" }))) {
+      return;
+    }
+
     try {
       await deleteStepMutation.mutateAsync(stepId);
       updateStepsCache(selectedTestCase.id, (current) =>
@@ -1600,6 +1613,7 @@ export function DesignPage() {
 
   return (
     <div className="page-content page-content--library-full">
+      {confirmationDialog}
       {showSuiteTilesHeader ? (
         <PageHeader
           eyebrow="Test Design"

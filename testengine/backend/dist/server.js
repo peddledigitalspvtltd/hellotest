@@ -57,6 +57,19 @@ const app = Fastify({
         level: process.env.LOG_LEVEL || "info"
     }
 });
+app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+    reply.header("access-control-allow-origin", typeof origin === "string" ? origin : "*");
+    reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
+    reply.header("access-control-allow-headers", "content-type,x-qaira-recorder-token,authorization");
+    reply.header("access-control-max-age", "600");
+    if (request.method === "OPTIONS") {
+        reply.code(204).send();
+    }
+});
+app.options("/*", async (_request, reply) => {
+    reply.code(204).send();
+});
 const opsTelemetry = await createOpsTelemetry(app.log);
 await opsTelemetry.register(app);
 await registerRecorderRoutes(app);

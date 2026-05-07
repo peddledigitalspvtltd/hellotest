@@ -26,7 +26,8 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
 import { appendUniqueImages, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
@@ -109,9 +110,10 @@ export function RequirementsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedRequirementId, setSelectedRequirementId] = useState("");
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   const [linkedPreviewCaseId, setLinkedPreviewCaseId] = useState("");
@@ -261,6 +263,14 @@ export function RequirementsPage() {
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -269,7 +279,7 @@ export function RequirementsPage() {
     if (!appTypes.some((item) => item.id === appTypeId)) {
       setAppTypeId(appTypes[0].id);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
     if (!integrations.length) {
@@ -887,7 +897,7 @@ export function RequirementsPage() {
   };
 
   const handleDeleteRequirement = async () => {
-    if (!selectedRequirement || !window.confirm(`Delete requirement "${selectedRequirement.title}"? Linked test cases will remain in the library.`)) {
+    if (!selectedRequirement || !(await confirmDelete({ message: `Delete requirement "${selectedRequirement.title}"? Linked test cases will remain in the library.` }))) {
       return;
     }
 
@@ -911,7 +921,7 @@ export function RequirementsPage() {
   }
 
   async function handleDeleteRequirementItem(requirement: Requirement) {
-    if (!window.confirm(`Delete requirement "${requirement.title}"? Linked test cases will remain in the library.`)) {
+    if (!(await confirmDelete({ message: `Delete requirement "${requirement.title}"? Linked test cases will remain in the library.` }))) {
       return;
     }
 
@@ -944,9 +954,9 @@ export function RequirementsPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete ${selectedRequirements.length} requirement${selectedRequirements.length === 1 ? "" : "s"}? Linked test cases will remain in the library.`
-    );
+    const confirmed = await confirmDelete({
+      message: `Delete ${selectedRequirements.length} requirement${selectedRequirements.length === 1 ? "" : "s"}? Linked test cases will remain in the library.`
+    });
 
     if (!confirmed) {
       return;
@@ -1079,6 +1089,7 @@ export function RequirementsPage() {
 
   return (
     <div className="page-content page-content--library-full">
+      {confirmationDialog}
       <PageHeader
         eyebrow="Requirements"
         title="Requirements Workspace"

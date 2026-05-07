@@ -2,6 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 
 const CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
 const CURRENT_PROJECT_EVENT = "qaira:current-project-change";
+const CURRENT_APP_TYPE_STORAGE_KEY = "sidebar_app_type_id";
+const CURRENT_APP_TYPE_EVENT = "qaira:current-app-type-change";
+
+const dispatchScopedEvent = (eventName: string, detail: Record<string, string>) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(eventName, { detail }));
+};
 
 const readCurrentProjectId = () => {
   if (typeof window === "undefined") {
@@ -22,7 +32,7 @@ const writeCurrentProjectId = (projectId: string) => {
     window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
   }
 
-  window.dispatchEvent(new Event(CURRENT_PROJECT_EVENT));
+  dispatchScopedEvent(CURRENT_PROJECT_EVENT, { projectId });
 };
 
 export function useCurrentProject() {
@@ -33,8 +43,11 @@ export function useCurrentProject() {
       return;
     }
 
-    const syncProjectId = () => {
-      setProjectIdState(readCurrentProjectId());
+    const syncProjectId = (event?: Event) => {
+      const detailProjectId = event instanceof CustomEvent && typeof event.detail?.projectId === "string"
+        ? event.detail.projectId
+        : null;
+      setProjectIdState(detailProjectId ?? readCurrentProjectId());
     };
 
     window.addEventListener("storage", syncProjectId);
@@ -52,4 +65,79 @@ export function useCurrentProject() {
   }, []);
 
   return [projectId, setProjectId] as const;
+}
+
+const readStoredAppTypeMap = () => {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CURRENT_APP_TYPE_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, string> : {};
+  } catch {
+    return {};
+  }
+};
+
+const readCurrentAppTypeId = (projectId: string) => {
+  if (!projectId) {
+    return "";
+  }
+
+  return readStoredAppTypeMap()[projectId] || "";
+};
+
+const writeCurrentAppTypeId = (projectId: string, appTypeId: string) => {
+  if (typeof window === "undefined" || !projectId) {
+    return;
+  }
+
+  const next = readStoredAppTypeMap();
+
+  if (appTypeId) {
+    next[projectId] = appTypeId;
+  } else {
+    delete next[projectId];
+  }
+
+  window.localStorage.setItem(CURRENT_APP_TYPE_STORAGE_KEY, JSON.stringify(next));
+  dispatchScopedEvent(CURRENT_APP_TYPE_EVENT, { projectId, appTypeId });
+};
+
+export function useCurrentAppType(projectId: string) {
+  const [appTypeId, setAppTypeIdState] = useState(() => readCurrentAppTypeId(projectId));
+
+  useEffect(() => {
+    setAppTypeIdState(readCurrentAppTypeId(projectId));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const syncAppTypeId = (event?: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail?.projectId === "string" && event.detail.projectId !== projectId) {
+        return;
+      }
+
+      setAppTypeIdState(readCurrentAppTypeId(projectId));
+    };
+
+    window.addEventListener("storage", syncAppTypeId);
+    window.addEventListener(CURRENT_APP_TYPE_EVENT, syncAppTypeId);
+
+    return () => {
+      window.removeEventListener("storage", syncAppTypeId);
+      window.removeEventListener(CURRENT_APP_TYPE_EVENT, syncAppTypeId);
+    };
+  }, [projectId]);
+
+  const setAppTypeId = useCallback((nextAppTypeId: string) => {
+    setAppTypeIdState(nextAppTypeId);
+    writeCurrentAppTypeId(projectId, nextAppTypeId);
+  }, [projectId]);
+
+  return [appTypeId, setAppTypeId] as const;
 }

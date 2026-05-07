@@ -1185,11 +1185,58 @@ exports.startExecution = async (id, options = {}) => {
   let testEngineIntegration = null;
   let shouldMarkAsCi = false;
 
+  const normalizeLocalEngineBaseUrl = (value) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+
+    if (!normalized) {
+      return null;
+    }
+
+    const parsed = new URL(normalized);
+
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("Local execution engine URL must use http or https.");
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    const isPrivate =
+      hostname === "localhost"
+      || hostname === "host.docker.internal"
+      || hostname === "testengine"
+      || hostname === "127.0.0.1"
+      || hostname === "::1"
+      || /^10\./.test(hostname)
+      || /^192\.168\./.test(hostname)
+      || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+    if (!isPrivate) {
+      throw new Error("Local execution engine URL must point to localhost, the local Docker service, or a private network address.");
+    }
+
+    return parsed.toString().replace(/\/+$/, "");
+  };
+
   if (!skipTestEngineDispatch) {
     dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution);
 
     if (dispatchPlan.eligible_automated_case_count > 0) {
       testEngineIntegration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
+      const localEngineBaseUrl = options.execution_mode === "local"
+        ? normalizeLocalEngineBaseUrl(options.engine_base_url)
+        : null;
+
+      if (testEngineIntegration && localEngineBaseUrl) {
+        testEngineIntegration = {
+          ...testEngineIntegration,
+          base_url: localEngineBaseUrl,
+          config: {
+            ...(testEngineIntegration.config || {}),
+            execution_mode: "local",
+            public_base_url: "http://localhost:4301",
+            live_view_url: "http://localhost:4301/api/v1/live-session?provider=playwright"
+          }
+        };
+      }
 
       if (!testEngineIntegration) {
         const canContinueManually = dispatchPlan.manual_case_count > 0 || dispatchPlan.unsupported_automated_case_count > 0;

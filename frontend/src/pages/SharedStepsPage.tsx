@@ -30,7 +30,8 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
@@ -168,8 +169,9 @@ const aggregateRunStatus = (
 export function SharedStepsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -282,6 +284,14 @@ export function SharedStepsPage() {
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((appType) => appType.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -290,7 +300,7 @@ export function SharedStepsPage() {
     if (!appTypes.some((appType) => appType.id === appTypeId)) {
       setAppTypeId(appTypes[0].id);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
     setSelectedGroupId("");
@@ -474,7 +484,7 @@ export function SharedStepsPage() {
     setIsUsageDialogOpen(true);
   };
   const handleDeleteSharedGroupItem = async (group: SharedStepGroup) => {
-    if (!window.confirm(`Delete shared step group "${group.name}"? Linked test cases will keep their steps as local groups.`)) {
+    if (!(await confirmDelete({ message: `Delete shared step group "${group.name}"? Linked test cases will keep their steps as local groups.` }))) {
       return;
     }
 
@@ -962,7 +972,7 @@ export function SharedStepsPage() {
       return;
     }
 
-    if (!window.confirm(`Delete shared step group "${selectedGroup.name}"? Linked test cases will keep their steps as local groups.`)) {
+    if (!(await confirmDelete({ message: `Delete shared step group "${selectedGroup.name}"? Linked test cases will keep their steps as local groups.` }))) {
       return;
     }
 
@@ -987,7 +997,7 @@ export function SharedStepsPage() {
       return;
     }
 
-    if (!window.confirm(`Delete ${groupsToDelete.length} shared group${groupsToDelete.length === 1 ? "" : "s"}? Linked test cases will keep their steps as local groups.`)) {
+    if (!(await confirmDelete({ message: `Delete ${groupsToDelete.length} shared group${groupsToDelete.length === 1 ? "" : "s"}? Linked test cases will keep their steps as local groups.` }))) {
       return;
     }
 
@@ -1096,6 +1106,7 @@ export function SharedStepsPage() {
 
   return (
     <div className="page-content page-content--library-full">
+      {confirmationDialog}
       <PageHeader
         eyebrow="Shared Step Groups"
         title="Shared Step Groups"
@@ -1121,7 +1132,6 @@ export function SharedStepsPage() {
         onAppTypeChange={setAppTypeId}
         onProjectChange={(value) => {
           setProjectId(value);
-          setAppTypeId("");
         }}
         projectId={projectId}
         projects={projects}

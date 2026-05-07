@@ -6,6 +6,7 @@ const requirementDesignService = require("../services/requirementDesign.service"
 const aiTestCaseGenerationService = require("../services/aiTestCaseGeneration.service");
 const aiCaseAuthoringService = require("../services/aiCaseAuthoring.service");
 const aiAutomationBuilderService = require("../services/aiAutomationBuilder.service");
+const automationGeneratorService = require("../services/automationGenerator.service");
 const batchProcessService = require("../services/batchProcess.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 
@@ -227,11 +228,45 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/test-cases/:id/automation/generator-jobs", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      integration_id: { required: false, type: "string" },
+      start_url: { required: false, type: "string" },
+      additional_context: { required: false, type: "string" },
+      test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" }
+    }, req.body || {});
+
+    const testCase = await service.getTestCase(req.params.id);
+
+    if (testCase.app_type_id) {
+      const appType = await appTypeService.getAppType(testCase.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    }
+
+    return automationGeneratorService.queueGeneratorJob({
+      test_case_id: req.params.id,
+      integration_id: req.body?.integration_id,
+      start_url: req.body?.start_url,
+      additional_context: req.body?.additional_context,
+      test_environment_id: req.body?.test_environment_id,
+      test_configuration_id: req.body?.test_configuration_id,
+      test_data_set_id: req.body?.test_data_set_id,
+      created_by: req.user.id
+    });
+  });
+
   fastify.post("/test-cases/:id/automation/recorder-session", async (req) => {
     await fastify.authenticate(req);
 
     fastify.validate({
       start_url: { required: false, type: "string" },
+      recorder_mode: { required: false, type: "string" },
+      engine_base_url: { required: false, type: "string" },
+      recorder_public_base_url: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" }
@@ -247,6 +282,9 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.startRecorderSession({
       test_case_id: req.params.id,
       start_url: req.body?.start_url,
+      recorder_mode: req.body?.recorder_mode,
+      engine_base_url: req.body?.engine_base_url,
+      recorder_public_base_url: req.body?.recorder_public_base_url,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
@@ -261,6 +299,8 @@ module.exports = async function (fastify) {
       transaction_id: { required: false, type: "string" },
       integration_id: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      recorder_mode: { required: false, type: "string" },
+      engine_base_url: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" }
@@ -279,6 +319,8 @@ module.exports = async function (fastify) {
       transaction_id: req.body?.transaction_id,
       integration_id: req.body?.integration_id,
       additional_context: req.body?.additional_context,
+      recorder_mode: req.body?.recorder_mode,
+      engine_base_url: req.body?.engine_base_url,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,

@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, CopyIcon, ExportIcon, MousePointerIcon, MoveIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -15,6 +15,8 @@ import { FormField } from "../components/FormField";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
+import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
@@ -44,7 +46,8 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
@@ -689,9 +692,10 @@ export function TestCasesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useState("");
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">("tile");
@@ -716,6 +720,7 @@ export function TestCasesPage() {
   const [automationFailureThreshold, setAutomationFailureThreshold] = useState(3);
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderSessionCaseId, setRecorderSessionCaseId] = useState("");
+  const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<TestCaseEditorSectionKey, boolean>>(createDefaultTestCaseSections);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -884,7 +889,7 @@ export function TestCasesPage() {
     mutationFn: ({ id, testCaseIds }: { id: string; testCaseIds: string[] }) => api.testSuites.assignTestCases(id, testCaseIds)
   });
   const createExecution = useMutation({ mutationFn: api.executions.create });
-  const startExecution = useMutation({ mutationFn: api.executions.start });
+  const startExecution = useMutation({ mutationFn: (id: string) => api.executions.start(id) });
   const acceptGeneratedCase = useMutation({ mutationFn: api.testCases.acceptGeneratedCase });
   const rejectGeneratedCase = useMutation({ mutationFn: api.testCases.rejectGeneratedCase });
   const updateTestCase = useMutation({
@@ -903,7 +908,7 @@ export function TestCasesPage() {
   const acceptDesignedCases = useMutation({ mutationFn: api.testCases.acceptDesignedCases });
   const buildSingleAutomation = useMutation({
     mutationFn: ({ testCaseId }: { testCaseId: string }) =>
-      api.testCases.buildAutomation(testCaseId, {
+      api.testCases.queueAutomationGenerator(testCaseId, {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: automationContext.trim() || undefined,
@@ -927,20 +932,25 @@ export function TestCasesPage() {
       })
   });
   const startRecorder = useMutation({
-    mutationFn: ({ testCaseId }: { testCaseId: string }) =>
+    mutationFn: ({ testCaseId, options }: { testCaseId: string; options: RecorderStartOptions }) =>
       api.testCases.startRecorderSession(testCaseId, {
         start_url: automationStartUrl.trim() || undefined,
+        recorder_mode: options.recorder_mode,
+        engine_base_url: options.engine_base_url,
+        recorder_public_base_url: options.recorder_public_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
       })
   });
   const finishRecorder = useMutation({
-    mutationFn: ({ testCaseId, sessionId, transactionId }: { testCaseId: string; sessionId: string; transactionId?: string }) =>
+    mutationFn: ({ testCaseId, sessionId, transactionId, recorderStartOptions }: { testCaseId: string; sessionId: string; transactionId?: string; recorderStartOptions?: RecorderStartOptions | null }) =>
       api.testCases.finishRecorderSession(testCaseId, sessionId, {
         transaction_id: transactionId,
         integration_id: integrationId || undefined,
         additional_context: automationContext.trim() || undefined,
+        recorder_mode: recorderStartOptions?.recorder_mode,
+        engine_base_url: recorderStartOptions?.engine_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
@@ -1022,6 +1032,17 @@ export function TestCasesPage() {
     setMessage(error instanceof Error ? error.message : fallback);
   };
 
+  function clearScopedSearchParams() {
+    if (!searchParams.has("project") && !searchParams.has("appType")) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("project");
+    nextParams.delete("appType");
+    setSearchParams(nextParams, { replace: true });
+  }
+
   function syncTestCaseSearchParams(nextCaseId?: string | null) {
     const currentCaseId = searchParams.get("case") || "";
     const targetCaseId = nextCaseId || "";
@@ -1091,6 +1112,14 @@ export function TestCasesPage() {
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
 
   useEffect(() => {
+    if (appTypesQuery.isPending) {
+      return;
+    }
+
+    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+      return;
+    }
+
     if (!appTypes.length) {
       setAppTypeId("");
       return;
@@ -1099,7 +1128,7 @@ export function TestCasesPage() {
     if (!appTypes.some((item) => item.id === appTypeId)) {
       setAppTypeId(appTypes[0].id);
     }
-  }, [appTypeId, appTypes]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
     if (usersQuery.isPending || projectMembersQuery.isPending) {
@@ -1120,8 +1149,11 @@ export function TestCasesPage() {
 
     if (projects.some((project) => project.id === requestedProjectId)) {
       setProjectId(requestedProjectId);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("project");
+      setSearchParams(nextParams, { replace: true });
     }
-  }, [projectId, projects, searchParams, setProjectId]);
+  }, [projectId, projects, searchParams, setProjectId, setSearchParams]);
 
   useEffect(() => {
     const requestedAppTypeId = searchParams.get("appType");
@@ -1132,8 +1164,11 @@ export function TestCasesPage() {
 
     if (appTypes.some((appType) => appType.id === requestedAppTypeId)) {
       setAppTypeId(requestedAppTypeId);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("appType");
+      setSearchParams(nextParams, { replace: true });
     }
-  }, [appTypeId, appTypes, searchParams]);
+  }, [appTypeId, appTypes, searchParams, setAppTypeId, setSearchParams]);
 
   useEffect(() => {
     if (!integrations.length) {
@@ -2368,7 +2403,7 @@ export function TestCasesPage() {
   };
 
   const handleDeleteCase = async () => {
-    if (!selectedTestCase || !window.confirm(`Delete test case "${selectedTestCase.title}"? Historical run evidence will stay preserved.`)) {
+    if (!selectedTestCase || !(await confirmDelete({ message: `Delete test case "${selectedTestCase.title}"? Historical run evidence will stay preserved.` }))) {
       return;
     }
 
@@ -2397,9 +2432,9 @@ export function TestCasesPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete ${selectedCases.length} test case${selectedCases.length === 1 ? "" : "s"}? Historical execution evidence will stay preserved.`
-    );
+    const confirmed = await confirmDelete({
+      message: `Delete ${selectedCases.length} test case${selectedCases.length === 1 ? "" : "s"}? Historical execution evidence will stay preserved.`
+    });
 
     if (!confirmed) {
       return;
@@ -2579,7 +2614,7 @@ export function TestCasesPage() {
     try {
       if (automationTargetCaseIds.length === 1) {
         const response = await buildSingleAutomation.mutateAsync({ testCaseId: automationTargetCaseIds[0] });
-        showSuccess(`AI automation associated with ${response.generated_step_count} step${response.generated_step_count === 1 ? "" : "s"}.`);
+        showSuccess(`Automation generator queued as ${response.transaction_id.slice(0, 8)}. Track it in TestOps.`);
       } else {
         const response = await buildBatchAutomation.mutateAsync({ testCaseIds: automationTargetCaseIds });
         showSuccess(`Batch AI automation queued as ${response.transaction_id}. Track it in TestOps.`);
@@ -2608,7 +2643,7 @@ export function TestCasesPage() {
     }
   };
 
-  const handleStartRecorder = async () => {
+  const handleStartRecorder = async (options: RecorderStartOptions) => {
     if (!selectedTestCase) {
       showError(new Error("Select a saved web test case before starting the recorder."), "Unable to start recorder");
       return;
@@ -2620,9 +2655,10 @@ export function TestCasesPage() {
     }
 
     try {
-      const response = await startRecorder.mutateAsync({ testCaseId: selectedTestCase.id });
+      const response = await startRecorder.mutateAsync({ testCaseId: selectedTestCase.id, options });
       setRecorderSession(response);
       setRecorderSessionCaseId(selectedTestCase.id);
+      setRecorderStartOptions(options);
       showSuccess(response.live_view_url ? "Recorder live view is ready in QAira." : "Recorder started in the Test Engine browser session.");
     } catch (error) {
       showError(error, "Unable to start recorder");
@@ -2639,6 +2675,7 @@ export function TestCasesPage() {
       const response = await finishRecorder.mutateAsync({
         testCaseId: recorderSessionCaseId,
         sessionId: recorderSession.id,
+        recorderStartOptions,
         transactionId: recorderSession.transaction_id
       });
       setRecorderSession(null);
@@ -2944,7 +2981,7 @@ export function TestCasesPage() {
       return;
     }
 
-    if (!window.confirm("Delete this step?")) {
+    if (!(await confirmDelete({ message: "Delete this step?" }))) {
       return;
     }
 
@@ -2976,7 +3013,7 @@ export function TestCasesPage() {
 
     const countLabel = `${targetIds.length} selected step${targetIds.length === 1 ? "" : "s"}`;
 
-    if (!window.confirm(`Delete ${countLabel}?`)) {
+    if (!(await confirmDelete({ message: `Delete ${countLabel}?` }))) {
       return;
     }
 
@@ -3447,7 +3484,7 @@ export function TestCasesPage() {
       ? `Remove shared group "${groupName}" from this test case? The shared group library item will stay available.`
       : `Delete "${groupName}" and its ${targetIds.length} step${targetIds.length === 1 ? "" : "s"}?`;
 
-    if (!window.confirm(confirmMessage)) {
+    if (!(await confirmDelete({ message: confirmMessage }))) {
       return;
     }
 
@@ -3604,7 +3641,11 @@ export function TestCasesPage() {
       });
 
       setMessageTone("success");
-      setMessage(`Test case import queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`);
+      setMessage(
+        response.split_count && response.split_count > 1
+          ? `Test case import split into ${response.split_count} queued batch processes. Track progress in TestOps.`
+          : `Test case import queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`
+      );
       setImportBatches([]);
       setImportFileWarnings([]);
       setImportSourceSelection("auto");
@@ -3700,7 +3741,7 @@ export function TestCasesPage() {
   };
 
   const handleDeleteCaseItem = async (testCase: TestCase) => {
-    if (!window.confirm(`Delete test case "${testCase.title}"? Historical execution evidence will stay preserved.`)) {
+    if (!(await confirmDelete({ message: `Delete test case "${testCase.title}"? Historical execution evidence will stay preserved.` }))) {
       return;
     }
 
@@ -4007,9 +4048,6 @@ export function TestCasesPage() {
         project_id: projectId,
         app_type_id: appTypeId,
         test_case_ids: [testCaseId],
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: `${testCase.title} Run`,
         created_by: session.user.id
@@ -4049,7 +4087,7 @@ export function TestCasesPage() {
       return;
     }
 
-    if (action === "reject" && !window.confirm(`Reject and permanently delete "${testCase.title}"?`)) {
+    if (action === "reject" && !(await confirmDelete({ message: `Reject and permanently delete "${testCase.title}"?` }))) {
       return;
     }
 
@@ -4086,7 +4124,7 @@ export function TestCasesPage() {
       return;
     }
 
-    if (action === "reject" && !window.confirm(`Reject and permanently delete ${selectedPendingGeneratedCases.length} generated test case${selectedPendingGeneratedCases.length === 1 ? "" : "s"}?`)) {
+    if (action === "reject" && !(await confirmDelete({ message: `Reject and permanently delete ${selectedPendingGeneratedCases.length} generated test case${selectedPendingGeneratedCases.length === 1 ? "" : "s"}?` }))) {
       return;
     }
 
@@ -4609,17 +4647,6 @@ export function TestCasesPage() {
         >
           <TestCaseRunIcon />
           <span>{isSelectedCaseRunning ? "Starting…" : "Run test"}</span>
-        </button>
-      ) : null}
-      {isCaseWorkspaceOpen ? (
-        <button
-          className="ghost-button"
-          disabled={isCreating || !selectedTestCase}
-          onClick={() => setExpandedSections((current) => ({ ...current, automation: true }))}
-          type="button"
-        >
-          <AutomationCodeIcon />
-          <span>Automate</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5238,6 +5265,7 @@ export function TestCasesPage() {
 
   return (
     <div className={["page-content", "page-content--library-full", isCaseWorkspaceOpen ? "page-content--workspace-focus" : ""].join(" ")}>
+      {confirmationDialog}
       {!isCaseWorkspaceOpen ? (
         <PageHeader
           className="page-header--test-cases"
@@ -5291,13 +5319,14 @@ export function TestCasesPage() {
           appTypeId={appTypeId}
           appTypes={appTypes}
           onAppTypeChange={(value) => {
+            clearScopedSearchParams();
             setAppTypeId(value);
             setSelectedExecutionAssigneeId("");
             resetExecutionContextSelection();
           }}
           onProjectChange={(value) => {
+            clearScopedSearchParams();
             setProjectId(value);
-            setAppTypeId("");
             setSelectedExecutionAssigneeId("");
             resetExecutionContextSelection();
           }}
@@ -6162,15 +6191,12 @@ export function TestCasesPage() {
                               <span>{recorderSession ? `Session ${recorderSession.id.slice(0, 8)} is ${recorderSession.status}.` : "Capture clicks, fills, tab navigation, and business API traffic for this case."}</span>
                             </div>
                             <div className="testops-recorder-actions">
-                              <button
-                                className="ghost-button"
-                                disabled={!selectedTestCase || !testEngineIntegration || startRecorder.isPending || Boolean(recorderSession)}
-                                onClick={() => void handleStartRecorder()}
-                                type="button"
-                              >
-                                <MousePointerIcon size={16} />
-                                <span>{startRecorder.isPending ? "Starting..." : "Start recorder"}</span>
-                              </button>
+                              <RecorderStartControls
+                                disabled={!selectedTestCase || !testEngineIntegration}
+                                hasSession={Boolean(recorderSession)}
+                                isStarting={startRecorder.isPending}
+                                onStart={(options) => void handleStartRecorder(options)}
+                              />
                               <button
                                 className="primary-button"
                                 disabled={!recorderSession || finishRecorder.isPending}
@@ -6199,11 +6225,13 @@ export function TestCasesPage() {
                           ) : null}
                           {recorderLiveUrl ? (
                             <iframe
+                              allow="clipboard-read; clipboard-write"
                               className="recorder-live-frame"
                               src={recorderLiveUrl}
                               title="QAira recorder live view"
                             />
                           ) : null}
+                          <RecorderSessionInsights session={recorderSession} />
                         </div>
 
                         {automationLearningCache.length ? (
