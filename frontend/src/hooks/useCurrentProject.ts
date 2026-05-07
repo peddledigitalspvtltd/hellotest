@@ -21,18 +21,20 @@ const readCurrentProjectId = () => {
   return window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY) || "";
 };
 
-const writeCurrentProjectId = (projectId: string) => {
+const writeCurrentProjectId = (projectId: string | number) => {
   if (typeof window === "undefined") {
     return;
   }
 
-  if (projectId) {
-    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, projectId);
+  const normalizedId = projectId != null ? String(projectId) : "";
+
+  if (normalizedId) {
+    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, normalizedId);
   } else {
     window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
   }
 
-  dispatchScopedEvent(CURRENT_PROJECT_EVENT, { projectId });
+  dispatchScopedEvent(CURRENT_PROJECT_EVENT, { projectId: normalizedId });
 };
 
 export function useCurrentProject() {
@@ -44,8 +46,8 @@ export function useCurrentProject() {
     }
 
     const syncProjectId = (event?: Event) => {
-      const detailProjectId = event instanceof CustomEvent && typeof event.detail?.projectId === "string"
-        ? event.detail.projectId
+      const detailProjectId = event instanceof CustomEvent && event.detail?.projectId != null
+        ? String(event.detail.projectId)
         : null;
       setProjectIdState(detailProjectId ?? readCurrentProjectId());
     };
@@ -59,9 +61,10 @@ export function useCurrentProject() {
     };
   }, []);
 
-  const setProjectId = useCallback((nextProjectId: string) => {
-    setProjectIdState(nextProjectId);
-    writeCurrentProjectId(nextProjectId);
+  const setProjectId = useCallback((nextProjectId: string | number) => {
+    const normalizedId = nextProjectId != null ? String(nextProjectId) : "";
+    setProjectIdState(normalizedId);
+    writeCurrentProjectId(normalizedId);
   }, []);
 
   return [projectId, setProjectId] as const;

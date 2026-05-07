@@ -394,6 +394,12 @@ export const api = {
       request<{ updated: boolean }>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/requirements/${id}`, { method: "DELETE" })
   },
+  knowledgeRepo: {
+    list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
+    create: (projectId: string, input: any) => request<any>(`/projects/${projectId}/knowledge`, { method: "POST", body: JSON.stringify(input) }),
+    update: (projectId: string, id: string, input: any) => request<any>(`/projects/${projectId}/knowledge/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" })
+  },
   feedback: {
     list: (query?: { user_id?: string; status?: string }) =>
       request<Feedback[]>(`/feedback${toQueryString(query)}`),

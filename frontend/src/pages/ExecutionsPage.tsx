@@ -1344,7 +1344,7 @@ export function ExecutionsPage() {
   const allExecutionResults = allExecutionResultsQuery.data || [];
   const integrations = integrationsQuery.data || [];
   const testEngineIntegrations = testEngineIntegrationsQuery.data || [];
-  const selectedProject = projects.find((project) => project.id === projectId) || null;
+  const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const assigneeOptions = useMemo<ExecutionAssigneeOption[]>(
     () => buildAssigneeOptions(projectMembers, users),
@@ -1676,7 +1676,7 @@ export function ExecutionsPage() {
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
@@ -4405,6 +4405,18 @@ export function ExecutionsPage() {
                             <AutomationCodeIcon />
                             <span>Automation code</span>
                           </button>
+                          {isExecutionLiveViewEligible ? (
+                            <a
+                              className="ghost-button"
+                              href={testEngineLiveViewUrl}
+                              rel="noreferrer"
+                              target="_blank"
+                              title="View live browser session"
+                            >
+                              <LiveRunIcon />
+                              <span>View live run</span>
+                            </a>
+                          ) : null}
                         </div>
                       </div>
 
@@ -4856,17 +4868,7 @@ export function ExecutionsPage() {
                         <strong>{blockingCases.length}</strong>
                         <span>Blocking cases</span>
                       </div>
-                      <a
-                        aria-disabled={!isExecutionLiveViewEligible}
-                        className={isExecutionLiveViewEligible ? "mini-card execution-live-mini-card" : "mini-card execution-live-mini-card is-disabled"}
-                        href={isExecutionLiveViewEligible ? testEngineLiveViewUrl : undefined}
-                        rel="noreferrer"
-                        target="_blank"
-                        title={isExecutionLiveViewEligible ? "View the active browser execution" : "Live run is available only while a web browser execution is running"}
-                      >
-                        <strong>Live</strong>
-                        <span>View run</span>
-                      </a>
+
                     </div>
 
                     <ExecutionContextSnapshotSummary execution={selectedExecution} onViewFull={() => setIsExecutionContextModalOpen(true)} />
@@ -4918,17 +4920,7 @@ export function ExecutionsPage() {
                           <ExecutionStartIcon />
                           <span>{startExecution.isPending ? "Starting…" : "Start run"}</span>
                         </button>
-                        {supportsLocalDesktopExecution ? (
-                          <button
-                            className="ghost-button"
-                            disabled={currentExecutionStatus !== "queued" || startExecution.isPending || completeExecution.isPending}
-                            onClick={() => void handleStartSelectedExecution("local")}
-                            type="button"
-                          >
-                            <ExecutionStartIcon />
-                            <span>{startExecution.isPending ? "Starting…" : "Start local run"}</span>
-                          </button>
-                        ) : null}
+
                         <button
                           className="ghost-button"
                           disabled={!selectedExecution || downloadExecutionReport.isPending}
@@ -4947,17 +4939,7 @@ export function ExecutionsPage() {
                           <MailIcon />
                           <span>Email report</span>
                         </button>
-                        <a
-                          aria-disabled={!isExecutionLiveViewEligible}
-                          className={!isExecutionLiveViewEligible ? "ghost-button is-disabled" : "ghost-button"}
-                          href={isExecutionLiveViewEligible ? testEngineLiveViewUrl : undefined}
-                          rel="noreferrer"
-                          target="_blank"
-                          title={isExecutionLiveViewEligible ? "View live browser session" : "Live run is available only while a web browser execution is running"}
-                        >
-                          <LiveRunIcon />
-                          <span>View live run</span>
-                        </a>
+
                         <button
                           className="ghost-button"
                           disabled={currentExecutionStatus !== "running" || completeExecution.isPending || startExecution.isPending}
@@ -5199,11 +5181,19 @@ export function ExecutionsPage() {
               </button>
             </div>
             <div className="execution-evidence-modal-body">
-              <img
-                alt={`${executionEvidencePreview.stepLabel} evidence`}
-                className="execution-evidence-modal-image"
-                src={executionEvidencePreview.dataUrl}
-              />
+              {executionEvidencePreview.dataUrl.startsWith("data:video") ? (
+                <video
+                  className="execution-evidence-modal-image"
+                  controls
+                  src={executionEvidencePreview.dataUrl}
+                />
+              ) : (
+                <img
+                  alt={`${executionEvidencePreview.stepLabel} evidence`}
+                  className="execution-evidence-modal-image"
+                  src={executionEvidencePreview.dataUrl}
+                />
+              )}
             </div>
           </div>
         </div>

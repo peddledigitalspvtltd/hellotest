@@ -29,14 +29,19 @@
   --primary-strong: #1645b0;
   --danger: var(--error);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  font-family: "Sora", "Segoe UI", sans-serif;
-  line-height: 1.5;
+  font-family: "Inter", "Segoe UI", sans-serif;
+  line-height: 1.6;
   font-weight: 400;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(108, 163, 255, 0.3), transparent 30%),
-    radial-gradient(circle at top right, rgba(33, 104, 243, 0.14), transparent 24%),
-    linear-gradient(180deg, #f4f9ff 0%, #e8f2ff 100%);
+    radial-gradient(circle at top left, rgba(108, 163, 255, 0.4), transparent 40%),
+    radial-gradient(circle at top right, rgba(33, 104, 243, 0.18), transparent 30%),
+    linear-gradient(180deg, #f4f9ff 0%, #eef5ff 100%);
+  background-attachment: fixed;
+}
+
+h1, h2, h3, h4, h5, h6, .brand-mark, .display-id-badge code {
+  font-family: "Outfit", "Inter", sans-serif;
 }
 
 :root[data-theme="dark"] {
@@ -61,11 +66,12 @@
   --primary: var(--accent);
   --primary-strong: #9cc3ff;
   --danger: var(--error);
-  --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.4), 0 8px 16px rgba(0, 0, 0, 0.2);
   background:
-    radial-gradient(circle at top left, rgba(108, 167, 255, 0.18), transparent 24%),
-    radial-gradient(circle at top right, rgba(41, 117, 255, 0.14), transparent 20%),
-    linear-gradient(180deg, #0c1830 0%, #071120 100%);
+    radial-gradient(circle at top left, rgba(108, 167, 255, 0.25), transparent 35%),
+    radial-gradient(circle at top right, rgba(41, 117, 255, 0.2), transparent 30%),
+    linear-gradient(180deg, #091226 0%, #050b16 100%);
+  background-attachment: fixed;
 }
 
 :root[data-theme="dark"] .sidebar {
@@ -146,8 +152,13 @@ textarea,
     background-color 180ms ease,
     color 180ms ease,
     border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    box-shadow 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 180ms ease;
+}
+
+button:active {
+  transform: scale(0.98);
 }
 
 button {
@@ -498,17 +509,36 @@ textarea {
 
 .auth-hero {
   border-radius: 36px;
-  padding: 3rem;
+  padding: 3.5rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 100%);
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .auth-hero h1 {
-  font-size: clamp(2.4rem, 6vw, 4.5rem);
+  font-size: clamp(3rem, 7vw, 5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
   line-height: 0.96;
-  margin: 0.25rem 0 1rem;
+  margin: 0.25rem 0 1.5rem;
   max-width: 12ch;
+  background: linear-gradient(135deg, var(--text) 0%, var(--muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .auth-panel {
@@ -3212,12 +3242,26 @@ textarea {
   width: min(760px, 100%);
   max-height: calc(100vh - 2.5rem);
   overflow: auto;
-  background: var(--panel-strong);
+  background: var(--surface);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   border-radius: 28px;
   padding: 1.4rem;
   overscroll-behavior: contain;
+  animation: modalEnter 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-case-picker {
@@ -17802,6 +17846,93 @@ body > .modal-backdrop {
   .step-editor-save-row > * {
     flex: 1 1 100%;
   }
+/* ==========================================================================
+   VISUAL TEST BUILDER
+   ========================================================================== */
+
+.visual-test-builder-container {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.visual-builder-node {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  min-width: 280px;
+  max-width: 340px;
+  box-shadow: var(--shadow);
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--font-family, "Inter", sans-serif);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.visual-builder-node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.visual-builder-node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 1.2rem;
+  background: rgba(33, 104, 243, 0.06);
+  border-bottom: 1px solid var(--line);
+}
+
+.visual-builder-node-badge {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--primary-strong);
+}
+
+.visual-builder-node-type {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.visual-builder-node-content {
+  padding: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.visual-builder-node-content strong {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-top: 0.8rem;
+  margin-bottom: 0.2rem;
+}
+
+.visual-builder-node-content strong:first-child {
+  margin-top: 0;
+}
+
+.visual-builder-node-content p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+:root[data-theme="dark"] .visual-builder-node-header {
+  background: rgba(33, 104, 243, 0.12);
+}
 
   .automation-builder-form {
     grid-template-columns: 1fr;

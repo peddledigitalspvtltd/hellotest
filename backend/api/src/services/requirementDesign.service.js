@@ -1,5 +1,6 @@
 const integrationService = require("./integration.service");
 const testCaseService = require("./testCase.service");
+const aiKnowledgeService = require("./aiKnowledge.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const DEFAULT_CASE_LIMIT = 8;
@@ -189,7 +190,7 @@ const normalizeGeneratedCases = (payload, maxCases, requirements) => {
   return collection.slice(0, maxCases).map((item, index) => normalizeCaseDraft(item, index, { requirements, applicableDomain }));
 };
 
-const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images }) => {
+const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge }) => {
   const references = buildRequirementReferenceMap(requirements);
   const prompt = [
     "Design high-quality QA test cases for the following product requirements.",
@@ -211,6 +212,14 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
     prompt.push("");
     prompt.push("Additional testing context from the user:");
     prompt.push(additionalContext);
+  }
+
+  if (knowledge && knowledge.length > 0) {
+    prompt.push("");
+    prompt.push("AI Knowledge Repo (Domain rules, established flows, and reference material):");
+    knowledge.forEach((k) => {
+      prompt.push(`- [${k.title}]: ${k.content}`);
+    });
   }
 
   if (externalLinks.length) {
@@ -250,8 +259,10 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
   prompt.push("  ]");
   prompt.push("}");
   prompt.push("");
-  prompt.push("Guidance:");
+  prompt.push("Guidance for Local LLM:");
   prompt.push("- Pick the applicable_domain from the requirement intent, business process, data handled, integrations, platform type, and risk profile.");
+  prompt.push("- Focus deeply on edge cases: generate extreme negative conditions, concurrency limits, and state transitions.");
+  prompt.push("- Since this is a local integration, aggressively test security boundaries and destructive actions.");
   prompt.push("- Cover happy path, validation, edge conditions, negative conditions, and operational risk where relevant.");
   prompt.push("- Prefer crisp manual test cases with clear preconditions embedded in the first step when needed.");
   prompt.push("- Make every step executable: one action, one observable expected result, no vague statements like verify properly.");
@@ -337,7 +348,8 @@ const requestGeneratedCases = async ({
   maxCases,
   additionalContext,
   externalLinks,
-  images
+  images,
+  knowledge
 }) => {
   const prompt = buildPrompt({
     requirements,
@@ -345,7 +357,8 @@ const requestGeneratedCases = async ({
     maxCases,
     additionalContext,
     externalLinks,
-    images
+    images,
+    knowledge
   });
 
   try {
@@ -412,6 +425,8 @@ exports.previewRequirementsTestCases = async ({
   const externalLinks = normalizeTextList(external_links);
   const normalizedImages = normalizeImageAssets(images);
   const integration = await resolveIntegration(integration_id);
+  const knowledge = aiKnowledgeService.getActiveKnowledgeForLLM(scopedRequirements[0].project_id, appType.id);
+  
   const generatedCases = await requestGeneratedCases({
     integration,
     requirements: scopedRequirements,
@@ -419,7 +434,8 @@ exports.previewRequirementsTestCases = async ({
     maxCases,
     additionalContext,
     externalLinks,
-    images: normalizedImages
+    images: normalizedImages,
+    knowledge
   });
 
   return {

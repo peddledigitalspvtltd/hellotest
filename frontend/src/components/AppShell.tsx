@@ -75,7 +75,8 @@ const navigation = [
     label: "Administration",
     items: [
       { id: "people", to: "/people", label: "Users", shortLabel: "Users", icon: UsersIcon },
-      { id: "integrations", to: "/integrations", label: "Integrations", shortLabel: "Connect", icon: PlugIcon }
+      { id: "integrations", to: "/integrations", label: "Integrations", shortLabel: "Connect", icon: PlugIcon },
+      { id: "knowledge", to: "/knowledge-repo", label: "AI Knowledge", shortLabel: "Knowledge", icon: DocumentIcon }
     ]
   },
   {
@@ -136,7 +137,7 @@ export function AppShell() {
   const projects = projectsQuery.data || [];
   const hasNoProjects = !projectsQuery.isPending && projects.length === 0;
   const currentProjectName =
-    projects.find((project) => project.id === sidebarProjectId)?.name ||
+    projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
     (hasNoProjects ? "No active project" : "Select a project");
   const navCounts = {
     projects: projects.length
@@ -245,7 +246,7 @@ export function AppShell() {
       return;
     }
 
-    if (!sidebarProjectId || !projects.some((project) => project.id === sidebarProjectId)) {
+    if (!sidebarProjectId || !projects.some((project) => String(project.id) === String(sidebarProjectId))) {
       setSidebarProjectId(projects[0].id);
     }
   }, [projects, projectsQuery.isPending, setSidebarProjectId, sidebarProjectId]);
@@ -285,6 +286,8 @@ export function AppShell() {
         return t("nav.users", defaultLabel);
       case "integrations":
         return t("nav.integrations", defaultLabel);
+      case "knowledge":
+        return t("nav.knowledge", defaultLabel);
       case "support":
         return t("nav.support", defaultLabel);
       case "notifications":

@@ -909,78 +909,82 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
     };
   }
 
-  for (const item of plan.eligibleCases) {
-    const envelope = buildEngineEnvelope({
-      engineRunId: item.engine_run_id,
-      execution: plan.execution,
-      project: plan.project,
-      appType: plan.appType,
-      caseSnapshot: item.case_snapshot,
-      steps: item.steps,
-      integration
-    });
+  const concurrencyLimit = Number(process.env.TESTENGINE_DISPATCH_CONCURRENCY) || 5;
+  for (let i = 0; i < plan.eligibleCases.length; i += concurrencyLimit) {
+    const chunk = plan.eligibleCases.slice(i, i + concurrencyLimit);
+    await Promise.all(chunk.map(async (item) => {
+      const envelope = buildEngineEnvelope({
+        engineRunId: item.engine_run_id,
+        execution: plan.execution,
+        project: plan.project,
+        appType: plan.appType,
+        caseSnapshot: item.case_snapshot,
+        steps: item.steps,
+        integration
+      });
 
-    const transaction = await workspaceTransactionService.createTransaction({
-      project_id: plan.execution.project_id,
-      app_type_id: plan.execution.app_type_id || null,
-      category: "automation",
-      action: "testengine_run",
-      status: "queued",
-      title: `Automated handoff for ${item.case_snapshot.test_case_title}`,
-      description: "Queued for Test Engine execution.",
-      metadata: {
-        source: "qaira",
-        engine_run_id: item.engine_run_id,
-        execution_id: plan.execution.id,
-        test_case_id: item.case_snapshot.test_case_id,
-        engine_host: normalizeEngineHostUrl(integration.base_url),
-        queue_mode: "qaira-pull",
-        active_web_engine: envelope.web_engine?.active || "playwright",
-        live_view_url: buildProviderLiveViewUrl(integration, envelope.web_engine?.active || "playwright")
-      },
-      related_kind: "testengine_run",
-      related_id: item.engine_run_id,
-      created_by: initiatedBy || plan.execution.created_by || null,
-      started_at: new Date().toISOString()
-    });
+      const transaction = await workspaceTransactionService.createTransaction({
+        project_id: plan.execution.project_id,
+        app_type_id: plan.execution.app_type_id || null,
+        category: "automation",
+        action: "testengine_run",
+        status: "queued",
+        title: `Automated handoff for ${item.case_snapshot.test_case_title}`,
+        description: "Queued for Test Engine execution.",
+        metadata: {
+          source: "qaira",
+          engine_run_id: item.engine_run_id,
+          execution_id: plan.execution.id,
+          test_case_id: item.case_snapshot.test_case_id,
+          engine_host: normalizeEngineHostUrl(integration.base_url),
+          queue_mode: "qaira-pull",
+          active_web_engine: envelope.web_engine?.active || "playwright",
+          live_view_url: buildProviderLiveViewUrl(integration, envelope.web_engine?.active || "playwright")
+        },
+        related_kind: "testengine_run",
+        related_id: item.engine_run_id,
+        created_by: initiatedBy || plan.execution.created_by || null,
+        started_at: new Date().toISOString()
+      });
 
-    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
-      level: "info",
-      phase: "dispatch.queued",
-      message: `Queued ${item.case_snapshot.test_case_title} for Test Engine execution.`,
-      details: {
-        execution_id: plan.execution.id,
-        test_case_id: item.case_snapshot.test_case_id,
-        engine_run_id: item.engine_run_id
-      }
-    });
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        level: "info",
+        phase: "dispatch.queued",
+        message: `Queued ${item.case_snapshot.test_case_title} for Test Engine execution.`,
+        details: {
+          execution_id: plan.execution.id,
+          test_case_id: item.case_snapshot.test_case_id,
+          engine_run_id: item.engine_run_id
+        }
+      });
 
-    await insertJob.run(
-      uuid(),
-      item.engine_run_id,
-      integration.id || null,
-      plan.execution.project_id,
-      plan.execution.app_type_id || null,
-      plan.appType?.type || "web",
-      plan.execution.id,
-      item.case_snapshot.test_case_id,
-      item.case_snapshot.test_case_title,
-      transaction.id,
-      normalizeEngineHostUrl(integration.base_url),
-      envelope,
-      {
-        captured_values: {},
-        logs: parseStructuredLogs(null)
-      },
-      "queued",
-      0,
-      null,
-      null,
-      null,
-      null,
-      null,
-      initiatedBy || plan.execution.created_by || null
-    );
+      await insertJob.run(
+        uuid(),
+        item.engine_run_id,
+        integration.id || null,
+        plan.execution.project_id,
+        plan.execution.app_type_id || null,
+        plan.appType?.type || "web",
+        plan.execution.id,
+        item.case_snapshot.test_case_id,
+        item.case_snapshot.test_case_title,
+        transaction.id,
+        normalizeEngineHostUrl(integration.base_url),
+        envelope,
+        {
+          captured_values: {},
+          logs: parseStructuredLogs(null)
+        },
+        "queued",
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        initiatedBy || plan.execution.created_by || null
+      );
+    }));
   }
 
   return {
@@ -1137,7 +1141,7 @@ async function getQueuedJob(id) {
   return job;
 }
 
-exports.leaseNextQueuedJob = db.transaction(async ({ worker_id, engine_host, lease_seconds } = {}) => {
+const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_host, lease_seconds } = {}) => {
   const normalizedWorkerId = normalizeText(worker_id) || "testengine-worker";
   const normalizedEngineHost = normalizeEngineHostUrl(engine_host);
   const safeLeaseSeconds = Math.max(30, Number(lease_seconds) || DEFAULT_LEASE_SECONDS);
@@ -1213,6 +1217,24 @@ exports.leaseNextQueuedJob = db.transaction(async ({ worker_id, engine_host, lea
     lease_expires_at: leaseExpiresAt
   };
 });
+
+exports.leaseNextQueuedJob = async (params = {}) => {
+  let attempts = 0;
+  const maxRetries = Number(process.env.TESTENGINE_POLL_RETRIES) || 3;
+  while (attempts < maxRetries) {
+    try {
+      return await leaseNextQueuedJobTransaction(params);
+    } catch (err) {
+      if (err.code === 'SQLITE_BUSY' || err.code === '40001' || (err.message && (err.message.includes('deadlock') || err.message.includes('locked')))) {
+        attempts++;
+        if (attempts >= maxRetries) throw err;
+        await new Promise(r => setTimeout(r, 100 * Math.pow(2, attempts)));
+      } else {
+        throw err;
+      }
+    }
+  }
+};
 
 exports.startQueuedJob = async ({ job_id, worker_id } = {}) => {
   const job = await getQueuedJob(job_id);

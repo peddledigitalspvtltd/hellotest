@@ -25,6 +25,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SharedStepsPage } from "./pages/SharedStepsPage";
 import { TestEnvironmentPage } from "./pages/TestEnvironmentPage";
 import { TestOpsPage } from "./pages/TestOpsPage";
+import { KnowledgeRepoPage } from "./pages/KnowledgeRepoPage";
 
 const queryClient = new QueryClient();
 const THEME_KEY = "app_theme";
@@ -45,9 +46,11 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/executions": { key: "page.executions", fallback: "Test Runs" },
   "/testops": { fallback: "TestOps" },
   "/ops-telemetry": { fallback: "OPS Telemetry" },
+  "/traces": { fallback: "Distributed Traces" },
   "/test-environments": { key: "page.testEnvironments", fallback: "Test Environments" },
   "/test-data": { key: "page.testData", fallback: "Test Data" },
   "/test-configurations": { key: "page.testConfigurations", fallback: "Test Configurations" },
+  "/knowledge-repo": { fallback: "AI Knowledge" },
   "/auth": { fallback: "Sign In" }
 };
 
@@ -140,9 +143,11 @@ const router = createBrowserRouter([
       { path: "executions", element: <ExecutionsPage /> },
       { path: "testops", element: <TestOpsPage /> },
       { path: "ops-telemetry", element: <TestOpsPage initialView="ops-telemetry" /> },
+      { path: "traces", element: <TestOpsPage initialView="traces" /> },
       { path: "test-environments", element: <TestEnvironmentPage view="environments" /> },
       { path: "test-data", element: <TestEnvironmentPage view="data" /> },
-      { path: "test-configurations", element: <TestEnvironmentPage view="configurations" /> }
+      { path: "test-configurations", element: <TestEnvironmentPage view="configurations" /> },
+      { path: "knowledge-repo", element: <KnowledgeRepoPage /> }
     ]
   }
 ]);

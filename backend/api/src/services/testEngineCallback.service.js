@@ -180,8 +180,8 @@ const parseStructuredLogs = (value) => {
   };
 };
 
-const isInlineImageDataUrl = (value) =>
-  typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(value.trim());
+const isInlineMediaDataUrl = (value) =>
+  typeof value === "string" && /^data:(image|video)\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(value.trim());
 
 const mergeLogsPayload = (current, patch) => {
   const base = parseStructuredLogs(current);
@@ -242,7 +242,7 @@ const buildLogsPayloadFromStepOutcomes = (stepOutcomes = []) =>
       const evidence = isPlainObject(outcome.evidence_image) ? outcome.evidence_image : null;
       const dataUrl = evidence ? normalizeText(evidence.data_url) : null;
 
-      if (dataUrl && isInlineImageDataUrl(dataUrl)) {
+      if (dataUrl && isInlineMediaDataUrl(dataUrl)) {
         accumulator.stepEvidence[stepId] = {
           dataUrl,
           fileName: evidence.file_name ? String(evidence.file_name).trim() || undefined : undefined,

@@ -406,7 +406,7 @@ export function DesignPage() {
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
@@ -535,7 +535,7 @@ export function DesignPage() {
       });
   }, [appTypeCases, selectedSuiteId, suiteMappings]);
 
-  const selectedProject = projects.find((project) => project.id === projectId) || null;
+  const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const sharedGroups = sharedGroupsQuery.data || [];
   const authoringSectionItems = useMemo(

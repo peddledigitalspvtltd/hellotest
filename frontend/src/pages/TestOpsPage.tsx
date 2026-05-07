@@ -17,7 +17,7 @@ import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
 import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
 
-type TestOpsView = "automation-builder" | "batch-process" | "ops-telemetry";
+type TestOpsView = "automation-builder" | "batch-process" | "ops-telemetry" | "traces";
 
 const BATCH_PROCESS_CATEGORIES = new Set([
   "bulk_import",
@@ -477,7 +477,8 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         ariaLabel="TestOps views"
         items={[
           { value: "batch-process", label: "Batch Process", meta: `${batchTransactions.length}`, icon: <ActivityIcon /> },
-          { value: "ops-telemetry", label: "OPS Telemetry", meta: opsBoardUrl ? "iframe" : "setup", icon: <ActivityIcon /> }
+          { value: "ops-telemetry", label: "OPS Telemetry", meta: opsBoardUrl ? "iframe" : "setup", icon: <ActivityIcon /> },
+          { value: "traces", label: "Traces", meta: "iframe", icon: <ActivityIcon /> }
         ]}
         onChange={setView}
         value={view}
@@ -892,7 +893,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
             )}
           </Panel>
         </div>
-      ) : (
+      ) : view === "ops-telemetry" ? (
         <Panel
           className="testops-panel testops-telemetry-panel"
           title="OPS telemetry"
@@ -917,6 +918,24 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
               Activate a Test Engine integration for this project so QAira can resolve the hosted OPS telemetry board.
             </div>
           )}
+        </Panel>
+      ) : (
+        <Panel
+          className="testops-panel testops-telemetry-panel"
+          title="Distributed Traces"
+          subtitle="View full OpenTelemetry traces from QAira and TestEngine via local Jaeger instance."
+          actions={
+            <a className="ghost-button" href="http://localhost:16686" rel="noreferrer" target="_blank">
+              <OpenIcon />
+              <span>Open Jaeger in new tab</span>
+            </a>
+          }
+        >
+          <iframe
+            className="testops-telemetry-frame"
+            src="http://localhost:16686"
+            title="Jaeger Traces"
+          />
         </Panel>
       )}
     </div>

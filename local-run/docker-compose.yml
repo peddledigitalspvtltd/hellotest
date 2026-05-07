@@ -19,6 +19,26 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    container_name: qaira-local-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: qaira-local-jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
   api:
     build:
       context: ../backend/api
@@ -28,12 +48,17 @@ services:
       - "${API_PORT:-3000}:3000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: "qaira-api"
       SESSION_SECRET: ${SESSION_SECRET:-qaira-local-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
@@ -77,6 +102,9 @@ services:
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_POLL_CONCURRENCY:-4}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: "qaira-testengine"
     volumes:
       - qaira-local-testengine-artifacts:/artifacts
     depends_on:

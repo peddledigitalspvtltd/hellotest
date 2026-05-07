@@ -257,7 +257,7 @@ export function RequirementsPage() {
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
@@ -1719,7 +1719,7 @@ export function RequirementsPage() {
       {linkedPreviewCase ? (
         <LinkedTestCaseModal
           appTypeName={currentAppTypeName}
-          projectName={projects.find((project) => project.id === projectId)?.name || ""}
+          projectName={projects.find((project) => String(project.id) === String(projectId))?.name || ""}
           requirements={requirements}
           suites={suites}
           testCase={linkedPreviewCase}

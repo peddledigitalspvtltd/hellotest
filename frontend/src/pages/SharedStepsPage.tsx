@@ -278,7 +278,7 @@ export function SharedStepsPage() {
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
@@ -470,7 +470,7 @@ export function SharedStepsPage() {
     ) as Record<string, Array<{ execution_id: string; status: ExecutionResult["status"]; created_at?: string }>>;
   }, [executionResults, sharedGroups]);
 
-  const selectedProject = projects.find((project) => project.id === projectId) || null;
+  const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const openSharedGroupWorkspace = (groupId: string) => {
     setSelectedGroupId(groupId);

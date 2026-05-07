@@ -45,6 +45,7 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
+import { VisualTestBuilder } from "../components/VisualTestBuilder";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
@@ -792,7 +793,7 @@ export function TestCasesPage() {
   const [aiPreviewMessage, setAiPreviewMessage] = useState("");
   const [aiPreviewTone, setAiPreviewTone] = useState<"success" | "error">("success");
   const [schedulerActionCaseId, setSchedulerActionCaseId] = useState("");
-  const [schedulerActionKind, setSchedulerActionKind] = useState<"accept" | "reject" | "run" | "">("");
+  const [schedulerActionKind, setSchedulerActionKind] = useState<"accept" | "reject" | "run" | "run-local" | "">("");
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -863,6 +864,11 @@ export function TestCasesPage() {
     queryFn: () => api.integrations.list({ type: "testengine", is_active: true }),
     enabled: Boolean(projectId && session)
   });
+  const localDesktopIntegrationsQuery = useQuery({
+    queryKey: ["integrations", "local-desktop"],
+    queryFn: () => api.integrations.list({ type: "local-desktop", is_active: true }),
+    enabled: Boolean(session)
+  });
   const automationLearningCacheQuery = useQuery({
     queryKey: ["automation-learning-cache", projectId, appTypeId],
     queryFn: () => api.testCases.learningCache({
@@ -889,7 +895,7 @@ export function TestCasesPage() {
     mutationFn: ({ id, testCaseIds }: { id: string; testCaseIds: string[] }) => api.testSuites.assignTestCases(id, testCaseIds)
   });
   const createExecution = useMutation({ mutationFn: api.executions.create });
-  const startExecution = useMutation({ mutationFn: (id: string) => api.executions.start(id) });
+  const startExecution = useMutation({ mutationFn: (params: { id: string; mode?: "local" }) => api.executions.start(params.id, params.mode === "local" ? { execution_mode: "local" } : undefined) });
   const acceptGeneratedCase = useMutation({ mutationFn: api.testCases.acceptGeneratedCase });
   const rejectGeneratedCase = useMutation({ mutationFn: api.testCases.rejectGeneratedCase });
   const updateTestCase = useMutation({
@@ -985,6 +991,8 @@ export function TestCasesPage() {
   const executionResults = executionResultsQuery.data || [];
   const allTestSteps = allTestStepsQuery.data || [];
   const integrations = integrationsQuery.data || [];
+  const testEngineIntegration = testEngineIntegrationsQuery.data?.[0] || null;
+  const supportsLocalDesktopExecution = (localDesktopIntegrationsQuery.data || []).length > 0;
   const userById = useMemo(
     () =>
       users.reduce<Record<string, User>>((accumulator, user) => {
@@ -1001,6 +1009,8 @@ export function TestCasesPage() {
     () => ((stepsQuery.data || []) as TestStep[]).slice().sort((left, right) => left.step_order - right.step_order),
     [stepsQuery.data]
   );
+  const [isVisualBuilderActive, setIsVisualBuilderActive] = useState(false);
+
   const displaySteps = useMemo(
     () =>
       isCreating
@@ -1037,10 +1047,11 @@ export function TestCasesPage() {
       return;
     }
 
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("project");
-    nextParams.delete("appType");
-    setSearchParams(nextParams, { replace: true });
+    setSearchParams(prev => {
+      prev.delete("project");
+      prev.delete("appType");
+      return prev;
+    }, { replace: true });
   }
 
   function syncTestCaseSearchParams(nextCaseId?: string | null) {
@@ -1054,16 +1065,15 @@ export function TestCasesPage() {
       return;
     }
 
-    const nextParams = new URLSearchParams(searchParams);
-
-    if (targetCaseId) {
-      nextParams.set("case", targetCaseId);
-    } else {
-      nextParams.delete("case");
-      suppressCaseSelectionFromUrlRef.current = true;
-    }
-
-    setSearchParams(nextParams, { replace: true });
+    setSearchParams(prev => {
+      if (targetCaseId) {
+        prev.set("case", targetCaseId);
+      } else {
+        prev.delete("case");
+        suppressCaseSelectionFromUrlRef.current = true;
+      }
+      return prev;
+    }, { replace: true });
   }
 
   const resetExecutionContextSelection = () => {
@@ -1106,7 +1116,7 @@ export function TestCasesPage() {
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);
@@ -1143,32 +1153,40 @@ export function TestCasesPage() {
   useEffect(() => {
     const requestedProjectId = searchParams.get("project");
 
-    if (!requestedProjectId || requestedProjectId === projectId) {
+    if (!requestedProjectId || projectsQuery.isPending) {
       return;
     }
 
     if (projects.some((project) => project.id === requestedProjectId)) {
-      setProjectId(requestedProjectId);
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete("project");
-      setSearchParams(nextParams, { replace: true });
+      if (requestedProjectId !== projectId) {
+        setProjectId(requestedProjectId);
+      }
     }
-  }, [projectId, projects, searchParams, setProjectId, setSearchParams]);
+
+    setSearchParams(prev => {
+      prev.delete("project");
+      return prev;
+    }, { replace: true });
+  }, [projectId, projects, projectsQuery.isPending, searchParams, setProjectId, setSearchParams]);
 
   useEffect(() => {
     const requestedAppTypeId = searchParams.get("appType");
 
-    if (!requestedAppTypeId || requestedAppTypeId === appTypeId) {
+    if (!requestedAppTypeId || appTypesQuery.isPending) {
       return;
     }
 
     if (appTypes.some((appType) => appType.id === requestedAppTypeId)) {
-      setAppTypeId(requestedAppTypeId);
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete("appType");
-      setSearchParams(nextParams, { replace: true });
+      if (requestedAppTypeId !== appTypeId) {
+        setAppTypeId(requestedAppTypeId);
+      }
     }
-  }, [appTypeId, appTypes, searchParams, setAppTypeId, setSearchParams]);
+
+    setSearchParams(prev => {
+      prev.delete("appType");
+      return prev;
+    }, { replace: true });
+  }, [appTypeId, appTypes, appTypesQuery.isPending, searchParams, setAppTypeId, setSearchParams]);
 
   useEffect(() => {
     if (!integrations.length) {
@@ -1246,13 +1264,14 @@ export function TestCasesPage() {
     const requestedSuiteId = searchParams.get("suite") || "";
     beginCreateCase(requestedSuiteId);
 
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("create");
-    nextParams.delete("suite");
-
-    if (nextParams.toString() !== searchParams.toString()) {
-      setSearchParams(nextParams, { replace: true });
-    }
+    setSearchParams(prev => {
+      if (prev.has("create") || prev.has("suite")) {
+        prev.delete("create");
+        prev.delete("suite");
+        return prev;
+      }
+      return prev;
+    }, { replace: true });
   }, [appTypeId, isCreating, searchParams, selectedTestCaseId, setSearchParams]);
 
   useEffect(() => {
@@ -1399,7 +1418,7 @@ export function TestCasesPage() {
 
   const areAllFilteredCasesSelected =
     filteredCases.length > 0 && filteredCases.every((item) => selectedActionTestCaseIds.includes(item.id));
-  const selectedProject = projects.find((project) => project.id === projectId) || null;
+  const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const testEngineIntegration = resolveScopedIntegration(testEngineIntegrations, "testengine", projectId);
   const automationLearningCache = automationLearningCacheQuery.data || [];
@@ -4027,7 +4046,7 @@ export function TestCasesPage() {
     }
   };
 
-  const handleRunTestCase = async (testCaseId: string) => {
+  const handleRunTestCase = async (testCaseId: string, mode?: "local") => {
     const testCase = testCases.find((item) => item.id === testCaseId);
 
     if (!session?.user.id) {
@@ -4041,7 +4060,7 @@ export function TestCasesPage() {
     }
 
     setSchedulerActionCaseId(testCaseId);
-    setSchedulerActionKind("run");
+    setSchedulerActionKind(mode === "local" ? "run-local" : "run");
 
     try {
       const response = await createExecution.mutateAsync({
@@ -4054,7 +4073,7 @@ export function TestCasesPage() {
       });
 
       try {
-        const startResponse = await startExecution.mutateAsync(response.id);
+        const startResponse = await startExecution.mutateAsync({ id: response.id, mode });
         showSuccess(summarizeExecutionStart(startResponse, `${testCase.title} run started.`));
       } catch (error) {
         await Promise.all([
@@ -4630,6 +4649,10 @@ export function TestCasesPage() {
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
     && schedulerActionKind === "run";
+  const isSelectedCaseLocalRunning =
+    Boolean(selectedTestCase?.id)
+    && schedulerActionCaseId === selectedTestCase?.id
+    && schedulerActionKind === "run-local";
   const caseHeaderActions = (
     <div className="panel-head-actions-row">
       <WorkspaceBackButton label="Back to test case tiles" onClick={handleWorkspaceBack} />
@@ -4647,6 +4670,18 @@ export function TestCasesPage() {
         >
           <TestCaseRunIcon />
           <span>{isSelectedCaseRunning ? "Starting…" : "Run test"}</span>
+        </button>
+      ) : null}
+      {selectedTestCase && supportsLocalDesktopExecution ? (
+        <button
+          className="test-case-tile-action-button is-run test-case-header-run-button"
+          disabled={isSelectedCaseLocalRunning || !projectId || !appTypeId || !session?.user.id}
+          onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
+          title="Run the test case locally on your machine"
+          type="button"
+        >
+          <TestCaseRunIcon />
+          <span>{isSelectedCaseLocalRunning ? "Starting…" : "Local run"}</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5898,15 +5933,24 @@ export function TestCasesPage() {
 
                   <EditorAccordionSection
                     actions={(
-                      <button
-                        className="ghost-button"
-                        disabled={!displaySteps.length}
-                        onClick={openCaseAutomationPreview}
-                        type="button"
-                      >
-                        <AutomationCodeIcon />
-                        <span>Automation code</span>
-                      </button>
+                      <>
+                        <button
+                          className="ghost-button"
+                          onClick={() => setIsVisualBuilderActive((current) => !current)}
+                          type="button"
+                        >
+                          <span>{isVisualBuilderActive ? "List view" : "Visual builder"}</span>
+                        </button>
+                        <button
+                          className="ghost-button"
+                          disabled={!displaySteps.length}
+                          onClick={openCaseAutomationPreview}
+                          type="button"
+                        >
+                          <AutomationCodeIcon />
+                          <span>Automation code</span>
+                        </button>
+                      </>
                     )}
                     countLabel={stepCountLabel}
                     isExpanded={expandedSections.steps}
@@ -5914,6 +5958,9 @@ export function TestCasesPage() {
                     summary={stepSectionSummary}
                     title={isCreating ? "Draft steps" : "Test steps"}
                   >
+                    {isVisualBuilderActive ? (
+                      <VisualTestBuilder testSteps={displaySteps} />
+                    ) : (
                     <div className="step-editor step-editor--embedded">
                       <div className="step-editor-toolbar">
                         <label className="checkbox-field step-select-all">
@@ -6086,6 +6133,7 @@ export function TestCasesPage() {
                         </div>
                       ) : null}
                     </div>
+                    )}
                   </EditorAccordionSection>
 
                   {!isCreating ? (

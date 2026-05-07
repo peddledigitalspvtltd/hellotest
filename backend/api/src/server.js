@@ -1,3 +1,4 @@
+require("./tracing"); // Must be loaded before other modules
 const app = require("./app");
 
 const port = Number(process.env.PORT || 3000);

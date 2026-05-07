@@ -1014,12 +1014,36 @@ exports.getExecutions = async ({ project_id, app_type_id, status }) => {
   }
 };
 
-exports.getExecution = async (id) => {
-  const execution = await selectExecutionRecord.get(id);
+const executionCache = new Map();
+const CACHE_TTL_MS = Number(process.env.EXECUTION_CACHE_TTL_MS) || 2000;
 
-  if (!execution) throw new Error("Execution not found");
+exports.getExecution = async (id, forceRefresh = false) => {
+  if (!forceRefresh) {
+    const cached = executionCache.get(id);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
+  }
 
-  return attachDetailedScope(execution);
+  let attempts = 0;
+  while (attempts < 3) {
+    try {
+      const execution = await selectExecutionRecord.get(id);
+      if (!execution) throw new Error("Execution not found");
+      const detailedExecution = await attachDetailedScope(execution);
+      executionCache.set(id, { timestamp: Date.now(), data: detailedExecution });
+      return detailedExecution;
+    } catch (err) {
+      if (err.message === "Execution not found") throw err;
+      if (err.code === 'SQLITE_BUSY' || err.code === '40001' || (err.message && (err.message.includes('deadlock') || err.message.includes('locked')))) {
+        attempts++;
+        if (attempts >= 3) throw err;
+        await new Promise(r => setTimeout(r, 100 * Math.pow(2, attempts)));
+      } else {
+        throw err;
+      }
+    }
+  }
 };
 
 exports.rerunExecution = async (id, { failed_only = false, created_by, name } = {}) => {

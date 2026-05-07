@@ -28,7 +28,7 @@ export function WorkspaceScopeBar({
   appTypeValueLabel?: string;
 }) {
   const resolvedProjectLabel =
-    projectValueLabel || projects.find((project) => project.id === projectId)?.name || "No project selected";
+    projectValueLabel || projects.find((project) => String(project.id) === String(projectId))?.name || "No project selected";
   const resolvedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const resolvedAppTypeLabel =
     appTypeValueLabel || resolvedAppType?.name || "No app type selected";

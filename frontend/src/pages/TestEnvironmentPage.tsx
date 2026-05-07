@@ -297,7 +297,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const selectedEnvironment = environments.find((item) => item.id === selectedEnvironmentId) || null;
   const selectedConfiguration = configurations.find((item) => item.id === selectedConfigurationId) || null;
   const selectedDataSet = dataSets.find((item) => item.id === selectedDataSetId) || null;
-  const selectedProjectName = projects.find((project) => project.id === projectId)?.name || "No project selected";
+  const selectedProjectName = projects.find((project) => String(project.id) === String(projectId))?.name || "No project selected";
   const selectedAppTypeName = appTypes.find((item) => item.id === appTypeId)?.name || "All app types";
   const currentCreateLabel =
     view === "environments" ? "Create test environment" : view === "configurations" ? "Create configuration" : "Create test data";
@@ -331,7 +331,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       return;
     }
 
-    if (!projects.some((project) => project.id === projectId)) {
+    if (!projects.some((project) => String(project.id) === String(projectId))) {
       setProjectId(projects[0].id);
     }
   }, [projectId, projects, projectsQuery.isPending, setProjectId]);

@@ -74,6 +74,24 @@ CREATE TABLE app_types (
 );
 
 -- =========================
+-- AI KNOWLEDGE REPO
+-- =========================
+
+CREATE TABLE ai_knowledge_repo (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  app_type_id TEXT,
+  title TEXT NOT NULL,
+  description TEXT,
+  content_type TEXT CHECK(content_type IN ('text', 'url', 'video_url', 'file')),
+  content TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id),
+  FOREIGN KEY (app_type_id) REFERENCES app_types(id)
+);
+
+-- =========================
 -- REQUIREMENTS
 -- =========================
 

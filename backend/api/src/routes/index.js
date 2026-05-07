@@ -28,4 +28,5 @@ module.exports = async function (fastify) {
     fastify.register(require("./automationGenerator.routes"));
     fastify.register(require("./workspaceTransactions.routes"));
     fastify.register(require("./opsTelemetry.routes"));
+    fastify.register(require("./aiKnowledge.routes"));
   };
