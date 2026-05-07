@@ -6,6 +6,7 @@ export type RecorderStartMode = "local" | "remote";
 
 export type RecorderStartOptions = {
   recorder_mode: RecorderStartMode;
+  recorder_target?: "web" | "mobile";
   engine_base_url?: string;
   recorder_public_base_url?: string;
 };
@@ -50,7 +51,8 @@ export function RecorderStartControls({
   hasSession,
   onStart,
   localLabel = "Start local recorder",
-  remoteLabel = "Start remote recorder"
+  remoteLabel = "Start remote recorder",
+  mobileRemoteEnabled = false
 }: {
   disabled: boolean;
   isStarting: boolean;
@@ -58,6 +60,7 @@ export function RecorderStartControls({
   onStart: (options: RecorderStartOptions) => void;
   localLabel?: string;
   remoteLabel?: string;
+  mobileRemoteEnabled?: boolean;
 }) {
   const localAvailable = useMemo(() => !isMobileOrTablet(), []);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
@@ -91,6 +94,7 @@ export function RecorderStartControls({
   const handleStartLocal = () => {
     onStart({
       recorder_mode: "local",
+      recorder_target: "web",
       engine_base_url: localEngineUrl.trim() || DEFAULT_LOCAL_ENGINE_URL,
       recorder_public_base_url: normalizedBrowserUrl || DEFAULT_LOCAL_BROWSER_URL
     });
@@ -116,12 +120,32 @@ export function RecorderStartControls({
       <button
         className={localAvailable ? "ghost-button" : "primary-button"}
         disabled={disabled || isStarting || hasSession}
-        onClick={() => onStart({ recorder_mode: "remote" })}
+        onClick={() => onStart({ recorder_mode: "remote", recorder_target: "web" })}
         type="button"
       >
         <MousePointerIcon size={16} />
         <span>{isStarting ? "Starting..." : remoteLabel}</span>
       </button>
+      <button
+        className="ghost-button"
+        disabled={disabled || isStarting || hasSession}
+        onClick={() => onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" })}
+        type="button"
+      >
+        <MousePointerIcon size={16} />
+        <span>{isStarting ? "Starting..." : "Record mobile local"}</span>
+      </button>
+      {mobileRemoteEnabled ? (
+        <button
+          className="ghost-button"
+          disabled={disabled || isStarting || hasSession}
+          onClick={() => onStart({ recorder_mode: "remote", recorder_target: "mobile" })}
+          type="button"
+        >
+          <MousePointerIcon size={16} />
+          <span>{isStarting ? "Starting..." : "Record mobile remote"}</span>
+        </button>
+      ) : null}
 
       {isSetupOpen && setupModalRoot ? createPortal(
         <div className="modal-backdrop" onClick={() => setIsSetupOpen(false)} role="presentation">

@@ -221,17 +221,21 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       return;
     }
 
-    if (projectId && appTypes.some((appType) => appType.project_id !== projectId)) {
+    const scopedAppTypes = projectId
+      ? appTypes.filter((appType) => String(appType.project_id) === String(projectId))
+      : appTypes;
+
+    if (projectId && appTypes.length && !scopedAppTypes.length) {
       return;
     }
 
-    if (!appTypes.length) {
+    if (!scopedAppTypes.length) {
       setAppTypeId("");
       return;
     }
 
-    if (!appTypes.some((appType) => appType.id === appTypeId)) {
-      setAppTypeId(appTypes[0].id);
+    if (!scopedAppTypes.some((appType) => appType.id === appTypeId)) {
+      setAppTypeId(scopedAppTypes[0].id);
       setSelectedCaseId("");
       setSelectedCaseIds([]);
       setRecorderSession(null);

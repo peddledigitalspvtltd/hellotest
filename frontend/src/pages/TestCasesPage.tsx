@@ -77,6 +77,7 @@ import {
   normalizeApiRequest,
   normalizeAutomationCode,
   normalizeStepType,
+  resolveStepAutomationCode,
   stepHasAutomation
 } from "../lib/stepAutomation";
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
@@ -96,6 +97,7 @@ import type {
   AiDesignedTestCaseCandidate,
   AiTestCaseGenerationJob,
   AppType,
+  AutomationLearningCacheEntry,
   Execution,
   ExecutionResult,
   Integration,
@@ -127,6 +129,10 @@ type StepDraft = {
   automation_code: string;
   api_request: TestStep["api_request"];
 };
+
+type TestCaseAuthoringLens = "manual" | "ui-script" | "api-script";
+
+type AuthoringStepProjection = Pick<TestStep, "id" | "step_order" | "action" | "expected_result" | "step_type" | "automation_code" | "api_request">;
 
 type DraftTestStep = {
   id: string;
@@ -418,6 +424,29 @@ const normalizeComparableAutomationCode = (value?: string | null) => normalizeAu
 
 const normalizeComparableApiRequest = (value?: TestStep["api_request"]) =>
   JSON.stringify(normalizeApiRequest(value) || null);
+
+const buildAuthoringLensCode = (title: string, steps: AuthoringStepProjection[], emptyMessage: string) => {
+  if (!steps.length) {
+    return `// ${emptyMessage}`;
+  }
+
+  const caseTitle = title.trim() || "Test case";
+  const blocks = steps.map((step) => {
+    const stepType = normalizeStepType(step.step_type);
+    const stepLabel = [`Step ${step.step_order}`, stepType.toUpperCase()].join(" · ");
+    const action = String(step.action || "").trim();
+    const expected = String(step.expected_result || "").trim();
+
+    return [
+      `// ${stepLabel}`,
+      action ? `// Manual action: ${action}` : "",
+      expected ? `// Expected result: ${expected}` : "",
+      resolveStepAutomationCode(step)
+    ].filter(Boolean).join("\n");
+  });
+
+  return [`// Test case: ${caseTitle}`, ...blocks].join("\n\n");
+};
 
 const areComparableStepAutomationEqual = (
   left: Pick<TestStep, "step_type" | "automation_code" | "api_request">,
@@ -755,6 +784,7 @@ export function TestCasesPage() {
   const [cutStepSource, setCutStepSource] = useState<CutStepSource | null>(null);
   const [expandedStepIds, setExpandedStepIds] = useState<string[]>([]);
   const [expandedStepGroupIds, setExpandedStepGroupIds] = useState<string[]>([]);
+  const [authoringLens, setAuthoringLens] = useState<TestCaseAuthoringLens>("manual");
   const [stepDrafts, setStepDrafts] = useState<Record<string, StepDraft>>({});
   const [isStepGroupModalOpen, setIsStepGroupModalOpen] = useState(false);
   const [stepGroupName, setStepGroupName] = useState("");
@@ -942,6 +972,7 @@ export function TestCasesPage() {
       api.testCases.startRecorderSession(testCaseId, {
         start_url: automationStartUrl.trim() || undefined,
         recorder_mode: options.recorder_mode,
+        recorder_target: options.recorder_target,
         engine_base_url: options.engine_base_url,
         recorder_public_base_url: options.recorder_public_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -956,6 +987,7 @@ export function TestCasesPage() {
         integration_id: integrationId || undefined,
         additional_context: automationContext.trim() || undefined,
         recorder_mode: recorderStartOptions?.recorder_mode,
+        recorder_target: recorderStartOptions?.recorder_target,
         engine_base_url: recorderStartOptions?.engine_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
@@ -991,7 +1023,6 @@ export function TestCasesPage() {
   const executionResults = executionResultsQuery.data || [];
   const allTestSteps = allTestStepsQuery.data || [];
   const integrations = integrationsQuery.data || [];
-  const testEngineIntegration = testEngineIntegrationsQuery.data?.[0] || null;
   const supportsLocalDesktopExecution = (localDesktopIntegrationsQuery.data || []).length > 0;
   const userById = useMemo(
     () =>
@@ -1048,9 +1079,10 @@ export function TestCasesPage() {
     }
 
     setSearchParams(prev => {
-      prev.delete("project");
-      prev.delete("appType");
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.delete("project");
+      next.delete("appType");
+      return next;
     }, { replace: true });
   }
 
@@ -1066,13 +1098,14 @@ export function TestCasesPage() {
     }
 
     setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
       if (targetCaseId) {
-        prev.set("case", targetCaseId);
+        next.set("case", targetCaseId);
       } else {
-        prev.delete("case");
+        next.delete("case");
         suppressCaseSelectionFromUrlRef.current = true;
       }
-      return prev;
+      return next;
     }, { replace: true });
   }
 
@@ -1105,38 +1138,25 @@ export function TestCasesPage() {
   };
 
   useEffect(() => {
-    if (projectsQuery.isPending) {
-      return;
-    }
-
-    if (!projects.length) {
-      if (projectId) {
-        setProjectId("");
-      }
-      return;
-    }
-
-    if (!projects.some((project) => String(project.id) === String(projectId))) {
-      setProjectId(projects[0].id);
-    }
-  }, [projectId, projects, projectsQuery.isPending, setProjectId]);
-
-  useEffect(() => {
     if (appTypesQuery.isPending) {
       return;
     }
 
-    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+    const scopedAppTypes = projectId
+      ? appTypes.filter((item) => String(item.project_id) === String(projectId))
+      : appTypes;
+
+    if (projectId && appTypes.length && !scopedAppTypes.length) {
       return;
     }
 
-    if (!appTypes.length) {
+    if (!scopedAppTypes.length) {
       setAppTypeId("");
       return;
     }
 
-    if (!appTypes.some((item) => item.id === appTypeId)) {
-      setAppTypeId(appTypes[0].id);
+    if (!scopedAppTypes.some((item) => item.id === appTypeId)) {
+      setAppTypeId(scopedAppTypes[0].id);
     }
   }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
@@ -1157,17 +1177,12 @@ export function TestCasesPage() {
       return;
     }
 
-    if (projects.some((project) => project.id === requestedProjectId)) {
-      if (requestedProjectId !== projectId) {
-        setProjectId(requestedProjectId);
-      }
-    }
-
     setSearchParams(prev => {
-      prev.delete("project");
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.delete("project");
+      return next;
     }, { replace: true });
-  }, [projectId, projects, projectsQuery.isPending, searchParams, setProjectId, setSearchParams]);
+  }, [projectsQuery.isPending, searchParams, setSearchParams]);
 
   useEffect(() => {
     const requestedAppTypeId = searchParams.get("appType");
@@ -1183,8 +1198,9 @@ export function TestCasesPage() {
     }
 
     setSearchParams(prev => {
-      prev.delete("appType");
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.delete("appType");
+      return next;
     }, { replace: true });
   }, [appTypeId, appTypes, appTypesQuery.isPending, searchParams, setAppTypeId, setSearchParams]);
 
@@ -1265,12 +1281,12 @@ export function TestCasesPage() {
     beginCreateCase(requestedSuiteId);
 
     setSearchParams(prev => {
-      if (prev.has("create") || prev.has("suite")) {
-        prev.delete("create");
-        prev.delete("suite");
-        return prev;
+      const next = new URLSearchParams(prev);
+      if (next.has("create") || next.has("suite")) {
+        next.delete("create");
+        next.delete("suite");
       }
-      return prev;
+      return next;
     }, { replace: true });
   }, [appTypeId, isCreating, searchParams, selectedTestCaseId, setSearchParams]);
 
@@ -1421,6 +1437,11 @@ export function TestCasesPage() {
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const testEngineIntegration = resolveScopedIntegration(testEngineIntegrations, "testengine", projectId);
+  const mobileRemoteRecorderEnabled = Boolean(
+    testEngineIntegration?.config?.mobile_cloud_provider
+    && testEngineIntegration.config.mobile_cloud_provider !== "none"
+    && testEngineIntegration.config.mobile_remote_url
+  );
   const automationLearningCache = automationLearningCacheQuery.data || [];
   const recorderLiveUrl = recorderSession?.live_view_url || "";
 
@@ -2664,7 +2685,7 @@ export function TestCasesPage() {
 
   const handleStartRecorder = async (options: RecorderStartOptions) => {
     if (!selectedTestCase) {
-      showError(new Error("Select a saved web test case before starting the recorder."), "Unable to start recorder");
+      showError(new Error("Select a saved test case before starting the recorder."), "Unable to start recorder");
       return;
     }
 
@@ -4349,6 +4370,38 @@ export function TestCasesPage() {
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
   const stepCountLabel = `${displaySteps.length} step${displaySteps.length === 1 ? "" : "s"}`;
   const allStepsSelected = Boolean(displaySteps.length) && selectedStepIds.length === displaySteps.length;
+  const authoredStepProjections = useMemo<AuthoringStepProjection[]>(
+    () =>
+      displaySteps.map((step) => ({
+        id: step.id,
+        step_order: step.step_order,
+        action: stepDrafts[step.id]?.action ?? step.action,
+        expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result,
+        step_type: stepDrafts[step.id]?.step_type ?? step.step_type,
+        automation_code: stepDrafts[step.id]?.automation_code ?? step.automation_code,
+        api_request: stepDrafts[step.id]?.api_request ?? step.api_request
+      })),
+    [displaySteps, stepDrafts]
+  );
+  const uiScriptSteps = useMemo(
+    () => authoredStepProjections.filter((step) => normalizeStepType(step.step_type) !== "api"),
+    [authoredStepProjections]
+  );
+  const apiScriptSteps = useMemo(
+    () => authoredStepProjections.filter((step) => normalizeStepType(step.step_type) === "api"),
+    [authoredStepProjections]
+  );
+  const activeScriptSteps = authoringLens === "api-script" ? apiScriptSteps : uiScriptSteps;
+  const activeScriptCode = useMemo(
+    () =>
+      buildAuthoringLensCode(
+        caseDraft.title || selectedTestCase?.title || "Test case",
+        activeScriptSteps,
+        authoringLens === "api-script" ? "No API steps are authored for this test case yet." : "No UI/mobile steps are authored for this test case yet."
+      ),
+    [activeScriptSteps, authoringLens, caseDraft.title, selectedTestCase?.title]
+  );
+  const automatedStepCount = authoredStepProjections.filter(stepHasAutomation).length;
   const dirtyStepIds = useMemo(
     () =>
       displaySteps
@@ -4375,6 +4428,27 @@ export function TestCasesPage() {
   const selectionMaxOrder = selectedEditorSteps.length ? Math.max(...selectedEditorSteps.map((step) => step.step_order)) : null;
   const selectionPasteAboveIndex = selectionMinOrder ? Math.max(0, selectionMinOrder - 1) : null;
   const selectionPasteBelowIndex = selectionMaxOrder ? selectionMaxOrder : null;
+  const authoringLensActions = (
+    <div className="authoring-lens-actions" aria-label="Authoring view">
+      {([
+        ["manual", "Manual", displaySteps.length],
+        ["ui-script", "UI", uiScriptSteps.length],
+        ["api-script", "API", apiScriptSteps.length]
+      ] as Array<[TestCaseAuthoringLens, string, number]>).map(([lens, label, count]) => (
+        <button
+          className={authoringLens === lens ? "ghost-button compact is-active" : "ghost-button compact"}
+          key={lens}
+          onClick={() => setAuthoringLens(lens)}
+          title={`${label} authoring view`}
+          type="button"
+        >
+          {lens === "manual" ? <StandardStepIcon /> : <AutomationCodeIcon />}
+          <span>{label}</span>
+          <small>{count}</small>
+        </button>
+      ))}
+    </div>
+  );
   const editorStepActions: StepActionMenuAction[] = [
     {
       label: isCreating ? "Create test case" : "Save test case",
@@ -4689,10 +4763,11 @@ export function TestCasesPage() {
           className="ghost-button"
           disabled={!appTypeId || !integrations.length || !requirements.length}
           onClick={openAiCaseAuthoring}
+          title="Author manual test steps with AI"
           type="button"
         >
           <TestCaseSparkIcon />
-          <span>AI author</span>
+          <span>AI steps</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5441,6 +5516,7 @@ export function TestCasesPage() {
                       }}
                       type="button"
                     >
+                      <TestCaseClearIcon />
                       Clear filters
                     </button>
                   </div>
@@ -5467,7 +5543,8 @@ export function TestCasesPage() {
                 <span>Clear</span>
               </button>
               <button className="ghost-button" disabled={!appTypeId} onClick={() => setIsCreateSuiteModalOpen(true)} type="button">
-                Create suite
+                <TileCardSuiteIcon />
+                <span>Create suite</span>
               </button>
               <button
                 className="ghost-button"
@@ -5515,7 +5592,8 @@ export function TestCasesPage() {
                 <span>{isDeletingSelectedTestCases ? "Deleting…" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`}</span>
               </button>
               <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
-                New case
+                <TestCaseCreateIcon />
+                <span>New case</span>
               </button>
             </div>
 
@@ -5934,11 +6012,13 @@ export function TestCasesPage() {
                   <EditorAccordionSection
                     actions={(
                       <>
+                        {authoringLensActions}
                         <button
                           className="ghost-button"
                           onClick={() => setIsVisualBuilderActive((current) => !current)}
                           type="button"
                         >
+                          <TileCardStepsIcon />
                           <span>{isVisualBuilderActive ? "List view" : "Visual builder"}</span>
                         </button>
                         <button
@@ -5958,7 +6038,14 @@ export function TestCasesPage() {
                     summary={stepSectionSummary}
                     title={isCreating ? "Draft steps" : "Test steps"}
                   >
-                    {isVisualBuilderActive ? (
+                    {authoringLens !== "manual" ? (
+                      <AutomationScriptLens
+                        code={activeScriptCode}
+                        lens={authoringLens}
+                        onEditStep={(stepId) => setEditingAutomationStepId(stepId)}
+                        steps={activeScriptSteps}
+                      />
+                    ) : isVisualBuilderActive ? (
                       <VisualTestBuilder testSteps={displaySteps} />
                     ) : (
                     <div className="step-editor step-editor--embedded">
@@ -6145,36 +6232,30 @@ export function TestCasesPage() {
                       title="Automation builder"
                     >
                       <div className="automation-builder-panel">
-                        <div className="metric-strip compact">
-                          <div className="mini-card">
-                            <strong>{integrations.length ? "Ready" : "Fallback"}</strong>
-                            <span>LLM builder</span>
-                          </div>
-                          <div className="mini-card">
-                            <strong>{testEngineIntegration ? "Ready" : "Setup"}</strong>
-                            <span>Test Engine</span>
-                          </div>
-                          <div className="mini-card">
-                            <strong>{automationTargetManualCount}</strong>
-                            <span>Manual targets</span>
-                          </div>
-                          <div className="mini-card">
-                            <strong>{automationLearningCache.length}</strong>
-                            <span>Cached locators</span>
-                          </div>
-                        </div>
-
-                        <ExecutionContextSelector
-                          appTypeId={appTypeId}
-                          onConfigurationChange={setSelectedExecutionConfigurationId}
-                          onDataSetChange={setSelectedExecutionDataSetId}
-                          onEnvironmentChange={setSelectedExecutionEnvironmentId}
-                          prefillFirstAvailable
-                          projectId={projectId}
-                          selectedConfigurationId={selectedExecutionConfigurationId}
-                          selectedDataSetId={selectedExecutionDataSetId}
-                          selectedEnvironmentId={selectedExecutionEnvironmentId}
+                        <AutomationBuilderReadiness
+                          automatedStepCount={automatedStepCount}
+                          hasLlm={Boolean(integrations.length)}
+                          hasTestEngine={Boolean(testEngineIntegration)}
+                          manualTargetCount={automationTargetManualCount}
                         />
+
+                        <details className="automation-run-context-section" open>
+                          <summary>
+                            <ExecutionStepsIcon />
+                            <span>Run context</span>
+                          </summary>
+                          <ExecutionContextSelector
+                            appTypeId={appTypeId}
+                            onConfigurationChange={setSelectedExecutionConfigurationId}
+                            onDataSetChange={setSelectedExecutionDataSetId}
+                            onEnvironmentChange={setSelectedExecutionEnvironmentId}
+                            prefillFirstAvailable
+                            projectId={projectId}
+                            selectedConfigurationId={selectedExecutionConfigurationId}
+                            selectedDataSetId={selectedExecutionDataSetId}
+                            selectedEnvironmentId={selectedExecutionEnvironmentId}
+                          />
+                        </details>
 
                         <div className="record-grid automation-builder-form">
                           <FormField label="Start URL">
@@ -6243,6 +6324,7 @@ export function TestCasesPage() {
                                 disabled={!selectedTestCase || !testEngineIntegration}
                                 hasSession={Boolean(recorderSession)}
                                 isStarting={startRecorder.isPending}
+                                mobileRemoteEnabled={mobileRemoteRecorderEnabled}
                                 onStart={(options) => void handleStartRecorder(options)}
                               />
                               <button
@@ -6282,21 +6364,7 @@ export function TestCasesPage() {
                           <RecorderSessionInsights session={recorderSession} />
                         </div>
 
-                        {automationLearningCache.length ? (
-                          <div className="stack-list testops-learning-list">
-                            {automationLearningCache.slice(0, 6).map((entry) => (
-                              <div className="stack-item" key={entry.id}>
-                                <div>
-                                  <strong>{entry.locator_intent}</strong>
-                                  <span>{entry.page_key} · {entry.locator_kind || entry.source}</span>
-                                </div>
-                                <code className="execution-operation-json">{entry.locator}</code>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="empty-state compact">No locator learning is cached for this scope yet.</div>
-                        )}
+                        <AutomationLearningMemory entries={automationLearningCache} />
                       </div>
                     </EditorAccordionSection>
                   ) : null}
@@ -6766,6 +6834,165 @@ export function TestCasesPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+function AutomationScriptLens({
+  lens,
+  steps,
+  code,
+  onEditStep
+}: {
+  lens: Exclude<TestCaseAuthoringLens, "manual">;
+  steps: AuthoringStepProjection[];
+  code: string;
+  onEditStep: (stepId: string) => void;
+}) {
+  const title = lens === "api-script" ? "API script" : "UI automation script";
+  const emptyCopy = lens === "api-script"
+    ? "No API steps are present yet. Change a step type to API or import a Postman collection to author request-level coverage."
+    : "No UI or mobile steps are present yet. Add web, Android, or iOS steps to create executable UI coverage.";
+
+  return (
+    <div className="automation-script-lens">
+      <div className="automation-script-map" aria-label={`${title} step map`}>
+        {steps.length ? (
+          steps.map((step) => {
+            const stepType = normalizeStepType(step.step_type);
+            const hasSavedAutomation = stepHasAutomation(step);
+            const request = normalizeApiRequest(step.api_request);
+            const subtitle = stepType === "api" && request
+              ? `${request.method || "GET"} ${request.url || "No URL"}`
+              : step.expected_result || "No expected result written yet";
+
+            return (
+              <article className="automation-script-step" key={step.id}>
+                <div className="automation-script-step-copy">
+                  <div className="automation-script-step-head">
+                    <span className={hasSavedAutomation ? "automation-script-step-status is-ready" : "automation-script-step-status"}>
+                      {hasSavedAutomation ? "Ready" : "Generated"}
+                    </span>
+                    <strong>Step {step.step_order}</strong>
+                    <span>{stepType.toUpperCase()}</span>
+                  </div>
+                  <p>{step.action || "No manual action written yet"}</p>
+                  <small>{subtitle}</small>
+                </div>
+                <button className="ghost-button compact" onClick={() => onEditStep(step.id)} type="button">
+                  <AutomationCodeIcon />
+                  <span>Edit</span>
+                </button>
+              </article>
+            );
+          })
+        ) : (
+          <div className="empty-state compact">{emptyCopy}</div>
+        )}
+      </div>
+
+      <div className="automation-script-code-panel">
+        <div className="automation-script-code-head">
+          <strong>{title}</strong>
+          <span>{steps.length} mapped step{steps.length === 1 ? "" : "s"}</span>
+        </div>
+        <pre className="automation-script-code"><code>{code}</code></pre>
+      </div>
+    </div>
+  );
+}
+
+function AutomationBuilderReadiness({
+  hasLlm,
+  hasTestEngine,
+  manualTargetCount,
+  automatedStepCount
+}: {
+  hasLlm: boolean;
+  hasTestEngine: boolean;
+  manualTargetCount: number;
+  automatedStepCount: number;
+}) {
+  const items = [
+    {
+      icon: <TestCaseSparkIcon />,
+      label: "AI builder",
+      value: hasLlm ? "Ready" : "Fallback",
+      tone: hasLlm ? "ready" : "warn"
+    },
+    {
+      icon: <TestCaseRunIcon />,
+      label: "Test engine",
+      value: hasTestEngine ? "Ready" : "Setup",
+      tone: hasTestEngine ? "ready" : "warn"
+    },
+    {
+      icon: <StandardStepIcon />,
+      label: "Manual targets",
+      value: String(manualTargetCount),
+      tone: manualTargetCount ? "ready" : "neutral"
+    },
+    {
+      icon: <AutomationCodeIcon />,
+      label: "Scripted steps",
+      value: String(automatedStepCount),
+      tone: automatedStepCount ? "ready" : "neutral"
+    }
+  ];
+
+  return (
+    <div className="automation-readiness-grid" aria-label="Automation builder readiness">
+      {items.map((item) => (
+        <div className={`automation-readiness-card is-${item.tone}`} key={item.label}>
+          <span className="automation-readiness-icon">{item.icon}</span>
+          <div>
+            <strong>{item.value}</strong>
+            <span>{item.label}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AutomationLearningMemory({ entries }: { entries: AutomationLearningCacheEntry[] }) {
+  const topEntries = entries.slice(0, 6);
+  const strongEntries = entries.filter((entry) => Number(entry.confidence) >= 0.8).length;
+
+  return (
+    <section className="automation-learning-memory" aria-label="Automation learning memory">
+      <div className="automation-learning-memory-head">
+        <div>
+          <strong>Locator memory</strong>
+          <span>
+            {entries.length
+              ? `${entries.length} learned locator${entries.length === 1 ? "" : "s"} · ${strongEntries} high confidence`
+              : "No reusable locators learned for this scope yet"}
+          </span>
+        </div>
+        <AutomationCodeIcon />
+      </div>
+
+      {topEntries.length ? (
+        <div className="automation-learning-grid">
+          {topEntries.map((entry) => (
+            <article className="automation-learning-card" key={entry.id}>
+              <div className="automation-learning-card-head">
+                <strong>{entry.locator_intent || "Locator"}</strong>
+                <span>{Math.round(Number(entry.confidence || 0) * 100)}%</span>
+              </div>
+              <span className="automation-learning-page">{entry.page_key || entry.page_url || "Unknown page"}</span>
+              <code>{entry.locator}</code>
+              <div className="automation-learning-meta">
+                <span>{entry.locator_kind || entry.source || "learned"}</span>
+                <span>{entry.hit_count || 0} hit{entry.hit_count === 1 ? "" : "s"}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state compact">Run the recorder or AI builder once; learned locators will appear here and reduce future script repair work.</div>
+      )}
+    </section>
   );
 }
 

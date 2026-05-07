@@ -1665,32 +1665,19 @@ export function ExecutionsPage() {
   };
 
   useEffect(() => {
-    if (projectsQuery.isPending) {
-      return;
-    }
-
-    if (!projects.length) {
-      if (projectId) {
-        setProjectId("");
-      }
-      return;
-    }
-
-    if (!projects.some((project) => String(project.id) === String(projectId))) {
-      setProjectId(projects[0].id);
-    }
-  }, [projectId, projects, projectsQuery.isPending, setProjectId]);
-
-  useEffect(() => {
     if (appTypesQuery.isPending) {
       return;
     }
 
-    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+    const scopedAppTypes = projectId
+      ? appTypes.filter((item) => String(item.project_id) === String(projectId))
+      : appTypes;
+
+    if (projectId && appTypes.length && !scopedAppTypes.length) {
       return;
     }
 
-    if (!appTypes.length) {
+    if (!scopedAppTypes.length) {
       setAppTypeId("");
       setSelectedSuiteIds([]);
       resetExecutionContextSelection();
@@ -1698,8 +1685,8 @@ export function ExecutionsPage() {
       return;
     }
 
-    if (!appTypes.some((item) => item.id === appTypeId)) {
-      setAppTypeId(appTypes[0].id);
+    if (!scopedAppTypes.some((item) => item.id === appTypeId)) {
+      setAppTypeId(scopedAppTypes[0].id);
       setSelectedSuiteIds([]);
       resetExecutionContextSelection();
       resetSmartExecutionPreview();
@@ -1881,7 +1868,11 @@ export function ExecutionsPage() {
     }
 
     if (selectedExecution.project_id && selectedExecution.project_id !== projectId) {
-      setProjectId(selectedExecution.project_id);
+      setSelectedExecutionId("");
+      setFocusedSuiteId("");
+      setSelectedTestCaseId("");
+      syncExecutionSearchParams("", null);
+      return;
     }
 
     if (selectedExecution.app_type_id && selectedExecution.app_type_id !== appTypeId) {

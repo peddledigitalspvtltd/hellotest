@@ -208,23 +208,6 @@ export function ProjectsPage() {
     }
   }, [appTypeDropdownOptions, defaultAppTypeValue, quickAddAppTypeType]);
 
-  useEffect(() => {
-    if (projects.isPending || projects.isFetching) {
-      return;
-    }
-
-    if (!projectItems.length) {
-      if (selectedProjectId) {
-        setSelectedProjectId("");
-      }
-      return;
-    }
-
-    if (!selectedProjectId || !projectItems.some((project) => String(project.id) === String(selectedProjectId))) {
-      setSelectedProjectId(projectItems[0].id);
-    }
-  }, [projectItems, projects.isPending, projects.isFetching, selectedProjectId, setSelectedProjectId]);
-
   const selectedProject = useMemo(
     () => projectItems.find((project) => String(project.id) === String(selectedProjectId)) || projectItems[0],
     [projectItems, selectedProjectId]
@@ -233,7 +216,8 @@ export function ProjectsPage() {
     () => projectItems.find((project) => String(project.id) === String(focusedProjectId)) || null,
     [focusedProjectId, projectItems]
   );
-  const projectId = selectedProject?.id;
+  const scopedProject = focusedProject || selectedProject;
+  const projectId = scopedProject?.id;
 
   useEffect(() => {
     if (focusedProjectId && !projectItems.some((project) => String(project.id) === String(focusedProjectId))) {
@@ -534,11 +518,11 @@ export function ProjectsPage() {
     (projectAppTypeFilter !== "all" ? 1 : 0) + (projectMemberFilter !== "all" ? 1 : 0);
 
   const scopedMembers = useMemo(
-    () => (projectMembers.data || []).filter((member) => member.String(project.id) === String(projectId)),
+    () => (projectMembers.data || []).filter((member) => String(member.project_id) === String(projectId)),
     [projectMembers.data, projectId]
   );
   const scopedAppTypes = useMemo(
-    () => (appTypes.data || []).filter((item) => item.String(project.id) === String(projectId)),
+    () => (appTypes.data || []).filter((item) => String(item.project_id) === String(projectId)),
     [appTypes.data, projectId]
   );
 
@@ -921,7 +905,7 @@ export function ProjectsPage() {
             {!isProjectCatalogLoading ? (
               <div className="catalog-grid compact">
                 {filteredProjectItems.map((project) => {
-                  const isSelected = focusedProjectId === project.id;
+                  const isSelected = String(selectedProjectId) === String(project.id);
                   const memberCount = memberCountByProjectId[project.id] || 0;
                   const appTypeCount = appTypeCountByProjectId[project.id] || 0;
                   const requirementCount = requirementCountByProjectId[project.id] || 0;
@@ -1113,7 +1097,7 @@ export function ProjectsPage() {
             />
 
             {section === "members" ? (
-              <Panel title="Project members" subtitle={projectId ? `Assignments for ${selectedProject?.name}` : "Select a project first"}>
+              <Panel title="Project members" subtitle={projectId ? `Assignments for ${scopedProject?.name}` : "Select a project first"}>
               <form
                 className="elevated-toolbar"
                 onSubmit={(event) => {

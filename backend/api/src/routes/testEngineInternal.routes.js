@@ -14,6 +14,11 @@ module.exports = async function (fastify) {
     return { job };
   });
 
+  fastify.get("/testengine/internal/jobs/queue-stats", async (req) => {
+    await fastify.authenticateTestEngine(req);
+    return service.getQueueStats();
+  });
+
   fastify.get("/testengine/internal/jobs/:id", async (req) => {
     await fastify.authenticateTestEngine(req);
     return service.getQueuedJob(req.params.id);

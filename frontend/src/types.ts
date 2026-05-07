@@ -67,9 +67,20 @@ export type Feedback = {
   created_at?: string;
 };
 
+export type IntegrationType =
+  | "llm"
+  | "jira"
+  | "email"
+  | "google_auth"
+  | "google_drive"
+  | "github"
+  | "testengine"
+  | "ops"
+  | "local-desktop";
+
 export type Integration = {
   id: string;
-  type: "llm" | "jira" | "email" | "google_auth" | "google_drive" | "github" | "testengine" | "ops";
+  type: IntegrationType;
   name: string;
   base_url: string | null;
   api_key: string | null;

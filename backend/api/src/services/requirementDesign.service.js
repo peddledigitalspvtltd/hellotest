@@ -425,7 +425,7 @@ exports.previewRequirementsTestCases = async ({
   const externalLinks = normalizeTextList(external_links);
   const normalizedImages = normalizeImageAssets(images);
   const integration = await resolveIntegration(integration_id);
-  const knowledge = aiKnowledgeService.getActiveKnowledgeForLLM(scopedRequirements[0].project_id, appType.id);
+  const knowledge = await aiKnowledgeService.getActiveKnowledgeForLLM(scopedRequirements[0].project_id, appType.id);
   
   const generatedCases = await requestGeneratedCases({
     integration,

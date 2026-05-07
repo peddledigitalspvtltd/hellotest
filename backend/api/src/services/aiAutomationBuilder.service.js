@@ -2282,6 +2282,29 @@ const resolveTestEngineIntegration = async (testCase) => {
   return integration;
 };
 
+const resolveMobileEngineBaseUrl = (integration, recorderMode) => {
+  const config = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
+    ? integration.config
+    : {};
+  const configured = normalizeText(config.mobile_engine_url) || normalizeText(process.env.MOBILE_ENGINE_PUBLIC_URL);
+  const internal = normalizeText(process.env.MOBILE_ENGINE_URL) || normalizeText(config.mobile_engine_internal_url);
+
+  if (recorderMode === "local") {
+    return normalizeText(process.env.MOBILE_ENGINE_LOCAL_URL) || configured || "http://host.docker.internal:4312";
+  }
+
+  return configured || internal || "http://mobile-engine:4312";
+};
+
+const hasRemoteMobileProvider = (integration) => {
+  const config = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
+    ? integration.config
+    : {};
+  const provider = normalizeText(config.mobile_cloud_provider);
+  const remoteUrl = normalizeText(config.mobile_remote_url);
+  return Boolean(provider && provider !== "none" && remoteUrl);
+};
+
 const readEngineJson = async (url, init = {}) => {
   const response = await fetchWithTimeout(url, {
     ...init,
@@ -2461,6 +2484,7 @@ exports.startRecorderSession = async ({
   test_case_id,
   start_url,
   recorder_mode,
+  recorder_target,
   engine_base_url,
   recorder_public_base_url,
   test_environment_id,
@@ -2489,22 +2513,37 @@ exports.startRecorderSession = async ({
   });
   const integration = await resolveTestEngineIntegration(testCase);
   const recorderMode = normalizeText(recorder_mode) === "local" ? "local" : "remote";
-  const localBaseUrl = recorderMode === "local" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  const recorderTarget = normalizeText(recorder_target) === "mobile" || testCase.app_type_kind === "android" ? "mobile" : "web";
+
+  if (recorderTarget === "mobile" && recorderMode === "remote" && !hasRemoteMobileProvider(integration)) {
+    throw new Error("Configure a mobile cloud provider connection before starting remote mobile recording.");
+  }
+
+  const localBaseUrl = recorderMode === "local" && recorderTarget === "web" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || integration.base_url || "").replace(/\/+$/, "");
+  const mobileBaseUrl = resolveMobileEngineBaseUrl(integration, recorderMode).replace(/\/+$/, "");
   const publicBaseUrl = String(
-    recorderMode === "local"
+    recorderTarget === "mobile"
+      ? normalizeText(recorder_public_base_url) || mobileBaseUrl
+      : recorderMode === "local"
       ? normalizeText(recorder_public_base_url) || resolveRecorderPublicBaseUrl(integration, baseUrl)
       : resolveRecorderPublicBaseUrl(integration, baseUrl)
     || baseUrl
   ).replace(/\/+$/, "");
   const resolvedStartUrl = normalizeText(start_url) || buildContext.environment?.base_url || null;
-  const session = await readEngineJson(`${baseUrl}/api/v1/recorder/sessions`, {
+  const sessionEndpoint = recorderTarget === "mobile"
+    ? `${mobileBaseUrl}/api/v1/mobile/recorder/sessions`
+    : `${baseUrl}/api/v1/recorder/sessions`;
+  const session = await readEngineJson(sessionEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
       start_url: resolvedStartUrl,
+      recorder_mode: recorderMode,
+      provider: recorderTarget === "mobile" ? integration.config?.mobile_cloud_provider || "local-appium" : undefined,
+      config: recorderTarget === "mobile" ? integration.config || {} : undefined,
       test_case: {
         id: testCase.id,
         title: testCase.title,
@@ -2520,7 +2559,9 @@ exports.startRecorderSession = async ({
     action: "test_case_recorder",
     status: "running",
     title: `Recorder session for ${testCase.title}`,
-    description: "A local Test Engine browser recorder session is capturing user actions and API requests.",
+    description: recorderTarget === "mobile"
+      ? "A Mobile Engine recorder session is capturing Android interactions."
+      : "A local Test Engine browser recorder session is capturing user actions and API requests.",
     metadata: {
       current_phase: "recorder.running",
       progress_percent: 20,
@@ -2532,7 +2573,9 @@ exports.startRecorderSession = async ({
       recorder_started_at: session.started_at || new Date().toISOString(),
       recorder_last_activity_at: session.last_activity_at || session.started_at || null,
       engine_base_url: baseUrl,
+      mobile_engine_base_url: recorderTarget === "mobile" ? mobileBaseUrl : null,
       recorder_mode: recorderMode,
+      recorder_target: recorderTarget,
       recorder_public_base_url: publicBaseUrl
     },
     related_kind: "test_case",
@@ -2544,12 +2587,14 @@ exports.startRecorderSession = async ({
   await appendEvent(transaction.id, {
     phase: "recorder.started",
     message: session.live_view_path || session.live_view_url
-      ? "Started a browser-backed recorder session with a QAira live view."
-      : "Started a local browser recorder session through the active Test Engine.",
+      ? `Started a ${recorderTarget} recorder session with a QAira live view.`
+      : `Started a ${recorderTarget} recorder session.`,
     details: {
       recorder_session_id: session.id,
       engine_base_url: baseUrl,
+      mobile_engine_base_url: recorderTarget === "mobile" ? mobileBaseUrl : null,
       recorder_mode: recorderMode,
+      recorder_target: recorderTarget,
       display_mode: session.display_mode || null,
       live_view_available: Boolean(session.live_view_path || session.live_view_url),
       start_url: resolvedStartUrl,
@@ -2563,8 +2608,11 @@ exports.startRecorderSession = async ({
     ...session,
     transaction_id: transaction.id,
     engine_base_url: baseUrl,
+    recorder_target: recorderTarget,
     live_view_url: buildEngineUrl(publicBaseUrl, session.live_view_url || session.live_view_path),
-    status_url: `${publicBaseUrl}/api/v1/recorder/sessions/${session.id}`
+    status_url: recorderTarget === "mobile"
+      ? `${publicBaseUrl}/api/v1/mobile/recorder/sessions/${session.id}`
+      : `${publicBaseUrl}/api/v1/recorder/sessions/${session.id}`
   };
 };
 
@@ -2575,6 +2623,7 @@ exports.finishRecorderSession = async ({
   integration_id,
   additional_context,
   recorder_mode,
+  recorder_target,
   engine_base_url,
   created_by
 } = {}) => {
@@ -2597,15 +2646,44 @@ exports.finishRecorderSession = async ({
     ? await workspaceTransactionService.getTransaction(transactionId).catch(() => null)
     : null;
   const metadata = parseTransactionMetadata(transaction);
-  const localBaseUrl = normalizeText(recorder_mode) === "local" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  const target = normalizeText(recorder_target) || normalizeText(metadata.recorder_target) || "web";
+  const localBaseUrl = normalizeText(recorder_mode) === "local" && target !== "mobile" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || metadata.engine_base_url || engineIntegration.base_url || "").replace(/\/+$/, "");
-  const session = await readEngineJson(`${baseUrl}/api/v1/recorder/sessions/${sessionId}`);
+  const mobileBaseUrl = String(metadata.mobile_engine_base_url || resolveMobileEngineBaseUrl(engineIntegration, normalizeText(recorder_mode) || metadata.recorder_mode || "remote")).replace(/\/+$/, "");
+  const sessionBaseUrl = target === "mobile" ? mobileBaseUrl : baseUrl;
+  const sessionPath = target === "mobile" ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
+  const session = await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
   const capturedActions = normalizeCapturedActions(session.actions || []);
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);
 
-  await readEngineJson(`${baseUrl}/api/v1/recorder/sessions/${sessionId}/stop`, {
+  await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
     method: "POST"
   }).catch(() => null);
+
+  if (target === "mobile") {
+    await workspaceTransactionService.updateTransaction(transactionId, {
+      status: "completed",
+      metadata: {
+        ...metadata,
+        current_phase: "recorder.mobile.completed",
+        progress_percent: 100,
+        recorder_session_id: session.id,
+        action_count: capturedActions.length
+      },
+      completed_at: new Date().toISOString()
+    }).catch(() => null);
+    return {
+      generated_step_count: 0,
+      created_step_count: 0,
+      updated_step_count: 0,
+      message: "Mobile recorder stopped. Review captured Android actions and add Appium keywords to the step code.",
+      recorder_session: {
+        id: session.id,
+        action_count: capturedActions.length,
+        network_count: capturedNetwork.length
+      }
+    };
+  }
 
   const result = await finalizeRecorderBuild({
     testCase,

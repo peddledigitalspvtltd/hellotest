@@ -84,20 +84,20 @@ services:
       timeout: 5s
       retries: 10
 
-  testengine:
+  testengine-worker:
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile
-    container_name: qaira-local-testengine
-    ports:
-      - "${TESTENGINE_PORT:-4301}:4301"
+    expose:
+      - "4301"
     environment:
       PORT: 4301
-      ENGINE_NAME: ${ENGINE_NAME:-qaira-local-testengine}
+      ENGINE_NAME: ${ENGINE_NAME:-qaira-local-testengine-worker}
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
       QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
       QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://mobile-engine:4312}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_POLL_INTERVAL_MS:-30000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_POLL_CONCURRENCY:-4}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
@@ -110,8 +110,47 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      mobile-engine:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: ${TESTENGINE_REPLICAS:-1}
+
+  testengine:
+    image: haproxy:2.9-alpine
+    container_name: qaira-local-testengine
+    ports:
+      - "${TESTENGINE_PORT:-4301}:4301"
+    volumes:
+      - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      testengine-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  mobile-engine:
+    build:
+      context: ./mobile-engine
+      dockerfile: Dockerfile
+    container_name: qaira-local-mobile-engine
+    ports:
+      - "${MOBILE_ENGINE_PORT:-4312}:4312"
+    environment:
+      PORT: 4312
+      APPIUM_SERVER_URL: ${APPIUM_SERVER_URL:-http://host.docker.internal:4723}
+      ANDROID_DEVICE_NAME: ${ANDROID_DEVICE_NAME:-Android Device}
+      ANDROID_PLATFORM_VERSION: ${ANDROID_PLATFORM_VERSION:-}
+      ANDROID_APP: ${ANDROID_APP:-}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4312/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 10

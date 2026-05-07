@@ -18,6 +18,10 @@ set +a
 
 docker compose --env-file .env -f "$COMPOSE_FILE" up -d --build
 
+if [ "${TESTENGINE_AUTOSCALE:-true}" = "true" ]; then
+  "$SCRIPT_DIR/autoscale-testengine.sh" start
+fi
+
 echo
 echo "QAira local stack is starting."
 echo "Frontend:    http://localhost:${FRONTEND_PORT:-8080}"

@@ -506,7 +506,19 @@ const normalizeConfig = (type, input, username) => {
       public_base_url: normalizeText(raw.public_base_url),
       recorder_public_base_url: normalizeText(raw.recorder_public_base_url),
       ops_public_base_url: normalizeText(raw.ops_public_base_url),
-      live_view_url: normalizeText(raw.live_view_url)
+      live_view_url: normalizeText(raw.live_view_url),
+      mobile_engine_url: normalizeText(raw.mobile_engine_url),
+      mobile_engine_internal_url: normalizeText(raw.mobile_engine_internal_url),
+      mobile_cloud_provider: normalizeText(raw.mobile_cloud_provider),
+      mobile_remote_url: normalizeText(raw.mobile_remote_url),
+      mobile_username: normalizeText(raw.mobile_username),
+      mobile_access_key: normalizeText(raw.mobile_access_key),
+      device_name: normalizeText(raw.device_name),
+      platform_version: normalizeText(raw.platform_version),
+      android_app: normalizeText(raw.android_app),
+      appium_server_url: normalizeText(raw.appium_server_url),
+      app_package: normalizeText(raw.app_package),
+      app_activity: normalizeText(raw.app_activity)
     };
   }
 

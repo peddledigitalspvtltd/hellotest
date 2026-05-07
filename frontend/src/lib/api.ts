@@ -601,12 +601,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, {
         method: "POST",
         body: JSON.stringify(input || {})

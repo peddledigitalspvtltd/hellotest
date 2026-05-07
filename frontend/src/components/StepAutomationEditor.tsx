@@ -45,6 +45,16 @@ type WebKeywordOption = {
   dataRequired?: boolean;
 };
 
+type AndroidKeywordOption = {
+  id: string;
+  label: string;
+  selectorLabel: string;
+  valueLabel: string;
+  selectorRequired?: boolean;
+  valueRequired?: boolean;
+  hint?: string;
+};
+
 const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "goto", label: "Open URL", locatorLabel: "URL or path", dataLabel: "Optional note", locatorRequired: true },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
@@ -56,6 +66,17 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "expectUrl", label: "Assert URL", locatorLabel: "Optional note", dataLabel: "URL fragment", dataRequired: true },
   { id: "captureText", label: "Capture Text", locatorLabel: "Locator", dataLabel: "Param token", locatorRequired: true, dataRequired: true },
   { id: "captureValue", label: "Capture Value", locatorLabel: "Locator", dataLabel: "Param token", locatorRequired: true, dataRequired: true }
+];
+
+const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
+  { id: "tap", label: "Tap", selectorLabel: "UiAutomator/XPath/accessibility id", valueLabel: "Optional note", selectorRequired: true },
+  { id: "type", label: "Type", selectorLabel: "Input selector", valueLabel: "Text or token", selectorRequired: true, valueRequired: true },
+  { id: "clear", label: "Clear", selectorLabel: "Input selector", valueLabel: "Optional note", selectorRequired: true },
+  { id: "waitForDisplayed", label: "Wait visible", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
+  { id: "expectText", label: "Assert text", selectorLabel: "Selector", valueLabel: "Expected text", selectorRequired: true, valueRequired: true },
+  { id: "swipe", label: "Swipe", selectorLabel: "Start X,Y", valueLabel: "End X,Y,duration", selectorRequired: true, valueRequired: true, hint: "Example: selector 500,1500 and value 500,500,300" },
+  { id: "pressBack", label: "Press back", selectorLabel: "Optional note", valueLabel: "Optional note" },
+  { id: "pause", label: "Pause", selectorLabel: "Milliseconds", valueLabel: "Optional note", selectorRequired: true }
 ];
 
 const quoteCodeString = (value: string) => JSON.stringify(value);
@@ -89,6 +110,36 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
       return `capture(${quoteCodeString(value || "@t.capturedText")}, await web.text(${quoteCodeString(target)}));`;
     case "captureValue":
       return `capture(${quoteCodeString(value || "@t.capturedValue")}, await web.value(${quoteCodeString(target)}));`;
+    default:
+      return "";
+  }
+}
+
+function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: string, data: string) {
+  const target = selector.trim();
+  const value = data.trim();
+  const splitNumbers = (source: string) => source.split(",").map((item) => Number.parseInt(item.trim(), 10) || 0);
+
+  switch (option.id) {
+    case "tap":
+      return `await android.tap(${quoteCodeString(target)});`;
+    case "type":
+      return `await android.type(${quoteCodeString(target)}, ${quoteCodeString(value)});`;
+    case "clear":
+      return `await android.clear(${quoteCodeString(target)});`;
+    case "waitForDisplayed":
+      return `await android.waitForDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)});`;
+    case "expectText":
+      return `await android.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)});`;
+    case "swipe": {
+      const [startX, startY] = splitNumbers(target);
+      const [endX, endY, duration] = splitNumbers(value);
+      return `await android.swipe(${startX}, ${startY}, ${endX}, ${endY}, ${duration || 300});`;
+    }
+    case "pressBack":
+      return "await android.pressBack();";
+    case "pause":
+      return `await android.pause(${Math.max(0, Number.parseInt(target, 10) || 1000)});`;
     default:
       return "";
   }
@@ -1471,6 +1522,10 @@ export function StepAutomationDialog({
   const [webKeywordLocator, setWebKeywordLocator] = useState("");
   const [webKeywordData, setWebKeywordData] = useState("");
   const [webKeywordMessage, setWebKeywordMessage] = useState("");
+  const [androidKeywordId, setAndroidKeywordId] = useState(ANDROID_KEYWORD_OPTIONS[0].id);
+  const [androidKeywordSelector, setAndroidKeywordSelector] = useState("");
+  const [androidKeywordData, setAndroidKeywordData] = useState("");
+  const [androidKeywordMessage, setAndroidKeywordMessage] = useState("");
   const [curlImportText, setCurlImportText] = useState("");
   const [curlImportMessage, setCurlImportMessage] = useState("");
 
@@ -1487,6 +1542,10 @@ export function StepAutomationDialog({
     setWebKeywordLocator("");
     setWebKeywordData("");
     setWebKeywordMessage("");
+    setAndroidKeywordId(ANDROID_KEYWORD_OPTIONS[0].id);
+    setAndroidKeywordSelector("");
+    setAndroidKeywordData("");
+    setAndroidKeywordMessage("");
     setCurlImportText("");
     setCurlImportMessage("");
   }, [stepRevisionKey]);
@@ -1532,6 +1591,7 @@ export function StepAutomationDialog({
   );
   const selectedJsonValue = selectedJsonPath ? formatJsonSelectionValue(selectedJsonPath.value) : "";
   const selectedWebKeyword = WEB_KEYWORD_OPTIONS.find((option) => option.id === webKeywordId) || WEB_KEYWORD_OPTIONS[0];
+  const selectedAndroidKeyword = ANDROID_KEYWORD_OPTIONS.find((option) => option.id === androidKeywordId) || ANDROID_KEYWORD_OPTIONS[0];
   const groupedAvailableParameters = useMemo(
     () => [
       {
@@ -1725,6 +1785,24 @@ export function StepAutomationDialog({
     setWebKeywordLocator("");
     setWebKeywordData("");
     setWebKeywordMessage(`${selectedWebKeyword.label} keyword added to the automation override.`);
+  };
+
+  const handleAddAndroidKeyword = () => {
+    if (selectedAndroidKeyword.selectorRequired && !androidKeywordSelector.trim()) {
+      setAndroidKeywordMessage(`${selectedAndroidKeyword.selectorLabel} is required for ${selectedAndroidKeyword.label}.`);
+      return;
+    }
+
+    if (selectedAndroidKeyword.valueRequired && !androidKeywordData.trim()) {
+      setAndroidKeywordMessage(`${selectedAndroidKeyword.valueLabel} is required for ${selectedAndroidKeyword.label}.`);
+      return;
+    }
+
+    const snippet = buildAndroidKeywordSnippet(selectedAndroidKeyword, androidKeywordSelector, androidKeywordData);
+    setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
+    setAndroidKeywordSelector("");
+    setAndroidKeywordData("");
+    setAndroidKeywordMessage(`${selectedAndroidKeyword.label} keyword added to the Appium override.`);
   };
 
   const handleInsertJsonPathAssertion = () => {
@@ -2241,6 +2319,44 @@ export function StepAutomationDialog({
                       </FormField>
                     </div>
                     {webKeywordMessage ? <div className="inline-message success-message">{webKeywordMessage}</div> : null}
+                  </div>
+                ) : null}
+                {stepType === "android" ? (
+                  <div className="automation-response-shell">
+                    <div className="automation-response-header">
+                      <div>
+                        <strong>Android Appium keyword builder</strong>
+                        <span>Select a mobile action, provide the selector and data it needs, then add executable WebdriverIO/Appium code to the step.</span>
+                      </div>
+                      <button className="ghost-button inline-button" onClick={handleAddAndroidKeyword} type="button">
+                        Add
+                      </button>
+                    </div>
+                    <div className="automation-inline-grid">
+                      <FormField label="Keyword">
+                        <select value={androidKeywordId} onChange={(event) => setAndroidKeywordId(event.target.value)}>
+                          {ANDROID_KEYWORD_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>{option.label}</option>
+                          ))}
+                        </select>
+                      </FormField>
+                      <FormField label={selectedAndroidKeyword.selectorLabel} hint={selectedAndroidKeyword.hint}>
+                        <input
+                          placeholder={'~loginButton or android=new UiSelector().text("Login")'}
+                          value={androidKeywordSelector}
+                          onChange={(event) => setAndroidKeywordSelector(event.target.value)}
+                        />
+                      </FormField>
+                      <FormField label={selectedAndroidKeyword.valueLabel}>
+                        <input
+                          list={groupedAvailableParameters.length ? responseParameterOptionListId : undefined}
+                          placeholder="@t.username"
+                          value={androidKeywordData}
+                          onChange={(event) => setAndroidKeywordData(event.target.value)}
+                        />
+                      </FormField>
+                    </div>
+                    {androidKeywordMessage ? <div className="inline-message success-message">{androidKeywordMessage}</div> : null}
                   </div>
                 ) : null}
                 <FormField

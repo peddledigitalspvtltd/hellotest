@@ -7,4 +7,5 @@ COMPOSE_FILE=${QAIRA_LOCAL_COMPOSE_FILE:-docker-compose.yml}
 
 cd "$LOCAL_RUN_DIR"
 [ -f .env ] || cp .env.example .env
+"$SCRIPT_DIR/autoscale-testengine.sh" stop || true
 docker compose --env-file .env -f "$COMPOSE_FILE" down

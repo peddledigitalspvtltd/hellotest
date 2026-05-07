@@ -395,38 +395,25 @@ export function DesignPage() {
   const [stepDrafts, setStepDrafts] = useState<Record<string, StepDraft>>({});
 
   useEffect(() => {
-    if (projectsQuery.isPending) {
-      return;
-    }
-
-    if (!projects.length) {
-      if (projectId) {
-        setProjectId("");
-      }
-      return;
-    }
-
-    if (!projects.some((project) => String(project.id) === String(projectId))) {
-      setProjectId(projects[0].id);
-    }
-  }, [projectId, projects, projectsQuery.isPending, setProjectId]);
-
-  useEffect(() => {
     if (appTypesQuery.isPending) {
       return;
     }
 
-    if (projectId && appTypes.some((item) => item.project_id !== projectId)) {
+    const scopedAppTypes = projectId
+      ? appTypes.filter((item) => String(item.project_id) === String(projectId))
+      : appTypes;
+
+    if (projectId && appTypes.length && !scopedAppTypes.length) {
       return;
     }
 
-    if (!appTypes.length) {
+    if (!scopedAppTypes.length) {
       setAppTypeId("");
       return;
     }
 
-    if (!appTypes.some((item) => item.id === appTypeId)) {
-      setAppTypeId(appTypes[0].id);
+    if (!scopedAppTypes.some((item) => item.id === appTypeId)) {
+      setAppTypeId(scopedAppTypes[0].id);
     }
   }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 

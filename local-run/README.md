@@ -59,13 +59,37 @@ QAIRA_LOCAL_COMPOSE_FILE=docker-compose.images.yml bin/start.sh
 
 ## Polling
 
+The local Test Engine now runs behind a fixed Docker Compose gateway at
+`http://localhost:4301`. The actual queue workers are the `testengine-worker`
+service and can be scaled without changing the browser/API URL.
+
 The local Test Engine defaults to:
 
+- `TESTENGINE_REPLICAS=1`
+- `TESTENGINE_AUTOSCALE=true`
 - `TESTENGINE_POLL_INTERVAL_MS=30000`
 - `TESTENGINE_POLL_CONCURRENCY=4`
 
 That means it checks QAira every 30 seconds and can process up to four queued
-automation jobs in parallel.
+automation jobs in parallel per worker. The local autoscaler checks queue depth
+every 15 seconds and scales `testengine-worker` from one to three containers
+when the queued automated backlog grows. To force three workers manually:
+
+```bash
+TESTENGINE_REPLICAS=3 bin/start.sh
+```
+
+or, for an already running stack:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml up -d --scale testengine-worker=3 testengine-worker testengine
+```
+
+To run a one-time autoscale decision without the daemon:
+
+```bash
+bin/autoscale-testengine.sh once
+```
 
 The local automation generator agent also polls every 30 seconds. It is separate
 from TestEngine execution jobs: clicking `Automate case with AI` queues a

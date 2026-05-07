@@ -1,4 +1,4 @@
-export type EngineStepType = "web" | "api";
+export type EngineStepType = "web" | "api" | "android";
 export type EngineWebEngineProvider = "playwright" | "selenium";
 export type EngineRunTrigger = "execution" | "test-run";
 export type EngineSourceMode = "attached-script" | "manual-handover";
@@ -46,6 +46,8 @@ export type EngineRunStep = {
   group_name?: string | null;
   group_kind?: "local" | "reusable" | null;
 };
+
+export type EngineMobileProvider = "local-appium" | "saucelabs" | "browserstack";
 
 export type EngineManualSpec = {
   title: string;
@@ -220,6 +222,15 @@ export type EngineRunEnvelope = {
   timeouts?: EngineRunTimeoutPolicy | null;
   web_engine?: {
     active: EngineWebEngineProvider;
+  } | null;
+  mobile_engine?: {
+    active: EngineMobileProvider;
+    recorder_mode?: "local" | "remote";
+    appium_server_url?: string | null;
+    cloud_provider?: string | null;
+    device_name?: string | null;
+    platform_version?: string | null;
+    app?: string | null;
   } | null;
   manual_spec: EngineManualSpec;
   attached_script?: EngineAttachedScript | null;

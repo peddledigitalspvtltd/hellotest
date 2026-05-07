@@ -24,10 +24,6 @@ function filterScopedResources<T extends { app_type_id: string | null }>(items: 
   return items;
 }
 
-function toScopeLabel(item: { app_type_id: string | null }) {
-  return item.app_type_id ? "App type scoped" : "Shared across project";
-}
-
 export function ExecutionContextSelector({
   projectId,
   appTypeId,
@@ -83,9 +79,6 @@ export function ExecutionContextSelector({
     [appTypeId, dataSets, projectId]
   );
 
-  const selectedEnvironment = environments.find((item) => item.id === selectedEnvironmentId) || null;
-  const selectedConfiguration = configurations.find((item) => item.id === selectedConfigurationId) || null;
-  const selectedDataSet = dataSets.find((item) => item.id === selectedDataSetId) || null;
   const isLoading = environmentsQuery.isLoading || configurationsQuery.isLoading || dataSetsQuery.isLoading;
   const hasAnyContext = Boolean(environments.length || configurations.length || dataSets.length);
 
@@ -170,14 +163,6 @@ export function ExecutionContextSelector({
           placeholder="No test data"
           selectedId={selectedDataSetId}
         />
-      </div>
-
-      <div className="detail-summary execution-context-summary">
-        <strong>Run context snapshot</strong>
-        <span>{selectedEnvironment ? `${selectedEnvironment.name} · ${toScopeLabel(selectedEnvironment)}` : "No test environment selected."}</span>
-        <span>{selectedConfiguration ? `${selectedConfiguration.name} · ${toScopeLabel(selectedConfiguration)}` : "No test configuration selected."}</span>
-        <span>{selectedDataSet ? `${selectedDataSet.name} · ${selectedDataSet.mode === "table" ? "Table data" : "Key/value data"}` : "No test data selected."}</span>
-        <span>These selections become the snapped input params for the run, and anything extracted during execution shows up later as output params for downstream steps.</span>
       </div>
 
       {projectId && !isLoading && !hasAnyContext ? (

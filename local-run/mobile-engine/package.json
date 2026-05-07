@@ -1,0 +1,13 @@
+{
+  "name": "qaira-mobile-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "uuid": "^10.0.0",
+    "webdriverio": "^9.20.0"
+  }
+}

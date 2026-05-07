@@ -3,6 +3,7 @@ import { completeQueuedJobWithMetadata, isQairaQueueConfigured, leaseNextQueuedJ
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
+import { executeAndroidSteps, isMobileEngineConfigured } from "./mobileEngine.js";
 import { registerContextValue } from "./runtimeContext.js";
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_POLL_INTERVAL_MS = 1000;
@@ -200,6 +201,25 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         if (webRunSession) {
             await webRunSession.start();
         }
+        const remainingAndroidSteps = remainingSteps.filter((step) => step.step_type === "android");
+        const androidResultsByStepId = new Map();
+        if (remainingAndroidSteps.length) {
+            if (!isMobileEngineConfigured()) {
+                const message = `${job.test_case_title} requires Android execution, but MOBILE_ENGINE_URL is not configured.`;
+                for (const step of remainingAndroidSteps) {
+                    androidResultsByStepId.set(step.id, { status: "blocked", note: message });
+                }
+            }
+            else {
+                const mobileResult = await executeAndroidSteps(envelope, remainingAndroidSteps);
+                for (const result of mobileResult.results || []) {
+                    androidResultsByStepId.set(result.step_id, {
+                        status: result.status,
+                        note: result.note
+                    });
+                }
+            }
+        }
         for (const [index, step] of remainingSteps.entries()) {
             updateRunState(accepted.id, "running", `${job.test_case_title}: executing ${step.step_type.toUpperCase()} step ${index + 1} of ${remainingSteps.length}.`);
             if (step.step_type === "api") {
@@ -243,6 +263,43 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     return;
                 }
                 continue;
+            }
+            if (step.step_type === "android") {
+                const result = androidResultsByStepId.get(step.id) || { status: "blocked", note: "Android Mobile Engine did not return a result for this step." };
+                const message = result.note || `${job.test_case_title} Android step ${step.order} finished with ${result.status}.`;
+                enqueueStepReport(step.id, {
+                    status: result.status,
+                    note: message,
+                    evidence: null,
+                    web_detail: null,
+                    captures: {}
+                });
+                if (result.status === "passed") {
+                    continue;
+                }
+                const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("blocked"));
+                updateRunState(accepted.id, "failed", message);
+                await flushStepReports();
+                await completeQueuedJobWithMetadata(job.id, {
+                    status: result.status,
+                    error: message,
+                    summary: message,
+                    deterministic_attempted: true,
+                    healing_attempted: healingAttempted,
+                    healing_succeeded: healingSucceeded,
+                    artifact_bundle: artifactBundle
+                });
+                emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
+                    event_type: "testengine.queue.job.blocked",
+                    status: "blocked",
+                    summary: message,
+                    step: {
+                        id: step.id,
+                        order: step.order,
+                        type: step.step_type
+                    }
+                }));
+                return;
             }
             if (step.step_type !== "web" || !webRunSession) {
                 const message = `${job.test_case_title} includes unsupported step type ${step.step_type}.`;

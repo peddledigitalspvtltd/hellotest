@@ -12,7 +12,7 @@ const {
 } = require("../utils/testStepAutomation");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
-const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web"]);
+const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
 const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.TESTENGINE_JOB_LEASE_SECONDS || 90));
 const TESTENGINE_WEB_ENGINE_VALUES = new Set(["playwright", "selenium"]);
 const TESTENGINE_BROWSER_ALIASES = new Map([
@@ -93,6 +93,14 @@ const selectJob = db.prepare(`
   SELECT *
   FROM test_engine_jobs
   WHERE id = ?
+`);
+
+const selectQueueStats = db.prepare(`
+  SELECT status, COUNT(*)::int AS count
+  FROM test_engine_jobs
+  WHERE completed_at IS NULL
+    AND status IN ('queued', 'leased', 'running')
+  GROUP BY status
 `);
 
 const updateJobLeaseState = db.prepare(`
@@ -470,6 +478,10 @@ const resolveEngineStepType = (stepType, appTypeKind) => {
     return "api";
   }
 
+  if (appTypeKind === "android" && !normalized) {
+    return "android";
+  }
+
   if ((appTypeKind === "web" || appTypeKind === "unified") && !normalized) {
     return "web";
   }
@@ -563,6 +575,21 @@ const buildEngineEnvelope = ({
     },
     web_engine: {
       active: normalizeTestEngineWebEngine(integrationConfig.active_web_engine, "playwright")
+    },
+    mobile_engine: {
+      active: normalizeText(integrationConfig.active_mobile_engine) || "local-appium",
+      recorder_mode: normalizeText(integrationConfig.mobile_recorder_mode) || "local",
+      appium_server_url: normalizeText(integrationConfig.appium_server_url) || null,
+      cloud_provider: normalizeText(integrationConfig.mobile_cloud_provider) || null,
+      device_name:
+        normalizeText(execution.test_configuration?.snapshot?.device_name)
+        || normalizeText(integrationConfig.device_name)
+        || null,
+      platform_version:
+        normalizeText(execution.test_configuration?.snapshot?.platform_version)
+        || normalizeText(integrationConfig.platform_version)
+        || null,
+      app: normalizeText(integrationConfig.android_app) || normalizeText(integrationConfig.app) || null
     },
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
     steps,
@@ -1234,6 +1261,28 @@ exports.leaseNextQueuedJob = async (params = {}) => {
       }
     }
   }
+};
+
+exports.getQueueStats = async () => {
+  const rows = await selectQueueStats.all();
+  const byStatus = rows.reduce((accumulator, row) => {
+    accumulator[row.status] = Number(row.count) || 0;
+    return accumulator;
+  }, {});
+  const queued = byStatus.queued || 0;
+  const leased = byStatus.leased || 0;
+  const running = byStatus.running || 0;
+  const pending = queued + leased + running;
+  const recommendedWorkers = Math.max(1, Math.min(3, queued > 3 ? 3 : queued > 1 ? 2 : 1));
+
+  return {
+    queued,
+    leased,
+    running,
+    pending,
+    max_workers: 3,
+    recommended_workers: recommendedWorkers
+  };
 };
 
 exports.startQueuedJob = async ({ job_id, worker_id } = {}) => {

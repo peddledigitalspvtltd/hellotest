@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 
-const CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
+const CURRENT_PROJECT_STORAGE_KEY = "qaira.current_project_id";
+const LEGACY_CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
 const CURRENT_PROJECT_EVENT = "qaira:current-project-change";
-const CURRENT_APP_TYPE_STORAGE_KEY = "sidebar_app_type_id";
+const CURRENT_APP_TYPE_STORAGE_KEY = "qaira.current_app_type_by_project";
+const LEGACY_CURRENT_APP_TYPE_STORAGE_KEY = "sidebar_app_type_id";
 const CURRENT_APP_TYPE_EVENT = "qaira:current-app-type-change";
+const CURRENT_SCOPE_STATE_VERSION_KEY = "qaira_scope_state_version";
+const CURRENT_SCOPE_STATE_VERSION = "3";
+
+type AppTypeChangeDetail = {
+  projectId: string;
+  appTypeId: string;
+};
+
+type AppTypeScopeState = {
+  projectId: string;
+  appTypeId: string;
+};
 
 const dispatchScopedEvent = (eventName: string, detail: Record<string, string>) => {
   if (typeof window === "undefined") {
@@ -18,7 +32,34 @@ const readCurrentProjectId = () => {
     return "";
   }
 
-  return window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY) || "";
+  return window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY) || window.localStorage.getItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY) || "";
+};
+
+const migrateScopeState = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const storedProjectId = window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY);
+  const legacyProjectId = window.localStorage.getItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY);
+  if (!storedProjectId && legacyProjectId) {
+    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, legacyProjectId);
+  }
+
+  const storedAppTypeMap = window.localStorage.getItem(CURRENT_APP_TYPE_STORAGE_KEY);
+  const legacyAppTypeMap = window.localStorage.getItem(LEGACY_CURRENT_APP_TYPE_STORAGE_KEY);
+  if (!storedAppTypeMap && legacyAppTypeMap) {
+    window.localStorage.setItem(CURRENT_APP_TYPE_STORAGE_KEY, legacyAppTypeMap);
+  }
+
+  window.localStorage.removeItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_CURRENT_APP_TYPE_STORAGE_KEY);
+
+  if (window.localStorage.getItem(CURRENT_SCOPE_STATE_VERSION_KEY) === CURRENT_SCOPE_STATE_VERSION) {
+    return;
+  }
+
+  window.localStorage.setItem(CURRENT_SCOPE_STATE_VERSION_KEY, CURRENT_SCOPE_STATE_VERSION);
 };
 
 const writeCurrentProjectId = (projectId: string | number) => {
@@ -34,7 +75,8 @@ const writeCurrentProjectId = (projectId: string | number) => {
     window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
   }
 
-  dispatchScopedEvent(CURRENT_PROJECT_EVENT, { projectId: normalizedId });
+  window.localStorage.removeItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(CURRENT_PROJECT_EVENT, { detail: { projectId: normalizedId } }));
 };
 
 export function useCurrentProject() {
@@ -45,12 +87,12 @@ export function useCurrentProject() {
       return;
     }
 
-    const syncProjectId = (event?: Event) => {
-      const detailProjectId = event instanceof CustomEvent && event.detail?.projectId != null
-        ? String(event.detail.projectId)
-        : null;
-      setProjectIdState(detailProjectId ?? readCurrentProjectId());
+    const syncProjectId = () => {
+      setProjectIdState(readCurrentProjectId());
     };
+
+    migrateScopeState();
+    syncProjectId();
 
     window.addEventListener("storage", syncProjectId);
     window.addEventListener(CURRENT_PROJECT_EVENT, syncProjectId);
@@ -76,7 +118,8 @@ const readStoredAppTypeMap = () => {
   }
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(CURRENT_APP_TYPE_STORAGE_KEY) || "{}");
+    const raw = window.localStorage.getItem(CURRENT_APP_TYPE_STORAGE_KEY) || window.localStorage.getItem(LEGACY_CURRENT_APP_TYPE_STORAGE_KEY) || "{}";
+    const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, string> : {};
   } catch {
     return {};
@@ -105,14 +148,23 @@ const writeCurrentAppTypeId = (projectId: string, appTypeId: string) => {
   }
 
   window.localStorage.setItem(CURRENT_APP_TYPE_STORAGE_KEY, JSON.stringify(next));
+  window.localStorage.removeItem(LEGACY_CURRENT_APP_TYPE_STORAGE_KEY);
   dispatchScopedEvent(CURRENT_APP_TYPE_EVENT, { projectId, appTypeId });
 };
 
 export function useCurrentAppType(projectId: string) {
-  const [appTypeId, setAppTypeIdState] = useState(() => readCurrentAppTypeId(projectId));
+  const [scopeState, setScopeState] = useState<AppTypeScopeState>(() => ({
+    projectId,
+    appTypeId: readCurrentAppTypeId(projectId)
+  }));
+
+  const appTypeId = scopeState.projectId === projectId ? scopeState.appTypeId : readCurrentAppTypeId(projectId);
 
   useEffect(() => {
-    setAppTypeIdState(readCurrentAppTypeId(projectId));
+    setScopeState({
+      projectId,
+      appTypeId: readCurrentAppTypeId(projectId)
+    });
   }, [projectId]);
 
   useEffect(() => {
@@ -121,11 +173,14 @@ export function useCurrentAppType(projectId: string) {
     }
 
     const syncAppTypeId = (event?: Event) => {
-      if (event instanceof CustomEvent && typeof event.detail?.projectId === "string" && event.detail.projectId !== projectId) {
+      if (event instanceof CustomEvent && typeof (event.detail as Partial<AppTypeChangeDetail>)?.projectId === "string" && event.detail.projectId !== projectId) {
         return;
       }
 
-      setAppTypeIdState(readCurrentAppTypeId(projectId));
+      setScopeState({
+        projectId,
+        appTypeId: readCurrentAppTypeId(projectId)
+      });
     };
 
     window.addEventListener("storage", syncAppTypeId);
@@ -138,7 +193,10 @@ export function useCurrentAppType(projectId: string) {
   }, [projectId]);
 
   const setAppTypeId = useCallback((nextAppTypeId: string) => {
-    setAppTypeIdState(nextAppTypeId);
+    setScopeState({
+      projectId,
+      appTypeId: nextAppTypeId
+    });
     writeCurrentAppTypeId(projectId, nextAppTypeId);
   }, [projectId]);
 

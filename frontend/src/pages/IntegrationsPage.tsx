@@ -70,6 +70,14 @@ type IntegrationDraft = {
   engine_max_video_attachment_mb: string;
   engine_queue_poll_interval_minutes: string;
   engine_live_view_url: string;
+  engine_mobile_engine_url: string;
+  engine_mobile_cloud_provider: "none" | "saucelabs" | "lambdatest" | "browserstack" | "other";
+  engine_mobile_remote_url: string;
+  engine_mobile_username: string;
+  engine_mobile_access_key: string;
+  engine_mobile_device_name: string;
+  engine_mobile_platform_version: string;
+  engine_android_app: string;
   ops_project_id: string;
   ops_events_path: string;
   ops_health_path: string;
@@ -163,6 +171,14 @@ const buildEmptyDraft = (
     engine_max_video_attachment_mb: String(testEngineDefaults.max_video_attachment_mb ?? "25"),
     engine_queue_poll_interval_minutes: String(testEngineDefaults.queue_poll_interval_minutes ?? "5"),
     engine_live_view_url: "",
+    engine_mobile_engine_url: "http://mobile-engine:4312",
+    engine_mobile_cloud_provider: "none",
+    engine_mobile_remote_url: "",
+    engine_mobile_username: "",
+    engine_mobile_access_key: "",
+    engine_mobile_device_name: "",
+    engine_mobile_platform_version: "",
+    engine_android_app: "",
     ops_project_id: "",
     ops_events_path: typeof opsDefaults.events_path === "string" ? opsDefaults.events_path : "/api/v1/events",
     ops_health_path: typeof opsDefaults.health_path === "string" ? opsDefaults.health_path : "/health",
@@ -541,6 +557,14 @@ function getDraftFromIntegration(
     engine_live_view_url: isLiveViewUrlCompatible(storedLiveViewUrl, storedEngineProvider)
       ? storedLiveViewUrl
       : buildTestEngineLiveViewUrl(integration.base_url || "", storedEngineProvider),
+    engine_mobile_engine_url: typeof config.mobile_engine_url === "string" ? config.mobile_engine_url : emptyDraft.engine_mobile_engine_url,
+    engine_mobile_cloud_provider: (typeof config.mobile_cloud_provider === "string" ? config.mobile_cloud_provider : "none") as IntegrationDraft["engine_mobile_cloud_provider"],
+    engine_mobile_remote_url: typeof config.mobile_remote_url === "string" ? config.mobile_remote_url : "",
+    engine_mobile_username: typeof config.mobile_username === "string" ? config.mobile_username : "",
+    engine_mobile_access_key: typeof config.mobile_access_key === "string" ? config.mobile_access_key : "",
+    engine_mobile_device_name: typeof config.device_name === "string" ? config.device_name : "",
+    engine_mobile_platform_version: typeof config.platform_version === "string" ? config.platform_version : "",
+    engine_android_app: typeof config.android_app === "string" ? config.android_app : "",
     ops_project_id: typeof config.project_id === "string" ? config.project_id : "",
     ops_events_path: typeof config.events_path === "string" ? config.events_path : emptyDraft.ops_events_path,
     ops_health_path: typeof config.health_path === "string" ? config.health_path : emptyDraft.ops_health_path,
@@ -631,6 +655,14 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       max_video_attachment_mb: Number.parseInt(draft.engine_max_video_attachment_mb, 10) || 25,
       queue_poll_interval_minutes: Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5,
       live_view_url: draft.engine_live_view_url.trim() || null,
+      mobile_engine_url: draft.engine_mobile_engine_url.trim() || null,
+      mobile_cloud_provider: draft.engine_mobile_cloud_provider,
+      mobile_remote_url: draft.engine_mobile_remote_url.trim() || null,
+      mobile_username: draft.engine_mobile_username.trim() || null,
+      mobile_access_key: isMaskedSecretValue(draft.engine_mobile_access_key) ? undefined : draft.engine_mobile_access_key.trim() || null,
+      device_name: draft.engine_mobile_device_name.trim() || null,
+      platform_version: draft.engine_mobile_platform_version.trim() || null,
+      android_app: draft.engine_android_app.trim() || null,
       promote_healed_patches: "review"
     };
   }
@@ -1623,6 +1655,62 @@ export function IntegrationsPage() {
                           : "Playwright runs use the Test Engine live-session endpoint. QAira auto-populates this URL when Playwright is selected."}
                         {derivedTestEngineLiveViewUrl ? <strong>{derivedTestEngineLiveViewUrl}</strong> : null}
                       </div>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="Mobile Engine URL">
+                        <input
+                          placeholder="http://mobile-engine:4312"
+                          value={draft.engine_mobile_engine_url}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_engine_url: event.target.value }))}
+                        />
+                      </FormField>
+                      <FormField label="Mobile cloud provider">
+                        <select
+                          value={draft.engine_mobile_cloud_provider}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_cloud_provider: event.target.value as IntegrationDraft["engine_mobile_cloud_provider"] }))}
+                        >
+                          <option value="none">None</option>
+                          <option value="saucelabs">Sauce Labs</option>
+                          <option value="lambdatest">LambdaTest</option>
+                          <option value="browserstack">BrowserStack</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </FormField>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="Remote connection URL">
+                        <input
+                          placeholder="https://user:key@ondemand.us-west-1.saucelabs.com/wd/hub"
+                          value={draft.engine_mobile_remote_url}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_remote_url: event.target.value }))}
+                        />
+                      </FormField>
+                      <FormField label="Android app">
+                        <input
+                          placeholder="storage:filename.apk or /apps/app.apk"
+                          value={draft.engine_android_app}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_android_app: event.target.value }))}
+                        />
+                      </FormField>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="Device name">
+                        <input
+                          placeholder="Pixel 8"
+                          value={draft.engine_mobile_device_name}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_device_name: event.target.value }))}
+                        />
+                      </FormField>
+                      <FormField label="Platform version">
+                        <input
+                          placeholder="14"
+                          value={draft.engine_mobile_platform_version}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_platform_version: event.target.value }))}
+                        />
+                      </FormField>
                     </div>
 
                     <div className="record-grid">

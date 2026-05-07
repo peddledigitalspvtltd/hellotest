@@ -83,13 +83,20 @@ CREATE TABLE ai_knowledge_repo (
   app_type_id TEXT,
   title TEXT NOT NULL,
   description TEXT,
-  content_type TEXT CHECK(content_type IN ('text', 'url', 'video_url', 'file')),
+  content_type TEXT NOT NULL DEFAULT 'text' CHECK(content_type IN ('text', 'url', 'video_url', 'file', 'pdf', 'image', 'markdown')),
   content TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  embedding JSONB,
+  source_uri TEXT,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (project_id) REFERENCES projects(id),
   FOREIGN KEY (app_type_id) REFERENCES app_types(id)
 );
+
+CREATE INDEX idx_ai_knowledge_repo_scope
+  ON ai_knowledge_repo (project_id, app_type_id, is_active, created_at DESC);
 
 -- =========================
 -- REQUIREMENTS

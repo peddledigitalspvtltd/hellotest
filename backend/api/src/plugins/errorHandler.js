@@ -42,7 +42,10 @@ module.exports = async function (fastify) {
     
     req.log.error({
       requestId,
+      traceId: req.traceId || req.headers["x-trace-id"] || null,
+      traceparent: req.traceparent || req.headers.traceparent || null,
       error: err.message,
+      code: err.code,
       stack: err.stack,
       statusCode,
       method: req.method,
@@ -55,6 +58,7 @@ module.exports = async function (fastify) {
       success: false,
       message: err.message || "Internal Server Error",
       requestId,
+      traceId: req.traceId || req.headers["x-trace-id"] || null,
       ...(isDevelopment && { stack: err.stack })
     });
   });

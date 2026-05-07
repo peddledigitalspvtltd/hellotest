@@ -11,6 +11,23 @@ PORT="${QAIRA_HOST_RECORDER_PORT:-4311}"
 
 mkdir -p "$BROWSER_DIR" "$ARTIFACT_DIR"
 
+if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then
+  echo "QAira host recorder is already running"
+  echo "  Browser URL: http://localhost:$PORT"
+  echo "  API/container URL: http://host.docker.internal:$PORT"
+  exit 0
+fi
+
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port $PORT is already in use, but it does not look like the QAira host recorder."
+  echo
+  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN || true
+  echo
+  echo "Stop that process, or start the recorder on another port:"
+  echo "  QAIRA_HOST_RECORDER_PORT=4312 bin/start-host-recorder.sh"
+  exit 1
+fi
+
 cd "$ENGINE_DIR"
 
 if [ ! -d node_modules ]; then

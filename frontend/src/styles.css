@@ -1906,6 +1906,7 @@ textarea {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  min-width: max-content;
 }
 
 .step-card-summary strong {
@@ -2002,6 +2003,154 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.authoring-lens-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.authoring-lens-actions .ghost-button {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+}
+
+.authoring-lens-actions .ghost-button.is-active {
+  background: rgba(231, 241, 255, 0.92);
+  color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px rgba(30, 92, 184, 0.24);
+}
+
+.authoring-lens-actions small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.automation-script-lens {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.85rem;
+}
+
+.automation-script-map,
+.automation-script-code-panel {
+  min-width: 0;
+  border: 1px solid rgba(85, 63, 32, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.automation-script-map {
+  max-height: 34rem;
+  overflow: auto;
+  padding: 0.55rem;
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.automation-script-step {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(85, 63, 32, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 251, 245, 0.68);
+}
+
+.automation-script-step-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.automation-script-step-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.automation-script-step-head strong {
+  font-size: 0.86rem;
+}
+
+.automation-script-step-head span:last-child {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.automation-script-step-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(85, 63, 32, 0.08);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.automation-script-step-status.is-ready {
+  background: rgba(46, 125, 82, 0.12);
+  color: var(--success);
+}
+
+.automation-script-step p,
+.automation-script-step small {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.automation-script-step p {
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.automation-script-step small {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.automation-script-code-panel {
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(18rem, 1fr);
+}
+
+.automation-script-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.automation-script-code-head span {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.automation-script-code {
+  margin: 0;
+  min-height: 18rem;
+  max-height: 34rem;
+  overflow: auto;
+  padding: 0.9rem;
+  background: #1f2933;
+  color: #edf2f7;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .step-editor-toolbar .step-card-menu--inline {
@@ -3138,6 +3287,20 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .automation-readiness-grid,
+  .automation-learning-grid,
+  .automation-script-lens {
+    grid-template-columns: 1fr;
+  }
+
+  .authoring-lens-actions {
+    width: 100%;
+  }
+
+  .authoring-lens-actions .ghost-button {
+    flex: 1 1 5.5rem;
+  }
+
   .automation-inline-grid,
   .automation-validation-row {
     grid-template-columns: minmax(0, 1fr);
@@ -16192,23 +16355,19 @@ html {
 }
 
 .step-card-parameterized {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.18rem 0.28rem;
-  align-items: center;
-  justify-content: flex-end;
-  text-align: right;
+  display: block;
+  text-align: left;
   min-width: 0;
   flex: 1 1 auto;
   max-width: min(100%, 36rem);
   margin-left: auto;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .step-card-parameterized .step-parameter-text-segment {
-  flex: 0 1 auto;
+  display: inline;
 }
 
 .step-card-parameterized .step-parameter-token {
@@ -17632,8 +17791,171 @@ html {
   gap: 1rem;
 }
 
+.automation-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.automation-readiness-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.automation-readiness-card.is-ready {
+  border-color: rgba(46, 125, 82, 0.18);
+}
+
+.automation-readiness-card.is-warn {
+  border-color: rgba(216, 133, 39, 0.22);
+}
+
+.automation-readiness-icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(33, 104, 243, 0.08);
+  color: var(--primary-strong);
+}
+
+.automation-readiness-card div {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.automation-readiness-card strong,
+.automation-readiness-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-readiness-card span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.automation-run-context-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.automation-run-context-section summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.78rem 0.9rem;
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.automation-run-context-section summary::marker {
+  content: "";
+}
+
+.automation-run-context-section .execution-context-block {
+  padding: 0 0.9rem 0.9rem;
+}
+
 .automation-builder-form {
   grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.28fr);
+}
+
+.automation-learning-memory {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: var(--surface);
+}
+
+.automation-learning-memory-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.automation-learning-memory-head div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.automation-learning-memory-head span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.automation-learning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.automation-learning-card {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(85, 63, 32, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 251, 245, 0.72);
+}
+
+.automation-learning-card-head,
+.automation-learning-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.automation-learning-card-head strong,
+.automation-learning-page,
+.automation-learning-card code,
+.automation-learning-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-learning-card-head span {
+  flex-shrink: 0;
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.automation-learning-page,
+.automation-learning-meta span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.automation-learning-card code {
+  display: block;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(31, 41, 51, 0.06);
+  color: var(--text);
+  font-size: 0.75rem;
 }
 
 .automation-recorder-stack .stack-item {
