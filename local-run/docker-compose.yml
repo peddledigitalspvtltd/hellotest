@@ -84,7 +84,7 @@ services:
       timeout: 5s
       retries: 10
 
-  testengine-worker:
+  testengine-api-worker:
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile
@@ -92,19 +92,88 @@ services:
       - "4301"
     environment:
       PORT: 4301
-      ENGINE_NAME: ${ENGINE_NAME:-qaira-local-testengine-worker}
+      ENGINE_NAME: qaira-local-testengine-api-worker
+      TESTENGINE_WORKER_CLASS: api
+      ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
+      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
+      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_API_POLL_INTERVAL_MS:-1000}
+      TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_API_POLL_CONCURRENCY:-8}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
+      RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: "qaira-testengine-api"
+    volumes:
+      - qaira-local-testengine-artifacts:/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: ${TESTENGINE_API_REPLICAS:-1}
+
+  testengine-web-worker:
+    build:
+      context: ../testengine/backend
+      dockerfile: Dockerfile
+    expose:
+      - "4301"
+    environment:
+      PORT: 4301
+      ENGINE_NAME: qaira-local-testengine-web-worker
+      TESTENGINE_WORKER_CLASS: web
+      ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
+      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
+      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_WEB_POLL_INTERVAL_MS:-1000}
+      TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_WEB_POLL_CONCURRENCY:-2}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
+      RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: "qaira-testengine-web"
+    volumes:
+      - qaira-local-testengine-artifacts:/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: ${TESTENGINE_WEB_REPLICAS:-1}
+
+  testengine-android-worker:
+    build:
+      context: ../testengine/backend
+      dockerfile: Dockerfile
+    expose:
+      - "4301"
+    environment:
+      PORT: 4301
+      ENGINE_NAME: qaira-local-testengine-android-worker
+      TESTENGINE_WORKER_CLASS: android
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
       QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
       QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
       MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://mobile-engine:4312}
-      TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_POLL_INTERVAL_MS:-30000}
-      TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_POLL_CONCURRENCY:-4}
+      TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_ANDROID_POLL_INTERVAL_MS:-1000}
+      TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_ANDROID_POLL_CONCURRENCY:-1}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-      OTEL_SERVICE_NAME: "qaira-testengine"
+      OTEL_SERVICE_NAME: "qaira-testengine-android"
     volumes:
       - qaira-local-testengine-artifacts:/artifacts
     depends_on:
@@ -118,7 +187,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_REPLICAS:-1}
+      replicas: ${TESTENGINE_ANDROID_REPLICAS:-1}
 
   testengine:
     image: haproxy:2.9-alpine
@@ -128,7 +197,7 @@ services:
     volumes:
       - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      testengine-worker:
+      testengine-web-worker:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]

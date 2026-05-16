@@ -102,11 +102,12 @@ export function isQairaQueueConfigured() {
   return Boolean(QAIRA_API_BASE_URL && QAIRA_TESTENGINE_SECRET);
 }
 
-export async function leaseNextQueuedJob(workerId: string) {
+export async function leaseNextQueuedJob(workerId: string, engineClass?: string | null) {
   const response = await request<{ job: EngineQueuedJob | null }>("/testengine/internal/jobs/lease", {
     method: "POST",
     body: JSON.stringify({
       worker_id: workerId,
+      engine_class: engineClass || undefined,
       engine_host: ENGINE_PUBLIC_URL || undefined
     })
   });

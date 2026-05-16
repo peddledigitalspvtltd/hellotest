@@ -144,8 +144,14 @@ type WebSession = {
   stop: (finalStatus?: EngineStepOutcomeStatus) => Promise<WebSessionArtifacts>;
   goto: (target: string) => Promise<void>;
   click: (target: string) => Promise<void>;
+  dblclick: (target: string) => Promise<void>;
+  rightClick: (target: string) => Promise<void>;
   fill: (target: string, value: string) => Promise<void>;
+  select: (target: string, value: string) => Promise<void>;
+  check: (target: string) => Promise<void>;
+  uncheck: (target: string) => Promise<void>;
   press: (target: string | null, key: string) => Promise<void>;
+  scroll: (deltaX?: number, deltaY?: number) => Promise<void>;
   waitForTimeout: (ms: number) => Promise<void>;
   waitForUrl: (expected: string) => Promise<void>;
   expectVisible: (target: string) => Promise<void>;
@@ -807,6 +813,16 @@ class PlaywrightWebSession implements WebSession {
     await locator.click();
   }
 
+  async dblclick(target: string) {
+    const locator = await this.resolveLocator(target);
+    await locator.dblclick();
+  }
+
+  async rightClick(target: string) {
+    const locator = await this.resolveLocator(target);
+    await locator.click({ button: "right" });
+  }
+
   async fill(target: string, value: string) {
     const locator = await this.resolveLocator(target);
     const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
@@ -820,6 +836,29 @@ class PlaywrightWebSession implements WebSession {
     await locator.fill(value);
   }
 
+  async select(target: string, value: string) {
+    const locator = await this.resolveLocator(target);
+    const optionValue = (() => {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : value;
+      } catch {
+        return value;
+      }
+    })();
+    await locator.selectOption(optionValue);
+  }
+
+  async check(target: string) {
+    const locator = await this.resolveLocator(target);
+    await locator.check();
+  }
+
+  async uncheck(target: string) {
+    const locator = await this.resolveLocator(target);
+    await locator.uncheck();
+  }
+
   async press(target: string | null, key: string) {
     if (!target) {
       await this.pageOrThrow.keyboard.press(key);
@@ -828,6 +867,10 @@ class PlaywrightWebSession implements WebSession {
 
     const locator = await this.resolveLocator(target);
     await locator.press(key);
+  }
+
+  async scroll(deltaX = 0, deltaY = 600) {
+    await this.pageOrThrow.mouse.wheel(deltaX, deltaY);
   }
 
   async waitForTimeout(ms: number) {
@@ -1114,6 +1157,16 @@ class SeleniumWebSession implements WebSession {
     await element.click();
   }
 
+  async dblclick(target: string) {
+    const element = await this.resolveElement(target);
+    await this.driverOrThrow.actions().doubleClick(element).perform();
+  }
+
+  async rightClick(target: string) {
+    const element = await this.resolveElement(target);
+    await this.driverOrThrow.actions().contextClick(element).perform();
+  }
+
   async fill(target: string, value: string) {
     const element = await this.resolveElement(target);
     const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
@@ -1121,6 +1174,31 @@ class SeleniumWebSession implements WebSession {
 
     await targetElement.clear();
     await targetElement.sendKeys(value);
+  }
+
+  async select(target: string, value: string) {
+    const element = await this.resolveElement(target);
+    await this.driverOrThrow.executeScript(
+      "const element = arguments[0]; const raw = arguments[1]; const values = (() => { try { const parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed.map(String) : [String(raw)]; } catch { return [String(raw)]; } })(); Array.from(element.options || []).forEach((option) => { option.selected = values.includes(String(option.value)); }); if (!element.multiple) element.value = values[0] || ''; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }));",
+      element,
+      value
+    );
+  }
+
+  async check(target: string) {
+    const element = await this.resolveElement(target);
+    const checked = await element.isSelected().catch(() => false);
+    if (!checked) {
+      await element.click();
+    }
+  }
+
+  async uncheck(target: string) {
+    const element = await this.resolveElement(target);
+    const checked = await element.isSelected().catch(() => false);
+    if (checked) {
+      await element.click();
+    }
   }
 
   async press(target: string | null, key: string) {
@@ -1133,6 +1211,10 @@ class SeleniumWebSession implements WebSession {
 
     const element = await this.resolveElement(target);
     await element.sendKeys(seleniumKey);
+  }
+
+  async scroll(deltaX = 0, deltaY = 600) {
+    await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", deltaX, deltaY);
   }
 
   async waitForTimeout(ms: number) {
@@ -1381,8 +1463,14 @@ const buildBindings = (
     step: async (_title: string, fn: () => Promise<unknown>) => fn(),
     goto: async (target: string) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
     click: async (target: string) => session.click(interpolateText(target, context)),
+    dblclick: async (target: string) => session.dblclick(interpolateText(target, context)),
+    rightClick: async (target: string) => session.rightClick(interpolateText(target, context)),
     fill: async (target: string, value: string) => session.fill(interpolateText(target, context), interpolateText(value, context)),
+    select: async (target: string, value: string) => session.select(interpolateText(target, context), interpolateText(value, context)),
+    check: async (target: string) => session.check(interpolateText(target, context)),
+    uncheck: async (target: string) => session.uncheck(interpolateText(target, context)),
     press: async (target: string, key: string) => session.press(interpolateText(target, context), interpolateText(key, context)),
+    scroll: async (deltaX?: number, deltaY?: number) => session.scroll(deltaX, deltaY),
     wait: async (ms: number) => session.waitForTimeout(ms),
     waitForTimeout: async (ms: number) => session.waitForTimeout(ms),
     expectText: async (first: string, second?: string | null) => {

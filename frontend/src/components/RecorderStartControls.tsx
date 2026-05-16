@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { MousePointerIcon } from "./AppIcons";
+import { MousePointerIcon, PlayIcon, PlugIcon } from "./AppIcons";
 
 export type RecorderStartMode = "local" | "remote";
 
@@ -85,13 +85,22 @@ export function RecorderStartControls({
 
       setCheckState("ready");
       setCheckMessage("Local recorder setup is ready. Start the recorder to capture UI actions, locators, and network/API calls.");
+      return true;
     } catch (error) {
       setCheckState("failed");
       setCheckMessage(error instanceof Error ? error.message : "Unable to reach the local Test Engine.");
+      return false;
     }
   };
 
-  const handleStartLocal = () => {
+  const handleStartLocal = async () => {
+    const isReady = checkState === "ready" || await handleCheckSetup();
+
+    if (!isReady) {
+      setIsSetupOpen(true);
+      return;
+    }
+
     onStart({
       recorder_mode: "local",
       recorder_target: "web",
@@ -102,50 +111,78 @@ export function RecorderStartControls({
   };
 
   return (
-    <>
-      {localAvailable ? (
-        <>
-          <button
-            className="ghost-button"
-            disabled={disabled || isStarting || hasSession}
-            onClick={() => setIsSetupOpen(true)}
-            type="button"
-          >
-            <MousePointerIcon size={16} />
-            <span>{isStarting ? "Starting..." : localLabel}</span>
-          </button>
-          <span aria-hidden="true" className="recorder-action-divider" />
-        </>
-      ) : null}
-      <button
-        className={localAvailable ? "ghost-button" : "primary-button"}
-        disabled={disabled || isStarting || hasSession}
-        onClick={() => onStart({ recorder_mode: "remote", recorder_target: "web" })}
-        type="button"
-      >
-        <MousePointerIcon size={16} />
-        <span>{isStarting ? "Starting..." : remoteLabel}</span>
-      </button>
-      <button
-        className="ghost-button"
-        disabled={disabled || isStarting || hasSession}
-        onClick={() => onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" })}
-        type="button"
-      >
-        <MousePointerIcon size={16} />
-        <span>{isStarting ? "Starting..." : "Record mobile local"}</span>
-      </button>
-      {mobileRemoteEnabled ? (
+    <div className="recorder-control-pane">
+      <div className="recorder-control-pane-head">
+        <span className="recorder-control-icon">
+          <MousePointerIcon size={16} />
+        </span>
+        <div>
+          <strong>Recorder controls</strong>
+          <span>{hasSession ? "Capture is active" : checkState === "ready" ? "Local recorder service ready" : "Check local service or use remote capture"}</span>
+        </div>
+      </div>
+      <div className="testops-recorder-actions recorder-control-buttons">
+        {localAvailable ? (
+          <>
+            <button
+              className="ghost-button"
+              disabled={disabled || isStarting || hasSession || checkState === "checking"}
+              onClick={() => void handleCheckSetup()}
+              type="button"
+            >
+              <PlugIcon size={16} />
+              <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Service ready" : "Check service"}</span>
+            </button>
+            <button
+              className="primary-button"
+              disabled={disabled || isStarting || hasSession || checkState === "checking"}
+              onClick={() => void handleStartLocal()}
+              type="button"
+            >
+              <PlayIcon size={16} />
+              <span>{isStarting ? "Starting..." : localLabel}</span>
+            </button>
+            <button
+              className="ghost-button"
+              disabled={disabled || isStarting || hasSession}
+              onClick={() => setIsSetupOpen(true)}
+              type="button"
+            >
+              <PlugIcon size={16} />
+              <span>Setup</span>
+            </button>
+          </>
+        ) : null}
         <button
-          className="ghost-button"
+          className={localAvailable ? "ghost-button" : "primary-button"}
           disabled={disabled || isStarting || hasSession}
-          onClick={() => onStart({ recorder_mode: "remote", recorder_target: "mobile" })}
+          onClick={() => onStart({ recorder_mode: "remote", recorder_target: "web" })}
           type="button"
         >
           <MousePointerIcon size={16} />
-          <span>{isStarting ? "Starting..." : "Record mobile remote"}</span>
+          <span>{isStarting ? "Starting..." : remoteLabel}</span>
         </button>
-      ) : null}
+        <button
+          className="ghost-button"
+          disabled={disabled || isStarting || hasSession}
+          onClick={() => onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" })}
+          type="button"
+        >
+          <MousePointerIcon size={16} />
+          <span>{isStarting ? "Starting..." : "Mobile local"}</span>
+        </button>
+        {mobileRemoteEnabled ? (
+          <button
+            className="ghost-button"
+            disabled={disabled || isStarting || hasSession}
+            onClick={() => onStart({ recorder_mode: "remote", recorder_target: "mobile" })}
+            type="button"
+          >
+            <MousePointerIcon size={16} />
+            <span>{isStarting ? "Starting..." : "Mobile remote"}</span>
+          </button>
+        ) : null}
+      </div>
 
       {isSetupOpen && setupModalRoot ? createPortal(
         <div className="modal-backdrop" onClick={() => setIsSetupOpen(false)} role="presentation">
@@ -168,7 +205,7 @@ export function RecorderStartControls({
             <div className="detail-stack">
               <div className="empty-state compact">
                 <strong>Local setup</strong>
-                <span>For a visible local browser, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh. QAira keeps Playwright Chromium under local-run/.playwright-browsers and reuses it after the first install.</span>
+                <span>For a visible local browser, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\start-host-recorder.cmd on Windows. Packaged Windows installs can run qaira-host-recorder.exe without sharing source files.</span>
               </div>
               <div className="empty-state compact">
                 <strong>Docker fallback</strong>
@@ -189,7 +226,7 @@ export function RecorderStartControls({
                 <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckSetup()} type="button">
                   <span>{checkState === "checking" ? "Checking..." : "Check setup"}</span>
                 </button>
-                <button className="primary-button" disabled={checkState !== "ready" || disabled || isStarting || hasSession} onClick={handleStartLocal} type="button">
+                <button className="primary-button" disabled={checkState !== "ready" || disabled || isStarting || hasSession} onClick={() => void handleStartLocal()} type="button">
                   <span>{isStarting ? "Starting..." : "Start local recorder"}</span>
                 </button>
               </div>
@@ -198,6 +235,6 @@ export function RecorderStartControls({
         </div>,
         setupModalRoot
       ) : null}
-    </>
+    </div>
   );
 }

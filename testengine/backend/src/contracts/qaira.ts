@@ -39,6 +39,7 @@ export type EngineRunStep = {
   id: string;
   order: number;
   step_type: EngineStepType;
+  engine_class?: EngineStepType | string | null;
   action: string | null;
   expected_result: string | null;
   automation_code?: string | null;
@@ -215,6 +216,13 @@ export type EngineRunEnvelope = {
   trigger: EngineRunTrigger;
   source_mode: EngineSourceMode;
   automated: boolean;
+  orchestration_class?: "api" | "web" | "android" | string | null;
+  step_engine_classes?: Array<"api" | "web" | "android" | string>;
+  engine_worker_caps?: {
+    api?: number;
+    web?: number;
+    android?: number;
+  } | null;
   browser: EngineBrowser;
   headless: boolean;
   max_repair_attempts: number;
@@ -355,6 +363,7 @@ export type EngineQueuedJob = {
   execution_id: string;
   test_case_id: string;
   test_case_title: string;
+  engine_class?: "api" | "web" | "android" | string | null;
   engine_host?: string | null;
   status: "queued" | "leased" | "running" | "completed" | "failed" | "aborted" | string;
   payload: EngineRunEnvelope;

@@ -8,6 +8,7 @@ ENGINE_DIR="$REPO_DIR/testengine/backend"
 BROWSER_DIR="${QAIRA_PLAYWRIGHT_BROWSERS_PATH:-$LOCAL_RUN_DIR/.playwright-browsers}"
 ARTIFACT_DIR="${QAIRA_HOST_RECORDER_ARTIFACT_ROOT:-$LOCAL_RUN_DIR/artifacts/host-recorder}"
 PORT="${QAIRA_HOST_RECORDER_PORT:-4311}"
+HOST_RECORDER_BIN="${QAIRA_HOST_RECORDER_BIN:-$LOCAL_RUN_DIR/bin/qaira-host-recorder}"
 
 mkdir -p "$BROWSER_DIR" "$ARTIFACT_DIR"
 
@@ -26,6 +27,24 @@ if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/
   echo "Stop that process, or start the recorder on another port:"
   echo "  QAIRA_HOST_RECORDER_PORT=4312 bin/start-host-recorder.sh"
   exit 1
+fi
+
+if [ -x "$HOST_RECORDER_BIN" ]; then
+  echo "Starting QAira host recorder from packaged binary"
+  echo "  Binary: $HOST_RECORDER_BIN"
+  echo "  Browser URL: http://localhost:$PORT"
+  echo "  API/container URL: http://host.docker.internal:$PORT"
+  echo "  Browser binaries: $BROWSER_DIR"
+  echo
+
+  PORT="$PORT" \
+  ENGINE_NAME="${ENGINE_NAME:-qaira-host-recorder}" \
+  ENGINE_PUBLIC_URL="http://localhost:$PORT" \
+  ARTIFACT_ROOT="$ARTIFACT_DIR" \
+  RECORDER_HEADLESS=false \
+  PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" \
+  "$HOST_RECORDER_BIN"
+  exit $?
 fi
 
 cd "$ENGINE_DIR"

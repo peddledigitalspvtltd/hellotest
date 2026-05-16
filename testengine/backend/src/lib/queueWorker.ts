@@ -63,6 +63,15 @@ const POLL_CONCURRENCY = Math.max(
   1,
   Math.min(8, Math.trunc(normalizeNumber(process.env.TESTENGINE_POLL_CONCURRENCY) ?? 4))
 );
+const ENGINE_CLASS_VALUES = new Set(["api", "web", "android"]);
+
+const resolveWorkerEngineClass = () => {
+  const normalized = String(process.env.TESTENGINE_WORKER_CLASS || process.env.TESTENGINE_ENGINE_CLASS || "")
+    .trim()
+    .toLowerCase();
+
+  return ENGINE_CLASS_VALUES.has(normalized) ? normalized : null;
+};
 
 const nowIso = () => new Date().toISOString();
 
@@ -545,18 +554,21 @@ export function startQueueWorker(logger: Logger, telemetry?: OpsTelemetrySink) {
 
   const activeJobs = new Set<string>();
   let isPolling = false;
+  const workerEngineClass = resolveWorkerEngineClass();
 
   logger.info({
     poll_interval_ms: POLL_INTERVAL_MS,
-    poll_concurrency: POLL_CONCURRENCY
+    poll_concurrency: POLL_CONCURRENCY,
+    engine_class: workerEngineClass || "any"
   }, "QAira queue pull worker started");
   emitTelemetry(telemetry, {
     event_type: "testengine.queue.worker.started",
     status: "running",
-    summary: `QAira queue pull worker started. Polling every ${POLL_INTERVAL_MS}ms.`,
+    summary: `QAira ${workerEngineClass || "general"} queue pull worker started. Polling every ${POLL_INTERVAL_MS}ms.`,
     configuration: {
       poll_interval_ms: POLL_INTERVAL_MS,
-      poll_concurrency: POLL_CONCURRENCY
+      poll_concurrency: POLL_CONCURRENCY,
+      engine_class: workerEngineClass || "any"
     }
   });
 
@@ -569,8 +581,8 @@ export function startQueueWorker(logger: Logger, telemetry?: OpsTelemetrySink) {
 
     try {
       while (activeJobs.size < POLL_CONCURRENCY) {
-        const workerId = `${process.env.ENGINE_NAME || "qaira-testengine"}:${process.pid}:${activeJobs.size + 1}`;
-        const job = await leaseNextQueuedJob(workerId);
+        const workerId = `${process.env.ENGINE_NAME || "qaira-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
+        const job = await leaseNextQueuedJob(workerId, workerEngineClass);
 
         if (!job || activeJobs.has(job.id)) {
           break;

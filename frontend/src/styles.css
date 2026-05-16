@@ -17565,6 +17565,14 @@ html {
   gap: 0.75rem;
 }
 
+.test-case-catalog-card .tile-card-main {
+  gap: 0.78rem;
+}
+
+.test-case-card-header {
+  align-items: center;
+}
+
 .test-case-review-actions,
 .catalog-inline-actions {
   display: inline-flex;
@@ -17580,6 +17588,168 @@ html {
 .test-case-top-actions {
   margin-left: auto;
   flex-wrap: nowrap;
+}
+
+.test-case-card-title-group {
+  gap: 0.38rem;
+}
+
+.test-case-card-title-group strong {
+  color: #17233c;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.35;
+  -webkit-line-clamp: 3;
+}
+
+.test-case-card-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-height: 0;
+}
+
+.test-case-source-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(33, 104, 243, 0.14);
+  background: rgba(33, 104, 243, 0.07);
+  color: #244a9b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.test-case-source-badge.is-api {
+  border-color: rgba(20, 184, 166, 0.2);
+  background: rgba(20, 184, 166, 0.08);
+  color: #0f766e;
+}
+
+.test-case-requirement-block {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.7rem 0.78rem;
+  border: 1px solid rgba(126, 149, 188, 0.16);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.test-case-requirement-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #7b8798;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.test-case-requirement-label svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.test-case-requirement-block p {
+  margin: 0;
+  color: #526174;
+  font-size: 0.82rem;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.test-case-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.test-case-card-stats span {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  padding: 0.58rem 0.35rem;
+  border: 1px solid rgba(126, 149, 188, 0.14);
+  border-radius: 14px;
+  background: rgba(247, 249, 253, 0.94);
+  text-align: center;
+}
+
+.test-case-card-stats strong {
+  color: #17233c;
+  font-size: 0.96rem;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-case-card-stats small {
+  color: #8792a2;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.test-case-card-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+}
+
+.test-case-card-progress-track {
+  flex: 1;
+  min-width: 0;
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eef8;
+}
+
+.test-case-card-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2f6df6, #14b8a6);
+}
+
+.test-case-card-progress-row small {
+  flex: 0 0 auto;
+  color: #7b8798;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.test-case-card-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+
+.test-case-card-actions.is-generated {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.test-case-card-actions .primary-button,
+.test-case-card-actions .ghost-button {
+  justify-content: center;
+  min-height: 2.65rem;
+  padding: 0.65rem 0.72rem;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.test-case-card-actions .primary-button svg,
+.test-case-card-actions .ghost-button svg {
+  flex: 0 0 auto;
 }
 
 .test-case-tile-action-button {
@@ -17660,6 +17830,43 @@ html {
   color: #ff9db3;
 }
 
+:root[data-theme="dark"] .test-case-card-title-group strong,
+:root[data-theme="dark"] .test-case-card-stats strong {
+  color: #f7fbff;
+}
+
+:root[data-theme="dark"] .test-case-source-badge {
+  border-color: rgba(136, 171, 235, 0.2);
+  background: rgba(33, 104, 243, 0.14);
+  color: #bfd2ff;
+}
+
+:root[data-theme="dark"] .test-case-source-badge.is-api {
+  border-color: rgba(78, 209, 157, 0.22);
+  background: rgba(20, 184, 166, 0.14);
+  color: #91efe4;
+}
+
+:root[data-theme="dark"] .test-case-requirement-block,
+:root[data-theme="dark"] .test-case-card-stats span {
+  border-color: rgba(136, 171, 235, 0.14);
+  background: rgba(11, 26, 49, 0.62);
+}
+
+:root[data-theme="dark"] .test-case-requirement-label,
+:root[data-theme="dark"] .test-case-card-stats small,
+:root[data-theme="dark"] .test-case-card-progress-row small {
+  color: #9fb1ce;
+}
+
+:root[data-theme="dark"] .test-case-requirement-block p {
+  color: #c6d3e6;
+}
+
+:root[data-theme="dark"] .test-case-card-progress-track {
+  background: rgba(136, 171, 235, 0.16);
+}
+
 .test-case-catalog-card .tile-card-header-meta {
   gap: 0.42rem;
 }
@@ -17700,6 +17907,10 @@ html {
 
   .test-case-header-run-button {
     padding-inline: 0.82rem;
+  }
+
+  .test-case-card-actions.is-generated {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -17978,11 +18189,57 @@ html {
   min-width: 0;
 }
 
-.recorder-action-divider {
-  width: 1px;
-  align-self: stretch;
-  min-height: 2.25rem;
-  background: var(--border-subtle);
+.recorder-workspace-pane,
+.recorder-control-pane {
+  width: min(100%, 52rem);
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.recorder-control-pane {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.recorder-control-pane-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.recorder-control-pane-head div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.recorder-control-pane-head strong,
+.recorder-control-pane-head span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recorder-control-pane-head span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.recorder-control-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent);
+  background: rgba(47, 109, 246, 0.12);
+}
+
+.recorder-control-buttons {
+  justify-content: flex-start;
 }
 
 .recorder-setup-modal {

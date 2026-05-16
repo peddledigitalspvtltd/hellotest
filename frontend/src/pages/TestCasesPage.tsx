@@ -31,13 +31,10 @@ import {
 import { SharedStepsIcon as SharedStepsIconGraphic } from "../components/SharedStepsIcon";
 import { StatusBadge } from "../components/StatusBadge";
 import {
-  TileCardFact,
-  TileCardPriorityIcon,
   TileCardRequirementIcon,
   TileCardSuiteIcon,
   TileCardStepsIcon,
-  formatTileCardLabel,
-  getTileCardTone
+  formatTileCardLabel
 } from "../components/TileCardPrimitives";
 import { SuiteCasePicker } from "../components/SuiteCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
@@ -751,6 +748,7 @@ export function TestCasesPage() {
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderSessionCaseId, setRecorderSessionCaseId] = useState("");
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
+  const [recentRecorderCompletedCaseId, setRecentRecorderCompletedCaseId] = useState("");
   const [expandedSections, setExpandedSections] = useState<Record<TestCaseEditorSectionKey, boolean>>(createDefaultTestCaseSections);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -2720,9 +2718,10 @@ export function TestCasesPage() {
       });
       setRecorderSession(null);
       setRecorderSessionCaseId("");
+      setRecentRecorderCompletedCaseId(recorderSessionCaseId);
       showSuccess(
         response.generated_step_count
-          ? `Recorder stopped. Created ${response.created_step_count || 0} and updated ${response.updated_step_count || 0} web step${response.generated_step_count === 1 ? "" : "s"}.`
+          ? `Recorder stopped. Created ${response.created_step_count || 0} and updated ${response.updated_step_count || 0} web step${response.generated_step_count === 1 ? "" : "s"}. You can run it locally now.`
           : "Recorder stopped. No supported interactions were captured for step creation."
       );
       await refreshCases();
@@ -5587,6 +5586,12 @@ export function TestCasesPage() {
                     const stepCount = stepCountByCaseId[testCase.id] || 0;
                     const caseStatusValue = latest?.status || testCase.status || defaultTestCaseStatus;
                     const suiteCount = (testCase.suite_ids || []).length || 0;
+                    const defectCount = new Set(history.flatMap((result) => result.defects || [])).size;
+                    const passedRuns = history.filter((result) => result.status === "passed").length;
+                    const passRate = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
+                    const statusLabel = formatTileCardLabel(caseStatusValue, "Ready");
+                    const isFailedCase = ["failed", "blocked"].includes(String(latest?.status || "").toLowerCase());
+                    const isAiGeneratedCase = Boolean(testCase.ai_generation_source);
                     const isPendingSchedulerCase =
                       testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending";
                     const isRunningCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run";
@@ -5687,7 +5692,7 @@ export function TestCasesPage() {
                         tabIndex={0}
                       >
                         <div className="tile-card-main">
-                          <div className="tile-card-select-row">
+                          <div className="tile-card-select-row test-case-card-header">
                             <label className="checkbox-field test-case-delete-checkbox" onClick={(event) => event.stopPropagation()}>
                               <input
                                 checked={isSelectedForAction}
@@ -5701,88 +5706,104 @@ export function TestCasesPage() {
                               <DisplayIdBadge value={testCase.display_id || testCase.id} />
                             </label>
                             <div className="catalog-inline-actions test-case-top-actions">
-                              {isPendingSchedulerCase ? (
-                                <>
-                                  <TestCaseTileActionButton
-                                    className="is-accept"
-                                    disabled={isAcceptingCase || isRejectingCase || isRunningCase}
-                                    onClick={() => void handleReviewGeneratedCase(testCase.id, "accept")}
-                                    title="Accept scheduler-generated test case"
-                                  >
-                                    <TestCaseAcceptIcon />
-                                  </TestCaseTileActionButton>
-                                  <TestCaseTileActionButton
-                                    className="is-reject"
-                                    disabled={isAcceptingCase || isRejectingCase || isRunningCase}
-                                    onClick={() => void handleReviewGeneratedCase(testCase.id, "reject")}
-                                    title="Reject and permanently delete scheduler-generated test case"
-                                  >
-                                    <TestCaseRejectIcon />
-                                  </TestCaseTileActionButton>
-                                </>
-                              ) : null}
-                              <TestCaseTileActionButton
-                                className="is-run"
-                                disabled={isRunningCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
-                                onClick={() => void handleRunTestCase(testCase.id)}
-                                title="Run test case in Test Runs"
-                              >
-                                <TestCaseRunIcon />
-                              </TestCaseTileActionButton>
+                              <StatusBadge value={statusLabel} />
                               <div onClick={(event) => event.stopPropagation()}>
                                 <CatalogActionMenu actions={tileActions} label={`${testCase.title} actions`} />
                               </div>
                             </div>
                           </div>
-                          <div className="tile-card-header">
-                            <div className="tile-card-title-group">
-                              <strong>{testCase.title}</strong>
-                              <span className="tile-card-kicker">
-                                <TileCardRequirementIcon />
-                                <span>{requirementTitle || "No requirement linked"}</span>
-                              </span>
+                          <div className="tile-card-title-group test-case-card-title-group">
+                            <div className="test-case-card-badge-row">
+                              {isAiGeneratedCase ? <span className="test-case-source-badge">AI Generated</span> : null}
+                              {isAiGeneratedCase && selectedAppType?.type === "api" ? <span className="test-case-source-badge is-api">API Capture</span> : null}
                             </div>
+                            <strong>{testCase.title}</strong>
+                          </div>
+                          <div className="test-case-requirement-block">
+                            <span className="test-case-requirement-label">
+                              <TileCardRequirementIcon />
+                              Requirement
+                            </span>
+                            <p>{requirementTitle || "No requirement linked"}</p>
                           </div>
                           <p className="tile-card-description">{testCase.description || "No description yet for this test case."}</p>
-                          <div className="tile-card-facts" aria-label={`${testCase.title} facts`}>
-                            <TileCardFact
-                              label={`P${testCase.priority || 3}`}
-                              title={`Priority P${testCase.priority || 3}`}
-                              tone={(testCase.priority || 3) <= 2 ? "danger" : "info"}
-                            >
-                              <TileCardPriorityIcon />
-                            </TileCardFact>
-                            <TileCardFact
-                              label={String(stepCount)}
-                              title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}
-                              tone={stepCount ? "info" : "neutral"}
-                            >
-                              <TileCardStepsIcon />
-                            </TileCardFact>
-                            <TileCardFact
-                              label={String(suiteCount)}
-                              title={`${suiteCount} suite${suiteCount === 1 ? "" : "s"} linked to this case`}
-                              tone={suiteCount ? "info" : "neutral"}
-                            >
-                              <TileCardSuiteIcon />
-                            </TileCardFact>
-                            <TileCardFact
-                              label={String(history.length)}
-                              title={`${history.length} recent run${history.length === 1 ? "" : "s"}`}
-                              tone={history.length ? getTileCardTone(latest?.status || caseStatusValue) : "neutral"}
-                            >
-                              <TestCaseRunIcon />
-                            </TileCardFact>
+                          <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
+                            <span title={`Priority P${testCase.priority || 3}`}>
+                              <strong>{`P${testCase.priority || 3}`}</strong>
+                              <small>Priority</small>
+                            </span>
+                            <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
+                              <strong>{stepCount}</strong>
+                              <small>Steps</small>
+                            </span>
+                            <span title={`${defectCount} defect${defectCount === 1 ? "" : "s"} linked from recent runs`}>
+                              <strong>{defectCount}</strong>
+                              <small>Defects</small>
+                            </span>
+                            <span title={`${history.length} recent run${history.length === 1 ? "" : "s"}`}>
+                              <strong>{history.length}</strong>
+                              <small>Runs</small>
+                            </span>
                           </div>
                           <div className="tile-card-footer">
-                            <div className="history-bars" aria-label="Run history">
-                              {history.length ? history.map((result) => (
-                                <span
-                                  key={result.id}
-                                  className={result.status === "passed" ? "history-bar is-passed" : result.status === "failed" ? "history-bar is-failed" : "history-bar is-blocked"}
-                                  title={`${result.status} · ${result.created_at || "recent"}`}
-                                />
-                              )) : <span className="history-bar" />}
+                            <div className="test-case-card-progress-row" aria-label={history.length ? `${passRate}% recent pass rate` : "No recent run coverage"}>
+                              <div className="test-case-card-progress-track">
+                                <span style={{ width: `${passRate}%` }} />
+                              </div>
+                              <small>{history.length ? `${passRate}% passed` : "No runs"}</small>
+                            </div>
+                            <div className={["test-case-card-actions", isPendingSchedulerCase ? "is-generated" : ""].filter(Boolean).join(" ")}>
+                              {isPendingSchedulerCase ? (
+                                <>
+                                  <button
+                                    className="ghost-button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openLibraryCase(testCase.id);
+                                    }}
+                                    type="button"
+                                  >
+                                    <OpenIcon />
+                                    Review
+                                  </button>
+                                  <button
+                                    className="primary-button"
+                                    disabled={isAcceptingCase || isRejectingCase || isRunningCase}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleReviewGeneratedCase(testCase.id, "accept");
+                                    }}
+                                    type="button"
+                                  >
+                                    <TestCaseAcceptIcon />
+                                    Accept
+                                  </button>
+                                </>
+                              ) : isFailedCase ? (
+                                <button
+                                  className="ghost-button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openLibraryCase(testCase.id);
+                                  }}
+                                  type="button"
+                                >
+                                  <OpenIcon />
+                                  View Failure
+                                </button>
+                              ) : null}
+                              <button
+                                className="primary-button test-case-card-run-button"
+                                disabled={isRunningCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleRunTestCase(testCase.id);
+                                }}
+                                type="button"
+                              >
+                                <TestCaseRunIcon />
+                                {isRunningCase ? "Running..." : isFailedCase ? "Re-run" : "Run Test"}
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -6272,7 +6293,7 @@ export function TestCasesPage() {
                               <strong>Recorder</strong>
                               <span>{recorderSession ? `Session ${recorderSession.id.slice(0, 8)} is ${recorderSession.status}.` : "Capture clicks, fills, tab navigation, and business API traffic for this case."}</span>
                             </div>
-                            <div className="testops-recorder-actions">
+                            <div className="recorder-workspace-pane">
                               <RecorderStartControls
                                 disabled={!selectedTestCase || !testEngineIntegration}
                                 hasSession={Boolean(recorderSession)}
@@ -6280,15 +6301,23 @@ export function TestCasesPage() {
                                 mobileRemoteEnabled={mobileRemoteRecorderEnabled}
                                 onStart={(options) => void handleStartRecorder(options)}
                               />
-                              <button
-                                className="primary-button"
-                                disabled={!recorderSession || finishRecorder.isPending}
-                                onClick={() => void handleFinishRecorder()}
-                                type="button"
-                              >
-                                <AutomationCodeIcon />
-                                <span>{finishRecorder.isPending ? "Stopping..." : "Stop and create steps"}</span>
-                              </button>
+                              <div className="testops-recorder-actions recorder-control-buttons">
+                                <button
+                                  className="primary-button"
+                                  disabled={!recorderSession || finishRecorder.isPending}
+                                  onClick={() => void handleFinishRecorder()}
+                                  type="button"
+                                >
+                                  <AutomationCodeIcon />
+                                  <span>{finishRecorder.isPending ? "Stopping..." : "Stop and create steps"}</span>
+                                </button>
+                                {recorderLiveUrl ? (
+                                  <a className="ghost-button compact" href={recorderLiveUrl} rel="noreferrer" target="_blank">
+                                    <OpenIcon size={16} />
+                                    <span>Open live view</span>
+                                  </a>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                           {recorderSession ? (
@@ -6297,13 +6326,24 @@ export function TestCasesPage() {
                                 <strong>{formatRecorderDisplayMode(recorderSession.display_mode)}</strong>
                                 <span>{recorderSession.action_count || 0} actions · {recorderSession.network_count || 0} API candidates</span>
                               </div>
-                              {recorderLiveUrl ? (
-                                <a className="ghost-button compact" href={recorderLiveUrl} rel="noreferrer" target="_blank">
-                                  <OpenIcon size={16} />
-                                  <span>Open live view</span>
-                                </a>
-                              ) : null}
                               <StatusBadge value={recorderSession.status} />
+                            </div>
+                          ) : null}
+                          {!recorderSession && selectedTestCase && recentRecorderCompletedCaseId === selectedTestCase.id && supportsLocalDesktopExecution ? (
+                            <div className="stack-item">
+                              <div>
+                                <strong>Recorded automation ready</strong>
+                                <span>Start a local Playwright run from this machine and review it under Local Runs.</span>
+                              </div>
+                              <button
+                                className="primary-button"
+                                disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
+                                onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
+                                type="button"
+                              >
+                                <TestCaseRunIcon />
+                                <span>{isSelectedCaseLocalRunning ? "Starting..." : "Run locally"}</span>
+                              </button>
                             </div>
                           ) : null}
                           {recorderLiveUrl ? (

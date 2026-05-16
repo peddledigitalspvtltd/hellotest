@@ -529,6 +529,14 @@ class PlaywrightWebSession {
         const locator = await this.resolveLocator(target);
         await locator.click();
     }
+    async dblclick(target) {
+        const locator = await this.resolveLocator(target);
+        await locator.dblclick();
+    }
+    async rightClick(target) {
+        const locator = await this.resolveLocator(target);
+        await locator.click({ button: "right" });
+    }
     async fill(target, value) {
         const locator = await this.resolveLocator(target);
         const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
@@ -539,6 +547,27 @@ class PlaywrightWebSession {
         }
         await locator.fill(value);
     }
+    async select(target, value) {
+        const locator = await this.resolveLocator(target);
+        const optionValue = (() => {
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : value;
+            }
+            catch {
+                return value;
+            }
+        })();
+        await locator.selectOption(optionValue);
+    }
+    async check(target) {
+        const locator = await this.resolveLocator(target);
+        await locator.check();
+    }
+    async uncheck(target) {
+        const locator = await this.resolveLocator(target);
+        await locator.uncheck();
+    }
     async press(target, key) {
         if (!target) {
             await this.pageOrThrow.keyboard.press(key);
@@ -546,6 +575,9 @@ class PlaywrightWebSession {
         }
         const locator = await this.resolveLocator(target);
         await locator.press(key);
+    }
+    async scroll(deltaX = 0, deltaY = 600) {
+        await this.pageOrThrow.mouse.wheel(deltaX, deltaY);
     }
     async waitForTimeout(ms) {
         await this.pageOrThrow.waitForTimeout(Math.max(0, ms));
@@ -795,12 +827,38 @@ class SeleniumWebSession {
         const element = await this.resolveElement(target);
         await element.click();
     }
+    async dblclick(target) {
+        const element = await this.resolveElement(target);
+        await this.driverOrThrow.actions().doubleClick(element).perform();
+    }
+    async rightClick(target) {
+        const element = await this.resolveElement(target);
+        await this.driverOrThrow.actions().contextClick(element).perform();
+    }
     async fill(target, value) {
         const element = await this.resolveElement(target);
         const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
         const targetElement = descendants[0] || element;
         await targetElement.clear();
         await targetElement.sendKeys(value);
+    }
+    async select(target, value) {
+        const element = await this.resolveElement(target);
+        await this.driverOrThrow.executeScript("const element = arguments[0]; const raw = arguments[1]; const values = (() => { try { const parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed.map(String) : [String(raw)]; } catch { return [String(raw)]; } })(); Array.from(element.options || []).forEach((option) => { option.selected = values.includes(String(option.value)); }); if (!element.multiple) element.value = values[0] || ''; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }));", element, value);
+    }
+    async check(target) {
+        const element = await this.resolveElement(target);
+        const checked = await element.isSelected().catch(() => false);
+        if (!checked) {
+            await element.click();
+        }
+    }
+    async uncheck(target) {
+        const element = await this.resolveElement(target);
+        const checked = await element.isSelected().catch(() => false);
+        if (checked) {
+            await element.click();
+        }
     }
     async press(target, key) {
         const seleniumKey = Key[key.toUpperCase()] || key;
@@ -810,6 +868,9 @@ class SeleniumWebSession {
         }
         const element = await this.resolveElement(target);
         await element.sendKeys(seleniumKey);
+    }
+    async scroll(deltaX = 0, deltaY = 600) {
+        await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", deltaX, deltaY);
     }
     async waitForTimeout(ms) {
         await this.driverOrThrow.sleep(Math.max(0, ms));
@@ -1009,8 +1070,14 @@ const buildBindings = (session, context, captures, envelope) => {
         step: async (_title, fn) => fn(),
         goto: async (target) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
         click: async (target) => session.click(interpolateText(target, context)),
+        dblclick: async (target) => session.dblclick(interpolateText(target, context)),
+        rightClick: async (target) => session.rightClick(interpolateText(target, context)),
         fill: async (target, value) => session.fill(interpolateText(target, context), interpolateText(value, context)),
+        select: async (target, value) => session.select(interpolateText(target, context), interpolateText(value, context)),
+        check: async (target) => session.check(interpolateText(target, context)),
+        uncheck: async (target) => session.uncheck(interpolateText(target, context)),
         press: async (target, key) => session.press(interpolateText(target, context), interpolateText(key, context)),
+        scroll: async (deltaX, deltaY) => session.scroll(deltaX, deltaY),
         wait: async (ms) => session.waitForTimeout(ms),
         waitForTimeout: async (ms) => session.waitForTimeout(ms),
         expectText: async (first, second) => {

@@ -14,7 +14,24 @@ bin/start.sh
 bin/start-host-recorder.sh
 ```
 
-The first host-recorder run installs Playwright Chromium into
+On Windows product installs, use the packaged recorder launcher instead:
+
+```bat
+bin\start-host-recorder.cmd
+```
+
+If `local-run/bin/qaira-host-recorder.exe` is present, the Windows launcher runs
+that binary and does not require testengine source files. If the binary is not
+present, it falls back to the developer source flow.
+
+To build the current platform binary from the repo, run:
+
+```bash
+cd testengine/backend
+npm run package:host-recorder
+```
+
+The first source-based host-recorder run installs Playwright Chromium into
 `local-run/.playwright-browsers`. Later runs reuse that directory. Override it
 with `QAIRA_PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers` if your team wants to
 preload or cache the browser binaries.
@@ -74,6 +91,8 @@ bin/fix-recorder-integration.sh
 5. Start the local recorder after the setup check passes.
 6. Use the live view link when it appears.
 7. Stop and create steps when done.
+8. Click Run locally in the recorder panel or the test case header. The run opens
+   under Test Runs -> Local Runs.
 
 Phones and tablets show the remote recorder action only. Local recording is
 desktop-only because it depends on a local Test Engine process and a full

@@ -82,19 +82,23 @@ app.options("/*", async (_request, reply) => {
   reply.code(204).send();
 });
 
-const opsTelemetry = await createOpsTelemetry(app.log);
+let opsTelemetry: Awaited<ReturnType<typeof createOpsTelemetry>> | null = null;
+const getOpsTelemetry = () => {
+  if (!opsTelemetry) {
+    throw new Error("OPS telemetry is not initialized yet");
+  }
 
-await opsTelemetry.register(app);
-await registerRecorderRoutes(app);
+  return opsTelemetry;
+};
 
 app.get("/health", async () => ({
   ok: true,
   service: process.env.ENGINE_NAME || "QAira Test Engine",
-  runner: "hybrid",
+  runner: process.env.TESTENGINE_WORKER_CLASS || "hybrid",
   ui: "qaira",
-  execution_scope: "api+web",
+  execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android",
   supported_web_engines: ["playwright", "selenium"],
-  ops_telemetry: opsTelemetry.getHealthSnapshot()
+  ops_telemetry: getOpsTelemetry().getHealthSnapshot()
 }));
 
 app.get("/api/v1/capabilities", async () => buildCapabilities());
@@ -259,12 +263,18 @@ app.post("/api/v1/runs/:id/retry", async (request, reply) => {
   return retried;
 });
 
-startQueueWorker(app.log, opsTelemetry);
+const startServer = async () => {
+  opsTelemetry = await createOpsTelemetry(app.log);
+  await opsTelemetry.register(app);
+  await registerRecorderRoutes(app);
+  startQueueWorker(app.log, opsTelemetry);
+  await app.listen({
+    port,
+    host: "0.0.0.0"
+  });
+};
 
-app.listen({
-  port,
-  host: "0.0.0.0"
-}).catch((error) => {
+startServer().catch((error) => {
   app.log.error(error);
   process.exit(1);
 });

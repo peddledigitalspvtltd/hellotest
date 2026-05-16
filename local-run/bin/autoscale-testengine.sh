@@ -16,27 +16,37 @@ set +a
 API_URL=${QAIRA_AUTOSCALER_API_URL:-http://localhost:${API_PORT:-3000}}
 SECRET=${TESTENGINE_SHARED_SECRET:-${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}}
 INTERVAL_SECONDS=${TESTENGINE_AUTOSCALE_INTERVAL_SECONDS:-15}
-MAX_WORKERS=${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}
-MIN_WORKERS=${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}
+API_MAX_WORKERS=${TESTENGINE_API_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-10}}
+WEB_MAX_WORKERS=${TESTENGINE_WEB_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-5}}
+ANDROID_MAX_WORKERS=${TESTENGINE_ANDROID_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-2}}
+API_MIN_WORKERS=${TESTENGINE_API_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
+WEB_MIN_WORKERS=${TESTENGINE_WEB_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
+ANDROID_MIN_WORKERS=${TESTENGINE_ANDROID_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
 
 scale_to() {
-  desired=$1
-  docker compose --env-file .env -f "$COMPOSE_FILE" up -d --scale "testengine-worker=$desired" testengine-worker testengine >/dev/null
+  service=$1
+  desired=$2
+  docker compose --env-file .env -f "$COMPOSE_FILE" up -d --scale "$service=$desired" "$service" testengine >/dev/null
 }
 
 current_workers() {
-  docker compose --env-file .env -f "$COMPOSE_FILE" ps -q testengine-worker \
+  service=$1
+  docker compose --env-file .env -f "$COMPOSE_FILE" ps -q "$service" \
     | wc -l \
     | tr -d ' '
 }
 
 recommended_workers() {
-  node -e '
+  engine_class=$1
+  min_workers=$2
+  max_workers=$3
+  ENGINE_CLASS="$engine_class" MIN_WORKERS="$min_workers" MAX_WORKERS="$max_workers" node -e '
     const http = require("http");
     const apiUrl = process.env.API_URL;
     const secret = process.env.SECRET;
+    const engineClass = process.env.ENGINE_CLASS;
     const min = Math.max(1, Number(process.env.MIN_WORKERS || 1));
-    const max = Math.max(min, Math.min(3, Number(process.env.MAX_WORKERS || 3)));
+    const max = Math.max(min, Number(process.env.MAX_WORKERS || min));
     const request = http.get(`${apiUrl}/testengine/internal/jobs/queue-stats`, {
       headers: { "x-qaira-testengine-secret": secret }
     }, (response) => {
@@ -48,7 +58,9 @@ recommended_workers() {
           return;
         }
         const stats = JSON.parse(body || "{}");
-        const recommended = Number(stats.recommended_workers || min);
+        const pools = stats.by_orchestration_class || stats.by_engine_class || {};
+        const scoped = pools[engineClass] || {};
+        const recommended = Number(scoped.recommended_workers || min);
         console.log(String(Math.max(min, Math.min(max, recommended))));
       });
     });
@@ -58,6 +70,20 @@ recommended_workers() {
       console.log(String(min));
     });
   '
+}
+
+scale_pool() {
+  service=$1
+  engine_class=$2
+  min_workers=$3
+  max_workers=$4
+  desired=$(API_URL="$API_URL" SECRET="$SECRET" recommended_workers "$engine_class" "$min_workers" "$max_workers")
+  current=$(current_workers "$service")
+  if [ "$desired" != "$current" ]; then
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) scaling $service from $current to $desired"
+    scale_to "$service" "$desired"
+  fi
+  echo "$service replicas: $desired"
 }
 
 case "${1:-run}" in
@@ -78,22 +104,16 @@ case "${1:-run}" in
     ;;
   run)
     while true; do
-      desired=$(API_URL="$API_URL" SECRET="$SECRET" MIN_WORKERS="$MIN_WORKERS" MAX_WORKERS="$MAX_WORKERS" recommended_workers)
-      current=$(current_workers)
-      if [ "$desired" != "$current" ]; then
-        echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) scaling testengine-worker from $current to $desired"
-        scale_to "$desired"
-      fi
+      scale_pool testengine-api-worker api "$API_MIN_WORKERS" "$API_MAX_WORKERS"
+      scale_pool testengine-web-worker web "$WEB_MIN_WORKERS" "$WEB_MAX_WORKERS"
+      scale_pool testengine-android-worker android "$ANDROID_MIN_WORKERS" "$ANDROID_MAX_WORKERS"
       sleep "$INTERVAL_SECONDS"
     done
     ;;
   once)
-    desired=$(API_URL="$API_URL" SECRET="$SECRET" MIN_WORKERS="$MIN_WORKERS" MAX_WORKERS="$MAX_WORKERS" recommended_workers)
-    current=$(current_workers)
-    if [ "$desired" != "$current" ]; then
-      scale_to "$desired"
-    fi
-    echo "testengine-worker replicas: $desired"
+    scale_pool testengine-api-worker api "$API_MIN_WORKERS" "$API_MAX_WORKERS"
+    scale_pool testengine-web-worker web "$WEB_MIN_WORKERS" "$WEB_MAX_WORKERS"
+    scale_pool testengine-android-worker android "$ANDROID_MIN_WORKERS" "$ANDROID_MAX_WORKERS"
     ;;
   *)
     echo "Usage: $0 [start|stop|run|once]" >&2

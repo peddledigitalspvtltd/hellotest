@@ -551,6 +551,8 @@ CREATE TABLE IF NOT EXISTS test_engine_jobs (
   project_id TEXT NOT NULL,
   app_type_id TEXT,
   app_type_kind TEXT NOT NULL DEFAULT 'web',
+  engine_class TEXT NOT NULL DEFAULT 'web' CHECK (engine_class IN ('api', 'web', 'android')),
+  engine_max_workers INTEGER NOT NULL DEFAULT 1,
   execution_id TEXT NOT NULL,
   test_case_id TEXT NOT NULL,
   test_case_title TEXT NOT NULL,
@@ -576,7 +578,7 @@ CREATE TABLE IF NOT EXISTS test_engine_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue
-  ON test_engine_jobs (status, app_type_kind, engine_host, created_at ASC);
+  ON test_engine_jobs (status, engine_class, app_type_kind, engine_host, created_at ASC);
 
 CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case
   ON test_engine_jobs (execution_id, test_case_id);

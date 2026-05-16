@@ -81,12 +81,14 @@ export function buildAcceptedRun(envelope) {
     };
 }
 export function buildCapabilities() {
+    const workerClass = String(process.env.TESTENGINE_WORKER_CLASS || "").trim().toLowerCase() || "hybrid";
     return {
-        runner: "hybrid",
+        runner: workerClass,
         control_plane: "qaira",
         browsers: ["chromium", "firefox", "webkit"],
         execution_scope: "api+web+android",
         supported_step_types: ["api", "web", "android"],
+        worker_class: workerClass,
         supported_web_engines: ["playwright", "selenium"],
         supported_mobile_engines: ["webdriverio", "appium"],
         android_keywords: ["tap", "type", "clear", "swipe", "waitForDisplayed", "expectText", "pressBack", "pause"],

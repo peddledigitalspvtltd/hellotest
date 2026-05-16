@@ -7,6 +7,7 @@ module.exports = async function (fastify) {
     fastify.validate({
       worker_id: { required: false, type: "string" },
       engine_host: { required: false, type: "string" },
+      engine_class: { required: false, type: "string" },
       lease_seconds: { required: false, type: "number" }
     }, req.body || {});
 

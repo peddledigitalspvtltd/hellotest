@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "package:host-recorder": "node scripts/build-host-recorder-binary.mjs",
     "start": "node dist/server.js"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/selenium-webdriver": "^4.35.5",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

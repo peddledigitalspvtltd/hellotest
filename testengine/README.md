@@ -16,9 +16,9 @@ QAira already owns:
 - case snapshots and step snapshots
 - manual result review and preserved history
 
-What QAira does not yet own is an isolated Playwright runtime that can:
+What QAira does not yet own is an isolated execution runtime that can:
 
-- execute browser and API automation inside Docker
+- execute browser, API, and mobile automation inside Docker/Kubernetes
 - scale independently from the main app
 - reuse attached automation scripts on repeat runs
 - attempt constrained self-healing on failure
@@ -39,12 +39,47 @@ QAira control plane:
 
 Test Engine worker plane:
 
-- accepts automated case handoff requests from QAira
+- continuously leases queued automated jobs from QAira
+- splits workers by engine class: API, Web, and Android
 - resolves attached script versus manual handover generation
-- executes Playwright deterministically first
+- executes API requests, Playwright browser steps, and Android/Appium handoffs deterministically first
 - performs constrained repair only after failure
 - captures trace, screenshots, console, network, DOM, and summary artifacts
 - calls back into QAira with case result and step evidence payloads
+
+## Worker Pools
+
+Each step carries an `engine_class`. The queued case also carries an
+`orchestration_class`, which is the safest worker pool to coordinate the ordered
+flow:
+
+- `api`: API-only jobs. These are lightweight and should scale aggressively.
+- `web`: any job containing Web steps. Web+API unified flows stay in this pool so runtime variables can move from API extractors into browser steps.
+- `android`: any job containing Android steps. This pool is capped lower because real devices, emulators, and Appium sessions are scarce resources.
+
+Each worker sets `TESTENGINE_WORKER_CLASS` and only leases matching orchestration
+jobs. QAira queue stats expose both `by_orchestration_class` for scaling current
+worker deployments and `by_step_engine_class` for step-level demand visibility.
+Mixed cases therefore remain ordered and safe, while the model still records
+that API, Web, and Android capabilities are step-level concerns.
+
+Recommended integration config keys:
+
+```json
+{
+  "max_api_workers": 10,
+  "max_web_workers": 5,
+  "max_android_workers": 2,
+  "active_web_engine": "playwright",
+  "headless": true
+}
+```
+
+For Kubernetes, use `testengine/k8s/testengine-workers.yaml` as the base
+deployment shape. In production, pair these deployments with KEDA or an external
+metrics adapter that reads QAira's `/testengine/internal/jobs/queue-stats`
+endpoint and scales each deployment from the matching `by_orchestration_class`
+value.
 
 ## Current QAira API Mapping
 
@@ -82,7 +117,7 @@ Scale path for larger artifacts:
 
 ## Core Decisions
 
-- Runtime: Playwright only
+- Runtime: Playwright for Web, native REST for API, Appium handoff for Android
 - Primary language: TypeScript
 - Packaging: Docker only
 - Execution policy: deterministic first, AI fallback second

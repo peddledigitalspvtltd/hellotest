@@ -7,7 +7,22 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify
 
 type RecorderAction = {
   index: number;
-  type: "click" | "fill" | "change" | "submit" | "navigation" | "press" | "tab" | "scroll";
+  type:
+    | "click"
+    | "dblclick"
+    | "rightclick"
+    | "fill"
+    | "change"
+    | "select"
+    | "check"
+    | "uncheck"
+    | "submit"
+    | "navigation"
+    | "press"
+    | "tab"
+    | "scroll"
+    | "drag"
+    | "drop";
   locator?: string | null;
   text?: string | null;
   value?: string | null;
@@ -61,6 +76,23 @@ type RecorderSession = {
 };
 
 const sessions = new Map<string, RecorderSession>();
+const RECORDER_ACTION_TYPES = new Set<RecorderAction["type"]>([
+  "click",
+  "dblclick",
+  "rightclick",
+  "fill",
+  "change",
+  "select",
+  "check",
+  "uncheck",
+  "submit",
+  "navigation",
+  "press",
+  "tab",
+  "scroll",
+  "drag",
+  "drop"
+]);
 const MAX_ACTIONS = Math.max(200, Number.parseInt(process.env.RECORDER_MAX_ACTIONS || "1000", 10));
 const MAX_NETWORK = Math.max(200, Number.parseInt(process.env.RECORDER_MAX_NETWORK || "1000", 10));
 const BODY_SAMPLE_LIMIT = Math.max(2000, Number.parseInt(process.env.RECORDER_BODY_SAMPLE_LIMIT || "12000", 10));
@@ -202,13 +234,13 @@ const pushRecorderAction = (
   const actionPageId = normalizeText(action.page_id);
   const actionTimestamp = action.timestamp || new Date().toISOString();
 
-  if ((actionType === "fill" || actionType === "change") && actionLocator) {
+  if ((actionType === "fill" || actionType === "change" || actionType === "select" || actionType === "check" || actionType === "uncheck") && actionLocator) {
     const recentEditableAction = [...session.actions].reverse().find((candidate) => {
       const candidateType = String(candidate.type || "").toLowerCase();
       const candidateTime = Date.parse(candidate.timestamp || "");
       const nextTime = Date.parse(actionTimestamp);
 
-      return (candidateType === "fill" || candidateType === "change")
+      return (candidateType === "fill" || candidateType === "change" || candidateType === "select" || candidateType === "check" || candidateType === "uncheck")
         && candidate.locator === actionLocator
         && (!actionPageId || !candidate.page_id || candidate.page_id === actionPageId)
         && (!Number.isFinite(candidateTime) || !Number.isFinite(nextTime) || Math.abs(nextTime - candidateTime) <= 12_000);
@@ -375,8 +407,56 @@ const recorderInitScript = `
   };
   const inputTimers = new WeakMap();
   const lastInputValues = new WeakMap();
+  const controlLabel = (target) => attr(target, "name") || attr(target, "placeholder") || attr(target, "aria-label") || visibleText(target);
+  const selectedOptions = (target) => Array.from(target.selectedOptions || []).map((option) => ({
+    value: String(option.value || ""),
+    label: clean(option.label || option.textContent || option.value || "")
+  }));
+  const describeSelectValue = (target) => {
+    const selected = selectedOptions(target);
+    if (target.multiple) {
+      return {
+        value: JSON.stringify(selected.map((option) => option.value)),
+        text: selected.map((option) => option.label || option.value).filter(Boolean).join(", ") || controlLabel(target)
+      };
+    }
+    const first = selected[0];
+    return {
+      value: first ? first.value : String(target.value || ""),
+      text: first ? first.label || first.value : controlLabel(target)
+    };
+  };
   const recordInput = (target, type) => {
     if (!target || !("value" in target)) return;
+    const tag = String(target.tagName || "").toLowerCase();
+    const inputType = String(target.type || "").toLowerCase();
+    if (tag === "select") {
+      const selected = describeSelectValue(target);
+      const previous = lastInputValues.get(target);
+      if (previous === selected.value) return;
+      lastInputValues.set(target, selected.value);
+      emit({
+        type: "select",
+        locator: locatorFor(target),
+        text: selected.text || controlLabel(target),
+        value: selected.value
+      });
+      return;
+    }
+    if (inputType === "checkbox" || inputType === "radio") {
+      const checked = Boolean(target.checked);
+      const value = checked ? "true" : "false";
+      const previous = lastInputValues.get(target);
+      if (previous === value) return;
+      lastInputValues.set(target, value);
+      emit({
+        type: checked ? "check" : "uncheck",
+        locator: locatorFor(target),
+        text: controlLabel(target),
+        value
+      });
+      return;
+    }
     const value = String(target.value || "");
     const previous = lastInputValues.get(target);
     if (previous === value) return;
@@ -384,18 +464,28 @@ const recorderInitScript = `
     emit({
       type,
       locator: locatorFor(target),
-      text: attr(target, "name") || attr(target, "placeholder") || visibleText(target),
+      text: controlLabel(target),
       value
     });
   };
 
   document.addEventListener("click", (event) => {
-    const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[data-testid],[data-test],[data-qa]") : event.target;
+    const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=option],[role=menuitem],[role=combobox],[aria-haspopup],[data-testid],[data-test],[data-qa]") : event.target;
     emit({
       type: "click",
       locator: locatorFor(target),
       text: visibleText(target)
     });
+  }, true);
+
+  document.addEventListener("dblclick", (event) => {
+    const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[data-testid],[data-test],[data-qa]") : event.target;
+    emit({ type: "dblclick", locator: locatorFor(target), text: visibleText(target) });
+  }, true);
+
+  document.addEventListener("contextmenu", (event) => {
+    const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[data-testid],[data-test],[data-qa]") : event.target;
+    emit({ type: "rightclick", locator: locatorFor(target), text: visibleText(target) });
   }, true);
 
   document.addEventListener("input", (event) => {
@@ -408,6 +498,46 @@ const recorderInitScript = `
 
   document.addEventListener("change", (event) => {
     recordInput(event.target, "change");
+  }, true);
+
+  document.addEventListener("blur", (event) => {
+    const target = event.target;
+    if (!target || !("value" in target)) return;
+    const existing = inputTimers.get(target);
+    if (existing) clearTimeout(existing);
+    recordInput(target, "change");
+  }, true);
+
+  document.addEventListener("keydown", (event) => {
+    const key = String(event.key || "");
+    if (!["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) return;
+    emit({
+      type: key === "Tab" ? "tab" : "press",
+      locator: locatorFor(event.target),
+      text: key,
+      value: key
+    });
+  }, true);
+
+  document.addEventListener("dragstart", (event) => {
+    emit({ type: "drag", locator: locatorFor(event.target), text: visibleText(event.target) });
+  }, true);
+
+  document.addEventListener("drop", (event) => {
+    emit({ type: "drop", locator: locatorFor(event.target), text: visibleText(event.target) });
+  }, true);
+
+  let lastScrollAt = 0;
+  document.addEventListener("scroll", () => {
+    const now = Date.now();
+    if (now - lastScrollAt < 750) return;
+    lastScrollAt = now;
+    emit({
+      type: "scroll",
+      locator: "viewport",
+      text: "Scroll",
+      value: JSON.stringify({ x: window.scrollX || 0, y: window.scrollY || 0 })
+    });
   }, true);
 
   document.addEventListener("submit", (event) => {
@@ -1546,15 +1676,14 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
 
         const payload = event as Record<string, unknown>;
         const type = normalizeText(payload.type) || "click";
-        const normalizedType =
-          type === "fill" || type === "change" || type === "submit" || type === "navigation" || type === "press" || type === "tab" || type === "scroll" ? type : "click";
+        const normalizedType = RECORDER_ACTION_TYPES.has(type as RecorderAction["type"]) ? type as RecorderAction["type"] : "click";
         const sourcePage = source.page || null;
 
         pushRecorderAction(session, {
           type: normalizedType,
           locator: normalizeText(payload.locator),
           text: normalizeText(payload.text),
-          value: normalizedType === "fill" || normalizedType === "change" ? normalizeText(payload.value) : null,
+          value: ["fill", "change", "select", "check", "uncheck", "press", "tab", "scroll"].includes(normalizedType) ? normalizeText(payload.value) : null,
           url: normalizeText(payload.url) || sourcePage?.url() || null,
           page_id: getRecorderPageId(sourcePage),
           page_title: await resolvePageTitle(sourcePage),

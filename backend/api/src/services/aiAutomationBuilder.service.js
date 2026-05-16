@@ -548,6 +548,24 @@ const buildRecorderStepCandidate = (action, order) => {
     };
   }
 
+  if (type === "dblclick" || type === "rightclick") {
+    if (!target) {
+      return null;
+    }
+
+    const verb = type === "dblclick" ? "Double click" : "Right click";
+    const method = type === "dblclick" ? "dblclick" : "rightClick";
+
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: `${verb} ${targetLabel}`,
+      expected_result: "",
+      step_type: "web",
+      automation_code: `await web.${method}(${quoteCodeString(target)});`
+    };
+  }
+
   if (type === "fill" || type === "change") {
     const value = inferRecorderFillValue(action);
 
@@ -575,6 +593,48 @@ const buildRecorderStepCandidate = (action, order) => {
     };
   }
 
+  if (type === "select") {
+    const value = normalizeRichText(action.value) || normalizeRichText(action.text) || "@t.value";
+
+    if (target) {
+      return {
+        source_action_index: action.index,
+        step_order: order,
+        action: `Select ${describeRecorderTarget(action, value)} in ${targetLabel}`,
+        expected_result: "",
+        step_type: "web",
+        automation_code: `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)});`
+      };
+    }
+
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: "Select recorded dropdown value",
+      expected_result: "Review the locator before running this step.",
+      step_type: "web",
+      automation_code: [
+        "// TODO: Replace this fallback with a stable locator for the recorded dropdown.",
+        `await web.select("select", ${quoteCodeString(value)});`
+      ].join("\n")
+    };
+  }
+
+  if (type === "check" || type === "uncheck") {
+    if (!target) {
+      return null;
+    }
+
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: `${type === "check" ? "Check" : "Uncheck"} ${targetLabel}`,
+      expected_result: "",
+      step_type: "web",
+      automation_code: `await web.${type}(${quoteCodeString(target)});`
+    };
+  }
+
   if (type === "press") {
     const normalizedKey = key || "Enter";
 
@@ -585,6 +645,38 @@ const buildRecorderStepCandidate = (action, order) => {
       expected_result: "",
       step_type: "web",
       automation_code: `await web.press("", ${quoteCodeString(normalizedKey)});`
+    };
+  }
+
+  if (type === "tab") {
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: "Press Tab",
+      expected_result: "",
+      step_type: "web",
+      automation_code: `await web.press("", "Tab");`
+    };
+  }
+
+  if (type === "scroll") {
+    let deltaX = 0;
+    let deltaY = 600;
+    try {
+      const payload = JSON.parse(action.value || "{}");
+      deltaX = Number(payload.delta_x || 0);
+      deltaY = Number(payload.delta_y || payload.y || 600);
+    } catch {
+      // Keep a deterministic scroll fallback.
+    }
+
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: "Scroll page",
+      expected_result: "",
+      step_type: "web",
+      automation_code: `await web.scroll(${Number.isFinite(deltaX) ? deltaX : 0}, ${Number.isFinite(deltaY) ? deltaY : 600});`
     };
   }
 
@@ -604,14 +696,14 @@ const isRecorderActionSuperseded = (action, actions, index) => {
     );
   }
 
-  if ((type === "change" || type === "fill") && action.locator) {
+  if ((type === "change" || type === "fill" || type === "select" || type === "check" || type === "uncheck") && action.locator) {
     const previousSameLocator = actions.slice(0, index).some((candidate) =>
-      ["fill", "change"].includes(String(candidate.type || "").toLowerCase())
+      ["fill", "change", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
       && candidate.locator === action.locator
       && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
     );
     const laterSameLocator = actions.slice(index + 1).some((candidate) =>
-      ["fill", "change"].includes(String(candidate.type || "").toLowerCase())
+      ["fill", "change", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
       && candidate.locator === action.locator
       && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
     );
@@ -639,7 +731,7 @@ const isRecorderActionSuperseded = (action, actions, index) => {
 };
 
 const buildRecorderStepCandidates = (actions = []) => {
-  const allowedTypes = new Set(["navigation", "click", "fill", "change", "submit", "press"]);
+  const allowedTypes = new Set(["navigation", "click", "dblclick", "rightclick", "fill", "change", "select", "check", "uncheck", "submit", "press", "tab", "scroll"]);
   const candidates = [];
 
   actions.forEach((action, index) => {
@@ -949,7 +1041,7 @@ const buildPrompt = ({
     "Build automation for this QAira manual web test case.",
     "",
     "Runtime contract:",
-    "- Use QAira keyword/facade calls only: web.goto, web.click, web.fill, web.press, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
+    "- Use QAira keyword/facade calls only: web.goto, web.click, web.dblclick, web.rightClick, web.fill, web.select, web.check, web.uncheck, web.press, web.scroll, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
     "- Each step automation_code must be executable JavaScript statements, not a full Playwright test file.",
     "- Prefer semantic locators: getByRole-style text, labels, placeholders, data-testid, id/name, then CSS. In QAira keyword code pass the best target string to web.click/web.fill/etc.",
     "- Use @t.variable_name tokens when the manual case implies reusable data.",

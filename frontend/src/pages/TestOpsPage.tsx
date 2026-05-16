@@ -640,22 +640,24 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                     <strong>Test case recorder</strong>
                     <span>Starts a browser-backed Test Engine session, captures user actions once, suppresses duplicate typing, and records fetch/XHR traffic for API test suggestions.</span>
                   </div>
-                  <div className="testops-recorder-actions">
+                  <div className="recorder-workspace-pane">
                     <RecorderStartControls
                       disabled={!activeCase || !testEngineIntegration}
                       hasSession={Boolean(recorderSession)}
                       isStarting={startRecorder.isPending}
                       onStart={(options) => startRecorder.mutate(options)}
                     />
-                    <button
-                      className="primary-button"
-                      disabled={!recorderSession || finishRecorder.isPending}
-                      onClick={() => finishRecorder.mutate()}
-                      type="button"
-                    >
-                      <SparkIcon size={16} />
-                      <span>{finishRecorder.isPending ? "Stopping…" : "Stop and create steps"}</span>
-                    </button>
+                    <div className="testops-recorder-actions recorder-control-buttons">
+                      <button
+                        className="primary-button"
+                        disabled={!recorderSession || finishRecorder.isPending}
+                        onClick={() => finishRecorder.mutate()}
+                        type="button"
+                      >
+                        <SparkIcon size={16} />
+                        <span>{finishRecorder.isPending ? "Stopping…" : "Stop and create steps"}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {recorderSession ? (

@@ -69,6 +69,9 @@ type IntegrationDraft = {
   engine_recovery_wait_ms: string;
   engine_max_video_attachment_mb: string;
   engine_queue_poll_interval_minutes: string;
+  engine_max_api_workers: string;
+  engine_max_web_workers: string;
+  engine_max_android_workers: string;
   engine_live_view_url: string;
   engine_mobile_engine_url: string;
   engine_mobile_cloud_provider: "none" | "saucelabs" | "lambdatest" | "browserstack" | "other";
@@ -170,6 +173,9 @@ const buildEmptyDraft = (
     engine_recovery_wait_ms: String(testEngineDefaults.recovery_wait_ms ?? "750"),
     engine_max_video_attachment_mb: String(testEngineDefaults.max_video_attachment_mb ?? "25"),
     engine_queue_poll_interval_minutes: String(testEngineDefaults.queue_poll_interval_minutes ?? "5"),
+    engine_max_api_workers: String(testEngineDefaults.max_api_workers ?? "10"),
+    engine_max_web_workers: String(testEngineDefaults.max_web_workers ?? "5"),
+    engine_max_android_workers: String(testEngineDefaults.max_android_workers ?? "2"),
     engine_live_view_url: "",
     engine_mobile_engine_url: "http://mobile-engine:4312",
     engine_mobile_cloud_provider: "none",
@@ -554,6 +560,24 @@ function getDraftFromIntegration(
         : typeof config.queue_poll_interval_minutes === "string"
           ? config.queue_poll_interval_minutes
           : emptyDraft.engine_queue_poll_interval_minutes,
+    engine_max_api_workers:
+      typeof config.max_api_workers === "number"
+        ? String(config.max_api_workers)
+        : typeof config.max_api_workers === "string"
+          ? config.max_api_workers
+          : emptyDraft.engine_max_api_workers,
+    engine_max_web_workers:
+      typeof config.max_web_workers === "number"
+        ? String(config.max_web_workers)
+        : typeof config.max_web_workers === "string"
+          ? config.max_web_workers
+          : emptyDraft.engine_max_web_workers,
+    engine_max_android_workers:
+      typeof config.max_android_workers === "number"
+        ? String(config.max_android_workers)
+        : typeof config.max_android_workers === "string"
+          ? config.max_android_workers
+          : emptyDraft.engine_max_android_workers,
     engine_live_view_url: isLiveViewUrlCompatible(storedLiveViewUrl, storedEngineProvider)
       ? storedLiveViewUrl
       : buildTestEngineLiveViewUrl(integration.base_url || "", storedEngineProvider),
@@ -654,6 +678,9 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       recovery_wait_ms: Number.parseInt(draft.engine_recovery_wait_ms, 10) || 750,
       max_video_attachment_mb: Number.parseInt(draft.engine_max_video_attachment_mb, 10) || 25,
       queue_poll_interval_minutes: Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5,
+      max_api_workers: Number.parseInt(draft.engine_max_api_workers, 10) || 10,
+      max_web_workers: Number.parseInt(draft.engine_max_web_workers, 10) || 5,
+      max_android_workers: Number.parseInt(draft.engine_max_android_workers, 10) || 2,
       live_view_url: draft.engine_live_view_url.trim() || null,
       mobile_engine_url: draft.engine_mobile_engine_url.trim() || null,
       mobile_cloud_provider: draft.engine_mobile_cloud_provider,
@@ -746,10 +773,13 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
     const qairaApiBaseUrl = typeof config.qaira_api_base_url === "string" && config.qaira_api_base_url.trim()
       ? config.qaira_api_base_url.trim()
       : "";
+    const apiWorkers = typeof config.max_api_workers === "number" || typeof config.max_api_workers === "string" ? String(config.max_api_workers) : "10";
+    const webWorkers = typeof config.max_web_workers === "number" || typeof config.max_web_workers === "string" ? String(config.max_web_workers) : "5";
+    const androidWorkers = typeof config.max_android_workers === "number" || typeof config.max_android_workers === "string" ? String(config.max_android_workers) : "2";
 
     return {
       primary: integration.base_url || "Engine host not set",
-      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${qairaApiBaseUrl ? ` · QAira API ${qairaApiBaseUrl}` : ""}`
+      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · caps API ${apiWorkers}/Web ${webWorkers}/Android ${androidWorkers} · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${qairaApiBaseUrl ? ` · QAira API ${qairaApiBaseUrl}` : ""}`
     };
   }
 
@@ -1492,8 +1522,35 @@ export function IntegrationsPage() {
                       </FormField>
 
                       <div className="empty-state compact integration-helper">
-                        The standalone Test Engine uses this cadence when it pulls queued API and web automation jobs from QAira. Set the engine container's QAIRA_API_BASE_URL to the QAira API URL above, or to the public QAira URL when /api proxying is available.
+                        The standalone Test Engine uses this cadence when split API, Web, and Android workers pull queued automation jobs from QAira. Set the engine container's QAIRA_API_BASE_URL to the QAira API URL above, or to the public QAira URL when /api proxying is available.
                       </div>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="Max API Workers">
+                        <input
+                          inputMode="numeric"
+                          placeholder="10"
+                          value={draft.engine_max_api_workers}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_max_api_workers: event.target.value }))}
+                        />
+                      </FormField>
+                      <FormField label="Max Web Workers">
+                        <input
+                          inputMode="numeric"
+                          placeholder="5"
+                          value={draft.engine_max_web_workers}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_max_web_workers: event.target.value }))}
+                        />
+                      </FormField>
+                      <FormField label="Max Android Workers">
+                        <input
+                          inputMode="numeric"
+                          placeholder="2"
+                          value={draft.engine_max_android_workers}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_max_android_workers: event.target.value }))}
+                        />
+                      </FormField>
                     </div>
 
                     <div className="record-grid">

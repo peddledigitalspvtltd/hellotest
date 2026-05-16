@@ -13,6 +13,7 @@ const {
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
+const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
 const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.TESTENGINE_JOB_LEASE_SECONDS || 90));
 const TESTENGINE_WEB_ENGINE_VALUES = new Set(["playwright", "selenium"]);
 const TESTENGINE_BROWSER_ALIASES = new Map([
@@ -70,6 +71,8 @@ const insertJob = db.prepare(`
     project_id,
     app_type_id,
     app_type_kind,
+    engine_class,
+    engine_max_workers,
     execution_id,
     test_case_id,
     test_case_title,
@@ -86,7 +89,7 @@ const insertJob = db.prepare(`
     last_error,
     created_by
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const selectJob = db.prepare(`
@@ -96,11 +99,10 @@ const selectJob = db.prepare(`
 `);
 
 const selectQueueStats = db.prepare(`
-  SELECT status, COUNT(*)::int AS count
+  SELECT status, engine_class, app_type_kind, engine_max_workers, payload
   FROM test_engine_jobs
   WHERE completed_at IS NULL
     AND status IN ('queued', 'leased', 'running')
-  GROUP BY status
 `);
 
 const updateJobLeaseState = db.prepare(`
@@ -218,6 +220,89 @@ const normalizeInteger = (value, fallback = null) => {
 const normalizeTestEngineWebEngine = (value, fallback = "playwright") => {
   const normalized = normalizeText(value)?.toLowerCase();
   return normalized && TESTENGINE_WEB_ENGINE_VALUES.has(normalized) ? normalized : fallback;
+};
+
+const normalizeEngineClass = (value, fallback = null) => {
+  const normalized = normalizeText(value)?.toLowerCase();
+  return normalized && TESTENGINE_ENGINE_CLASSES.has(normalized) ? normalized : fallback;
+};
+
+const resolveStepEngineClass = (step = {}, appTypeKind = null) => {
+  const stepType = normalizeTestStepType(step?.step_type || step?.type, null);
+
+  if (stepType === "api" || stepType === "web" || stepType === "android") {
+    return stepType;
+  }
+
+  const normalizedAppType = normalizeText(appTypeKind)?.toLowerCase();
+  return normalizedAppType === "api" ? "api" : normalizedAppType === "android" ? "android" : "web";
+};
+
+const resolveStepEngineClasses = (steps = [], appTypeKind = null) =>
+  Array.from(new Set((steps || []).map((step) => resolveStepEngineClass(step, appTypeKind))));
+
+const resolveOrchestrationClass = (steps = [], appTypeKind = null) => {
+  const stepTypes = new Set((steps || []).map((step) => normalizeTestStepType(step?.step_type || step?.type)).filter(Boolean));
+
+  if (stepTypes.has("android")) {
+    return "android";
+  }
+
+  if (stepTypes.has("web")) {
+    return "web";
+  }
+
+  if (stepTypes.has("api")) {
+    return "api";
+  }
+
+  const normalizedAppType = normalizeText(appTypeKind)?.toLowerCase();
+  return normalizedAppType === "api" ? "api" : normalizedAppType === "android" ? "android" : "web";
+};
+
+const getQueueMaxWorkers = (engineClass) => {
+  const normalized = normalizeEngineClass(engineClass, "web");
+  const specificKey = `TESTENGINE_${normalized.toUpperCase()}_MAX_WORKERS`;
+  const configured = normalizeInteger(process.env[specificKey], null)
+    ?? normalizeInteger(process.env.TESTENGINE_MAX_WORKERS, null)
+    ?? (normalized === "api" ? 10 : normalized === "android" ? 2 : 5);
+
+  return Math.max(1, configured);
+};
+
+const resolveIntegrationEngineMaxWorkers = (engineClass, integrationConfig = {}) => {
+  const normalized = normalizeEngineClass(engineClass, "web");
+  const specificKey = `max_${normalized}_workers`;
+  const legacySpecificKey = `${normalized}_max_workers`;
+  const configured = normalizeInteger(integrationConfig[specificKey], null)
+    ?? normalizeInteger(integrationConfig[legacySpecificKey], null)
+    ?? normalizeInteger(integrationConfig.max_worker_replicas, null)
+    ?? normalizeInteger(integrationConfig.max_workers, null)
+    ?? getQueueMaxWorkers(normalized);
+
+  return Math.max(1, configured);
+};
+
+const resolveIntegrationEngineWorkerCaps = (integrationConfig = {}) => ({
+  api: resolveIntegrationEngineMaxWorkers("api", integrationConfig),
+  web: resolveIntegrationEngineMaxWorkers("web", integrationConfig),
+  android: resolveIntegrationEngineMaxWorkers("android", integrationConfig)
+});
+
+const recommendWorkersForQueue = (queued, engineClass, maxWorkerOverride = null) => {
+  const maxWorkers = Math.max(1, normalizeInteger(maxWorkerOverride, null) ?? getQueueMaxWorkers(engineClass));
+  const queuedCount = Number(queued || 0);
+
+  if (queuedCount <= 0) {
+    return 1;
+  }
+
+  const targetBacklogPerWorker = Math.max(
+    1,
+    normalizeInteger(process.env.TESTENGINE_TARGET_QUEUED_PER_WORKER, engineClass === "api" ? 4 : 1) ?? 1
+  );
+
+  return Math.max(1, Math.min(maxWorkers, Math.ceil(queuedCount / targetBacklogPerWorker) || 1));
 };
 
 const normalizeEngineBrowser = (value, fallback = "chromium") => {
@@ -874,6 +959,7 @@ async function planExecutionDispatch(execution) {
         id: stepSnapshot.snapshot_step_id,
         order: stepSnapshot.step_order,
         step_type: stepType,
+        engine_class: resolveStepEngineClass({ step_type: stepType }, appType?.type || null),
         action: normalizeText(stepSnapshot.action),
         expected_result: normalizeText(stepSnapshot.expected_result),
         automation_code: normalizeRichText(stepSnapshot.automation_code),
@@ -970,6 +1056,16 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         steps: item.steps,
         integration
       });
+      const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
+      const stepEngineClasses = resolveStepEngineClasses(item.steps, plan.appType?.type || "web");
+      const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
+        ? integration.config
+        : {};
+      const engineWorkerCaps = resolveIntegrationEngineWorkerCaps(integrationConfig);
+      const engineMaxWorkers = engineWorkerCaps[orchestrationClass] || getQueueMaxWorkers(orchestrationClass);
+      envelope.engine_worker_caps = engineWorkerCaps;
+      envelope.step_engine_classes = stepEngineClasses;
+      envelope.orchestration_class = orchestrationClass;
 
       const transaction = await workspaceTransactionService.createTransaction({
         project_id: plan.execution.project_id,
@@ -986,6 +1082,9 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
           test_case_id: item.case_snapshot.test_case_id,
           engine_host: normalizeEngineHostUrl(integration.base_url),
           queue_mode: "qaira-pull",
+          orchestration_class: orchestrationClass,
+          step_engine_classes: stepEngineClasses,
+          engine_max_workers: engineMaxWorkers,
           active_web_engine: envelope.web_engine?.active || "playwright",
           live_view_url: buildProviderLiveViewUrl(integration, envelope.web_engine?.active || "playwright")
         },
@@ -1013,6 +1112,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         plan.execution.project_id,
         plan.execution.app_type_id || null,
         plan.appType?.type || "web",
+        orchestrationClass,
+        engineMaxWorkers,
         plan.execution.id,
         item.case_snapshot.test_case_id,
         item.case_snapshot.test_case_title,
@@ -1228,6 +1329,16 @@ async function queueSingleStepDispatch({
     integration
   });
   const activeWebEngine = envelope.web_engine?.active || "playwright";
+  const orchestrationClass = resolveOrchestrationClass([step], appType?.type || "web");
+  const stepEngineClasses = resolveStepEngineClasses([step], appType?.type || "web");
+  const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
+    ? integration.config
+    : {};
+  const engineWorkerCaps = resolveIntegrationEngineWorkerCaps(integrationConfig);
+  const engineMaxWorkers = engineWorkerCaps[orchestrationClass] || getQueueMaxWorkers(orchestrationClass);
+  envelope.engine_worker_caps = engineWorkerCaps;
+  envelope.step_engine_classes = stepEngineClasses;
+  envelope.orchestration_class = orchestrationClass;
   const liveViewUrl = buildProviderLiveViewUrl(integration, activeWebEngine);
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: execution.project_id,
@@ -1246,6 +1357,9 @@ async function queueSingleStepDispatch({
       step_id: step.id,
       engine_host: normalizeEngineHostUrl(integration.base_url),
       queue_mode: "qaira-pull",
+      orchestration_class: orchestrationClass,
+      step_engine_classes: stepEngineClasses,
+      engine_max_workers: engineMaxWorkers,
       active_web_engine: activeWebEngine,
       live_view_url: liveViewUrl
     },
@@ -1278,6 +1392,8 @@ async function queueSingleStepDispatch({
     execution.project_id,
     execution.app_type_id || null,
     appType?.type || "web",
+    orchestrationClass,
+    engineMaxWorkers,
     execution.id,
     caseSnapshot.test_case_id,
     caseSnapshot.test_case_title,
@@ -1317,9 +1433,10 @@ async function getQueuedJob(id) {
   return job;
 }
 
-const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_host, lease_seconds } = {}) => {
+const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_host, lease_seconds, engine_class } = {}) => {
   const normalizedWorkerId = normalizeText(worker_id) || "testengine-worker";
   const normalizedEngineHost = normalizeEngineHostUrl(engine_host);
+  const normalizedEngineClass = normalizeEngineClass(engine_class, null);
   const safeLeaseSeconds = Math.max(30, Number(lease_seconds) || DEFAULT_LEASE_SECONDS);
   const findCandidate = async (scopedEngineHost = null) => {
     const params = [];
@@ -1336,6 +1453,11 @@ const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_
           )
         )
     `;
+
+    if (normalizedEngineClass) {
+      query += ` AND engine_class = ?`;
+      params.push(normalizedEngineClass);
+    }
 
     if (scopedEngineHost) {
       query += ` AND (engine_host IS NULL OR engine_host = ?)`;
@@ -1383,6 +1505,7 @@ const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_
       details: {
         job_id: leased.id,
         worker_id: normalizedWorkerId,
+        orchestration_class: leased.engine_class,
         lease_expires_at: leaseExpiresAt
       }
     });
@@ -1414,23 +1537,76 @@ exports.leaseNextQueuedJob = async (params = {}) => {
 
 exports.getQueueStats = async () => {
   const rows = await selectQueueStats.all();
-  const byStatus = rows.reduce((accumulator, row) => {
-    accumulator[row.status] = Number(row.count) || 0;
-    return accumulator;
-  }, {});
+  const byOrchestrationClass = {};
+  const byStepEngineClass = {};
+  const byStatus = {};
+
+  for (const row of rows) {
+    const status = normalizeText(row.status) || "queued";
+    const orchestrationClass = normalizeEngineClass(row.engine_class, "web");
+    const maxWorkers = Number(row.engine_max_workers || 0);
+    byStatus[status] = (byStatus[status] || 0) + 1;
+    byOrchestrationClass[orchestrationClass] = byOrchestrationClass[orchestrationClass] || { queued: 0, leased: 0, running: 0 };
+    byOrchestrationClass[orchestrationClass][status] = (byOrchestrationClass[orchestrationClass][status] || 0) + 1;
+    byOrchestrationClass[orchestrationClass].max_workers = Math.max(
+      Number(byOrchestrationClass[orchestrationClass].max_workers || 0),
+      maxWorkers
+    );
+
+    const payload = normalizeJsonValue(row.payload, {});
+    const workerCaps = payload?.engine_worker_caps && typeof payload.engine_worker_caps === "object" && !Array.isArray(payload.engine_worker_caps)
+      ? payload.engine_worker_caps
+      : {};
+    const stepClasses = resolveStepEngineClasses(Array.isArray(payload?.steps) ? payload.steps : [], row.app_type_kind || orchestrationClass);
+    const countedStepClasses = stepClasses.length ? stepClasses : [orchestrationClass];
+
+    countedStepClasses.forEach((stepClass) => {
+      byStepEngineClass[stepClass] = byStepEngineClass[stepClass] || { queued: 0, leased: 0, running: 0 };
+      byStepEngineClass[stepClass][status] = (byStepEngineClass[stepClass][status] || 0) + 1;
+      byStepEngineClass[stepClass].max_workers = Math.max(
+        Number(byStepEngineClass[stepClass].max_workers || 0),
+        normalizeInteger(workerCaps[stepClass], null) || getQueueMaxWorkers(stepClass)
+      );
+    });
+  }
+
+  for (const engineClass of TESTENGINE_ENGINE_CLASSES) {
+    byOrchestrationClass[engineClass] = byOrchestrationClass[engineClass] || { queued: 0, leased: 0, running: 0 };
+    const stats = byOrchestrationClass[engineClass];
+    stats.pending = stats.queued + stats.leased + stats.running;
+    stats.max_workers = Math.max(1, Number(stats.max_workers || 0) || getQueueMaxWorkers(engineClass));
+    stats.recommended_workers = Math.max(
+      stats.running,
+      recommendWorkersForQueue(stats.queued, engineClass, stats.max_workers)
+    );
+
+    byStepEngineClass[engineClass] = byStepEngineClass[engineClass] || { queued: 0, leased: 0, running: 0 };
+    const stepStats = byStepEngineClass[engineClass];
+    stepStats.pending = stepStats.queued + stepStats.leased + stepStats.running;
+    stepStats.max_workers = Math.max(1, Number(stepStats.max_workers || 0) || getQueueMaxWorkers(engineClass));
+    stepStats.recommended_workers = Math.max(
+      stepStats.running,
+      recommendWorkersForQueue(stepStats.queued, engineClass, stepStats.max_workers)
+    );
+  }
+
   const queued = byStatus.queued || 0;
   const leased = byStatus.leased || 0;
   const running = byStatus.running || 0;
   const pending = queued + leased + running;
-  const recommendedWorkers = Math.max(1, Math.min(3, queued > 3 ? 3 : queued > 1 ? 2 : 1));
+  const maxWorkers = Object.values(byOrchestrationClass).reduce((total, stats) => total + stats.max_workers, 0);
+  const recommendedWorkers = Object.values(byOrchestrationClass).reduce((total, stats) => total + stats.recommended_workers, 0);
 
   return {
     queued,
     leased,
     running,
     pending,
-    max_workers: 3,
-    recommended_workers: recommendedWorkers
+    max_workers: maxWorkers,
+    recommended_workers: recommendedWorkers,
+    by_engine_class: byOrchestrationClass,
+    by_orchestration_class: byOrchestrationClass,
+    by_step_engine_class: byStepEngineClass
   };
 };
 
