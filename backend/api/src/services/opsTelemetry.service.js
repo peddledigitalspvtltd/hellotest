@@ -1,29 +1,30 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const integrationService = require("./integration.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
-const selectExecution = db.prepare(`
+const selectExecution = obsDb.prepare(`
   SELECT id, project_id, app_type_id, name, status, started_at, ended_at
   FROM executions
   WHERE id = ?
 `);
 
-const selectExecutionCases = db.prepare(`
+const selectExecutionCases = obsDb.prepare(`
   SELECT execution_id, test_case_id, test_case_title, external_references, suite_id, suite_name, sort_order
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
 `);
 
-const selectExecutionSteps = db.prepare(`
+const selectExecutionSteps = obsDb.prepare(`
   SELECT execution_id, test_case_id, snapshot_step_id, step_order, step_type, action, expected_result
   FROM execution_step_snapshots
   WHERE execution_id = ?
   ORDER BY test_case_id ASC, step_order ASC
 `);
 
-const selectLatestResultsForExecution = db.prepare(`
+const selectLatestResultsForExecution = obsDb.prepare(`
   SELECT DISTINCT ON (test_case_id)
     id,
     execution_id,

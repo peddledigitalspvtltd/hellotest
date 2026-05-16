@@ -1,4 +1,5 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const executionResultService = require("./executionResult.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -63,7 +64,7 @@ const settleExecutionStatus = db.prepare(`
   WHERE id = ? AND status = 'running'
 `);
 
-const insertJob = db.prepare(`
+const insertJob = obsDb.prepare(`
   INSERT INTO test_engine_jobs (
     id,
     engine_run_id,
@@ -92,20 +93,20 @@ const insertJob = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-const selectJob = db.prepare(`
+const selectJob = obsDb.prepare(`
   SELECT *
   FROM test_engine_jobs
   WHERE id = ?
 `);
 
-const selectQueueStats = db.prepare(`
+const selectQueueStats = obsDb.prepare(`
   SELECT status, engine_class, app_type_kind, engine_max_workers, payload
   FROM test_engine_jobs
   WHERE completed_at IS NULL
     AND status IN ('queued', 'leased', 'running')
 `);
 
-const updateJobLeaseState = db.prepare(`
+const updateJobLeaseState = obsDb.prepare(`
   UPDATE test_engine_jobs
   SET status = ?,
       leased_by = ?,
@@ -115,7 +116,7 @@ const updateJobLeaseState = db.prepare(`
   WHERE id = ?
 `);
 
-const updateJobRuntimeState = db.prepare(`
+const updateJobRuntimeState = obsDb.prepare(`
   UPDATE test_engine_jobs
   SET status = ?,
       runtime_state = ?,
@@ -125,7 +126,7 @@ const updateJobRuntimeState = db.prepare(`
   WHERE id = ?
 `);
 
-const finalizeJobState = db.prepare(`
+const finalizeJobState = obsDb.prepare(`
   UPDATE test_engine_jobs
   SET status = ?,
       runtime_state = ?,
@@ -1433,7 +1434,7 @@ async function getQueuedJob(id) {
   return job;
 }
 
-const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_host, lease_seconds, engine_class } = {}) => {
+const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engine_host, lease_seconds, engine_class } = {}) => {
   const normalizedWorkerId = normalizeText(worker_id) || "testengine-worker";
   const normalizedEngineHost = normalizeEngineHostUrl(engine_host);
   const normalizedEngineClass = normalizeEngineClass(engine_class, null);
@@ -1466,7 +1467,7 @@ const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_
 
     query += ` ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`;
 
-    const result = await db.query(query, params);
+    const result = await obsDb.query(query, params);
     return result.rows[0] || null;
   };
 
@@ -1482,7 +1483,7 @@ const leaseNextQueuedJobTransaction = db.transaction(async ({ worker_id, engine_
 
   const leaseExpiresAt = new Date(Date.now() + safeLeaseSeconds * 1000).toISOString();
 
-  await db.query(
+  await obsDb.query(
     `
       UPDATE test_engine_jobs
       SET status = 'leased',

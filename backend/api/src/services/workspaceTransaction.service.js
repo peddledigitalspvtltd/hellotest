@@ -1,15 +1,13 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 
 const WORKSPACE_TRANSACTION_STATUSES = new Set(["queued", "running", "completed", "failed"]);
 const WORKSPACE_TRANSACTION_EVENT_LEVELS = new Set(["info", "success", "warning", "error"]);
 
-const selectTransaction = db.prepare(`
+const selectTransaction = obsDb.prepare(`
   SELECT
     workspace_transactions.*,
-    users.email AS created_user_email,
-    users.name AS created_user_name,
-    users.avatar_data_url AS created_user_avatar_data_url,
     (
       SELECT COUNT(*)
       FROM workspace_transaction_events
@@ -21,16 +19,12 @@ const selectTransaction = db.prepare(`
       WHERE workspace_transaction_events.transaction_id = workspace_transactions.id
     ) AS latest_event_at
   FROM workspace_transactions
-  LEFT JOIN users ON users.id = workspace_transactions.created_by
   WHERE workspace_transactions.id = ?
 `);
 
-const selectTransactionByRelated = db.prepare(`
+const selectTransactionByRelated = obsDb.prepare(`
   SELECT
     workspace_transactions.*,
-    users.email AS created_user_email,
-    users.name AS created_user_name,
-    users.avatar_data_url AS created_user_avatar_data_url,
     (
       SELECT COUNT(*)
       FROM workspace_transaction_events
@@ -42,14 +36,13 @@ const selectTransactionByRelated = db.prepare(`
       WHERE workspace_transaction_events.transaction_id = workspace_transactions.id
     ) AS latest_event_at
   FROM workspace_transactions
-  LEFT JOIN users ON users.id = workspace_transactions.created_by
   WHERE workspace_transactions.related_kind = ?
     AND workspace_transactions.related_id = ?
   ORDER BY workspace_transactions.created_at DESC, workspace_transactions.id DESC
   LIMIT 1
 `);
 
-const insertTransaction = db.prepare(`
+const insertTransaction = obsDb.prepare(`
   INSERT INTO workspace_transactions (
     id,
     project_id,
@@ -69,7 +62,7 @@ const insertTransaction = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-const updateTransaction = db.prepare(`
+const updateTransaction = obsDb.prepare(`
   UPDATE workspace_transactions
   SET project_id = ?,
       app_type_id = ?,
@@ -88,7 +81,7 @@ const updateTransaction = db.prepare(`
   WHERE id = ?
 `);
 
-const insertTransactionEvent = db.prepare(`
+const insertTransactionEvent = obsDb.prepare(`
   INSERT INTO workspace_transaction_events (
     id,
     transaction_id,
@@ -100,14 +93,14 @@ const insertTransactionEvent = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?)
 `);
 
-const selectTransactionEvents = db.prepare(`
+const selectTransactionEvents = obsDb.prepare(`
   SELECT *
   FROM workspace_transaction_events
   WHERE transaction_id = ?
   ORDER BY created_at ASC, id ASC
 `);
 
-const insertTransactionArtifact = db.prepare(`
+const insertTransactionArtifact = obsDb.prepare(`
   INSERT INTO workspace_transaction_artifacts (
     id,
     transaction_id,
@@ -118,35 +111,35 @@ const insertTransactionArtifact = db.prepare(`
   VALUES (?, ?, ?, ?, ?)
 `);
 
-const selectTransactionArtifacts = db.prepare(`
+const selectTransactionArtifacts = obsDb.prepare(`
   SELECT id, transaction_id, file_name, mime_type, created_at
   FROM workspace_transaction_artifacts
   WHERE transaction_id = ?
   ORDER BY created_at DESC, id DESC
 `);
 
-const selectTransactionArtifact = db.prepare(`
+const selectTransactionArtifact = obsDb.prepare(`
   SELECT *
   FROM workspace_transaction_artifacts
   WHERE id = ?
 `);
 
-const deleteTransactionEvents = db.prepare(`
+const deleteTransactionEvents = obsDb.prepare(`
   DELETE FROM workspace_transaction_events
   WHERE transaction_id = ?
 `);
 
-const deleteTransactionArtifacts = db.prepare(`
+const deleteTransactionArtifacts = obsDb.prepare(`
   DELETE FROM workspace_transaction_artifacts
   WHERE transaction_id = ?
 `);
 
-const deleteBatchJob = db.prepare(`
+const deleteBatchJob = obsDb.prepare(`
   DELETE FROM batch_process_jobs
   WHERE transaction_id = ?
 `);
 
-const deleteTransactionById = db.prepare(`
+const deleteTransactionById = obsDb.prepare(`
   DELETE FROM workspace_transactions
   WHERE id = ?
 `);
@@ -220,7 +213,20 @@ const parseJsonValue = (value, fallback) => {
   return value;
 };
 
-const hydrateTransaction = (transaction) => {
+const hydrateTransaction = async (transaction) => {
+  if (!transaction) {
+    return null;
+  }
+  
+  if (transaction.created_by && !transaction.created_user_email) {
+    const user = await db.prepare('SELECT email, name, avatar_data_url FROM users WHERE id = ?').get(transaction.created_by);
+    if (user) {
+      transaction.created_user_email = user.email;
+      transaction.created_user_name = user.name;
+      transaction.created_user_avatar_data_url = user.avatar_data_url;
+    }
+  }
+
   if (!transaction) {
     return null;
   }
@@ -282,7 +288,7 @@ exports.getTransaction = async (id) => {
     throw new Error("Workspace transaction not found");
   }
 
-  return hydrateTransaction(transaction);
+  return await hydrateTransaction(transaction);
 };
 
 exports.findTransactionByRelated = async ({ related_kind, related_id }) => {
@@ -290,7 +296,7 @@ exports.findTransactionByRelated = async ({ related_kind, related_id }) => {
     return null;
   }
 
-  return hydrateTransaction(await selectTransactionByRelated.get(related_kind, related_id));
+  return await hydrateTransaction(await selectTransactionByRelated.get(related_kind, related_id));
 };
 
 exports.updateTransaction = async (id, updates = {}) => {
@@ -380,7 +386,7 @@ exports.getTransactionArtifact = async (artifactId) => {
 exports.deleteTransaction = async (id) => {
   const existing = await exports.getTransaction(id);
 
-  const transaction = db.transaction(async () => {
+  const transaction = obsDb.transaction(async () => {
     await deleteTransactionEvents.run(id);
     await deleteTransactionArtifacts.run(id);
     await deleteBatchJob.run(id);
@@ -401,9 +407,6 @@ exports.listTransactions = async ({
   let query = `
     SELECT
       workspace_transactions.*,
-      users.email AS created_user_email,
-      users.name AS created_user_name,
-      users.avatar_data_url AS created_user_avatar_data_url,
       (
         SELECT COUNT(*)
         FROM workspace_transaction_events
@@ -415,7 +418,6 @@ exports.listTransactions = async ({
         WHERE workspace_transaction_events.transaction_id = workspace_transactions.id
       ) AS latest_event_at
     FROM workspace_transactions
-    LEFT JOIN users ON users.id = workspace_transactions.created_by
     WHERE 1 = 1
   `;
   const params = [];
@@ -440,6 +442,6 @@ exports.listTransactions = async ({
   query += ` ORDER BY COALESCE(workspace_transactions.updated_at, workspace_transactions.created_at) DESC, workspace_transactions.id DESC LIMIT ?`;
   params.push(Math.max(1, Math.min(100, Number(limit) || 20)));
 
-  const rows = await db.prepare(query).all(...params);
-  return rows.map(hydrateTransaction);
+  const rows = await obsDb.prepare(query).all(...params);
+  return Promise.all(rows.map(hydrateTransaction));
 };

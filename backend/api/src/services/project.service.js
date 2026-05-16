@@ -1,4 +1,5 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const { APP_TYPE_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
@@ -41,7 +42,7 @@ const selectUserById = db.prepare(`
   WHERE id = ?
 `);
 
-const deleteProjectTransactionEvents = db.prepare(`
+const deleteProjectTransactionEvents = obsDb.prepare(`
   DELETE FROM workspace_transaction_events
   WHERE transaction_id IN (
     SELECT id
@@ -204,7 +205,7 @@ const deleteProjectAiGenerationJobs = db.prepare(`
   WHERE project_id = ?
 `);
 
-const deleteProjectWorkspaceTransactions = db.prepare(`
+const deleteProjectWorkspaceTransactions = obsDb.prepare(`
   DELETE FROM workspace_transactions
   WHERE project_id = ?
 `);
@@ -369,7 +370,6 @@ exports.deleteProject = async (id) => {
   await exports.getProject(id);
 
   const executeDelete = db.transaction(async () => {
-    await deleteProjectTransactionEvents.run(id);
     await deleteProjectExecutionResults.run(id, id);
     await deleteProjectExecutionStepSnapshots.run(id);
     await deleteProjectExecutionCaseSnapshots.run(id);
@@ -388,12 +388,18 @@ exports.deleteProject = async (id) => {
     await deleteProjectTestConfigurations.run(id);
     await deleteProjectTestDataSets.run(id);
     await deleteProjectAiGenerationJobs.run(id);
-    await deleteProjectWorkspaceTransactions.run(id);
+    await deleteProjectIntegrations.run(id);
     await deleteProjectAppTypes.run(id);
     await deleteProjectMembers.run(id);
     await deleteProjectRecord.run(id);
   });
 
+  const executeObsDelete = obsDb.transaction(async () => {
+    await deleteProjectTransactionEvents.run(id);
+    await deleteProjectWorkspaceTransactions.run(id);
+  });
+
+  await executeObsDelete();
   await executeDelete();
   return { deleted: true };
 };

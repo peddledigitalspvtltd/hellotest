@@ -1,4 +1,5 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const integrationService = require("./integration.service");
 const testCaseService = require("./testCase.service");
@@ -22,7 +23,7 @@ const MAX_CAPTURED_NETWORK = 80;
 const DEFAULT_BATCH_FAILURE_THRESHOLD = Math.max(1, Number(process.env.AUTOMATION_BUILDER_BATCH_FAILURE_THRESHOLD || 3));
 const RECORDER_ORPHAN_TTL_MS = Math.max(60_000, Number(process.env.RECORDER_ORPHAN_TTL_MS || 3 * 60_000));
 
-const selectCaseWithScope = db.prepare(`
+const selectCaseWithScope = obsDb.prepare(`
   SELECT
     test_cases.*,
     app_types.name AS app_type_name,
@@ -35,7 +36,7 @@ const selectCaseWithScope = db.prepare(`
   WHERE test_cases.id = ?
 `);
 
-const selectStepsForCase = db.prepare(`
+const selectStepsForCase = obsDb.prepare(`
   SELECT *
   FROM test_steps
   WHERE test_case_id = ?
@@ -60,7 +61,7 @@ const selectCasesForBatch = db.prepare(`
   ORDER BY COALESCE(test_cases.updated_at, test_cases.created_at) DESC, test_cases.created_at DESC, test_cases.id DESC
 `);
 
-const updateCaseAutomated = db.prepare(`
+const updateCaseAutomated = obsDb.prepare(`
   UPDATE test_cases
   SET automated = 'yes',
       updated_by = COALESCE(?, updated_by),
@@ -68,7 +69,7 @@ const updateCaseAutomated = db.prepare(`
   WHERE id = ?
 `);
 
-const selectStaleRecorderTransactions = db.prepare(`
+const selectStaleRecorderTransactions = obsDb.prepare(`
   SELECT *
   FROM workspace_transactions
   WHERE action = 'test_case_recorder'
@@ -79,7 +80,7 @@ const selectStaleRecorderTransactions = db.prepare(`
   LIMIT ?
 `);
 
-const upsertLearningCache = db.prepare(`
+const upsertLearningCache = obsDb.prepare(`
   INSERT INTO automation_learning_cache (
     id,
     project_id,
@@ -160,7 +161,7 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   query += ` ORDER BY hit_count DESC, updated_at DESC LIMIT ?`;
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
 
-  return db.prepare(query).all(...params);
+  return obsDb.prepare(query).all(...params);
 };
 
 const summarizeVariables = (variables = []) =>

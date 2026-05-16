@@ -4,6 +4,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const db = require("../db");
+const obsDb = require("../obsDb");
 const integrationService = require("./integration.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 
@@ -95,7 +96,7 @@ const selectProjectSuiteMappings = db.prepare(`
   ORDER BY suite_test_cases.sort_order ASC, test_suites.name ASC
 `);
 
-const selectQueuedSyncTransactions = db.prepare(`
+const selectQueuedSyncTransactions = obsDb.prepare(`
   SELECT *
   FROM workspace_transactions
   WHERE category = 'backup'
@@ -104,7 +105,7 @@ const selectQueuedSyncTransactions = db.prepare(`
   LIMIT 6
 `);
 
-const selectPendingSyncTransaction = db.prepare(`
+const selectPendingSyncTransaction = obsDb.prepare(`
   SELECT id
   FROM workspace_transactions
   WHERE category = 'backup'

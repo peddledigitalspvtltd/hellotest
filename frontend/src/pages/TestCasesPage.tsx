@@ -1021,6 +1021,7 @@ export function TestCasesPage() {
   const executionResults = executionResultsQuery.data || [];
   const allTestSteps = allTestStepsQuery.data || [];
   const integrations = integrationsQuery.data || [];
+
   const supportsLocalDesktopExecution = (localDesktopIntegrationsQuery.data || []).length > 0;
   const userById = useMemo(
     () =>

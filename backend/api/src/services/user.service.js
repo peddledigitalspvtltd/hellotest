@@ -1,4 +1,5 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { hashPassword } = require("../utils/token");
@@ -140,7 +141,7 @@ const clearExecutionResultExecutors = db.prepare(`
   WHERE executed_by = ?
 `);
 
-const clearWorkspaceTransactionCreators = db.prepare(`
+const clearWorkspaceTransactionCreators = obsDb.prepare(`
   UPDATE workspace_transactions
   SET created_by = NULL
   WHERE created_by = ?
@@ -415,12 +416,16 @@ exports.deleteUser = async (id) => {
     await clearExecutionScheduleAssignments.run(id);
     await clearExecutionsCreatedBy.run(id);
     await clearExecutionResultExecutors.run(id);
-    await clearWorkspaceTransactionCreators.run(id);
     await deleteFeedbackForUser.run(id);
     await deleteProjectMembershipsForUser.run(id);
     await deleteUserById.run(id);
   });
 
+  const obsTransaction = obsDb.transaction(async () => {
+    await clearWorkspaceTransactionCreators.run(id);
+  });
+
+  await obsTransaction();
   await transaction();
 
   return { deleted: true };

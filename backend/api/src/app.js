@@ -12,7 +12,8 @@ const fastify = require("fastify")({
 
 const cors = require("@fastify/cors");
 const db = require("./db");
-const { ensureRuntimeSchema } = require("./db/bootstrap");
+const { ensureRuntimeSchema: ensureMainRuntimeSchema } = require("./db/bootstrap");
+const { ensureRuntimeSchema: ensureObsRuntimeSchema } = require("./obsDb/bootstrap");
 const executionScheduleService = require("./services/executionSchedule.service");
 const aiTestCaseGenerationService = require("./services/aiTestCaseGeneration.service");
 const aiAutomationBuilderService = require("./services/aiAutomationBuilder.service");
@@ -203,7 +204,8 @@ fastify.register(require("./plugins/errorHandler"));
 fastify.register(require("./plugins/observability"));
 fastify.register(require("./routes"));
 fastify.addHook("onReady", async () => {
-  await ensureRuntimeSchema();
+  await ensureMainRuntimeSchema();
+  await ensureObsRuntimeSchema();
 });
 
 let scheduleProcessorTimer = null;

@@ -48,6 +48,7 @@ services:
       - "${API_PORT:-3000}:3000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
+      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       OTEL_SERVICE_NAME: "qaira-api"

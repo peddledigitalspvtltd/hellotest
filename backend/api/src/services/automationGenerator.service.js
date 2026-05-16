@@ -1,4 +1,5 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const aiAutomationBuilderService = require("./aiAutomationBuilder.service");
@@ -12,7 +13,7 @@ const selectCaseWithScope = db.prepare(`
   WHERE test_cases.id = ?
 `);
 
-const insertJob = db.prepare(`
+const insertJob = obsDb.prepare(`
   INSERT INTO automation_generator_jobs (
     id,
     transaction_id,
@@ -28,13 +29,13 @@ const insertJob = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb, 'queued', ?)
 `);
 
-const selectJob = db.prepare(`
+const selectJob = obsDb.prepare(`
   SELECT *
   FROM automation_generator_jobs
   WHERE id = ?
 `);
 
-const selectQueuedJob = db.prepare(`
+const selectQueuedJob = obsDb.prepare(`
   SELECT *
   FROM automation_generator_jobs
   WHERE status = 'queued'
@@ -43,7 +44,7 @@ const selectQueuedJob = db.prepare(`
   LIMIT 1
 `);
 
-const leaseJob = db.prepare(`
+const leaseJob = obsDb.prepare(`
   UPDATE automation_generator_jobs
   SET status = 'leased',
       attempts = attempts + 1,
@@ -54,7 +55,7 @@ const leaseJob = db.prepare(`
     AND (status = 'queued' OR (status = 'leased' AND lease_expires_at < CURRENT_TIMESTAMP))
 `);
 
-const markRunning = db.prepare(`
+const markRunning = obsDb.prepare(`
   UPDATE automation_generator_jobs
   SET status = 'running',
       runtime_state = ?,
@@ -64,7 +65,7 @@ const markRunning = db.prepare(`
   WHERE id = ?
 `);
 
-const markCompleted = db.prepare(`
+const markCompleted = obsDb.prepare(`
   UPDATE automation_generator_jobs
   SET status = 'completed',
       result = ?,
@@ -75,7 +76,7 @@ const markCompleted = db.prepare(`
   WHERE id = ?
 `);
 
-const markFailed = db.prepare(`
+const markFailed = obsDb.prepare(`
   UPDATE automation_generator_jobs
   SET status = 'failed',
       result = ?,

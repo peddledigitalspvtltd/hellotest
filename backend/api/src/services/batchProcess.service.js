@@ -1,11 +1,12 @@
 const db = require("../db");
+const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const QUEUED_BATCH_LIMIT = 1;
 
-const insertJob = db.prepare(`
+const insertJob = obsDb.prepare(`
   INSERT INTO batch_process_jobs (
     id,
     transaction_id,
@@ -16,7 +17,7 @@ const insertJob = db.prepare(`
   VALUES (?, ?, ?, ?, 'queued')
 `);
 
-const selectQueuedJobs = db.prepare(`
+const selectQueuedJobs = obsDb.prepare(`
   SELECT *
   FROM batch_process_jobs
   WHERE status = 'queued'
@@ -24,7 +25,7 @@ const selectQueuedJobs = db.prepare(`
   LIMIT ?
 `);
 
-const markJobRunning = db.prepare(`
+const markJobRunning = obsDb.prepare(`
   UPDATE batch_process_jobs
   SET status = 'running',
       attempts = attempts + 1,
@@ -33,7 +34,7 @@ const markJobRunning = db.prepare(`
   WHERE id = ?
 `);
 
-const markJobCompleted = db.prepare(`
+const markJobCompleted = obsDb.prepare(`
   UPDATE batch_process_jobs
   SET status = 'completed',
       result = ?,
@@ -42,7 +43,7 @@ const markJobCompleted = db.prepare(`
   WHERE id = ?
 `);
 
-const markJobFailed = db.prepare(`
+const markJobFailed = obsDb.prepare(`
   UPDATE batch_process_jobs
   SET status = 'failed',
       result = ?,
