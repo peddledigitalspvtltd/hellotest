@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { AddIcon, GithubIcon, GoogleDriveIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
@@ -141,6 +142,7 @@ function ProjectProgressBar({
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
   const isAdmin = session?.user.role === "admin";
@@ -824,6 +826,24 @@ export function ProjectsPage() {
     }
   };
 
+  const openProjectSection = (targetSection: ProjectSection) => {
+    if (!focusedProject) {
+      return;
+    }
+
+    setSelectedProjectId(focusedProject.id);
+    setSection(targetSection);
+  };
+
+  const openProjectWorkspacePage = (path: string) => {
+    if (!focusedProject) {
+      return;
+    }
+
+    setSelectedProjectId(focusedProject.id);
+    navigate(path);
+  };
+
   return (
     <div className="page-content">
       {confirmationDialog}
@@ -1004,30 +1024,55 @@ export function ProjectsPage() {
                     <span>{focusedProject.description || "No description provided yet."}</span>
                   </div>
                   <div className="metric-strip">
-                    <div className="mini-card">
+                    <button
+                      aria-label={`Open members for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card"
+                      onClick={() => openProjectSection("members")}
+                      type="button"
+                    >
                       <strong>{scopedMembers.length}</strong>
                       <span>Members</span>
-                    </div>
-                    <div className="mini-card">
+                    </button>
+                    <button
+                      aria-label={`Open app types for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card"
+                      onClick={() => openProjectSection("appTypes")}
+                      type="button"
+                    >
                       <strong>{selectedProjectAppTypeCount}</strong>
                       <span>App types</span>
-                    </div>
-                    <div className="mini-card">
+                    </button>
+                    <button
+                      aria-label={`Open requirements for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card"
+                      onClick={() => openProjectWorkspacePage("/requirements")}
+                      type="button"
+                    >
                       <strong>{selectedProjectRequirementCount}</strong>
                       <span>Requirements</span>
-                    </div>
-                    <div className="mini-card">
+                    </button>
+                    <button
+                      aria-label={`Open test cases for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card"
+                      onClick={() => openProjectWorkspacePage("/test-cases")}
+                      type="button"
+                    >
                       <strong>{selectedProjectTestCaseCount}</strong>
                       <span>Test cases</span>
-                    </div>
-                    <div className="mini-card">
+                    </button>
+                    <button
+                      aria-label={`Open execution results for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card"
+                      onClick={() => openProjectWorkspacePage("/executions")}
+                      type="button"
+                    >
                       <strong>{`${selectedProjectPassCoverage.coveragePercent}%`}</strong>
                       <span>
                         {selectedProjectPassCoverage.totalCases
                           ? `Pass rate · ${selectedProjectPassCoverage.passedCases}/${selectedProjectPassCoverage.totalCases} passed`
                           : "Pass rate"}
                       </span>
-                    </div>
+                    </button>
                   </div>
                   <div className="action-row">
                     <button

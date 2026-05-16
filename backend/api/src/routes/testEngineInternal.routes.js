@@ -56,6 +56,7 @@ module.exports = async function (fastify) {
       evidence: { required: false, type: "object" },
       api_detail: { required: false, type: "object" },
       web_detail: { required: false, type: "object" },
+      automation_detail: { required: false, type: "object" },
       captures: { required: false, type: "object" },
       recovery_attempted: { required: false, type: "boolean" },
       recovery_succeeded: { required: false, type: "boolean" }
@@ -69,6 +70,7 @@ module.exports = async function (fastify) {
       evidence: req.body?.evidence,
       api_detail: req.body?.api_detail,
       web_detail: req.body?.web_detail,
+      automation_detail: req.body?.automation_detail,
       captures: req.body?.captures,
       recovery_attempted: req.body?.recovery_attempted,
       recovery_succeeded: req.body?.recovery_succeeded

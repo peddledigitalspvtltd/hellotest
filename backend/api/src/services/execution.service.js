@@ -1396,13 +1396,18 @@ exports.startLocalExecution = async (id, options = {}) => {
     throw new Error("Local run requires a recorded automated web test case.");
   }
 
-  const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
-
-  if (!integration) {
-    throw new Error("Configure an active Test Engine integration before starting a local run.");
-  }
-
   const localEngineBaseUrl = options.engine_base_url || process.env.QAIRA_LOCAL_RUN_ENGINE_URL || "http://host.docker.internal:4311";
+  const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id)
+    || {
+      id: null,
+      base_url: localEngineBaseUrl,
+      config: {
+        active_web_engine: "playwright",
+        headless: false,
+        video_mode: "retain-on-failure",
+        trace_mode: "retain-on-failure"
+      }
+    };
   const dispatchSummary = await testEngineDispatchService.runExecutionDirectLocal({
     plan: dispatchPlan,
     integration,

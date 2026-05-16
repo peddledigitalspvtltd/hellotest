@@ -891,11 +891,6 @@ export function TestCasesPage() {
     queryFn: () => api.integrations.list({ type: "testengine", is_active: true }),
     enabled: Boolean(projectId && session)
   });
-  const localDesktopIntegrationsQuery = useQuery({
-    queryKey: ["integrations", "local-desktop"],
-    queryFn: () => api.integrations.list({ type: "local-desktop", is_active: true }),
-    enabled: Boolean(session)
-  });
   const automationLearningCacheQuery = useQuery({
     queryKey: ["automation-learning-cache", projectId, appTypeId],
     queryFn: () => api.testCases.learningCache({
@@ -946,6 +941,20 @@ export function TestCasesPage() {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: automationContext.trim() || undefined,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined
+      })
+  });
+  const analyzeAutomationGaps = useMutation({
+    mutationFn: ({ testCaseId }: { testCaseId: string }) =>
+      api.testCases.buildAutomation(testCaseId, {
+        integration_id: integrationId || undefined,
+        start_url: automationStartUrl.trim() || undefined,
+        additional_context: [
+          automationContext.trim(),
+          "Analyze existing automation code and manual steps. Fill missing automation between actions, generate any missing manual step text implied by the code, and map each automation snippet to the best QAira step across web, API, and mobile keywords."
+        ].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
@@ -1022,7 +1031,7 @@ export function TestCasesPage() {
   const allTestSteps = allTestStepsQuery.data || [];
   const integrations = integrationsQuery.data || [];
 
-  const supportsLocalDesktopExecution = (localDesktopIntegrationsQuery.data || []).length > 0;
+  const supportsLocalDesktopExecution = Boolean(session);
   const userById = useMemo(
     () =>
       users.reduce<Record<string, User>>((accumulator, user) => {
@@ -4687,6 +4696,21 @@ export function TestCasesPage() {
     closeCaseWorkspace();
   };
 
+  const handleAnalyzeAutomationGaps = async () => {
+    if (!selectedTestCase?.id) {
+      return;
+    }
+
+    try {
+      const response = await analyzeAutomationGaps.mutateAsync({ testCaseId: selectedTestCase.id });
+      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCase.id] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
+      showSuccess(`AI analyzed automation gaps and updated ${response.generated_step_count || 0} step${response.generated_step_count === 1 ? "" : "s"}.`);
+    } catch (error) {
+      showError(error, "Unable to analyze automation gaps");
+    }
+  };
+
   const isSelectedCaseRunning =
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
@@ -4724,6 +4748,18 @@ export function TestCasesPage() {
         >
           <TestCaseRunIcon />
           <span>{isSelectedCaseLocalRunning ? "Starting…" : "Local run"}</span>
+        </button>
+      ) : null}
+      {selectedTestCase ? (
+        <button
+          className="ghost-button"
+          disabled={analyzeAutomationGaps.isPending || !selectedTestCase.id}
+          onClick={() => void handleAnalyzeAutomationGaps()}
+          title="AI analyzes existing automation, fills missing action code, and remaps code to manual steps"
+          type="button"
+        >
+          <StepAiIcon />
+          <span>{analyzeAutomationGaps.isPending ? "Analyzing…" : "AI fill gaps"}</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5115,6 +5151,7 @@ export function TestCasesPage() {
           onMoveUp={() => handleReorderDraftStep(step.id, "up")}
           onChangeStepType={(nextType) => void handleChangeStepType(step.id, nextType)}
           onEditAutomation={() => setEditingAutomationStepId(step.id)}
+          onClearAutomation={() => void handleSaveStepAutomation(step.id, { step_type: normalizeStepType(step.step_type), automation_code: "", api_request: null })}
           onRephrase={() => void handleRephraseStepWithAi(step)}
           onPasteAbove={() => void handlePasteSteps(insertAboveIndex, groupContext)}
           onPasteBelow={() => void handlePasteSteps(insertBelowIndex, groupContext)}
@@ -5160,6 +5197,7 @@ export function TestCasesPage() {
         onCut={() => handleCutSteps([step.id])}
         onDelete={() => void handleDeleteStep(step.id)}
         onEditAutomation={() => setEditingAutomationStepId(step.id)}
+        onClearAutomation={() => void handleSaveStepAutomation(step.id, { step_type: normalizeStepType(step.step_type), automation_code: "", api_request: null })}
         onRephrase={() => void handleRephraseStepWithAi(step)}
         onInsertAbove={() => activateStepInsert(insertAboveIndex, groupContext)}
         onInsertBelow={() => activateStepInsert(insertBelowIndex, groupContext)}
@@ -5516,33 +5554,6 @@ export function TestCasesPage() {
               </button>
               <button
                 className="ghost-button"
-                disabled={!appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending}
-                onClick={() => void handleScheduleSelectedManualAutomation()}
-                type="button"
-              >
-                <TestCaseSparkIcon />
-                <span>{buildBatchAutomation.isPending ? "Scheduling..." : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`}</span>
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk"}
-                onClick={() => void handleReviewSelectedGeneratedCases("accept")}
-                type="button"
-              >
-                <TestCaseAcceptIcon />
-                <span>{schedulerActionCaseId === "bulk" && schedulerActionKind === "accept" ? "Accepting..." : `Accept generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`}</span>
-              </button>
-              <button
-                className="ghost-button danger"
-                disabled={!selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk"}
-                onClick={() => void handleReviewSelectedGeneratedCases("reject")}
-                type="button"
-              >
-                <TestCaseRejectIcon />
-                <span>{schedulerActionCaseId === "bulk" && schedulerActionKind === "reject" ? "Rejecting..." : `Reject generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`}</span>
-              </button>
-              <button
-                className="ghost-button"
                 disabled={!projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id}
                 onClick={() => setIsCreateExecutionModalOpen(true)}
                 type="button"
@@ -5550,19 +5561,46 @@ export function TestCasesPage() {
                 <TestCaseRunIcon />
                 <span>Create Run</span>
               </button>
-              <button
-                className="ghost-button danger"
-                disabled={!selectedActionTestCaseIds.length || isDeletingSelectedTestCases}
-                onClick={() => void handleDeleteSelectedCases()}
-                type="button"
-              >
-                <TestCaseDeleteIcon />
-                <span>{isDeletingSelectedTestCases ? "Deleting…" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`}</span>
-              </button>
               <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
                 <TestCaseCreateIcon />
                 <span>New case</span>
               </button>
+              <CatalogActionMenu
+                actions={[
+                  {
+                    label: buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`,
+                    description: "Queue selected manual cases for AI automation build.",
+                    icon: <TestCaseSparkIcon />,
+                    disabled: !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending,
+                    onClick: () => void handleScheduleSelectedManualAutomation()
+                  },
+                  {
+                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "accept" ? "Accepting generated cases" : `Accept generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
+                    description: "Accept selected AI-generated cases.",
+                    icon: <TestCaseAcceptIcon />,
+                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
+                    onClick: () => void handleReviewSelectedGeneratedCases("accept"),
+                    tone: "primary"
+                  },
+                  {
+                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "reject" ? "Rejecting generated cases" : `Reject generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
+                    description: "Reject selected AI-generated cases.",
+                    icon: <TestCaseRejectIcon />,
+                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
+                    onClick: () => void handleReviewSelectedGeneratedCases("reject"),
+                    tone: "danger"
+                  },
+                  {
+                    label: isDeletingSelectedTestCases ? "Deleting selected cases" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
+                    description: "Delete selected test cases while preserving existing run history.",
+                    icon: <TestCaseDeleteIcon />,
+                    disabled: !selectedActionTestCaseIds.length || isDeletingSelectedTestCases,
+                    onClick: () => void handleDeleteSelectedCases(),
+                    tone: "danger"
+                  }
+                ]}
+                label="More test case tile actions"
+              />
             </div>
 
             {selectedActionTestCaseIds.length ? (
@@ -5596,6 +5634,7 @@ export function TestCasesPage() {
                     const isPendingSchedulerCase =
                       testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending";
                     const isRunningCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run";
+                    const isRunningLocalCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run-local";
                     const isAcceptingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "accept";
                     const isRejectingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "reject";
                     const tileActions = [
@@ -5625,6 +5664,14 @@ export function TestCasesPage() {
                           }
                         ]
                         : [
+                          {
+                            label: "Run local Playwright",
+                            description: "Start this automated case against the local Playwright runner.",
+                            icon: <TestCaseRunIcon />,
+                            onClick: () => void handleRunTestCase(testCase.id, "local"),
+                            disabled: isRunningLocalCase || createLocalRun.isPending || testCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id,
+                            tone: "primary" as const
+                          },
                           {
                             label: "Clone case",
                             description: "Create a copy with the same steps and test data.",
@@ -5795,7 +5842,7 @@ export function TestCasesPage() {
                               ) : null}
                               <button
                                 className="primary-button test-case-card-run-button"
-                                disabled={isRunningCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
+                                disabled={isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void handleRunTestCase(testCase.id);
@@ -5805,6 +5852,20 @@ export function TestCasesPage() {
                                 <TestCaseRunIcon />
                                 {isRunningCase ? "Running..." : isFailedCase ? "Re-run" : "Run Test"}
                               </button>
+                              {testCase.automated === "yes" ? (
+                                <button
+                                  className="ghost-button test-case-card-run-button"
+                                  disabled={isRunningCase || isRunningLocalCase || createLocalRun.isPending || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRunTestCase(testCase.id, "local");
+                                  }}
+                                  type="button"
+                                >
+                                  <TestCaseRunIcon />
+                                  {isRunningLocalCase ? "Starting..." : "Local Playwright"}
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -6289,7 +6350,7 @@ export function TestCasesPage() {
                         </div>
 
                         <div className="stack-list automation-recorder-stack">
-                          <div className="stack-item">
+                          <div className="stack-item recorder-command-card">
                             <div>
                               <strong>Recorder</strong>
                               <span>{recorderSession ? `Session ${recorderSession.id.slice(0, 8)} is ${recorderSession.status}.` : "Capture clicks, fills, tab navigation, and business API traffic for this case."}</span>
@@ -6302,7 +6363,7 @@ export function TestCasesPage() {
                                 mobileRemoteEnabled={mobileRemoteRecorderEnabled}
                                 onStart={(options) => void handleStartRecorder(options)}
                               />
-                              <div className="testops-recorder-actions recorder-control-buttons">
+                              <div className="testops-recorder-actions recorder-control-buttons recorder-finish-actions">
                                 <button
                                   className="primary-button"
                                   disabled={!recorderSession || finishRecorder.isPending}
@@ -8114,6 +8175,7 @@ function EditableStepCard({
   onMoveDown,
   onChangeStepType,
   onEditAutomation,
+  onClearAutomation,
   onRephrase,
   onPasteAbove,
   onPasteBelow
@@ -8140,6 +8202,7 @@ function EditableStepCard({
   onMoveDown: () => void;
   onChangeStepType: (nextType: TestStep["step_type"]) => void;
   onEditAutomation: () => void;
+  onClearAutomation: () => void;
   onRephrase: () => void;
   onPasteAbove: () => void;
   onPasteBelow: () => void;
@@ -8272,8 +8335,8 @@ function EditableStepCard({
           <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
             className={stepHasAutomation(draft) ? "is-active" : ""}
-            onClick={onEditAutomation}
-            title="Edit step automation"
+            onClick={stepHasAutomation(draft) ? onClearAutomation : onEditAutomation}
+            title={stepHasAutomation(draft) ? "Remove recorded automation from this step" : "Edit step automation"}
           >
             <AutomationCodeIcon />
           </InlineStepToolButton>
@@ -8322,6 +8385,7 @@ function DraftStepCard({
   onMoveDown,
   onChangeStepType,
   onEditAutomation,
+  onClearAutomation,
   onRephrase,
   onPasteAbove,
   onPasteBelow
@@ -8346,6 +8410,7 @@ function DraftStepCard({
   onMoveDown: () => void;
   onChangeStepType: (nextType: TestStep["step_type"]) => void;
   onEditAutomation: () => void;
+  onClearAutomation: () => void;
   onRephrase: () => void;
   onPasteAbove: () => void;
   onPasteBelow: () => void;
@@ -8466,8 +8531,8 @@ function DraftStepCard({
           <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
             className={stepHasAutomation(step) ? "is-active" : ""}
-            onClick={onEditAutomation}
-            title="Edit step automation"
+            onClick={stepHasAutomation(step) ? onClearAutomation : onEditAutomation}
+            title={stepHasAutomation(step) ? "Remove recorded automation from this step" : "Edit step automation"}
           >
             <AutomationCodeIcon />
           </InlineStepToolButton>

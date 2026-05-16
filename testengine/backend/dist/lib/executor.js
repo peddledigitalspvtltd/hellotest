@@ -293,7 +293,7 @@ const buildStepApiDetailMap = (stepSummaries = []) => stepSummaries.reduce((accu
     accumulator[summary.step_id] = summary;
     return accumulator;
 }, {});
-const buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}) => stepOutcomes.reduce((accumulator, outcome) => {
+const buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}, stepWebDetails = {}, stepAutomationDetails = {}) => stepOutcomes.reduce((accumulator, outcome) => {
     if (outcome.status === "passed" || outcome.status === "failed" || outcome.status === "blocked") {
         accumulator.stepStatuses[outcome.step_id] = outcome.status;
     }
@@ -313,6 +313,8 @@ const buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}) =
     stepNotes: {},
     stepEvidence: {},
     stepApiDetails: buildStepApiDetailMap(stepSummaries),
+    stepWebDetails: { ...stepWebDetails },
+    stepAutomationDetails: { ...stepAutomationDetails },
     stepCaptures: Object.entries(stepCaptures).reduce((accumulator, [stepId, captures]) => {
         accumulator[stepId] = { ...captures };
         return accumulator;
@@ -347,6 +349,51 @@ const syncCapturedValues = (context, captures) => {
     });
 };
 const summarizeAssertionProgress = (assertions) => `${assertions.filter((assertion) => assertion.passed).length}/${assertions.length} assertions passed`;
+const buildStepAutomationDetail = ({ step, status, provider, startedAt, endedAt, errorMessage }) => {
+    const code = normalizeText(step.automation_code)
+        || (step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : "")
+        || step.action
+        || "";
+    const reportedLine = errorMessage?.match(/Code line:\s*(\d+)/i)?.[1];
+    const errorLine = reportedLine
+        ? Number.parseInt(reportedLine, 10)
+        : errorMessage
+            ? code.split(/\r?\n/).findIndex((line) => errorMessage.includes(line.trim()) && line.trim().length > 8) + 1 || null
+            : null;
+    return {
+        engine: step.step_type,
+        provider: provider || null,
+        status,
+        code,
+        language: step.step_type === "api" ? "json" : "javascript",
+        active_line: status === "running" ? 1 : errorLine,
+        error_line: errorLine,
+        error_message: errorMessage || null,
+        started_at: startedAt || null,
+        ended_at: endedAt || null
+    };
+};
+const normalizeHooks = (envelope, phase) => (envelope.hooks || [])
+    .filter((hook) => hook?.phase === phase && Array.isArray(hook.steps) && hook.steps.length)
+    .flatMap((hook) => hook.steps
+    .slice()
+    .sort((left, right) => left.order - right.order)
+    .map((step, index) => ({
+    hook,
+    step: {
+        ...step,
+        id: step.id || `${hook.id}:${phase}:${index + 1}`,
+        order: step.order || index + 1
+    }
+})));
+const decorateHookOutcome = (hook, step, outcome) => ({
+    ...outcome,
+    step_id: `${hook.scope}:${hook.phase}:${hook.id}:${outcome.step_id}`,
+    note: [
+        `[${hook.phase === "pre" ? "Pre" : "Post"} ${hook.scope} hook] ${hook.name}`,
+        outcome.note || `${step.action || `Step ${step.order}`} completed.`
+    ].filter(Boolean).join("\n")
+});
 const buildApiAssertionResult = (validation, response) => {
     const kind = validation.kind || "status";
     if (kind === "header") {
@@ -507,6 +554,14 @@ const executeApiStep = async ({ envelope, run, step, context }) => {
             assertions
         },
         captures,
+        automation_detail: buildStepAutomationDetail({
+            step,
+            status: passed ? "passed" : "failed",
+            provider: "api",
+            startedAt: new Date(startedAt).toISOString(),
+            endedAt: nowIso(),
+            errorMessage: passed ? null : note
+        }),
         recovery_attempted: false,
         recovery_succeeded: false
     };
@@ -530,6 +585,15 @@ const executeWebStep = async ({ step, webRunSession }) => {
                 : null
         },
         captures: result.captures,
+        web_detail: result.web_detail,
+        automation_detail: buildStepAutomationDetail({
+            step,
+            status: result.status,
+            provider: result.web_detail?.provider || webRunSession.provider,
+            startedAt: result.web_detail?.started_at || null,
+            endedAt: result.web_detail?.ended_at || null,
+            errorMessage: result.status === "failed" ? result.note : null
+        }),
         recovery_attempted: result.recovery_attempted,
         recovery_succeeded: result.recovery_succeeded
     };
@@ -541,7 +605,7 @@ const markRunState = (runId, nextState, summary, extra) => updateRun(runId, (cur
     summary,
     updated_at: nowIso()
 }));
-const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, status, durationMs, errorMessage, healingAttempted, healingSucceeded }) => ({
+const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails, status, durationMs, errorMessage, healingAttempted, healingSucceeded }) => ({
     event: status === "passed" ? "run.completed" : status === "failed" ? "run.failed" : "run.incident",
     engine_run_id: run.id,
     qaira_run_id: envelope.qaira_run_id,
@@ -559,13 +623,13 @@ const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCa
         status,
         duration_ms: durationMs,
         error: errorMessage || null,
-        logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures)
+        logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
     },
     artifact_bundle: run.artifact_bundle,
     patch_proposals: run.patch_proposals,
     emitted_at: nowIso()
 });
-const buildProgressCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, latestOutcome, durationMs, totalSteps, healingAttempted, healingSucceeded }) => ({
+const buildProgressCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails, latestOutcome, durationMs, totalSteps, healingAttempted, healingSucceeded }) => ({
     event: "run.step.completed",
     engine_run_id: run.id,
     qaira_run_id: envelope.qaira_run_id,
@@ -581,7 +645,7 @@ const buildProgressCallback = ({ envelope, run, stepOutcomes, stepSummaries, ste
         status: stepOutcomes.length === totalSteps && stepOutcomes.every((outcome) => outcome.status === "passed") ? "passed" : "blocked",
         duration_ms: durationMs,
         error: null,
-        logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures)
+        logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
     },
     artifact_bundle: run.artifact_bundle,
     patch_proposals: run.patch_proposals,
@@ -598,6 +662,8 @@ const executeUnsupportedRun = async ({ envelope, run, logger, reason }) => {
         stepOutcomes: [],
         stepSummaries: [],
         stepCaptures: {},
+        stepWebDetails: {},
+        stepAutomationDetails: {},
         status: "failed",
         durationMs: 0,
         errorMessage: reason
@@ -632,7 +698,11 @@ async function executeRun(envelope, run, logger) {
     const stepOutcomes = [];
     const stepSummaries = [];
     const stepCaptures = {};
+    const stepWebDetails = {};
+    const stepAutomationDetails = {};
     const orderedSteps = envelope.steps.slice().sort((left, right) => left.order - right.order);
+    const preHookSteps = normalizeHooks(envelope, "pre");
+    const postHookSteps = normalizeHooks(envelope, "post");
     const webRunSession = hasWebSteps ? createWebRunSession(envelope, context.values) : null;
     let healingAttempted = false;
     let healingSucceeded = false;
@@ -650,43 +720,72 @@ async function executeRun(envelope, run, logger) {
             return {};
         }
     };
+    const executeEngineStep = async (step) => {
+        const result = step.step_type === "api"
+            ? await executeApiStep({
+                envelope,
+                run: running,
+                step,
+                context
+            })
+            : webRunSession
+                ? await executeWebStep({
+                    step,
+                    webRunSession
+                })
+                : null;
+        if (!result) {
+            throw new Error(`Unable to execute step ${step.order}.`);
+        }
+        syncCapturedValues(context, result.captures);
+        if (webRunSession && step.step_type === "api") {
+            syncCapturedValues(webRunSession.context, result.captures);
+        }
+        return result;
+    };
+    const recordStepResult = (result) => {
+        stepOutcomes.push(result.outcome);
+        if (Object.keys(result.captures || {}).length) {
+            stepCaptures[result.outcome.step_id] = {
+                ...(stepCaptures[result.outcome.step_id] || {}),
+                ...result.captures
+            };
+        }
+        if (result.summary) {
+            stepSummaries.push(result.summary);
+        }
+        if (result.web_detail) {
+            stepWebDetails[result.outcome.step_id] = result.web_detail;
+        }
+        if (result.automation_detail) {
+            stepAutomationDetails[result.outcome.step_id] = result.automation_detail;
+        }
+        healingAttempted = healingAttempted || result.recovery_attempted;
+        healingSucceeded = healingSucceeded || result.recovery_succeeded;
+    };
+    const runHookSteps = async (phase, entries) => {
+        for (const entry of entries) {
+            const result = await executeEngineStep(entry.step);
+            result.outcome = decorateHookOutcome(entry.hook, entry.step, result.outcome);
+            recordStepResult(result);
+            if (result.outcome.status === "failed" && entry.hook.fail_behavior !== "continue") {
+                const behavior = entry.hook.fail_behavior || "fail-run";
+                if (behavior === "mark-blocked") {
+                    result.outcome.status = "blocked";
+                    return;
+                }
+                throw new Error(`${entry.hook.name} ${phase} hook failed: ${result.outcome.note || "hook step failed"}`);
+            }
+        }
+    };
     try {
         if (webRunSession) {
             await webRunSession.start();
         }
+        await runHookSteps("pre", preHookSteps);
         for (const step of orderedSteps) {
-            const result = step.step_type === "api"
-                ? await executeApiStep({
-                    envelope,
-                    run: running,
-                    step,
-                    context
-                })
-                : webRunSession
-                    ? await executeWebStep({
-                        step,
-                        webRunSession
-                    })
-                    : null;
-            if (!result) {
-                throw new Error(`Unable to execute step ${step.order}.`);
-            }
-            syncCapturedValues(context, result.captures);
-            if (webRunSession && step.step_type === "api") {
-                syncCapturedValues(webRunSession.context, result.captures);
-            }
-            stepOutcomes.push(result.outcome);
-            if (Object.keys(result.captures || {}).length) {
-                stepCaptures[result.outcome.step_id] = {
-                    ...(stepCaptures[result.outcome.step_id] || {}),
-                    ...result.captures
-                };
-            }
-            if (result.summary) {
-                stepSummaries.push(result.summary);
-            }
-            healingAttempted = healingAttempted || result.recovery_attempted;
-            healingSucceeded = healingSucceeded || result.recovery_succeeded;
+            const result = await executeEngineStep(step);
+            recordStepResult(result);
             const progressSummary = `${envelope.qaira_test_case_title}: completed step ${stepOutcomes.length} of ${orderedSteps.length}.`;
             const progressRun = markRunState(run.id, "running", progressSummary);
             if (progressRun) {
@@ -708,6 +807,8 @@ async function executeRun(envelope, run, logger) {
                             stepOutcomes,
                             stepSummaries,
                             stepCaptures,
+                            stepWebDetails,
+                            stepAutomationDetails,
                             latestOutcome: result.outcome,
                             durationMs: Date.now() - startedAt,
                             totalSteps: orderedSteps.length,
@@ -742,6 +843,8 @@ async function executeRun(envelope, run, logger) {
                     stepOutcomes,
                     stepSummaries,
                     stepCaptures,
+                    stepWebDetails,
+                    stepAutomationDetails,
                     status: "failed",
                     durationMs: Date.now() - startedAt,
                     errorMessage: result.outcome.note || `${envelope.qaira_test_case_title} failed on step ${step.order}.`,
@@ -751,8 +854,12 @@ async function executeRun(envelope, run, logger) {
                 return;
             }
         }
-        const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("passed"));
-        const completedRun = markRunState(run.id, "completed", `${envelope.qaira_test_case_title} completed successfully.`, { artifact_bundle: artifactBundle });
+        await runHookSteps("post", postHookSteps);
+        const finalStatus = stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
+        const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
+        const completedRun = markRunState(run.id, finalStatus === "passed" ? "completed" : "incident", finalStatus === "passed"
+            ? `${envelope.qaira_test_case_title} completed successfully.`
+            : `${envelope.qaira_test_case_title} completed with blocked hook or step outcomes.`, { artifact_bundle: artifactBundle });
         if (!completedRun) {
             return;
         }
@@ -760,7 +867,7 @@ async function executeRun(envelope, run, logger) {
             execution: {
                 started_at: new Date(startedAt).toISOString(),
                 ended_at: nowIso(),
-                status: "passed",
+                status: finalStatus,
                 summary: completedRun.summary
             },
             steps: stepSummaries,
@@ -772,7 +879,9 @@ async function executeRun(envelope, run, logger) {
             stepOutcomes,
             stepSummaries,
             stepCaptures,
-            status: "passed",
+            stepWebDetails,
+            stepAutomationDetails,
+            status: finalStatus,
             durationMs: Date.now() - startedAt,
             healingAttempted,
             healingSucceeded
@@ -801,6 +910,8 @@ async function executeRun(envelope, run, logger) {
                 stepOutcomes,
                 stepSummaries,
                 stepCaptures,
+                stepWebDetails,
+                stepAutomationDetails,
                 status: "failed",
                 durationMs: Date.now() - startedAt,
                 errorMessage: failedRun.summary,

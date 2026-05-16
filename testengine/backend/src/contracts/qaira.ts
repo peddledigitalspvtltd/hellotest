@@ -48,6 +48,21 @@ export type EngineRunStep = {
   group_kind?: "local" | "reusable" | null;
 };
 
+export type EngineHookScope = "suite" | "test";
+export type EngineHookPhase = "pre" | "post";
+export type EngineHookFailBehavior = "fail-run" | "mark-blocked" | "continue";
+
+export type EngineRunHook = {
+  id: string;
+  name: string;
+  scope: EngineHookScope;
+  phase: EngineHookPhase;
+  fail_behavior?: EngineHookFailBehavior;
+  target_kind?: "test" | "suite" | "inline";
+  target_id?: string | null;
+  steps: EngineRunStep[];
+};
+
 export type EngineMobileProvider = "local-appium" | "saucelabs" | "browserstack";
 
 export type EngineManualSpec = {
@@ -84,6 +99,21 @@ export type EngineRunTimeoutPolicy = {
   assertion_timeout_ms?: number;
   recovery_wait_ms?: number;
 };
+
+export type EngineSessionPolicy = {
+  web?: {
+    mode?: "new" | "reuse" | "attach";
+    reuse_key?: string | null;
+    connect_over_cdp_endpoint?: string | null;
+    close_on_finish?: boolean;
+  } | null;
+  mobile?: {
+    mode?: "new" | "reuse" | "attach";
+    reuse_key?: string | null;
+    existing_session_id?: string | null;
+    close_on_finish?: boolean;
+  } | null;
+} | null;
 
 export type EngineInlineEvidenceImage = {
   data_url?: string | null;
@@ -147,12 +177,26 @@ export type QairaExecutionStepWebDetail = {
   captures: Record<string, string>;
 };
 
+export type QairaExecutionStepAutomationDetail = {
+  engine: EngineStepType | "ios" | string;
+  provider?: string | null;
+  status: QairaExecutionResultStatus | "queued" | "running" | "skipped";
+  code: string;
+  language?: "javascript" | "json" | "text" | string;
+  active_line?: number | null;
+  error_line?: number | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+};
+
 export type QairaExecutionLogsPayload = {
   stepStatuses?: Record<string, QairaExecutionResultStatus>;
   stepNotes?: Record<string, string>;
   stepEvidence?: Record<string, QairaExecutionStepEvidence>;
   stepApiDetails?: Record<string, QairaExecutionStepApiDetail>;
   stepWebDetails?: Record<string, QairaExecutionStepWebDetail>;
+  stepAutomationDetails?: Record<string, QairaExecutionStepAutomationDetail>;
   stepCaptures?: Record<string, Record<string, string>>;
 };
 
@@ -228,6 +272,7 @@ export type EngineRunEnvelope = {
   max_repair_attempts: number;
   run_timeout_seconds: number;
   timeouts?: EngineRunTimeoutPolicy | null;
+  session_policy?: EngineSessionPolicy;
   web_engine?: {
     active: EngineWebEngineProvider;
   } | null;
@@ -242,6 +287,7 @@ export type EngineRunEnvelope = {
   } | null;
   manual_spec: EngineManualSpec;
   attached_script?: EngineAttachedScript | null;
+  hooks?: EngineRunHook[];
   steps: EngineRunStep[];
   suite_parameters: Record<string, string>;
   case_parameters: Record<string, string>;

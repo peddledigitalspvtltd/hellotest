@@ -225,6 +225,18 @@ const resolveTimeoutPolicy = (envelope: EngineRunEnvelope) => ({
 
 const shouldRecordVideo = (envelope: EngineRunEnvelope) => envelope.artifact_policy?.video_mode !== "off";
 
+const shouldLaunchHeadless = (envelope: EngineRunEnvelope) => {
+  if (envelope.headless !== false) {
+    return true;
+  }
+
+  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return true;
+  }
+
+  return false;
+};
+
 const shouldAttachVideo = (envelope: EngineRunEnvelope, finalStatus?: EngineStepOutcomeStatus) => {
   const mode = envelope.artifact_policy?.video_mode || "off";
 
@@ -623,6 +635,8 @@ class PlaywrightWebSession implements WebSession {
   private browser: Browser | null = null;
   private browserContext: BrowserContext | null = null;
   private browserPage: Page | null = null;
+  private ownsBrowser = true;
+  private ownsContext = true;
   private consoleEntries: WebConsoleEntry[] = [];
   private networkEntries: WebNetworkEntry[] = [];
   private liveSessionId: string | null = null;
@@ -645,25 +659,38 @@ class PlaywrightWebSession implements WebSession {
       return;
     }
 
-    const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
-    this.browser = await browserType.launch({
-      headless: this.envelope.headless !== false
-    });
-    this.browserContext = await this.browser.newContext({
-      ignoreHTTPSErrors: true,
-      ...(shouldRecordVideo(this.envelope)
-        ? {
-            recordVideo: {
-              dir: path.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
-              size: {
-                width: 960,
-                height: 540
+    const cdpEndpoint = normalizeText(this.envelope.session_policy?.web?.connect_over_cdp_endpoint || null);
+    const shouldAttach = normalizeText(this.envelope.session_policy?.web?.mode || null) === "attach" && Boolean(cdpEndpoint);
+
+    if (shouldAttach && cdpEndpoint) {
+      this.browser = await chromium.connectOverCDP(cdpEndpoint);
+      this.ownsBrowser = this.envelope.session_policy?.web?.close_on_finish === true;
+      this.browserContext = this.browser.contexts()[0] || await this.browser.newContext({ ignoreHTTPSErrors: true });
+      this.ownsContext = false;
+      this.browserPage = this.browserContext.pages()[0] || await this.browserContext.newPage();
+    } else {
+      const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
+      this.browser = await browserType.launch({
+        headless: shouldLaunchHeadless(this.envelope)
+      });
+      this.ownsBrowser = true;
+      this.ownsContext = true;
+      this.browserContext = await this.browser.newContext({
+        ignoreHTTPSErrors: true,
+        ...(shouldRecordVideo(this.envelope)
+          ? {
+              recordVideo: {
+                dir: path.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
+                size: {
+                  width: 960,
+                  height: 540
+                }
               }
             }
-          }
-        : {})
-    });
-    this.browserPage = await this.browserContext.newPage();
+          : {})
+      });
+      this.browserPage = await this.browserContext.newPage();
+    }
     this.liveSessionId = `${this.envelope.engine_run_id}:playwright`;
     registerLiveViewSession({
       id: this.liveSessionId,
@@ -726,7 +753,9 @@ class PlaywrightWebSession implements WebSession {
 
     unregisterLiveViewSession(this.liveSessionId);
 
-    await this.browserContext?.close();
+    if (this.ownsContext) {
+      await this.browserContext?.close();
+    }
 
     if (video && shouldAttach) {
       try {
@@ -752,7 +781,9 @@ class PlaywrightWebSession implements WebSession {
       }
     }
 
-    await this.browser?.close();
+    if (this.ownsBrowser) {
+      await this.browser?.close();
+    }
     this.browserContext = null;
     this.browser = null;
     this.browserPage = null;
@@ -1558,15 +1589,24 @@ const executeAutomationCode = async (
     `${executableSource}\nreturn undefined;`
   );
 
-  return fn(
-    bindings.page,
-    bindings.web,
-    bindings.expect,
-    bindings.params,
-    bindings.capture,
-    bindings.playwrightPage,
-    bindings.driver
-  );
+  try {
+    return await fn(
+      bindings.page,
+      bindings.web,
+      bindings.expect,
+      bindings.params,
+      bindings.capture,
+      bindings.playwrightPage,
+      bindings.driver
+    );
+  } catch (error) {
+    const stack = error instanceof Error ? error.stack || "" : "";
+    const lineMatch = stack.match(/<anonymous>:(\d+):\d+/);
+    if (error instanceof Error && lineMatch) {
+      (error as Error & { qairaLine?: number }).qairaLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+    }
+    throw error;
+  }
 };
 
 const executeStepAttempt = async (
@@ -1617,6 +1657,10 @@ const buildStepNote = ({
   });
 
   if (error) {
+    const qairaLine = (error as Error & { qairaLine?: number }).qairaLine;
+    if (qairaLine) {
+      lines.push(`Code line: ${qairaLine}`);
+    }
     lines.push(`Error: ${error.message}`);
   }
 

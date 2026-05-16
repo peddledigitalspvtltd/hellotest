@@ -48,6 +48,7 @@ import {
   type ExecutionStepCaptureMap,
   type ExecutionStepEvidence,
   type ExecutionStepStatus,
+  type ExecutionStepAutomationDetail,
   type ExecutionStepWebDetail
 } from "../lib/executionLogs";
 import { buildDataSetParameterValues, combineStepParameterValues, normalizeStepParameterValues, parseStepParameterName, resolveStepParameterText } from "../lib/stepParameters";
@@ -2050,6 +2051,7 @@ export function ExecutionsPage() {
   const stepEvidence = selectedCaseLogs.stepEvidence || {};
   const stepApiDetails = selectedCaseLogs.stepApiDetails || {};
   const stepWebDetails = selectedCaseLogs.stepWebDetails || {};
+  const stepAutomationDetails = selectedCaseLogs.stepAutomationDetails || {};
   const stepCaptures = useMemo(
     () => mergeExecutionStepCaptures(selectedCaseLogs.stepCaptures || {}, stepApiDetails),
     [selectedCaseLogs.stepCaptures, stepApiDetails]
@@ -3117,6 +3119,21 @@ export function ExecutionsPage() {
     [stepEvidence]
   );
   const resolvedEvidenceArtifactCount = resolvedStepNoteCount + resolvedStepImageCount;
+  const selectedRuntimeTelemetry = useMemo(() => {
+    const webDetails = Object.values(stepWebDetails || {});
+    const consoleCount = webDetails.reduce((total, detail) => total + (detail?.console?.length || 0), 0);
+    const networkCount = webDetails.reduce((total, detail) => total + (detail?.network?.length || 0), 0);
+    const timedWebSteps = webDetails.filter((detail) => typeof detail?.duration_ms === "number");
+    const webDurationMs = timedWebSteps.reduce((total, detail) => total + Number(detail?.duration_ms || 0), 0);
+
+    return {
+      webStepCount: webDetails.length,
+      consoleCount,
+      networkCount,
+      artifactCount: resolvedEvidenceArtifactCount,
+      avgWebDurationMs: timedWebSteps.length ? Math.round(webDurationMs / timedWebSteps.length) : null
+    };
+  }, [resolvedEvidenceArtifactCount, stepWebDetails]);
 
   const selectedExecutionAppTypeLabel =
     appTypeNameById[selectedExecution?.app_type_id || ""] || selectedExecution?.app_type_id || "No app type scoped";
@@ -4388,6 +4405,35 @@ export function ExecutionsPage() {
                         </div>
                       </div>
 
+                      <div className="execution-engine-cockpit" aria-label="Test engine cockpit">
+                        <div className="execution-engine-cockpit-copy">
+                          <strong>Test engine cockpit</strong>
+                          <span>
+                            {selectedRuntimeTelemetry.webStepCount
+                              ? `${selectedRuntimeTelemetry.webStepCount} automated web step${selectedRuntimeTelemetry.webStepCount === 1 ? "" : "s"} reported runtime diagnostics`
+                              : "Ready for manual, API, web, mobile, or mixed execution evidence"}
+                          </span>
+                        </div>
+                        <div className="execution-engine-signal-grid">
+                          <span>
+                            <strong>{selectedRuntimeTelemetry.consoleCount}</strong>
+                            <small>Console logs</small>
+                          </span>
+                          <span>
+                            <strong>{selectedRuntimeTelemetry.networkCount}</strong>
+                            <small>Network calls</small>
+                          </span>
+                          <span>
+                            <strong>{selectedRuntimeTelemetry.artifactCount}</strong>
+                            <small>Evidence items</small>
+                          </span>
+                          <span>
+                            <strong>{selectedRuntimeTelemetry.avgWebDurationMs !== null ? formatDuration(selectedRuntimeTelemetry.avgWebDurationMs, DEFAULT_DURATION_LABEL) : "0s"}</strong>
+                            <small>Avg web step</small>
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="execution-assignment-panel execution-assignment-panel--case">
                         <div className="execution-assignment-copy">
                           <strong>Case assignee</strong>
@@ -4542,6 +4588,46 @@ export function ExecutionsPage() {
                           />
                         </div>
 
+                        {selectedSteps.some((step) => resolveStepAutomationCode(step).trim() || stepAutomationDetails[step.id]?.code) ? (
+                          <div className="execution-step-card-block execution-console-code-pane">
+                            <div className="execution-step-card-block-head">
+                              <span>Automation code pane</span>
+                              <span>{selectedSteps.length} manual step{selectedSteps.length === 1 ? "" : "s"} mapped to runtime code</span>
+                            </div>
+                            <div className="execution-console-code-list">
+                              {selectedSteps.map((step) => {
+                                const detail = stepAutomationDetails[step.id] || null;
+                                const code = detail?.code || resolveStepAutomationCode(step);
+                                if (!code.trim()) {
+                                  return null;
+                                }
+
+                                return (
+                                  <div className="execution-console-code-item" key={step.id}>
+                                    <div className="execution-console-code-item-head">
+                                      <strong>Step {step.step_order}</strong>
+                                      <StatusBadge value={detail?.status || stepStatuses[step.id] || "queued"} />
+                                    </div>
+                                    <pre className="execution-automation-code-block">
+                                      {code.split(/\r?\n/).map((line, index) => {
+                                        const lineNumber = index + 1;
+                                        const isHotLine = lineNumber === detail?.error_line || lineNumber === detail?.active_line;
+                                        return (
+                                          <span className={isHotLine ? "is-hot-line" : ""} key={`${step.id}:${lineNumber}`}>
+                                            <strong>{lineNumber}</strong>
+                                            <code>{line || " "}</code>
+                                          </span>
+                                        );
+                                      })}
+                                    </pre>
+                                    {detail?.error_message ? <div className="inline-message error-message"><span>{detail.error_message}</span></div> : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+
                         {!selectedSteps.length ? <div className="empty-state compact">No snapshot steps are available for this case.</div> : null}
 
                         {selectedSteps.length ? (
@@ -4652,6 +4738,7 @@ export function ExecutionsPage() {
                                           <ExecutionStepCard
                                             apiDetail={stepApiDetails[step.id] || null}
                                             webDetail={stepWebDetails[step.id] || null}
+                                            automationDetail={stepAutomationDetails[step.id] || null}
                                             captures={stepCaptures[step.id] || stepApiDetails[step.id]?.captures || {}}
                                             evidence={stepEvidence[step.id] || null}
                                             canInspectApi={step.step_type === "api" || (!step.step_type && selectedExecutionAppTypeKind === "api")}
@@ -4702,6 +4789,7 @@ export function ExecutionsPage() {
                                 <ExecutionStepCard
                                   apiDetail={stepApiDetails[step.id] || null}
                                   webDetail={stepWebDetails[step.id] || null}
+                                  automationDetail={stepAutomationDetails[step.id] || null}
                                   captures={stepCaptures[step.id] || stepApiDetails[step.id]?.captures || {}}
                                   evidence={stepEvidence[step.id] || null}
                                   canInspectApi={step.step_type === "api" || (!step.step_type && selectedExecutionAppTypeKind === "api")}
@@ -6600,6 +6688,7 @@ function ExecutionStepCard({
   evidence,
   apiDetail,
   webDetail,
+  automationDetail,
   captures,
   canInspectApi,
   isRunningApi,
@@ -6627,6 +6716,7 @@ function ExecutionStepCard({
   evidence: ExecutionStepEvidence | null;
   apiDetail: ExecutionStepApiDetail | null;
   webDetail: ExecutionStepWebDetail | null;
+  automationDetail: ExecutionStepAutomationDetail | null;
   captures: Record<string, string>;
   canInspectApi: boolean;
   isRunningApi: boolean;
@@ -6816,6 +6906,35 @@ function ExecutionStepCard({
                     <StepTypeIcon size={14} type="api" />
                     <span>Convert network to API test</span>
                   </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {automationDetail?.code ? (
+            <div className="execution-step-card-block">
+              <div className="execution-step-card-block-head">
+                <span>Automation code</span>
+                <span>
+                  {automationDetail.engine || step.step_type || "step"} · {automationDetail.status || status}
+                  {automationDetail.error_line ? ` · line ${automationDetail.error_line}` : automationDetail.active_line ? ` · line ${automationDetail.active_line}` : ""}
+                </span>
+              </div>
+              <pre className="execution-automation-code-block">
+                {automationDetail.code.split(/\r?\n/).map((line, index) => {
+                  const lineNumber = index + 1;
+                  const isHotLine = lineNumber === automationDetail.error_line || lineNumber === automationDetail.active_line;
+                  return (
+                    <span className={isHotLine ? "is-hot-line" : ""} key={`${lineNumber}:${line}`}>
+                      <strong>{lineNumber}</strong>
+                      <code>{line || " "}</code>
+                    </span>
+                  );
+                })}
+              </pre>
+              {automationDetail.error_message ? (
+                <div className="inline-message error-message">
+                  <span>{automationDetail.error_message}</span>
                 </div>
               ) : null}
             </div>

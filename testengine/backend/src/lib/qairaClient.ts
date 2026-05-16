@@ -150,6 +150,7 @@ export async function reportQueuedStep(
     } | null;
     api_detail?: Record<string, unknown> | null;
     web_detail?: unknown;
+    automation_detail?: Record<string, unknown> | null;
     captures?: Record<string, string>;
     recovery_attempted?: boolean;
     recovery_succeeded?: boolean;

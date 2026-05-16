@@ -10,7 +10,7 @@ import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
 import { executeAndroidSteps, isMobileEngineConfigured } from "./mobileEngine.js";
-import type { EngineQueuedJob } from "../contracts/qaira.js";
+import type { EngineQueuedJob, EngineRunStep } from "../contracts/qaira.js";
 import { registerContextValue } from "./runtimeContext.js";
 
 type Logger = {
@@ -186,6 +186,25 @@ function mergeArtifactBundle(
   };
 }
 
+function buildAutomationDetail(step: EngineRunStep, status: "passed" | "failed" | "blocked", note?: string | null, provider?: string | null) {
+  const code =
+    String(step.automation_code || "").trim()
+    || (step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : "")
+    || String(step.action || "");
+
+  return {
+    engine: step.step_type,
+    provider: provider || null,
+    status,
+    code,
+    language: step.step_type === "api" ? "json" : "javascript",
+    active_line: null,
+    error_line: status === "failed" || status === "blocked" ? 1 : null,
+    error_message: status === "failed" || status === "blocked" ? note || null : null,
+    ended_at: nowIso()
+  };
+}
+
 async function executeQueuedJob(
   job: EngineQueuedJob,
   workerId: string,
@@ -309,6 +328,7 @@ async function executeQueuedJob(
           note: result.note,
           evidence: result.evidence,
           api_detail: result.detail as unknown as Record<string, unknown>,
+          automation_detail: buildAutomationDetail(step, result.status, result.note, "api"),
           captures: result.captures
         });
         capturedValues = {
@@ -355,6 +375,7 @@ async function executeQueuedJob(
           note: message,
           evidence: null,
           web_detail: null,
+          automation_detail: buildAutomationDetail(step, result.status, message, envelope.mobile_engine?.active || "mobile"),
           captures: {}
         });
 
@@ -430,6 +451,7 @@ async function executeQueuedJob(
         note: stepResult.note,
         evidence: stepResult.evidence || null,
         web_detail: stepResult.web_detail,
+        automation_detail: buildAutomationDetail(step, stepResult.status, stepResult.note, stepResult.web_detail?.provider || webRunSession.provider),
         captures: stepResult.captures,
         recovery_attempted: stepResult.recovery_attempted,
         recovery_succeeded: stepResult.recovery_succeeded

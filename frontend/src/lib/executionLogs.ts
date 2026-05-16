@@ -56,6 +56,19 @@ export type ExecutionStepWebDetail = {
   captures?: Record<string, string>;
 };
 
+export type ExecutionStepAutomationDetail = {
+  engine?: string;
+  provider?: string | null;
+  status?: ExecutionStepStatus | "queued" | "running" | "skipped";
+  code?: string;
+  language?: string;
+  active_line?: number | null;
+  error_line?: number | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+};
+
 export type ExecutionStepCaptureMap = Record<string, string>;
 
 export type ExecutionAiAnalysis = {
@@ -74,6 +87,7 @@ export type ExecutionLogsPayload = {
   stepEvidence?: Record<string, ExecutionStepEvidence>;
   stepApiDetails?: Record<string, ExecutionStepApiDetail>;
   stepWebDetails?: Record<string, ExecutionStepWebDetail>;
+  stepAutomationDetails?: Record<string, ExecutionStepAutomationDetail>;
   stepCaptures?: Record<string, ExecutionStepCaptureMap>;
   aiAnalysis?: ExecutionAiAnalysis | null;
 };
@@ -203,6 +217,9 @@ export function parseExecutionLogs(logs: string | null): ExecutionLogsPayload {
       stepWebDetails: typeof payload.stepWebDetails === "object" && payload.stepWebDetails && !Array.isArray(payload.stepWebDetails)
         ? payload.stepWebDetails
         : {},
+      stepAutomationDetails: typeof payload.stepAutomationDetails === "object" && payload.stepAutomationDetails && !Array.isArray(payload.stepAutomationDetails)
+        ? payload.stepAutomationDetails
+        : {},
       stepCaptures: normalizeStepCaptures(payload.stepCaptures),
       aiAnalysis: normalizeAiAnalysis(payload.aiAnalysis)
     };
@@ -218,6 +235,7 @@ export function stringifyExecutionLogs(payload: ExecutionLogsPayload): string {
     stepEvidence: payload.stepEvidence || {},
     stepApiDetails: payload.stepApiDetails || {},
     stepWebDetails: payload.stepWebDetails || {},
+    stepAutomationDetails: payload.stepAutomationDetails || {},
     stepCaptures: payload.stepCaptures || {},
     aiAnalysis: payload.aiAnalysis || null
   });

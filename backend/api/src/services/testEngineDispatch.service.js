@@ -311,6 +311,85 @@ const normalizeEngineBrowser = (value, fallback = "chromium") => {
   return normalized ? TESTENGINE_BROWSER_ALIASES.get(normalized) || fallback : fallback;
 };
 
+const normalizeSessionMode = (value, fallback = "new") => {
+  const normalized = normalizeText(value)?.toLowerCase();
+  return ["new", "reuse", "attach"].includes(normalized) ? normalized : fallback;
+};
+
+const normalizeHookFailBehavior = (value, fallback = "fail-run") => {
+  const normalized = normalizeText(value)?.toLowerCase();
+  return ["fail-run", "mark-blocked", "continue"].includes(normalized) ? normalized : fallback;
+};
+
+const normalizeEngineHookStep = (step, index, fallbackType = "api") => {
+  if (!step || typeof step !== "object" || Array.isArray(step)) {
+    return null;
+  }
+
+  const stepType = resolveStepEngineClass(step, fallbackType);
+  return {
+    id: normalizeText(step.id) || `hook-step-${index + 1}`,
+    order: Math.max(1, normalizeInteger(step.order ?? step.step_order, index + 1) ?? index + 1),
+    step_type: stepType,
+    engine_class: stepType,
+    action: normalizeText(step.action) || null,
+    expected_result: normalizeText(step.expected_result) || normalizeText(step.expectedResult) || null,
+    automation_code: normalizeText(step.automation_code) || normalizeText(step.automationCode) || null,
+    api_request: normalizeApiRequest(step.api_request || step.apiRequest || null),
+    group_name: normalizeText(step.group_name) || null,
+    group_kind: normalizeText(step.group_kind) || null
+  };
+};
+
+const normalizeEngineHooks = (value, appTypeKind = "web") => {
+  const entries = Array.isArray(value) ? value : [];
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry, index) => {
+      const phase = normalizeText(entry.phase)?.toLowerCase();
+      const scope = normalizeText(entry.scope)?.toLowerCase();
+      const steps = Array.isArray(entry.steps)
+        ? entry.steps.map((step, stepIndex) => normalizeEngineHookStep(step, stepIndex, appTypeKind)).filter(Boolean)
+        : [];
+
+      if (!["pre", "post"].includes(phase) || !["suite", "test"].includes(scope) || !steps.length) {
+        return null;
+      }
+
+      return {
+        id: normalizeText(entry.id) || `hook-${scope}-${phase}-${index + 1}`,
+        name: normalizeText(entry.name) || `${scope} ${phase} hook`,
+        scope,
+        phase,
+        fail_behavior: normalizeHookFailBehavior(entry.fail_behavior || entry.failBehavior, "fail-run"),
+        target_kind: normalizeText(entry.target_kind || entry.targetKind) || "inline",
+        target_id: normalizeText(entry.target_id || entry.targetId) || null,
+        steps
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildStepAutomationDetail = (step, status, note = null, provider = null) => {
+  const code = normalizeRichText(step?.automation_code)
+    || (step?.api_request ? JSON.stringify(step.api_request, null, 2) : "")
+    || normalizeText(step?.action)
+    || "";
+
+  return {
+    engine: normalizeTestStepType(step?.step_type || step?.type, "web"),
+    provider,
+    status,
+    code,
+    language: step?.api_request ? "json" : "javascript",
+    active_line: null,
+    error_line: status === "failed" || status === "blocked" ? 1 : null,
+    error_message: status === "failed" || status === "blocked" ? normalizeText(note) : null,
+    ended_at: nowIso()
+  };
+};
+
 const buildProviderLiveViewUrl = (integration, provider) => {
   const configured = normalizeText(integration?.config?.live_view_url || integration?.config?.vnc_url);
 
@@ -399,6 +478,14 @@ const normalizeApiDetail = (value) => {
 };
 
 const normalizeWebDetail = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value;
+};
+
+const normalizeAutomationDetail = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -680,6 +767,20 @@ const buildEngineEnvelope = ({
       assertion_timeout_ms: Math.max(250, normalizeInteger(integrationConfig.assertion_timeout_ms, 10000) ?? 10000),
       recovery_wait_ms: Math.max(100, normalizeInteger(integrationConfig.recovery_wait_ms, 750) ?? 750)
     },
+    session_policy: {
+      web: {
+        mode: normalizeSessionMode(integrationConfig.web_session_mode, "new"),
+        reuse_key: normalizeText(integrationConfig.web_session_reuse_key) || null,
+        connect_over_cdp_endpoint: normalizeText(integrationConfig.connect_over_cdp_endpoint || integrationConfig.playwright_cdp_endpoint) || null,
+        close_on_finish: integrationConfig.close_attached_web_session === true
+      },
+      mobile: {
+        mode: normalizeSessionMode(integrationConfig.mobile_session_mode, "new"),
+        reuse_key: normalizeText(integrationConfig.mobile_session_reuse_key) || null,
+        existing_session_id: normalizeText(integrationConfig.mobile_existing_session_id || integrationConfig.appium_session_id) || null,
+        close_on_finish: integrationConfig.close_attached_mobile_session === true
+      }
+    },
     web_engine: {
       active: normalizeTestEngineWebEngine(integrationConfig.active_web_engine, "playwright")
     },
@@ -699,6 +800,7 @@ const buildEngineEnvelope = ({
       app: normalizeText(integrationConfig.android_app) || normalizeText(integrationConfig.app) || null
     },
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
+    hooks: normalizeEngineHooks(integrationConfig.execution_hooks, appType?.type || "web"),
     steps,
     suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
     case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
@@ -760,6 +862,7 @@ const parseStructuredLogs = (value) => {
       stepEvidence: {},
       stepApiDetails: {},
       stepWebDetails: {},
+      stepAutomationDetails: {},
       stepCaptures: {}
     };
   }
@@ -781,6 +884,9 @@ const parseStructuredLogs = (value) => {
       : {},
     stepWebDetails: parsed.stepWebDetails && typeof parsed.stepWebDetails === "object" && !Array.isArray(parsed.stepWebDetails)
       ? { ...parsed.stepWebDetails }
+      : {},
+    stepAutomationDetails: parsed.stepAutomationDetails && typeof parsed.stepAutomationDetails === "object" && !Array.isArray(parsed.stepAutomationDetails)
+      ? { ...parsed.stepAutomationDetails }
       : {},
     stepCaptures: normalizedStepCaptures
   };
@@ -1709,6 +1815,10 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
       ...existingLogs.stepApiDetails,
       [step.id]: stepResult.detail
     },
+    stepAutomationDetails: {
+      ...existingLogs.stepAutomationDetails,
+      [step.id]: buildStepAutomationDetail(step, stepResult.status, stepResult.note, "api")
+    },
     stepCaptures: Object.keys(normalizedStepCaptures).length
       ? {
           ...existingLogs.stepCaptures,
@@ -1813,6 +1923,7 @@ exports.reportQueuedStep = async ({
   evidence,
   api_detail,
   web_detail,
+  automation_detail,
   captures,
   recovery_attempted,
   recovery_succeeded
@@ -1840,6 +1951,7 @@ exports.reportQueuedStep = async ({
   const normalizedEvidence = normalizeInlineEvidence(evidence);
   const normalizedApiDetail = normalizeApiDetail(api_detail);
   const normalizedWebDetail = normalizeWebDetail(web_detail);
+  const normalizedAutomationDetail = normalizeAutomationDetail(automation_detail);
   const normalizedCaptures = normalizeCapturedValuesRecord(captures);
   const recoveryAttempted = Boolean(recovery_attempted);
   const recoverySucceeded = Boolean(recovery_succeeded);
@@ -1878,6 +1990,14 @@ exports.reportQueuedStep = async ({
         }
       : {
           ...existingLogs.stepWebDetails
+        },
+    stepAutomationDetails: normalizedAutomationDetail
+      ? {
+          ...existingLogs.stepAutomationDetails,
+          [step.id]: normalizedAutomationDetail
+        }
+      : {
+          ...existingLogs.stepAutomationDetails
         },
     stepCaptures: Object.keys(normalizedCaptures).length
       ? {

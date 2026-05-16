@@ -35,6 +35,15 @@ const resolveTimeoutPolicy = (envelope) => ({
     recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 30_000)
 });
 const shouldRecordVideo = (envelope) => envelope.artifact_policy?.video_mode !== "off";
+const shouldLaunchHeadless = (envelope) => {
+    if (envelope.headless !== false) {
+        return true;
+    }
+    if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+        return true;
+    }
+    return false;
+};
 const shouldAttachVideo = (envelope, finalStatus) => {
     const mode = envelope.artifact_policy?.video_mode || "off";
     if (mode === "off") {
@@ -358,6 +367,8 @@ class PlaywrightWebSession {
     browser = null;
     browserContext = null;
     browserPage = null;
+    ownsBrowser = true;
+    ownsContext = true;
     consoleEntries = [];
     networkEntries = [];
     liveSessionId = null;
@@ -376,25 +387,38 @@ class PlaywrightWebSession {
         if (this.browserPage) {
             return;
         }
-        const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
-        this.browser = await browserType.launch({
-            headless: this.envelope.headless !== false
-        });
-        this.browserContext = await this.browser.newContext({
-            ignoreHTTPSErrors: true,
-            ...(shouldRecordVideo(this.envelope)
-                ? {
-                    recordVideo: {
-                        dir: path.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
-                        size: {
-                            width: 960,
-                            height: 540
+        const cdpEndpoint = normalizeText(this.envelope.session_policy?.web?.connect_over_cdp_endpoint || null);
+        const shouldAttach = normalizeText(this.envelope.session_policy?.web?.mode || null) === "attach" && Boolean(cdpEndpoint);
+        if (shouldAttach && cdpEndpoint) {
+            this.browser = await chromium.connectOverCDP(cdpEndpoint);
+            this.ownsBrowser = this.envelope.session_policy?.web?.close_on_finish === true;
+            this.browserContext = this.browser.contexts()[0] || await this.browser.newContext({ ignoreHTTPSErrors: true });
+            this.ownsContext = false;
+            this.browserPage = this.browserContext.pages()[0] || await this.browserContext.newPage();
+        }
+        else {
+            const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
+            this.browser = await browserType.launch({
+                headless: shouldLaunchHeadless(this.envelope)
+            });
+            this.ownsBrowser = true;
+            this.ownsContext = true;
+            this.browserContext = await this.browser.newContext({
+                ignoreHTTPSErrors: true,
+                ...(shouldRecordVideo(this.envelope)
+                    ? {
+                        recordVideo: {
+                            dir: path.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
+                            size: {
+                                width: 960,
+                                height: 540
+                            }
                         }
                     }
-                }
-                : {})
-        });
-        this.browserPage = await this.browserContext.newPage();
+                    : {})
+            });
+            this.browserPage = await this.browserContext.newPage();
+        }
         this.liveSessionId = `${this.envelope.engine_run_id}:playwright`;
         registerLiveViewSession({
             id: this.liveSessionId,
@@ -454,7 +478,9 @@ class PlaywrightWebSession {
         const artifactFullPath = path.join(ARTIFACT_ROOT, artifactPath);
         const artifacts = {};
         unregisterLiveViewSession(this.liveSessionId);
-        await this.browserContext?.close();
+        if (this.ownsContext) {
+            await this.browserContext?.close();
+        }
         if (video && shouldAttach) {
             try {
                 await mkdir(path.dirname(artifactFullPath), { recursive: true });
@@ -479,7 +505,9 @@ class PlaywrightWebSession {
                 artifacts.video_path = null;
             }
         }
-        await this.browser?.close();
+        if (this.ownsBrowser) {
+            await this.browser?.close();
+        }
         this.browserContext = null;
         this.browser = null;
         this.browserPage = null;
@@ -1141,7 +1169,17 @@ const normalizeAutomationSource = (source) => {
 const executeAutomationCode = async (source, bindings) => {
     const executableSource = normalizeAutomationSource(source);
     const fn = new AsyncFunction("page", "web", "expect", "params", "capture", "playwrightPage", "driver", `${executableSource}\nreturn undefined;`);
-    return fn(bindings.page, bindings.web, bindings.expect, bindings.params, bindings.capture, bindings.playwrightPage, bindings.driver);
+    try {
+        return await fn(bindings.page, bindings.web, bindings.expect, bindings.params, bindings.capture, bindings.playwrightPage, bindings.driver);
+    }
+    catch (error) {
+        const stack = error instanceof Error ? error.stack || "" : "";
+        const lineMatch = stack.match(/<anonymous>:(\d+):\d+/);
+        if (error instanceof Error && lineMatch) {
+            error.qairaLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+        }
+        throw error;
+    }
 };
 const executeStepAttempt = async (session, options, captures) => {
     const bindings = buildBindings(session, options.context, captures, options.envelope);
@@ -1168,6 +1206,10 @@ const buildStepNote = ({ step, provider, captures, recoveryAttempted, recoverySu
         lines.push(`Capture ${key} = ${value}`);
     });
     if (error) {
+        const qairaLine = error.qairaLine;
+        if (qairaLine) {
+            lines.push(`Code line: ${qairaLine}`);
+        }
         lines.push(`Error: ${error.message}`);
     }
     return lines.join("\n");

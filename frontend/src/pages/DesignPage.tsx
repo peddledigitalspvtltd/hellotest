@@ -1612,21 +1612,15 @@ export function DesignPage() {
             { label: "Steps", value: designMetrics.totalSteps }
           ]}
           actions={
-            <>
-              <button className="ghost-button" disabled={!selectedSuiteId} onClick={beginCreateCase} type="button">
-                <AddIcon />
-                New Test Case
-              </button>
-              <button
-                className="primary-button"
-                disabled={!appTypeId}
-                onClick={openCreateSuiteModal}
-                type="button"
-              >
-                <LayersIcon />
-                Create Suite
-              </button>
-            </>
+            <button
+              className="primary-button"
+              disabled={!appTypeId}
+              onClick={openCreateSuiteModal}
+              type="button"
+            >
+              <LayersIcon />
+              Create Suite
+            </button>
           }
         />
       ) : null}

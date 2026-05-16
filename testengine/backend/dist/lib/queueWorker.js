@@ -131,6 +131,22 @@ function mergeArtifactBundle(base, patch) {
         artifact_refs: mergedRefs
     };
 }
+function buildAutomationDetail(step, status, note, provider) {
+    const code = String(step.automation_code || "").trim()
+        || (step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : "")
+        || String(step.action || "");
+    return {
+        engine: step.step_type,
+        provider: provider || null,
+        status,
+        code,
+        language: step.step_type === "api" ? "json" : "javascript",
+        active_line: null,
+        error_line: status === "failed" || status === "blocked" ? 1 : null,
+        error_message: status === "failed" || status === "blocked" ? note || null : null,
+        ended_at: nowIso()
+    };
+}
 async function executeQueuedJob(job, workerId, logger, telemetry) {
     const envelope = job.payload;
     const existingStatuses = job.runtime_state?.logs?.stepStatuses || {};
@@ -236,6 +252,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     note: result.note,
                     evidence: result.evidence,
                     api_detail: result.detail,
+                    automation_detail: buildAutomationDetail(step, result.status, result.note, "api"),
                     captures: result.captures
                 });
                 capturedValues = {
@@ -279,6 +296,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     note: message,
                     evidence: null,
                     web_detail: null,
+                    automation_detail: buildAutomationDetail(step, result.status, message, envelope.mobile_engine?.active || "mobile"),
                     captures: {}
                 });
                 if (result.status === "passed") {
@@ -350,6 +368,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                 note: stepResult.note,
                 evidence: stepResult.evidence || null,
                 web_detail: stepResult.web_detail,
+                automation_detail: buildAutomationDetail(step, stepResult.status, stepResult.note, stepResult.web_detail?.provider || webRunSession.provider),
                 captures: stepResult.captures,
                 recovery_attempted: stepResult.recovery_attempted,
                 recovery_succeeded: stepResult.recovery_succeeded
