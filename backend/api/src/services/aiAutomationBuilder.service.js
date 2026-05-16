@@ -2642,10 +2642,26 @@ const normalizeLocalEngineBaseUrl = (value) => {
     throw new Error("Local recorder engine URL must point to localhost, the local Docker service, or a private network address.");
   }
 
+  if ((parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && process.env.DATABASE_URL?.includes("postgres")) {
+    parsed.hostname = "host.docker.internal";
+  }
+
   return parsed.toString().replace(/\/+$/, "");
 };
 
-const resolveRecorderPublicBaseUrl = (integration, fallbackBaseUrl) => {
+const resolveRecorderPublicBaseUrl = (integration, fallbackBaseUrl, recorderMode) => {
+  if (recorderMode === "local" && fallbackBaseUrl) {
+    let parsedFallback;
+    try {
+      parsedFallback = new URL(fallbackBaseUrl);
+      if (parsedFallback.hostname === "host.docker.internal") {
+        parsedFallback.hostname = "localhost";
+      }
+      return parsedFallback.toString().replace(/\/+$/, "");
+    } catch {
+      // Ignore
+    }
+  }
   const config = integration?.config && typeof integration.config === "object" ? integration.config : {};
   return normalizeText(config.recorder_public_base_url)
     || normalizeText(config.public_base_url)
@@ -2801,8 +2817,8 @@ exports.startRecorderSession = async ({
     recorderTarget === "mobile"
       ? normalizeText(recorder_public_base_url) || mobileBaseUrl
       : recorderMode === "local"
-      ? normalizeText(recorder_public_base_url) || resolveRecorderPublicBaseUrl(integration, baseUrl)
-      : resolveRecorderPublicBaseUrl(integration, baseUrl)
+      ? normalizeText(recorder_public_base_url) || resolveRecorderPublicBaseUrl(integration, baseUrl, recorderMode)
+      : resolveRecorderPublicBaseUrl(integration, baseUrl, recorderMode)
     || baseUrl
   ).replace(/\/+$/, "");
   const resolvedStartUrl = normalizeText(start_url) || buildContext.environment?.base_url || null;

@@ -6702,9 +6702,6 @@ export function TestCasesPage() {
             </div>
 
             <div className="action-row import-modal-actions">
-              <button className="primary-button" disabled={!appTypeId || !importRows.length || importTestCases.isPending} onClick={() => void handleBulkImport()} type="button">
-                {importTestCases.isPending ? "Queuing…" : `Queue ${importRows.length || ""} Test Cases`}
-              </button>
               <button
                 className="ghost-button"
                 disabled={(!importBatches.length && !importWarnings.length) || importTestCases.isPending}
@@ -6715,7 +6712,10 @@ export function TestCasesPage() {
                 }}
                 type="button"
               >
-                Clear preview
+                Clear
+              </button>
+              <button className="primary-button" disabled={!appTypeId || !importRows.length || importTestCases.isPending} onClick={() => void handleBulkImport()} type="button">
+                {importTestCases.isPending ? "Queuing…" : `Queue ${importRows.length || ""} Test Cases`}
               </button>
             </div>
           </div>
@@ -7023,10 +7023,10 @@ function TestCaseSuiteModal({
           </div>
 
           <div className="action-row suite-modal-actions">
+            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
             <button className="primary-button" disabled={isSaving} type="submit">
               {isSaving ? "Saving…" : "Create Suite"}
             </button>
-            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
           </div>
         </form>
       </div>
@@ -7190,10 +7190,10 @@ function TestCaseSuiteLinkModal({
           </div>
 
           <div className="action-row suite-modal-actions">
+            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
             <button className="primary-button" disabled={isSaving || saveDisabled} type="submit">
               {isSaving ? "Saving…" : "Save links"}
             </button>
-            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
           </div>
         </form>
       </div>
@@ -7342,11 +7342,11 @@ function TestCaseExecutionModal({
           </div>
 
           <div className="action-row execution-create-actions">
-            <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
-              {isSubmitting ? "Creating…" : "Create Run"}
-            </button>
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel
+            </button>
+            <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
+              {isSubmitting ? "Creating…" : "Create Run"}
             </button>
           </div>
         </form>
@@ -7940,10 +7940,10 @@ function InlineStepInsertSlot({
           />
         </FormField>
         <div className="action-row">
-          <button className="primary-button" type="submit">Save step</button>
           <button className="ghost-button" onClick={onCancel} type="button">
             Cancel
           </button>
+          <button className="primary-button" type="submit">Save step</button>
         </div>
       </form>
     </div>
@@ -8581,11 +8581,11 @@ function StepGroupModal({
         </div>
 
         <div className="action-row">
-          <button className="primary-button" disabled={isSaving} onClick={onSave} type="button">
-            {isSaving ? "Saving…" : reusable ? "Create shared group" : "Create group"}
-          </button>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">
             Cancel
+          </button>
+          <button className="primary-button" disabled={isSaving} onClick={onSave} type="button">
+            {isSaving ? "Saving…" : reusable ? "Create shared group" : "Create group"}
           </button>
         </div>
       </div>
@@ -8686,11 +8686,11 @@ function SharedGroupPickerModal({
         </div>
 
         <div className="action-row">
-          <button className="primary-button" disabled={!selectedGroupId} onClick={onConfirm} type="button">
-            Insert selected group
-          </button>
           <button className="ghost-button" onClick={onClose} type="button">
             Cancel
+          </button>
+          <button className="primary-button" disabled={!selectedGroupId} onClick={onConfirm} type="button">
+            Insert selected group
           </button>
         </div>
       </div>
