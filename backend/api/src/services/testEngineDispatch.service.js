@@ -371,6 +371,90 @@ const normalizeEngineHooks = (value, appTypeKind = "web") => {
     .filter(Boolean);
 };
 
+const buildHookStepFromSnapshot = (stepSnapshot, index, appTypeKind = "web") => {
+  const stepType = resolveEngineStepType(stepSnapshot.step_type, appTypeKind);
+
+  if (!stepType) {
+    return null;
+  }
+
+  return {
+    id: stepSnapshot.snapshot_step_id || stepSnapshot.id || `hook-step-${index + 1}`,
+    order: index + 1,
+    step_type: stepType,
+    engine_class: resolveStepEngineClass({ step_type: stepType }, appTypeKind),
+    action: normalizeText(stepSnapshot.action),
+    expected_result: normalizeText(stepSnapshot.expected_result),
+    automation_code: normalizeRichText(stepSnapshot.automation_code),
+    api_request: stepType === "api" ? normalizeApiRequest(stepSnapshot.api_request) : null,
+    group_name: normalizeText(stepSnapshot.group_name),
+    group_kind: stepSnapshot.group_kind === "local" || stepSnapshot.group_kind === "reusable"
+      ? stepSnapshot.group_kind
+      : null
+  };
+};
+
+const normalizeHookArray = (value) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const resolveExecutionHooks = ({ execution, integrationHooks, caseSnapshot, stepsByCaseId, appTypeKind = "web" }) => {
+  const executionHooks = normalizeHookArray(execution.execution_hooks);
+  const rawHooks = executionHooks.length
+    ? executionHooks
+    : integrationHooks;
+  const caseSnapshots = Array.isArray(execution.case_snapshots) ? execution.case_snapshots : [];
+
+  const resolvedHooks = (Array.isArray(rawHooks) ? rawHooks : []).map((hook) => {
+    if (!hook || typeof hook !== "object" || Array.isArray(hook) || Array.isArray(hook.steps) && hook.steps.length) {
+      return hook;
+    }
+
+    const targetKind = normalizeText(hook.target_kind || hook.targetKind) || "inline";
+    const targetId = normalizeText(hook.target_id || hook.targetId);
+    let targetCaseIds = [];
+
+    if (targetKind === "test" && targetId) {
+      targetCaseIds = [targetId];
+    } else if (targetKind === "suite" && targetId) {
+      targetCaseIds = caseSnapshots
+        .filter((snapshot) =>
+          snapshot.suite_id === targetId
+          || (Array.isArray(snapshot.suite_ids) && snapshot.suite_ids.includes(targetId))
+        )
+        .map((snapshot) => snapshot.test_case_id);
+    }
+
+    const steps = targetCaseIds
+      .filter((testCaseId) => testCaseId !== caseSnapshot.test_case_id)
+      .flatMap((testCaseId) => stepsByCaseId.get(testCaseId) || [])
+      .map((stepSnapshot, index) => buildHookStepFromSnapshot(stepSnapshot, index, appTypeKind))
+      .filter(Boolean);
+
+    return {
+      ...hook,
+      target_kind: targetKind,
+      target_id: targetId,
+      steps
+    };
+  });
+
+  return normalizeEngineHooks(resolvedHooks, appTypeKind);
+};
+
 const buildStepAutomationDetail = (step, status, note = null, provider = null) => {
   const code = normalizeRichText(step?.automation_code)
     || (step?.api_request ? JSON.stringify(step.api_request, null, 2) : "")
@@ -722,6 +806,7 @@ const buildEngineEnvelope = ({
   appType,
   caseSnapshot,
   steps,
+  stepsByCaseId,
   integration
 }) => {
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
@@ -800,7 +885,13 @@ const buildEngineEnvelope = ({
       app: normalizeText(integrationConfig.android_app) || normalizeText(integrationConfig.app) || null
     },
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
-    hooks: normalizeEngineHooks(integrationConfig.execution_hooks, appType?.type || "web"),
+    hooks: resolveExecutionHooks({
+      execution,
+      integrationHooks: integrationConfig.execution_hooks,
+      caseSnapshot,
+      stepsByCaseId,
+      appTypeKind: appType?.type || "web"
+    }),
     steps,
     suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
     case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
@@ -1103,6 +1194,7 @@ async function planExecutionDispatch(execution) {
     manual_case_count: manualCaseCount,
     unsupported_automated_case_count: unsupportedAutomatedCaseCount,
     warnings: summarizeWarnings(warnings),
+    stepsByCaseId,
     eligibleCases: eligibleCases.sort((left, right) =>
       Number(left.case_snapshot.sort_order || 0) - Number(right.case_snapshot.sort_order || 0)
     )
@@ -1161,6 +1253,7 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         appType: plan.appType,
         caseSnapshot: item.case_snapshot,
         steps: item.steps,
+        stepsByCaseId: plan.stepsByCaseId,
         integration
       });
       const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");

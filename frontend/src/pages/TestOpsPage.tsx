@@ -692,8 +692,8 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
               <div className="execution-context-summary-head">
                 <div className="execution-context-summary-copy">
-                  <strong>Reusable learning</strong>
-                  <span>Page URLs and locators learned from AI builds and recorder sessions are reused across later builds in this scope.</span>
+                  <strong>Object repository</strong>
+                  <span>Screens, labels, field names, and locators learned from AI builds and recorder sessions are reused across later builds in this scope.</span>
                 </div>
                 <span className="count-pill">{learningCache.length} cached</span>
               </div>
@@ -702,15 +702,19 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   {learningCache.slice(0, 8).map((entry) => (
                     <div className="stack-item" key={entry.id}>
                       <div>
-                        <strong>{entry.locator_intent}</strong>
-                        <span>{entry.page_key} · {entry.locator_kind || entry.source}</span>
+                        <strong>{typeof entry.metadata?.object_name === "string" ? entry.metadata.object_name : entry.locator_intent}</strong>
+                        <span>
+                          {typeof entry.metadata?.screen_name === "string" ? entry.metadata.screen_name : entry.page_key}
+                          {" · "}
+                          {typeof entry.metadata?.object_role === "string" ? entry.metadata.object_role : entry.locator_kind || entry.source}
+                        </span>
                       </div>
                       <code className="execution-operation-json">{entry.locator}</code>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="empty-state compact">No locator learning has been cached for this scope yet.</div>
+                <div className="empty-state compact">No object repository learning has been cached for this scope yet.</div>
               )}
             </div>
           </Panel>

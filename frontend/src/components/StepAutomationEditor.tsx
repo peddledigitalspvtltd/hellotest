@@ -5,6 +5,7 @@ import { SharedStepsIcon as SharedStepsIconGraphic } from "./SharedStepsIcon";
 import { api } from "../lib/api";
 import { parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
 import {
+  buildAutomationKeywordMappings,
   buildApiValidationAssertionCode,
   ensureApiRequest,
   getStepTypeMeta,
@@ -14,7 +15,7 @@ import {
   resolveStepAutomationCode,
   STEP_TYPE_OPTIONS
 } from "../lib/stepAutomation";
-import type { ApiRequestPreview, StepApiRequest, StepApiValidation, TestStepType } from "../types";
+import type { ApiRequestPreview, AutomationLearningCacheEntry, StepApiRequest, StepApiValidation, TestStepType } from "../types";
 
 type StepAutomationInput = {
   id?: string;
@@ -80,6 +81,27 @@ const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
 ];
 
 const quoteCodeString = (value: string) => JSON.stringify(value);
+const formatOptionsObject = (entries: Record<string, string | number | boolean | null | undefined>) => {
+  const lines = Object.entries(entries)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `  ${key}: ${typeof value === "string" ? quoteCodeString(value) : String(value)}`);
+
+  return `{\n${lines.join(",\n")}\n}`;
+};
+
+const WEB_ELEMENT_DEFAULTS = {
+  timeoutMs: 10000,
+  scroll: "nearest",
+  waitFor: "visible",
+  force: false
+};
+
+const WEB_TYPE_DEFAULTS = {
+  ...WEB_ELEMENT_DEFAULTS,
+  clear: true,
+  type: "char-by-char",
+  delayMs: 35
+};
 
 function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string) {
   const target = locator.trim();
@@ -87,29 +109,29 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
 
   switch (option.id) {
     case "goto":
-      return `await web.goto(${quoteCodeString(target)});`;
+      return `await web.goto(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "click":
-      return `await web.click(${quoteCodeString(target)});`;
+      return `await web.click(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
     case "fill":
-      return `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)});`;
+      return `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_TYPE_DEFAULTS)});`;
     case "press":
       return target
-        ? `await web.press(${quoteCodeString(target)}, ${quoteCodeString(value)});`
+        ? `await web.press(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`
         : `await page.press("body", ${quoteCodeString(value)});`;
     case "wait":
       return `await web.wait(${Math.max(0, Number.parseInt(value, 10) || 1000)});`;
     case "expectVisible":
-      return `await web.expectVisible(${quoteCodeString(target)});`;
+      return `await web.expectVisible(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, state: "visible" })});`;
     case "expectText":
       return target
-        ? `await web.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)});`
+        ? `await web.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`
         : `await web.expectText(${quoteCodeString(value)});`;
     case "expectUrl":
-      return `await web.expectUrl(${quoteCodeString(value)});`;
+      return `await web.expectUrl(${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
     case "captureText":
-      return `capture(${quoteCodeString(value || "@t.capturedText")}, await web.text(${quoteCodeString(target)}));`;
+      return `capture(${quoteCodeString(value || "@t.capturedText")}, await web.text(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, trim: true })}));`;
     case "captureValue":
-      return `capture(${quoteCodeString(value || "@t.capturedValue")}, await web.value(${quoteCodeString(target)}));`;
+      return `capture(${quoteCodeString(value || "@t.capturedValue")}, await web.value(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })}));`;
     default:
       return "";
   }
@@ -122,15 +144,15 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
 
   switch (option.id) {
     case "tap":
-      return `await android.tap(${quoteCodeString(target)});`;
+      return `await android.tap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, waitFor: "displayed" })});`;
     case "type":
-      return `await android.type(${quoteCodeString(target)}, ${quoteCodeString(value)});`;
+      return `await android.type(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, clear: true, type: "char-by-char", delayMs: 35 })});`;
     case "clear":
-      return `await android.clear(${quoteCodeString(target)});`;
+      return `await android.clear(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
     case "waitForDisplayed":
-      return `await android.waitForDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)});`;
+      return `await android.waitForDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)}, ${formatOptionsObject({ pollMs: 250 })});`;
     case "expectText":
-      return `await android.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)});`;
+      return `await android.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
     case "swipe": {
       const [startX, startY] = splitNumbers(target);
       const [endX, endY, duration] = splitNumbers(value);
@@ -1443,13 +1465,17 @@ export function CodePreviewDialog({
   title,
   subtitle,
   code,
+  objectRepository = [],
   onClose
 }: {
   title: string;
   subtitle: string;
   code: string;
+  objectRepository?: AutomationLearningCacheEntry[];
   onClose: () => void;
 }) {
+  const keywordMappings = buildAutomationKeywordMappings(code, objectRepository);
+
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
@@ -1469,9 +1495,42 @@ export function CodePreviewDialog({
         </div>
         <div className="resource-form">
           <div className="resource-form-body">
-            <pre className="automation-code-block">
-              <code>{code}</code>
-            </pre>
+            <div className="automation-code-split">
+              <section className="automation-keyword-map-pane" aria-label="Keyword object mapping">
+                <div className="automation-code-pane-head">
+                  <strong>Keyword mapping</strong>
+                  <span>{keywordMappings.length} call{keywordMappings.length === 1 ? "" : "s"} mapped</span>
+                </div>
+                {keywordMappings.length ? (
+                  <div className="automation-keyword-map-list">
+                    {keywordMappings.map((mapping) => (
+                      <article className="automation-keyword-map-row" key={mapping.id}>
+                        <div>
+                          <strong>{mapping.keyword}</strong>
+                          <span>{mapping.screenName || "Screen"} · {mapping.locatorKind || "locator"}</span>
+                        </div>
+                        <code>
+                          {mapping.keyword}({mapping.displayTarget}{mapping.value ? `, ${mapping.value}` : ""})
+                        </code>
+                        {mapping.objectName ? <small>{mapping.target}</small> : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state compact">No keyword calls were detected in this automation block.</div>
+                )}
+              </section>
+
+              <section className="automation-code-translation-pane" aria-label="True code translation">
+                <div className="automation-code-pane-head">
+                  <strong>True code translation</strong>
+                  <span>Executable step code</span>
+                </div>
+                <pre className="automation-code-block">
+                  <code>{code}</code>
+                </pre>
+              </section>
+            </div>
           </div>
         </div>
       </div>

@@ -55,6 +55,7 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      execution_hooks: { required: false, type: "array" },
       assigned_to: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" }

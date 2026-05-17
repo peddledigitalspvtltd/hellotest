@@ -67,6 +67,7 @@ import type {
   Project,
   SmartExecutionImpactCase,
   SmartExecutionPreviewResponse,
+  TestCase,
   TestStep,
   TestSuite,
   WorkspaceTransaction
@@ -119,6 +120,28 @@ type ExecutionStepBlock = {
 type ExecutionIssueFilter = "all" | "with-issues" | "clean";
 type ExecutionEvidenceFilter = "all" | "with-evidence" | "no-evidence";
 type ExecutionCreateMode = "manual" | "smart";
+type ExecutionHookTargetKind = "none" | "test" | "suite";
+type ExecutionHookDraft = {
+  beforeTestKind: ExecutionHookTargetKind;
+  beforeTestId: string;
+  afterTestKind: ExecutionHookTargetKind;
+  afterTestId: string;
+  beforeSuiteKind: ExecutionHookTargetKind;
+  beforeSuiteId: string;
+  afterSuiteKind: ExecutionHookTargetKind;
+  afterSuiteId: string;
+};
+
+const emptyExecutionHookDraft = (): ExecutionHookDraft => ({
+  beforeTestKind: "none",
+  beforeTestId: "",
+  afterTestKind: "none",
+  afterTestId: "",
+  beforeSuiteKind: "none",
+  beforeSuiteId: "",
+  afterSuiteKind: "none",
+  afterSuiteId: ""
+});
 type TestRunsView = "test-case-runs" | "suite-runs" | "local-runs" | "scheduled-runs" | "batch-process";
 type CatalogViewMode = "tile" | "list";
 
@@ -1077,6 +1100,7 @@ export function ExecutionsPage() {
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [executionCreateMode, setExecutionCreateMode] = useState<ExecutionCreateMode>("manual");
+  const [executionHookDraft, setExecutionHookDraft] = useState<ExecutionHookDraft>(() => emptyExecutionHookDraft());
   const [testRunsView, setTestRunsView] = useState<TestRunsView>("suite-runs");
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<string[]>([]);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
@@ -1534,6 +1558,7 @@ export function ExecutionsPage() {
   const closeExecutionBuilder = () => {
     closeCreateExecutionModal();
     setExecutionName("");
+    setExecutionHookDraft(emptyExecutionHookDraft());
     resetExecutionContextSelection();
     resetSmartExecutionBuilder();
   };
@@ -2399,6 +2424,45 @@ export function ExecutionsPage() {
       return;
     }
 
+    const executionHooks = [
+      {
+        id: "before-test-hook",
+        name: "Before test",
+        scope: "test",
+        phase: "pre",
+        fail_behavior: "fail-run",
+        target_kind: executionHookDraft.beforeTestKind,
+        target_id: executionHookDraft.beforeTestId
+      },
+      {
+        id: "after-test-hook",
+        name: "After test",
+        scope: "test",
+        phase: "post",
+        fail_behavior: "mark-blocked",
+        target_kind: executionHookDraft.afterTestKind,
+        target_id: executionHookDraft.afterTestId
+      },
+      {
+        id: "before-suite-hook",
+        name: "Before suite",
+        scope: "suite",
+        phase: "pre",
+        fail_behavior: "fail-run",
+        target_kind: executionHookDraft.beforeSuiteKind,
+        target_id: executionHookDraft.beforeSuiteId
+      },
+      {
+        id: "after-suite-hook",
+        name: "After suite",
+        scope: "suite",
+        phase: "post",
+        fail_behavior: "mark-blocked",
+        target_kind: executionHookDraft.afterSuiteKind,
+        target_id: executionHookDraft.afterSuiteId
+      }
+    ].filter((hook) => hook.target_kind !== "none" && hook.target_id);
+
     try {
       const response = await createExecution.mutateAsync({
         project_id: projectId,
@@ -2408,6 +2472,7 @@ export function ExecutionsPage() {
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
+        execution_hooks: executionHooks.length ? executionHooks : undefined,
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: executionName || undefined,
         created_by: session.user.id
@@ -5357,8 +5422,10 @@ export function ExecutionsPage() {
           executionCreateMode={executionCreateMode}
           executionName={executionName}
           integrations={integrations}
+          executionHookDraft={executionHookDraft}
           isPreviewingSmartExecution={previewSmartExecution.isPending}
           isSubmitting={createExecution.isPending}
+          libraryCases={smartExecutionLibraryCases}
           onAssigneeChange={setSelectedExecutionAssigneeId}
           onConfigurationChange={handleExecutionConfigurationChange}
           onDataSetChange={handleExecutionDataSetChange}
@@ -5367,6 +5434,7 @@ export function ExecutionsPage() {
           onClose={closeExecutionBuilder}
           onExecutionCreateModeChange={setExecutionCreateMode}
           onExecutionNameChange={setExecutionName}
+          onExecutionHookDraftChange={setExecutionHookDraft}
           onPreviewSmartExecution={() => void handlePreviewSmartExecution()}
           onProjectChange={handleExecutionProjectChange}
           onSuiteSelectionChange={setSelectedSuiteIds}
@@ -7143,14 +7211,37 @@ function ExecutionStructuredLogView({
 }) {
   const parsed = parseExecutionLogs(logsJson);
   const stepCaptures = mergeExecutionStepCaptures(parsed.stepCaptures || {}, parsed.stepApiDetails || {});
+  const apiDetails = Object.values(parsed.stepApiDetails || {});
+  const webDetails = Object.values(parsed.stepWebDetails || {});
+  const automationDetails = Object.values(parsed.stepAutomationDetails || {});
+  const noteCount = parsed.stepNotes ? Object.values(parsed.stepNotes).filter((value) => String(value || "").trim()).length : 0;
+  const statusCount = parsed.stepStatuses ? Object.keys(parsed.stepStatuses).length : 0;
+  const failedStepCount = parsed.stepStatuses ? Object.values(parsed.stepStatuses).filter((status) => status === "failed").length : 0;
+  const blockedStepCount = parsed.stepStatuses ? Object.values(parsed.stepStatuses).filter((status) => status === "blocked").length : 0;
+  const evidenceEntries = Object.values(parsed.stepEvidence || {});
+  const imageEvidenceCount = evidenceEntries.filter((evidence) => evidence?.dataUrl?.startsWith("data:image")).length;
+  const videoEvidenceCount = evidenceEntries.filter((evidence) => evidence?.dataUrl?.startsWith("data:video")).length;
+  const captureCount = Object.values(stepCaptures).reduce((count, captures) => count + Object.keys(captures || {}).length, 0);
+  const apiStepCount = apiDetails.length;
+  const apiAssertionCount = apiDetails.reduce((count, detail) => count + (detail?.assertions?.length || 0), 0);
+  const failedApiAssertionCount = apiDetails.reduce((count, detail) => count + (detail?.assertions || []).filter((assertion) => assertion && !assertion.passed).length, 0);
+  const consoleCount = webDetails.reduce((count, detail) => count + (detail?.console?.length || 0), 0);
+  const networkCount = webDetails.reduce((count, detail) => count + (detail?.network?.length || 0), 0);
+  const networkIssueCount = webDetails.reduce(
+    (count, detail) => count + (detail?.network || []).filter((entry) => entry?.error || Number(entry?.status || 0) >= 400).length,
+    0
+  );
+  const automationStepCount = automationDetails.length;
   const hasNotes = parsed.stepNotes && Object.keys(parsed.stepNotes).length > 0;
   const hasStatuses = parsed.stepStatuses && Object.keys(parsed.stepStatuses).length > 0;
   const hasEvidence = parsed.stepEvidence && Object.keys(parsed.stepEvidence).length > 0;
   const hasCaptures = Object.keys(stepCaptures).length > 0;
   const hasWebDetails = parsed.stepWebDetails && Object.keys(parsed.stepWebDetails).length > 0;
+  const hasApiDetails = parsed.stepApiDetails && Object.keys(parsed.stepApiDetails).length > 0;
+  const hasAutomationDetails = parsed.stepAutomationDetails && Object.keys(parsed.stepAutomationDetails).length > 0;
   const hasAiAnalysis = Boolean(parsed.aiAnalysis?.response);
 
-  if (!hasNotes && !hasStatuses && !hasEvidence && !hasCaptures && !hasWebDetails && !hasAiAnalysis && !logsJson?.trim()) {
+  if (!hasNotes && !hasStatuses && !hasEvidence && !hasCaptures && !hasWebDetails && !hasApiDetails && !hasAutomationDetails && !hasAiAnalysis && !logsJson?.trim()) {
     return <span className="execution-log-empty">No structured step data recorded yet.</span>;
   }
 
@@ -7159,10 +7250,15 @@ function ExecutionStructuredLogView({
       const st = parsed.stepStatuses?.[step.id];
       const nt = parsed.stepNotes?.[step.id];
       const evidence = parsed.stepEvidence?.[step.id];
+      const apiDetail = parsed.stepApiDetails?.[step.id];
       const webDetail = parsed.stepWebDetails?.[step.id];
+      const automationDetail = parsed.stepAutomationDetails?.[step.id];
       const captures = Object.entries(stepCaptures[step.id] || {}).sort(([left], [right]) => left.localeCompare(right));
+      const apiStatus = apiDetail?.response?.status;
+      const apiAssertions = apiDetail?.assertions || [];
+      const apiFailedAssertions = apiAssertions.filter((assertion) => assertion && !assertion.passed).length;
 
-      if (!st && !nt && !evidence && !captures.length && !webDetail) {
+      if (!st && !nt && !evidence && !captures.length && !apiDetail && !webDetail && !automationDetail) {
         if (!isStepGroupStart(steps, index)) {
           return null;
         }
@@ -7180,7 +7276,7 @@ function ExecutionStructuredLogView({
               </span>
             </div>
           ) : null}
-          {st || nt || evidence || captures.length || webDetail ? (
+          {st || nt || evidence || captures.length || apiDetail || webDetail || automationDetail ? (
             <div className="execution-structured-log-row">
               <strong>Step {step.step_order}</strong>
               {st ? <StatusBadge value={st} /> : null}
@@ -7195,6 +7291,17 @@ function ExecutionStructuredLogView({
                 </button>
               ) : null}
               {nt ? <span className="execution-structured-note">{nt}</span> : null}
+              {apiDetail ? (
+                <span className="execution-structured-note">
+                  {[
+                    apiDetail.request?.method || "API",
+                    apiDetail.request?.url || null,
+                    apiStatus ? `HTTP ${apiStatus}` : "no response status",
+                    apiAssertions.length ? `${apiAssertions.length} assertion${apiAssertions.length === 1 ? "" : "s"}` : null,
+                    apiFailedAssertions ? `${apiFailedAssertions} failed` : null
+                  ].filter(Boolean).join(" · ")}
+                </span>
+              ) : null}
               {webDetail ? (
                 <span className="execution-structured-note">
                   {[
@@ -7202,6 +7309,16 @@ function ExecutionStructuredLogView({
                     webDetail.url || null,
                     `${webDetail.console?.length || 0} console`,
                     `${webDetail.network?.length || 0} network`
+                  ].filter(Boolean).join(" · ")}
+                </span>
+              ) : null}
+              {automationDetail ? (
+                <span className="execution-structured-note">
+                  {[
+                    automationDetail.engine || automationDetail.provider || "automation",
+                    automationDetail.status || null,
+                    typeof automationDetail.active_line === "number" ? `line ${automationDetail.active_line}` : null,
+                    automationDetail.error_message || null
                   ].filter(Boolean).join(" · ")}
                 </span>
               ) : null}
@@ -7224,6 +7341,32 @@ function ExecutionStructuredLogView({
 
   return (
     <div className="execution-structured-log">
+      <div className="execution-log-evidence-grid" aria-label="Execution evidence summary">
+        <span>
+          <strong>{statusCount}/{steps.length}</strong>
+          <small>{failedStepCount || blockedStepCount ? `${failedStepCount} failed · ${blockedStepCount} blocked` : "step outcomes"}</small>
+        </span>
+        <span>
+          <strong>{noteCount + imageEvidenceCount + videoEvidenceCount}</strong>
+          <small>{noteCount} notes · {imageEvidenceCount} images · {videoEvidenceCount} videos</small>
+        </span>
+        <span>
+          <strong>{apiStepCount}</strong>
+          <small>{apiAssertionCount} API assertions · {failedApiAssertionCount} failed</small>
+        </span>
+        <span>
+          <strong>{webDetails.length}</strong>
+          <small>{consoleCount} console · {networkCount} network · {networkIssueCount} issues</small>
+        </span>
+        <span>
+          <strong>{captureCount}</strong>
+          <small>captured runtime values</small>
+        </span>
+        <span>
+          <strong>{automationStepCount}</strong>
+          <small>automation code traces</small>
+        </span>
+      </div>
       {parsed.aiAnalysis ? (
         <div className="execution-structured-log-row execution-structured-log-row--ai">
           <strong>AI analysis</strong>
@@ -7245,18 +7388,22 @@ function ExecutionStructuredLogSummary({ logsJson }: { logsJson: string | null }
   const noteCount = parsed.stepNotes ? Object.values(parsed.stepNotes).filter(Boolean).length : 0;
   const statusCount = parsed.stepStatuses ? Object.keys(parsed.stepStatuses).length : 0;
   const evidenceCount = parsed.stepEvidence ? Object.keys(parsed.stepEvidence).length : 0;
+  const apiTraceCount = parsed.stepApiDetails ? Object.keys(parsed.stepApiDetails).length : 0;
   const webTraceCount = parsed.stepWebDetails ? Object.keys(parsed.stepWebDetails).length : 0;
+  const automationTraceCount = parsed.stepAutomationDetails ? Object.keys(parsed.stepAutomationDetails).length : 0;
   const aiAnalysisCount = parsed.aiAnalysis ? 1 : 0;
   const captureCount = Object.values(stepCaptures).reduce((count, captures) => count + Object.keys(captures || {}).length, 0);
-  if (!noteCount && !statusCount && !evidenceCount && !captureCount && !webTraceCount && !aiAnalysisCount) {
+  if (!noteCount && !statusCount && !evidenceCount && !captureCount && !apiTraceCount && !webTraceCount && !automationTraceCount && !aiAnalysisCount) {
     return <span className="execution-log-summary-muted">No step details</span>;
   }
   const parts = [
     statusCount ? `${statusCount} step result${statusCount === 1 ? "" : "s"}` : null,
     noteCount ? `${noteCount} note${noteCount === 1 ? "" : "s"}` : null,
-    evidenceCount ? `${evidenceCount} image${evidenceCount === 1 ? "" : "s"}` : null,
+    evidenceCount ? `${evidenceCount} media item${evidenceCount === 1 ? "" : "s"}` : null,
     captureCount ? `${captureCount} captured value${captureCount === 1 ? "" : "s"}` : null,
+    apiTraceCount ? `${apiTraceCount} API trace${apiTraceCount === 1 ? "" : "s"}` : null,
     webTraceCount ? `${webTraceCount} web trace${webTraceCount === 1 ? "" : "s"}` : null,
+    automationTraceCount ? `${automationTraceCount} automation trace${automationTraceCount === 1 ? "" : "s"}` : null,
     aiAnalysisCount ? "AI analysis" : null
   ].filter(Boolean);
 
@@ -7304,6 +7451,8 @@ function ExecutionCreateModal({
   selectedExecutionAssigneeId,
   assigneeOptions,
   integrations,
+  executionHookDraft,
+  libraryCases,
   smartExecutionIntegrationId,
   smartExecutionReleaseScope,
   smartExecutionAdditionalContext,
@@ -7315,6 +7464,7 @@ function ExecutionCreateModal({
   smartExecutionPreviewMessage,
   smartExecutionPreviewTone,
   onExecutionNameChange,
+  onExecutionHookDraftChange,
   onEnvironmentChange,
   onConfigurationChange,
   onDataSetChange,
@@ -7356,6 +7506,8 @@ function ExecutionCreateModal({
   selectedExecutionAssigneeId: string;
   assigneeOptions: ExecutionAssigneeOption[];
   integrations: Integration[];
+  executionHookDraft: ExecutionHookDraft;
+  libraryCases: TestCase[];
   smartExecutionIntegrationId: string;
   smartExecutionReleaseScope: string;
   smartExecutionAdditionalContext: string;
@@ -7367,6 +7519,7 @@ function ExecutionCreateModal({
   smartExecutionPreviewMessage: string;
   smartExecutionPreviewTone: "success" | "error";
   onExecutionNameChange: (value: string) => void;
+  onExecutionHookDraftChange: (value: ExecutionHookDraft) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
@@ -7403,6 +7556,58 @@ function ExecutionCreateModal({
     && filteredSmartRequirementOptions.every((requirement) => selectedSmartRequirementIds.includes(requirement.id));
   const selectedSmartCaseCount = selectedSmartExecutionCaseIds.length;
   const areAllSmartCasesSelected = Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
+  const hookTargetOptions = (kind: ExecutionHookTargetKind) => {
+    if (kind === "test") {
+      return libraryCases.map((testCase) => ({ id: testCase.id, label: testCase.title }));
+    }
+
+    if (kind === "suite") {
+      return scopeSuites.map((suite) => ({ id: suite.id, label: suite.name }));
+    }
+
+    return [];
+  };
+  const renderHookTarget = (
+    label: string,
+    kindKey: keyof ExecutionHookDraft,
+    idKey: keyof ExecutionHookDraft
+  ) => {
+    const kind = executionHookDraft[kindKey] as ExecutionHookTargetKind;
+    const options = hookTargetOptions(kind);
+
+    return (
+      <div className="execution-hook-row">
+        <FormField label={label}>
+          <select
+            value={kind}
+            onChange={(event) => onExecutionHookDraftChange({
+              ...executionHookDraft,
+              [kindKey]: event.target.value as ExecutionHookTargetKind,
+              [idKey]: ""
+            })}
+          >
+            <option value="none">No hook</option>
+            <option value="test">Run another test case</option>
+            <option value="suite">Run suite setup/cleanup</option>
+          </select>
+        </FormField>
+        <FormField label="Hook source">
+          <select
+            disabled={kind === "none" || !options.length}
+            value={executionHookDraft[idKey]}
+            onChange={(event) => onExecutionHookDraftChange({ ...executionHookDraft, [idKey]: event.target.value })}
+          >
+            <option value="">{kind === "none" ? "Choose a hook type first" : options.length ? "Select source" : "No sources available"}</option>
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      </div>
+    );
+  };
 
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && onClose()} role="presentation">
@@ -7529,6 +7734,20 @@ function ExecutionCreateModal({
               selectedDataSetId={selectedDataSetId}
               selectedEnvironmentId={selectedEnvironmentId}
             />
+
+            <section className="execution-hooks-panel">
+              <div>
+                <span className="eyebrow">Run hooks</span>
+                <h4>Before and after automation</h4>
+                <p>Select a reusable test case or suite to run as setup/cleanup. QAira resolves the selected source into Test Engine hook steps when the run is queued.</p>
+              </div>
+              <div className="execution-hooks-grid">
+                {renderHookTarget("Before each test", "beforeTestKind", "beforeTestId")}
+                {renderHookTarget("After each test", "afterTestKind", "afterTestId")}
+                {renderHookTarget("Before suite", "beforeSuiteKind", "beforeSuiteId")}
+                {renderHookTarget("After suite", "afterSuiteKind", "afterSuiteId")}
+              </div>
+            </section>
 
             {isSmartMode ? (
               <div className="ai-studio-shell execution-smart-shell">

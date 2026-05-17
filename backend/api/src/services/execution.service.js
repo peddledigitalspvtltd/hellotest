@@ -761,6 +761,7 @@ exports.createExecution = async ({
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  execution_hooks = [],
   assigned_to,
   name,
   created_by,
@@ -909,10 +910,11 @@ exports.createExecution = async ({
         test_data_set_id,
         test_data_set_name,
         test_data_set_snapshot,
+        execution_hooks,
         assigned_to,
         created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       project_id,
@@ -929,6 +931,7 @@ exports.createExecution = async ({
       selectedDataSet?.id || null,
       selectedDataSet?.name || null,
       selectedDataSet?.snapshot || null,
+      Array.isArray(execution_hooks) ? execution_hooks : [],
       resolvedAssignedTo,
       created_by
     );

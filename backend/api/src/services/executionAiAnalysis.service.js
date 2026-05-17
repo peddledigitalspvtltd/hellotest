@@ -2,6 +2,7 @@ const integrationService = require("./integration.service");
 const executionResultService = require("./executionResult.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const MAX_PROMPT_JSON_LENGTH = 18000;
 const MAX_AI_RESPONSE_LENGTH = 12000;
@@ -227,7 +228,8 @@ const requestChatCompletion = async ({ integration, prompt }) => {
     });
 
     if (!response.ok) {
-      throw new Error(`LLM request failed with status ${response.status}`);
+      const raw = await response.text();
+      throw createLlmProviderError({ status: response.status, detail: raw });
     }
 
     const payload = await response.json();

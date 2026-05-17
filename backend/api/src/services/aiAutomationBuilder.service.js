@@ -8,12 +8,14 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 const testEnvironmentService = require("./testEnvironment.service");
 const testConfigurationService = require("./testConfiguration.service");
 const testDataSetService = require("./testDataSet.service");
+const aiKnowledgeService = require("./aiKnowledge.service");
 const {
   normalizeApiRequest,
   normalizeRichText,
   normalizeTestStepType,
   parseJsonValue
 } = require("../utils/testStepAutomation");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const LLM_TIMEOUT_MS = Math.max(10_000, Number(process.env.AUTOMATION_BUILDER_LLM_TIMEOUT_MS || 90_000));
 const ENGINE_TIMEOUT_MS = Math.max(2_000, Number(process.env.AUTOMATION_BUILDER_ENGINE_TIMEOUT_MS || 15_000));
@@ -354,10 +356,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
 
   if (!response.ok) {
     const raw = await response.text();
-    const detail = raw.slice(0, 300).trim();
-    const error = new Error(`LLM request failed with status ${response.status}${detail ? `: ${detail}` : ""}`);
-    error.statusCode = response.status;
-    throw error;
+    throw createLlmProviderError({ status: response.status, detail: raw });
   }
 
   const payload = await response.json();
@@ -385,6 +384,136 @@ const normalizeUrlKey = (value) => {
   }
 };
 
+const toTitleWords = (value) =>
+  String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^A-Za-z0-9\s.]+/g, " ")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const toObjectSegment = (value, fallback = "Object") => {
+  const normalized = toTitleWords(value);
+  return normalized || fallback;
+};
+
+const inferScreenName = (action) => {
+  const title = normalizeText(action?.page_title);
+  if (title && !/^about:blank$/i.test(title)) {
+    return toObjectSegment(title, "Screen").slice(0, 48);
+  }
+
+  const url = normalizeText(action?.url);
+  if (!url) {
+    return "Screen";
+  }
+
+  try {
+    const parsed = new URL(url, "http://qaira.local");
+    const segments = parsed.pathname.split("/").map((part) => normalizeText(part)).filter(Boolean);
+    return toObjectSegment(segments.at(-1) || parsed.hostname || "Screen", "Screen").slice(0, 48);
+  } catch {
+    return toObjectSegment(url.split(/[/?#]/).filter(Boolean).at(-1), "Screen").slice(0, 48);
+  }
+};
+
+const inferObjectRole = (action) => {
+  const type = String(action?.type || "").toLowerCase();
+  const locator = String(action?.locator || "").toLowerCase();
+  const text = String(action?.text || "").toLowerCase();
+
+  if (["fill", "change"].includes(type) || /\b(input|textarea|textbox|email|password|search)\b/.test(`${locator} ${text}`)) {
+    return "field";
+  }
+
+  if (type === "select" || /\b(select|dropdown|combobox)\b/.test(`${locator} ${text}`)) {
+    return "dropdown";
+  }
+
+  if (["check", "uncheck"].includes(type) || /\b(checkbox|radio|switch)\b/.test(`${locator} ${text}`)) {
+    return "toggle";
+  }
+
+  if (["click", "dblclick", "rightclick", "submit"].includes(type)) {
+    return /\blink\b/.test(`${locator} ${text}`) ? "link" : "button";
+  }
+
+  return type || "object";
+};
+
+const inferObjectLabel = (action) => {
+  const text = normalizeText(action?.text);
+  if (text && text.length <= 80) {
+    return text;
+  }
+
+  const locator = normalizeText(action?.locator) || "";
+  const labelMatch = locator.match(/^(?:label|placeholder|text|role)=(.+)$/i);
+  if (labelMatch?.[1]) {
+    return labelMatch[1];
+  }
+
+  const attrMatch = locator.match(/\[(?:aria-label|name|id|data-testid)=["']?([^"'\]]+)["']?\]/i);
+  if (attrMatch?.[1]) {
+    return attrMatch[1];
+  }
+
+  return normalizeText(locator.replace(/[#.[\]'":=]/g, " ").slice(0, 60));
+};
+
+const inferKeywordForAction = (action) => {
+  const type = String(action?.type || "").toLowerCase();
+
+  if (type === "navigation") {
+    return "web.goto";
+  }
+  if (type === "fill" || type === "change") {
+    return "web.fill";
+  }
+  if (type === "select") {
+    return "web.select";
+  }
+  if (type === "check" || type === "uncheck") {
+    return `web.${type}`;
+  }
+  if (type === "dblclick") {
+    return "web.dblclick";
+  }
+  if (type === "rightclick") {
+    return "web.rightClick";
+  }
+  if (type === "press" || type === "tab") {
+    return "web.press";
+  }
+
+  return "web.click";
+};
+
+const buildObjectRepositoryEntry = (action) => {
+  const locator = normalizeText(action?.locator);
+  if (!locator || ["location", "browser.tab", "keyboard", "viewport"].includes(locator)) {
+    return null;
+  }
+
+  const screenName = inferScreenName(action);
+  const role = inferObjectRole(action);
+  const label = inferObjectLabel(action) || `${role} ${action?.index || ""}`.trim();
+  const fieldName = toObjectSegment(label, toObjectSegment(role));
+  const objectName = `${toObjectSegment(screenName, "Screen")}.${fieldName}`;
+
+  return {
+    screen_name: screenName,
+    field_name: fieldName,
+    object_name: objectName,
+    object_role: role,
+    object_label: label,
+    keyword: inferKeywordForAction(action),
+    parameter_hint: role === "field" ? inferRecorderFillValue(action) : null
+  };
+};
+
 const summarizeStep = (step) => ({
   id: step.id,
   order: Number(step.step_order || 0),
@@ -406,6 +535,17 @@ const summarizeCache = (rows = []) =>
     confidence: Number(row.confidence || 0),
     hit_count: Number(row.hit_count || 0)
   }));
+
+const summarizeKnowledge = (rows = []) =>
+  (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      title: row.title,
+      description: row.description || "",
+      content_type: row.content_type || "text",
+      content: normalizeRichText(row.content).slice(0, 4000),
+      source_uri: row.source_uri || null
+    }))
+    .filter((row) => row.title || row.content);
 
 const normalizeCapturedActions = (actions = []) =>
   (Array.isArray(actions) ? actions : [])
@@ -470,6 +610,30 @@ const resolveRecorderTarget = (action) => {
 
 const quoteCodeString = (value) => JSON.stringify(String(value || ""));
 
+const keywordOptionsCode = (options = {}) => {
+  const entries = Object.entries(options).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  if (!entries.length) {
+    return "{}";
+  }
+
+  return `{\n${entries.map(([key, value]) => `  ${key}: ${typeof value === "string" ? quoteCodeString(value) : String(value)}`).join(",\n")}\n}`;
+};
+
+const WEB_ELEMENT_OPTIONS_CODE = keywordOptionsCode({
+  timeoutMs: 10000,
+  scroll: "nearest",
+  waitFor: "visible",
+  force: false
+});
+const WEB_TYPE_OPTIONS_CODE = keywordOptionsCode({
+  timeoutMs: 10000,
+  scroll: "nearest",
+  waitFor: "visible",
+  clear: true,
+  type: "char-by-char",
+  delayMs: 35
+});
+
 const inferRecorderFillValue = (action) => {
   const targetText = `${action.locator || ""} ${action.text || ""}`.toLowerCase();
   const value = normalizeRichText(action.value);
@@ -528,7 +692,7 @@ const buildRecorderStepCandidate = (action, order) => {
         action: type === "submit" ? `Submit ${targetLabel}` : `Click ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-        automation_code: `await web.click(${quoteCodeString(target)});`
+      automation_code: `await web.click(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
       };
     }
 
@@ -544,7 +708,7 @@ const buildRecorderStepCandidate = (action, order) => {
       step_type: "web",
       automation_code: [
         `// TODO: Replace this fallback with a stable locator for the recorded click${position}.`,
-        `await web.click("body");`
+        `await web.click("body", ${WEB_ELEMENT_OPTIONS_CODE});`
       ].join("\n")
     };
   }
@@ -563,7 +727,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `${verb} ${targetLabel}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.${method}(${quoteCodeString(target)});`
+      automation_code: `await web.${method}(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -577,7 +741,7 @@ const buildRecorderStepCandidate = (action, order) => {
         action: `Fill ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-        automation_code: `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)});`
+      automation_code: `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${WEB_TYPE_OPTIONS_CODE});`
       };
     }
 
@@ -589,7 +753,7 @@ const buildRecorderStepCandidate = (action, order) => {
       step_type: "web",
       automation_code: [
         "// TODO: Replace this fallback with a stable locator for the recorded field.",
-        `await web.fill("body", ${quoteCodeString(value)});`
+        `await web.fill("body", ${quoteCodeString(value)}, ${WEB_TYPE_OPTIONS_CODE});`
       ].join("\n")
     };
   }
@@ -604,7 +768,7 @@ const buildRecorderStepCandidate = (action, order) => {
         action: `Select ${describeRecorderTarget(action, value)} in ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-        automation_code: `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)});`
+      automation_code: `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${WEB_ELEMENT_OPTIONS_CODE});`
       };
     }
 
@@ -616,7 +780,7 @@ const buildRecorderStepCandidate = (action, order) => {
       step_type: "web",
       automation_code: [
         "// TODO: Replace this fallback with a stable locator for the recorded dropdown.",
-        `await web.select("select", ${quoteCodeString(value)});`
+        `await web.select("select", ${quoteCodeString(value)}, ${WEB_ELEMENT_OPTIONS_CODE});`
       ].join("\n")
     };
   }
@@ -632,7 +796,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `${type === "check" ? "Check" : "Uncheck"} ${targetLabel}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.${type}(${quoteCodeString(target)});`
+      automation_code: `await web.${type}(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -645,7 +809,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `Press ${normalizedKey}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press("", ${quoteCodeString(normalizedKey)});`
+      automation_code: `await web.press("", ${quoteCodeString(normalizedKey)}, ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -656,7 +820,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Press Tab",
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press("", "Tab");`
+      automation_code: `await web.press("", "Tab", ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -677,7 +841,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Scroll page",
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.scroll(${Number.isFinite(deltaX) ? deltaX : 0}, ${Number.isFinite(deltaY) ? deltaY : 600});`
+      automation_code: `await web.scroll(${Number.isFinite(deltaX) ? deltaX : 0}, ${Number.isFinite(deltaY) ? deltaY : 600}, ${keywordOptionsCode({ direction: Number(deltaY) < 0 ? "up" : "down", amount: Math.abs(Number(deltaY) || 600) })});`
     };
   }
 
@@ -1032,6 +1196,7 @@ const buildPrompt = ({
   testCase,
   steps,
   cacheRows,
+  knowledgeRows,
   capturedActions,
   capturedNetwork,
   buildContext,
@@ -1044,6 +1209,9 @@ const buildPrompt = ({
     "Runtime contract:",
     "- Use QAira keyword/facade calls only: web.goto, web.click, web.dblclick, web.rightClick, web.fill, web.select, web.check, web.uncheck, web.press, web.scroll, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
     "- Each step automation_code must be executable JavaScript statements, not a full Playwright test file.",
+    "- Include tweakable element-level option objects directly in keyword calls where relevant: timeoutMs, scroll, waitFor, force, clear, type, delayMs, direction, amount, match.",
+    "- For text entry, prefer char-by-char typing by default: web.fill(target, value, { timeoutMs: 10000, scroll: \"nearest\", waitFor: \"visible\", clear: true, type: \"char-by-char\", delayMs: 35 }).",
+    "- For scrolls, use web.scroll(0, 600, { direction: \"down\", amount: 600 }) or direction \"up\" when reversing.",
     "- Prefer semantic locators: getByRole-style text, labels, placeholders, data-testid, id/name, then CSS. In QAira keyword code pass the best target string to web.click/web.fill/etc.",
     "- Use @t.variable_name tokens when the manual case implies reusable data.",
     "- For API requests inferred from captured network, create api_request objects only for meaningful business API calls and ignore analytics, fonts, images, telemetry, auth refresh noise, and static assets.",
@@ -1091,7 +1259,10 @@ const buildPrompt = ({
     JSON.stringify(safeJson(testCase.parameter_values, {}), null, 2),
     "",
     "Learning cache:",
-    JSON.stringify(summarizeCache(cacheRows), null, 2)
+    JSON.stringify(summarizeCache(cacheRows), null, 2),
+    "",
+    "AI Knowledge / local agent education:",
+    JSON.stringify(summarizeKnowledge(knowledgeRows), null, 2)
   ];
 
   if (capturedActions.length) {
@@ -1174,27 +1345,27 @@ const buildDeterministicWebCode = (step, cacheRows, startUrl) => {
   const urlMatch = action.match(/https?:\/\/\S+|\/[A-Za-z0-9_./?=&%-]+/);
 
   if (/\b(open|navigate|go to|launch)\b/i.test(action)) {
-    lines.push(`await web.goto(${JSON.stringify(urlMatch?.[0] || startUrl || "/")});`);
+    lines.push(`await web.goto(${JSON.stringify(urlMatch?.[0] || startUrl || "/")}, ${keywordOptionsCode({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`);
   } else if (/\b(click|tap|select|choose)\b/i.test(action)) {
-    lines.push(`await web.click(${JSON.stringify(target)});`);
+    lines.push(`await web.click(${JSON.stringify(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`);
   } else if (/\b(enter|type|fill|input)\b/i.test(action)) {
     const value = inferQuotedText(action) || "@t.value";
-    lines.push(`await web.fill(${JSON.stringify(target)}, ${JSON.stringify(value)});`);
+    lines.push(`await web.fill(${JSON.stringify(target)}, ${JSON.stringify(value)}, ${WEB_TYPE_OPTIONS_CODE});`);
   } else if (/\b(wait)\b/i.test(action)) {
     lines.push("await web.wait(1000);");
   } else if (/\b(press)\b/i.test(action)) {
-    lines.push(`await web.press(${JSON.stringify(target)}, "Enter");`);
+    lines.push(`await web.press(${JSON.stringify(target)}, "Enter", ${WEB_ELEMENT_OPTIONS_CODE});`);
   } else {
-    lines.push(`await web.expectVisible(${JSON.stringify(target)});`);
+    lines.push(`await web.expectVisible(${JSON.stringify(target)}, ${keywordOptionsCode({ timeoutMs: 10000, state: "visible" })});`);
   }
 
   if (expected) {
     const expectedQuoted = inferQuotedText(expected) || expected.replace(/^verify\s+(?:that\s+)?/i, "").slice(0, 120);
 
     if (/\b(url|redirect)\b/i.test(expected)) {
-      lines.push(`await web.expectUrl(${JSON.stringify(expectedQuoted)});`);
+      lines.push(`await web.expectUrl(${JSON.stringify(expectedQuoted)}, ${keywordOptionsCode({ timeoutMs: 10000, match: "contains" })});`);
     } else {
-      lines.push(`await web.expectText("body", ${JSON.stringify(expectedQuoted)});`);
+      lines.push(`await web.expectText("body", ${JSON.stringify(expectedQuoted)}, ${keywordOptionsCode({ timeoutMs: 10000, match: "contains" })});`);
     }
   }
 
@@ -1346,6 +1517,8 @@ const persistLearning = async ({ testCase, learnedLocators, capturedActions, cap
       continue;
     }
 
+    const objectRepositoryEntry = buildObjectRepositoryEntry(action);
+
     await upsertLearningCache.run(
       uuid(),
       testCase.project_id || null,
@@ -1353,14 +1526,15 @@ const persistLearning = async ({ testCase, learnedLocators, capturedActions, cap
       testCase.id,
       action.url || null,
       normalizeUrlKey(action.url),
-      action.text || action.type || "recorded action",
+      objectRepositoryEntry?.object_name || action.text || action.type || "recorded action",
       action.locator,
       "recorder",
-      0.72,
-      "recorder",
+      objectRepositoryEntry ? 0.82 : 0.72,
+      objectRepositoryEntry ? "object_repository" : "recorder",
       {
         action_type: action.type,
-        value_captured: Boolean(action.value)
+        value_captured: Boolean(action.value),
+        ...(objectRepositoryEntry || {})
       }
     );
     persisted += 1;
@@ -1439,6 +1613,10 @@ const buildCaseCore = async ({
     appTypeId: testCase.app_type_id || null,
     limit: MAX_CACHE_ROWS
   });
+  const knowledgeRows = await aiKnowledgeService.getActiveKnowledgeForLLM(
+    testCase.project_id || null,
+    testCase.app_type_id || null
+  );
   const capturedActions = normalizeCapturedActions(captured_actions);
   const capturedNetwork = normalizeCapturedNetwork(captured_network);
   const buildContext = await resolveBuildContext({
@@ -1454,11 +1632,12 @@ const buildCaseCore = async ({
 
   await appendEvent(transaction_id, {
     phase: "automation.context",
-    message: `Packed ${steps.length} manual step${steps.length === 1 ? "" : "s"} with ${cacheRows.length} cached locator learning item${cacheRows.length === 1 ? "" : "s"}.`,
+    message: `Packed ${steps.length} manual step${steps.length === 1 ? "" : "s"} with ${cacheRows.length} cached locator learning item${cacheRows.length === 1 ? "" : "s"} and ${knowledgeRows.length} active knowledge item${knowledgeRows.length === 1 ? "" : "s"}.`,
     details: {
       test_case_id,
       step_count: steps.length,
       cache_hits: cacheRows.length,
+      knowledge_items: knowledgeRows.length,
       captured_actions: capturedActions.length,
       captured_network: capturedNetwork.length,
       test_environment_id: buildContext.environment?.id || null,
@@ -1479,6 +1658,7 @@ const buildCaseCore = async ({
         testCase,
         steps,
         cacheRows,
+        knowledgeRows,
         capturedActions,
         capturedNetwork,
         buildContext,

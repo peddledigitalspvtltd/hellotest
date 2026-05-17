@@ -9,6 +9,41 @@ import { ToastMessage } from "../components/ToastMessage";
 import { FormField } from "../components/FormField";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 
+const agentEducationTemplates = [
+  {
+    title: "Object repository naming rules",
+    description: "Teach QAira how your screens, fields, and business objects should be named.",
+    content_type: "markdown",
+    content: [
+      "# Object repository naming rules",
+      "- Screen names:",
+      "- Field naming convention:",
+      "- Preferred locator order:",
+      "- Labels that map to the same business field:",
+      "- Components that require special handling:"
+    ].join("\n")
+  },
+  {
+    title: "Auto-heal behavior",
+    description: "Describe acceptable locator fallbacks and when the local agent must stop.",
+    content_type: "markdown",
+    content: [
+      "# Auto-heal behavior",
+      "- Safe fallback locators:",
+      "- Labels/placeholders that are stable:",
+      "- Text that is dynamic and should not be used:",
+      "- Before retrying a click:",
+      "- Stop and ask for review when:"
+    ].join("\n")
+  },
+  {
+    title: "Application documents",
+    description: "Attach a URL, PDF reference, or release note that explains the app workflow.",
+    content_type: "url",
+    content: "https://"
+  }
+];
+
 export function KnowledgeRepoPage() {
   const queryClient = useQueryClient();
   const [projectId] = useCurrentProject();
@@ -61,6 +96,18 @@ export function KnowledgeRepoPage() {
   const handleOpenCreateModal = () => {
     setEditingId(null);
     setDraft({ title: "", description: "", content_type: "text", content: "", is_active: true });
+    setIsModalOpen(true);
+  };
+
+  const handleOpenTemplate = (template: typeof agentEducationTemplates[number]) => {
+    setEditingId(null);
+    setDraft({
+      title: template.title,
+      description: template.description,
+      content_type: template.content_type,
+      content: template.content,
+      is_active: true
+    });
     setIsModalOpen(true);
   };
 
@@ -119,7 +166,7 @@ export function KnowledgeRepoPage() {
       <ToastMessage message={message} tone={messageTone} onDismiss={() => setMessage("")} />
       
       <div className="workspace-main">
-        <PageHeader eyebrow="Administration" title="AI Knowledge Base" description="Train the AI on your domain-specific rules, flows, and terminology." />
+        <PageHeader eyebrow="Administration" title="AI Knowledge Base" description="Educate QAira's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal." />
         
         <div className="workspace-toolbar">
           <div className="workspace-toolbar-actions">
@@ -131,6 +178,22 @@ export function KnowledgeRepoPage() {
         </div>
 
         <div className="workspace-content">
+          <section className="agent-education-panel">
+            <div>
+              <span className="eyebrow">Local agent education</span>
+              <h2>Give auto-heal the context it cannot infer from code alone</h2>
+              <p>Active knowledge is packed with object repository entries, test cases, recorder screenshots, and external documents when QAira builds or repairs automation.</p>
+            </div>
+            <div className="agent-education-grid">
+              {agentEducationTemplates.map((template) => (
+                <button className="agent-education-card" disabled={!projectId} key={template.title} onClick={() => handleOpenTemplate(template)} type="button">
+                  <strong>{template.title}</strong>
+                  <span>{template.description}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
           <DataTable
             rows={items}
             columns={[
@@ -214,7 +277,10 @@ export function KnowledgeRepoPage() {
                     onChange={(e) => setDraft({ ...draft, content_type: e.target.value })}
                   >
                     <option value="text">Text / Rules</option>
+                    <option value="markdown">Markdown Playbook</option>
                     <option value="url">URL Reference</option>
+                    <option value="pdf">PDF Reference</option>
+                    <option value="image">Screenshot / Image Notes</option>
                   </select>
                 </FormField>
 

@@ -2,6 +2,7 @@ const integrationService = require("./integration.service");
 const testCaseService = require("./testCase.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const DEFAULT_CASE_LIMIT = 8;
 
@@ -321,14 +322,12 @@ const requestChatCompletion = async ({ integration, content }) => {
 
   if (!response.ok) {
     const raw = await response.text();
-    const detail = raw.slice(0, 200).trim();
-    const error = new Error(`LLM request failed with status ${response.status}${detail ? `: ${detail}` : ""}`);
-    error.statusCode = response.status;
     const retryAfter = Number(response.headers.get("retry-after"));
-    if (Number.isFinite(retryAfter) && retryAfter > 0) {
-      error.retryAfterMs = Math.min(retryAfter * 1000, 60_000);
-    }
-    throw error;
+    throw createLlmProviderError({
+      status: response.status,
+      detail: raw,
+      retryAfterMs: Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 60_000) : undefined
+    });
   }
 
   const payload = await response.json();

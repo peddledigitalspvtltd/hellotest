@@ -34,6 +34,36 @@ const resolveTimeoutPolicy = (envelope) => ({
     assertion: normalizePositiveInteger(envelope.timeouts?.assertion_timeout_ms, 10_000, 250, 120_000),
     recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 30_000)
 });
+const clampTimeout = (value, fallback) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.min(Math.max(250, numeric), 120_000) : fallback;
+};
+const normalizeElementOptions = (options, fallbackTimeout = 10_000) => ({
+    timeoutMs: clampTimeout(options?.timeoutMs, fallbackTimeout),
+    scroll: options?.scroll ?? "nearest",
+    waitFor: options?.waitFor || "visible",
+    force: options?.force === true,
+    trial: options?.trial === true
+});
+const resolveScrollDelta = (deltaX, deltaY, options) => {
+    const amount = Math.max(1, Math.abs(Number(options?.amount || 0)) || Math.max(Math.abs(Number(deltaY || 0)), Math.abs(Number(deltaX || 0)), 600));
+    if (options?.direction === "up") {
+        return { x: 0, y: -amount };
+    }
+    if (options?.direction === "down") {
+        return { x: 0, y: amount };
+    }
+    if (options?.direction === "left") {
+        return { x: -amount, y: 0 };
+    }
+    if (options?.direction === "right") {
+        return { x: amount, y: 0 };
+    }
+    return {
+        x: Number.isFinite(Number(options?.deltaX)) ? Number(options?.deltaX) : Number(deltaX || 0),
+        y: Number.isFinite(Number(options?.deltaY)) ? Number(options?.deltaY) : Number(deltaY ?? 600)
+    };
+};
 const shouldRecordVideo = (envelope) => envelope.artifact_policy?.video_mode !== "off";
 const shouldLaunchHeadless = (envelope) => {
     if (envelope.headless !== false) {
@@ -547,36 +577,71 @@ class PlaywrightWebSession {
         }
         throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${tokens.text}" in the browser page`);
     }
-    async goto(target) {
+    async prepareLocator(target, options, fallbackTimeout = this.timeouts.action) {
+        const normalized = normalizeElementOptions(options, fallbackTimeout);
+        const locator = await this.resolveLocator(target);
+        if (normalized.waitFor !== "hidden" && normalized.waitFor !== "detached") {
+            await locator.waitFor({ state: normalized.waitFor, timeout: normalized.timeoutMs });
+        }
+        if (normalized.scroll && normalized.scroll !== "none") {
+            await locator.scrollIntoViewIfNeeded({ timeout: normalized.timeoutMs }).catch(() => undefined);
+        }
+        return { locator, options: normalized };
+    }
+    async goto(target, options) {
         await this.pageOrThrow.goto(target, {
-            waitUntil: "domcontentloaded",
-            timeout: Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), this.timeouts.navigation)
+            waitUntil: options?.waitUntil || "domcontentloaded",
+            timeout: clampTimeout(options?.timeoutMs, Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), this.timeouts.navigation))
         });
     }
-    async click(target) {
-        const locator = await this.resolveLocator(target);
-        await locator.click();
+    async click(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.click({
+            force: prepared.options.force,
+            trial: prepared.options.trial,
+            timeout: prepared.options.timeoutMs
+        });
     }
-    async dblclick(target) {
-        const locator = await this.resolveLocator(target);
-        await locator.dblclick();
+    async dblclick(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.dblclick({
+            force: prepared.options.force,
+            trial: prepared.options.trial,
+            timeout: prepared.options.timeoutMs
+        });
     }
-    async rightClick(target) {
-        const locator = await this.resolveLocator(target);
-        await locator.click({ button: "right" });
+    async rightClick(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.click({
+            button: "right",
+            force: prepared.options.force,
+            trial: prepared.options.trial,
+            timeout: prepared.options.timeoutMs
+        });
     }
-    async fill(target, value) {
-        const locator = await this.resolveLocator(target);
+    async fill(target, value, options) {
+        const prepared = await this.prepareLocator(target, options);
+        const locator = prepared.locator;
+        const fillOptions = {
+            ...prepared.options,
+            clear: options?.clear !== false,
+            type: options?.type || "fill",
+            delayMs: Math.max(0, Number(options?.delayMs || 0))
+        };
         const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
         const editableDescendantCount = await editableDescendant.count().catch(() => 0);
-        if (editableDescendantCount > 0) {
-            await editableDescendant.fill(value);
+        const targetLocator = editableDescendantCount > 0 ? editableDescendant : locator;
+        if (fillOptions.type === "char-by-char") {
+            if (fillOptions.clear) {
+                await targetLocator.fill("", { timeout: fillOptions.timeoutMs });
+            }
+            await targetLocator.pressSequentially(value, { delay: fillOptions.delayMs, timeout: fillOptions.timeoutMs });
             return;
         }
-        await locator.fill(value);
+        await targetLocator.fill(value, { timeout: fillOptions.timeoutMs });
     }
-    async select(target, value) {
-        const locator = await this.resolveLocator(target);
+    async select(target, value, options) {
+        const prepared = await this.prepareLocator(target, options);
         const optionValue = (() => {
             try {
                 const parsed = JSON.parse(value);
@@ -586,60 +651,65 @@ class PlaywrightWebSession {
                 return value;
             }
         })();
-        await locator.selectOption(optionValue);
+        await prepared.locator.selectOption(optionValue, { timeout: prepared.options.timeoutMs });
     }
-    async check(target) {
-        const locator = await this.resolveLocator(target);
-        await locator.check();
+    async check(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.check({ force: prepared.options.force, trial: prepared.options.trial, timeout: prepared.options.timeoutMs });
     }
-    async uncheck(target) {
-        const locator = await this.resolveLocator(target);
-        await locator.uncheck();
+    async uncheck(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.uncheck({ force: prepared.options.force, trial: prepared.options.trial, timeout: prepared.options.timeoutMs });
     }
-    async press(target, key) {
+    async press(target, key, options) {
         if (!target) {
             await this.pageOrThrow.keyboard.press(key);
             return;
         }
-        const locator = await this.resolveLocator(target);
-        await locator.press(key);
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.press(key, { timeout: prepared.options.timeoutMs });
     }
-    async scroll(deltaX = 0, deltaY = 600) {
-        await this.pageOrThrow.mouse.wheel(deltaX, deltaY);
+    async scroll(deltaX = 0, deltaY = 600, options) {
+        const delta = resolveScrollDelta(deltaX, deltaY, options);
+        await this.pageOrThrow.mouse.wheel(delta.x, delta.y);
     }
     async waitForTimeout(ms) {
         await this.pageOrThrow.waitForTimeout(Math.max(0, ms));
     }
-    async waitForUrl(expected) {
+    async waitForUrl(expected, options) {
         const resolved = stripWrappingQuotes(expected);
         await this.pageOrThrow.waitForURL((url) => url.toString().includes(resolved), {
-            timeout: this.timeouts.assertion
+            timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion)
         });
     }
-    async expectVisible(target) {
-        const locator = await this.resolveLocator(target);
+    async expectVisible(target, options) {
+        const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
+        const locator = prepared.locator;
         const isVisible = await locator.isVisible();
         if (!isVisible) {
             throw new Error(`Expected ${target} to be visible`);
         }
     }
-    async expectText(target, expected) {
+    async expectText(target, expected, options) {
+        const normalized = normalizeElementOptions(options, this.timeouts.assertion);
         if (!target) {
-            await this.pageOrThrow.getByText(expected, { exact: false }).first().waitFor({ state: "visible", timeout: this.timeouts.assertion });
+            await this.pageOrThrow.getByText(expected, { exact: options?.match === "equals" }).first().waitFor({ state: "visible", timeout: normalized.timeoutMs });
             return;
         }
-        const actual = await this.text(target);
-        if (!actual.includes(expected)) {
+        const actual = await this.text(target, options);
+        const passed = options?.match === "equals" ? actual === expected : actual.includes(expected);
+        if (!passed) {
             throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
         }
     }
-    async text(target) {
-        const locator = await this.resolveLocator(target);
-        return ((await locator.textContent()) || "").trim();
+    async text(target, options) {
+        const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
+        const value = (await prepared.locator.textContent({ timeout: prepared.options.timeoutMs })) || "";
+        return options?.trim === false ? value : value.trim();
     }
-    async value(target) {
-        const locator = await this.resolveLocator(target);
-        return await locator.inputValue();
+    async value(target, options) {
+        const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
+        return await prepared.locator.inputValue({ timeout: prepared.options.timeoutMs });
     }
     async screenshot(label) {
         const buffer = await this.pageOrThrow.screenshot({
@@ -841,7 +911,7 @@ class SeleniumWebSession {
         }
         throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${target}" in Selenium`);
     }
-    async goto(target) {
+    async goto(target, _options) {
         await this.driverOrThrow.get(target);
         this.networkEntries.push({
             method: "GET",
@@ -851,44 +921,56 @@ class SeleniumWebSession {
             timestamp: new Date().toISOString()
         });
     }
-    async click(target) {
+    async click(target, _options) {
         const element = await this.resolveElement(target);
         await element.click();
     }
-    async dblclick(target) {
+    async dblclick(target, _options) {
         const element = await this.resolveElement(target);
         await this.driverOrThrow.actions().doubleClick(element).perform();
     }
-    async rightClick(target) {
+    async rightClick(target, _options) {
         const element = await this.resolveElement(target);
         await this.driverOrThrow.actions().contextClick(element).perform();
     }
-    async fill(target, value) {
+    async fill(target, value, options) {
         const element = await this.resolveElement(target);
         const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
         const targetElement = descendants[0] || element;
-        await targetElement.clear();
+        if (options?.clear !== false) {
+            await targetElement.clear();
+        }
+        if (options?.type === "char-by-char") {
+            const delayMs = Math.max(0, Number(options.delayMs || 0));
+            for (const char of value) {
+                await targetElement.sendKeys(char);
+                if (delayMs) {
+                    await this.driverOrThrow.sleep(delayMs);
+                }
+            }
+            return;
+        }
         await targetElement.sendKeys(value);
     }
-    async select(target, value) {
+    async select(target, value, _options) {
         const element = await this.resolveElement(target);
         await this.driverOrThrow.executeScript("const element = arguments[0]; const raw = arguments[1]; const values = (() => { try { const parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed.map(String) : [String(raw)]; } catch { return [String(raw)]; } })(); Array.from(element.options || []).forEach((option) => { option.selected = values.includes(String(option.value)); }); if (!element.multiple) element.value = values[0] || ''; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }));", element, value);
     }
-    async check(target) {
+    async check(target, _options) {
         const element = await this.resolveElement(target);
         const checked = await element.isSelected().catch(() => false);
         if (!checked) {
             await element.click();
         }
     }
-    async uncheck(target) {
+    async uncheck(target, _options) {
         const element = await this.resolveElement(target);
         const checked = await element.isSelected().catch(() => false);
         if (checked) {
             await element.click();
         }
     }
-    async press(target, key) {
+    async press(target, key, _options) {
         const seleniumKey = Key[key.toUpperCase()] || key;
         if (!target) {
             await this.driverOrThrow.actions().sendKeys(seleniumKey).perform();
@@ -897,23 +979,24 @@ class SeleniumWebSession {
         const element = await this.resolveElement(target);
         await element.sendKeys(seleniumKey);
     }
-    async scroll(deltaX = 0, deltaY = 600) {
-        await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", deltaX, deltaY);
+    async scroll(deltaX = 0, deltaY = 600, options) {
+        const delta = resolveScrollDelta(deltaX, deltaY, options);
+        await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", delta.x, delta.y);
     }
     async waitForTimeout(ms) {
         await this.driverOrThrow.sleep(Math.max(0, ms));
     }
-    async waitForUrl(expected) {
-        await this.driverOrThrow.wait(until.urlContains(stripWrappingQuotes(expected)), this.timeouts.assertion);
+    async waitForUrl(expected, options) {
+        await this.driverOrThrow.wait(until.urlContains(stripWrappingQuotes(expected)), clampTimeout(options?.timeoutMs, this.timeouts.assertion));
     }
-    async expectVisible(target) {
+    async expectVisible(target, _options) {
         const element = await this.resolveElement(target);
         const visible = await element.isDisplayed();
         if (!visible) {
             throw new Error(`Expected ${target} to be visible`);
         }
     }
-    async expectText(target, expected) {
+    async expectText(target, expected, options) {
         if (!target) {
             const source = await this.driverOrThrow.getPageSource();
             if (!source.includes(expected)) {
@@ -922,15 +1005,17 @@ class SeleniumWebSession {
             return;
         }
         const actual = await this.text(target);
-        if (!actual.includes(expected)) {
+        const passed = options?.match === "equals" ? actual === expected : actual.includes(expected);
+        if (!passed) {
             throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
         }
     }
-    async text(target) {
+    async text(target, options) {
         const element = await this.resolveElement(target);
-        return (await element.getText()) || "";
+        const value = (await element.getText()) || "";
+        return options?.trim === false ? value : value.trim();
     }
-    async value(target) {
+    async value(target, _options) {
         const element = await this.resolveElement(target);
         return (await element.getAttribute("value")) || "";
     }
@@ -1096,29 +1181,29 @@ const buildBindings = (session, context, captures, envelope) => {
     };
     const web = {
         step: async (_title, fn) => fn(),
-        goto: async (target) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
-        click: async (target) => session.click(interpolateText(target, context)),
-        dblclick: async (target) => session.dblclick(interpolateText(target, context)),
-        rightClick: async (target) => session.rightClick(interpolateText(target, context)),
-        fill: async (target, value) => session.fill(interpolateText(target, context), interpolateText(value, context)),
-        select: async (target, value) => session.select(interpolateText(target, context), interpolateText(value, context)),
-        check: async (target) => session.check(interpolateText(target, context)),
-        uncheck: async (target) => session.uncheck(interpolateText(target, context)),
-        press: async (target, key) => session.press(interpolateText(target, context), interpolateText(key, context)),
-        scroll: async (deltaX, deltaY) => session.scroll(deltaX, deltaY),
+        goto: async (target, options) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
+        click: async (target, options) => session.click(interpolateText(target, context), options),
+        dblclick: async (target, options) => session.dblclick(interpolateText(target, context), options),
+        rightClick: async (target, options) => session.rightClick(interpolateText(target, context), options),
+        fill: async (target, value, options) => session.fill(interpolateText(target, context), interpolateText(value, context), options),
+        select: async (target, value, options) => session.select(interpolateText(target, context), interpolateText(value, context), options),
+        check: async (target, options) => session.check(interpolateText(target, context), options),
+        uncheck: async (target, options) => session.uncheck(interpolateText(target, context), options),
+        press: async (target, key, options) => session.press(interpolateText(target, context), interpolateText(key, context), options),
+        scroll: async (deltaX, deltaY, options) => session.scroll(deltaX, deltaY, options),
         wait: async (ms) => session.waitForTimeout(ms),
         waitForTimeout: async (ms) => session.waitForTimeout(ms),
-        expectText: async (first, second) => {
+        expectText: async (first, second, options) => {
             if (second === undefined || second === null) {
-                await session.expectText(null, interpolateText(first, context));
+                await session.expectText(null, interpolateText(first, context), options);
                 return;
             }
-            await session.expectText(interpolateText(first, context), interpolateText(second, context));
+            await session.expectText(interpolateText(first, context), interpolateText(second, context), options);
         },
-        expectVisible: async (target) => session.expectVisible(interpolateText(target, context)),
-        expectUrl: async (expected) => session.waitForUrl(interpolateText(expected, context)),
-        text: async (target) => session.text(interpolateText(target, context)),
-        value: async (target) => session.value(interpolateText(target, context)),
+        expectVisible: async (target, options) => session.expectVisible(interpolateText(target, context), options),
+        expectUrl: async (expected, options) => session.waitForUrl(interpolateText(expected, context), options),
+        text: async (target, options) => session.text(interpolateText(target, context), options),
+        value: async (target, options) => session.value(interpolateText(target, context), options),
         resolve: (value) => interpolateText(value, context),
         capture
     };

@@ -93,7 +93,7 @@ export type ExecutionLogsPayload = {
 };
 
 const isExecutionEvidenceDataUrl = (value: string) =>
-  /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(value.trim());
+  /^data:(image|video)\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(value.trim());
 
 const normalizeStepEvidence = (value: unknown): Record<string, ExecutionStepEvidence> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

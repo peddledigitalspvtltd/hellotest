@@ -205,6 +205,7 @@ const statements = [
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_data_set_name TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_trigger_check`,
   `ALTER TABLE executions ADD CONSTRAINT executions_trigger_check CHECK (trigger IN ('manual', 'ci', 'local'))`,

@@ -70,6 +70,22 @@ const getStoredToken = () => {
   }
 };
 
+const isSessionAuthFailure = (path: string, message: string) => {
+  if (path.startsWith("/auth/")) {
+    return path === "/auth/session";
+  }
+
+  return [
+    "missing bearer token",
+    "invalid token",
+    "invalid token format",
+    "invalid token structure",
+    "invalid token signature",
+    "token expired",
+    "token verification failed"
+  ].some((needle) => message.toLowerCase().includes(needle));
+};
+
 export const sessionStorage = {
   read(): SessionPayload | null {
     const raw = window.localStorage.getItem(SESSION_KEY);
@@ -120,21 +136,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`Unable to reach API at ${API_BASE_URL}. Check your connection and try again.`);
   }
 
-  // Handle authentication errors
-  if (response.status === 401 && token) {
-    sessionStorage.clear();
-
-    if (!path.startsWith("/auth/")) {
-      window.location.href = "/auth";
-    }
-  }
-
   const isJson = response.headers.get("content-type")?.includes("application/json");
   const payload = isJson ? await response.json() : null;
 
   if (!response.ok) {
     const error = (payload || {}) as ApiError;
     const message = error.message || `Request failed with status ${response.status}`;
+
+    if (response.status === 401 && token && isSessionAuthFailure(path, message)) {
+      sessionStorage.clear();
+
+      if (!path.startsWith("/auth/")) {
+        window.location.href = "/auth";
+      }
+    }
+
     throw new Error(message);
   }
 
@@ -708,7 +724,7 @@ export const api = {
       request<Execution>(`/executions/${id}`),
     previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release_scope?: string; additional_context?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; assigned_to?: string; name?: string; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string }) =>
       request<{ id: string }>("/executions", { method: "POST", body: JSON.stringify(input) }),
     createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; assigned_to?: string; name?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),

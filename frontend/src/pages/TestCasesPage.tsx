@@ -793,7 +793,7 @@ export function TestCasesPage() {
   const [suiteLinkDraftIds, setSuiteLinkDraftIds] = useState<string[]>([]);
   const [editingAutomationStepId, setEditingAutomationStepId] = useState("");
   const [rephrasingStepId, setRephrasingStepId] = useState("");
-  const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string } | null>(null);
+  const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string; objectRepository?: AutomationLearningCacheEntry[] } | null>(null);
   const caseSectionRef = useRef<HTMLDivElement | null>(null);
   const suppressCaseSelectionFromUrlRef = useRef(false);
   const [createSuiteContextId, setCreateSuiteContextId] = useState("");
@@ -4735,7 +4735,7 @@ export function TestCasesPage() {
           type="button"
         >
           <TestCaseRunIcon />
-          <span>{isSelectedCaseRunning ? "Starting…" : "Run test"}</span>
+          <span>{isSelectedCaseRunning ? "Starting…" : "Run in Test Engine"}</span>
         </button>
       ) : null}
       {selectedTestCase && supportsLocalDesktopExecution ? (
@@ -4747,7 +4747,7 @@ export function TestCasesPage() {
           type="button"
         >
           <TestCaseRunIcon />
-          <span>{isSelectedCaseLocalRunning ? "Starting…" : "Local run"}</span>
+          <span>{isSelectedCaseLocalRunning ? "Starting…" : "Run local Playwright"}</span>
         </button>
       ) : null}
       {selectedTestCase ? (
@@ -5235,7 +5235,8 @@ export function TestCasesPage() {
     setCodePreviewState({
       title: "Test case automation",
       subtitle: "This consolidated view is read-only here. Edit automation from individual steps.",
-      code: buildCaseAutomationCode(caseDraft.title || selectedTestCase?.title || "Test case", displaySteps)
+      code: buildCaseAutomationCode(caseDraft.title || selectedTestCase?.title || "Test case", displaySteps),
+      objectRepository: automationLearningCache
     });
   };
 
@@ -5243,7 +5244,8 @@ export function TestCasesPage() {
     setCodePreviewState({
       title: `${groupName} automation`,
       subtitle: "This consolidated group view is read-only. Update code from the steps inside the group.",
-      code: buildGroupAutomationCode(groupName, groupSteps)
+      code: buildGroupAutomationCode(groupName, groupSteps),
+      objectRepository: automationLearningCache
     });
   };
 
@@ -6404,7 +6406,7 @@ export function TestCasesPage() {
                                 type="button"
                               >
                                 <TestCaseRunIcon />
-                                <span>{isSelectedCaseLocalRunning ? "Starting..." : "Run locally"}</span>
+                                <span>{isSelectedCaseLocalRunning ? "Starting..." : "Run local Playwright"}</span>
                               </button>
                             </div>
                           ) : null}
@@ -6569,6 +6571,7 @@ export function TestCasesPage() {
       {codePreviewState ? (
         <CodePreviewDialog
           code={codePreviewState.code}
+          objectRepository={codePreviewState.objectRepository}
           onClose={() => setCodePreviewState(null)}
           subtitle={codePreviewState.subtitle}
           title={codePreviewState.title}
@@ -6959,16 +6962,21 @@ function AutomationScriptLens({
 function AutomationLearningMemory({ entries }: { entries: AutomationLearningCacheEntry[] }) {
   const topEntries = entries.slice(0, 6);
   const strongEntries = entries.filter((entry) => Number(entry.confidence) >= 0.8).length;
+  const objectEntries = entries.filter((entry) => typeof entry.metadata?.object_name === "string" || entry.source === "object_repository");
+  const readMetaText = (entry: AutomationLearningCacheEntry, key: string) => {
+    const value = entry.metadata?.[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
 
   return (
     <details className="automation-learning-memory">
       <summary className="automation-learning-memory-head">
         <div>
-          <strong>Locator memory</strong>
+          <strong>Object repository</strong>
           <span>
             {entries.length
-              ? `${entries.length} learned locator${entries.length === 1 ? "" : "s"} · ${strongEntries} high confidence`
-              : "No reusable locators learned for this scope yet"}
+              ? `${objectEntries.length || entries.length} learned object${(objectEntries.length || entries.length) === 1 ? "" : "s"} · ${strongEntries} high confidence`
+              : "No reusable screen objects learned for this scope yet"}
           </span>
         </div>
         <AutomationCodeIcon />
@@ -6979,20 +6987,23 @@ function AutomationLearningMemory({ entries }: { entries: AutomationLearningCach
           {topEntries.map((entry) => (
             <article className="automation-learning-card" key={entry.id}>
               <div className="automation-learning-card-head">
-                <strong>{entry.locator_intent || "Locator"}</strong>
+                <strong>{readMetaText(entry, "object_name") || entry.locator_intent || "Object"}</strong>
                 <span>{Math.round(Number(entry.confidence || 0) * 100)}%</span>
               </div>
-              <span className="automation-learning-page">{entry.page_key || entry.page_url || "Unknown page"}</span>
+              <span className="automation-learning-page">
+                {readMetaText(entry, "screen_name") || entry.page_key || entry.page_url || "Unknown screen"}
+                {readMetaText(entry, "object_role") ? ` · ${readMetaText(entry, "object_role")}` : ""}
+              </span>
               <code>{entry.locator}</code>
               <div className="automation-learning-meta">
-                <span>{entry.locator_kind || entry.source || "learned"}</span>
+                <span>{readMetaText(entry, "keyword") || entry.locator_kind || entry.source || "learned"}</span>
                 <span>{entry.hit_count || 0} hit{entry.hit_count === 1 ? "" : "s"}</span>
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="empty-state compact">Run the recorder or AI builder once; learned locators will appear here and reduce future script repair work.</div>
+        <div className="empty-state compact">Run the recorder once; QAira will learn screen objects, labels, field names, and locators for future keyword mapping.</div>
       )}
     </details>
   );

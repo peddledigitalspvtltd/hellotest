@@ -4,6 +4,7 @@ const executionStepRuntimeService = require("./executionStepRuntime.service");
 const emailService = require("./email.service");
 const integrationService = require("./integration.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || 12_000);
 const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
@@ -369,8 +370,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
 
     if (!response.ok) {
       const raw = await response.text();
-      const detail = raw.slice(0, 160).trim();
-      throw new Error(`LLM request failed with status ${response.status}${detail ? `: ${detail}` : ""}`);
+      throw createLlmProviderError({ status: response.status, detail: raw });
     }
 
     const payload = await response.json();

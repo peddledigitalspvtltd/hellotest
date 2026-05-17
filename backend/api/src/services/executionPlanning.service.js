@@ -1,5 +1,6 @@
 const db = require("../db");
 const integrationService = require("./integration.service");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const DIRECT_CASE_SUITE_ID = "default";
 const DIRECT_CASE_SUITE_NAME = "Default";
@@ -234,10 +235,7 @@ const requestChatCompletion = async ({ integration, content }) => {
 
   if (!response.ok) {
     const raw = await response.text();
-    const detail = raw.slice(0, 200).trim();
-    const error = new Error(`LLM request failed with status ${response.status}${detail ? `: ${detail}` : ""}`);
-    error.statusCode = response.status;
-    throw error;
+    throw createLlmProviderError({ status: response.status, detail: raw });
   }
 
   const payload = await response.json();

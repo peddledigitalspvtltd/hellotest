@@ -50,8 +50,8 @@ export function RecorderStartControls({
   isStarting,
   hasSession,
   onStart,
-  localLabel = "Start local recorder",
-  remoteLabel = "Start remote recorder",
+  localLabel = "Local Playwright",
+  remoteLabel = "Remote browser",
   mobileRemoteEnabled = false
 }: {
   disabled: boolean;
@@ -84,7 +84,7 @@ export function RecorderStartControls({
       }
 
       setCheckState("ready");
-      setCheckMessage("Local recorder setup is ready. Start the recorder to capture UI actions, locators, and network/API calls.");
+      setCheckMessage("Local Playwright recorder is ready. Start capture to learn objects, locators, steps, and network/API calls.");
       return true;
     } catch (error) {
       setCheckState("failed");
@@ -117,8 +117,8 @@ export function RecorderStartControls({
           <MousePointerIcon size={16} />
         </span>
         <div>
-          <strong>Recorder controls</strong>
-          <span>{hasSession ? "Capture is active" : checkState === "ready" ? "Local recorder service ready" : "Check local service or use remote capture"}</span>
+          <strong>Capture source</strong>
+          <span>{hasSession ? "Capture is active" : checkState === "ready" ? "Local Playwright is ready" : "Choose where the browser opens. QAira still learns steps, locators, objects, and API calls."}</span>
         </div>
       </div>
       <div className="testops-recorder-actions recorder-control-buttons">
@@ -131,7 +131,7 @@ export function RecorderStartControls({
               type="button"
             >
               <PlugIcon size={16} />
-              <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Service ready" : "Check service"}</span>
+              <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
             </button>
             <button
               className="primary-button"
@@ -149,7 +149,7 @@ export function RecorderStartControls({
               type="button"
             >
               <PlugIcon size={16} />
-              <span>Setup</span>
+              <span>Settings</span>
             </button>
           </>
         ) : null}
@@ -169,7 +169,7 @@ export function RecorderStartControls({
           type="button"
         >
           <MousePointerIcon size={16} />
-          <span>{isStarting ? "Starting..." : "Mobile local"}</span>
+          <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
         </button>
         {mobileRemoteEnabled ? (
           <button
@@ -179,7 +179,7 @@ export function RecorderStartControls({
             type="button"
           >
             <MousePointerIcon size={16} />
-            <span>{isStarting ? "Starting..." : "Mobile remote"}</span>
+            <span>{isStarting ? "Starting..." : "Mobile cloud"}</span>
           </button>
         ) : null}
       </div>
@@ -227,7 +227,7 @@ export function RecorderStartControls({
                   <span>{checkState === "checking" ? "Checking..." : "Check setup"}</span>
                 </button>
                 <button className="primary-button" disabled={checkState !== "ready" || disabled || isStarting || hasSession} onClick={() => void handleStartLocal()} type="button">
-                  <span>{isStarting ? "Starting..." : "Start local recorder"}</span>
+                  <span>{isStarting ? "Starting..." : "Start local Playwright"}</span>
                 </button>
               </div>
             </div>

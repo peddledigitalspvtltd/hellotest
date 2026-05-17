@@ -1,5 +1,6 @@
 const integrationService = require("./integration.service");
 const { normalizeRichText, normalizeTestStepType } = require("../utils/testStepAutomation");
+const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   api: "api",
@@ -148,10 +149,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
 
   if (!response.ok) {
     const raw = await response.text();
-    const detail = raw.slice(0, 200).trim();
-    const error = new Error(`LLM request failed with status ${response.status}${detail ? `: ${detail}` : ""}`);
-    error.statusCode = response.status;
-    throw error;
+    throw createLlmProviderError({ status: response.status, detail: raw });
   }
 
   const payload = await response.json();

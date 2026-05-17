@@ -120,6 +120,9 @@ export function AiDesignStudioModal({
   const selectedRequirementLabel = allowMultipleRequirements
     ? `${selectedRequirementCount} selected`
     : requirements.find((requirement) => requirement.id === selectedRequirementIds[0])?.title || "No requirement selected";
+  const scopedPreviewRequirements = selectedRequirementIds.length
+    ? requirements.filter((requirement) => selectedRequirementIds.includes(requirement.id))
+    : requirements;
 
   return (
     <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
@@ -382,11 +385,11 @@ export function AiDesignStudioModal({
 
                       <span>{item.description || "No description generated."}</span>
 
-                      {requirements.length ? (
+                      {scopedPreviewRequirements.length ? (
                         <div className="ai-case-requirements">
                           <strong>Requirement mapping</strong>
                           <div className="selection-chip-row">
-                            {requirements.map((requirement) => {
+                            {scopedPreviewRequirements.map((requirement) => {
                               const isSelected = item.requirement_ids.includes(requirement.id);
 
                               return (

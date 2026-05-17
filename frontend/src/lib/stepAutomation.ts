@@ -1,4 +1,4 @@
-import type { SharedStepGroupStep, StepApiRequest, StepApiResponseCapture, StepApiValidation, TestStep, TestStepType } from "../types";
+import type { AutomationLearningCacheEntry, SharedStepGroupStep, StepApiRequest, StepApiResponseCapture, StepApiValidation, TestStep, TestStepType } from "../types";
 
 export const STEP_TYPE_OPTIONS: Array<{ value: TestStepType; label: string; shortLabel: string }> = [
   { value: "web", label: "Web", shortLabel: "WEB" },
@@ -222,6 +222,30 @@ function buildGeneratedUiCode(step: StepAutomationLike, stepType: TestStepType) 
   const title = normalizeText(step.action) || `Step ${step.step_order || 1}`;
   const expected = normalizeText(step.expected_result);
 
+  if (scope === "web") {
+    return [
+      `const elementOptions = {`,
+      `  timeoutMs: 10000,`,
+      `  scroll: "nearest",`,
+      `  waitFor: "visible",`,
+      `  force: false`,
+      `};`,
+      `const typeOptions = {`,
+      `  ...elementOptions,`,
+      `  clear: true,`,
+      `  type: "char-by-char",`,
+      `  delayMs: 35`,
+      `};`,
+      `await web.step(${quoteJsString(title)}, async () => {`,
+      `  // TODO: replace the object name with a repository object or stable locator.`,
+      `  // Example: await web.click("Login.Submit", elementOptions);`,
+      `  // Example: await web.fill("Login.Email", "@t.email", typeOptions);`,
+      normalizeText(step.action) ? `  // Action: ${normalizeText(step.action)}` : "",
+      expected ? `  // Expected: ${expected}` : "",
+      "});"
+    ].filter(Boolean).join("\n");
+  }
+
   return [
     `await ${scope}.step(${quoteJsString(title)}, async () => {`,
     `  // TODO: implement step automation.`,
@@ -276,6 +300,108 @@ export function buildCaseAutomationCode(title: string, steps: Array<StepAutomati
   );
 
   return [`// Test case: ${caseTitle}`, ...blocks].join("\n\n");
+}
+
+export type AutomationKeywordMapping = {
+  id: string;
+  keyword: string;
+  target: string;
+  displayTarget: string;
+  value?: string;
+  objectName?: string;
+  screenName?: string;
+  locatorKind?: string | null;
+};
+
+const CODE_CALL_PATTERN = /\b(web|android|ios)\.([A-Za-z][A-Za-z0-9_]*)\(([^)]*)\)/g;
+
+function splitCallArguments(source: string) {
+  const values: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | "`" | null = null;
+  let escaped = false;
+
+  for (const char of source) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\" && quote) {
+      current += char;
+      escaped = true;
+      continue;
+    }
+
+    if ((char === "\"" || char === "'" || char === "`") && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      current += char;
+      continue;
+    }
+
+    if (!quote && char === ",") {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    values.push(current.trim());
+  }
+
+  return values;
+}
+
+function unquoteCallArgument(value: string) {
+  const trimmed = value.trim();
+  if (/^["'`].*["'`]$/.test(trimmed)) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function resolveObjectForLocator(locator: string, repository: AutomationLearningCacheEntry[] = []) {
+  const normalized = locator.trim();
+  return repository.find((entry) => entry.locator === normalized)
+    || repository.find((entry) => entry.locator && normalized.includes(entry.locator));
+}
+
+function readRepositoryText(entry: AutomationLearningCacheEntry | undefined, key: string) {
+  const value = entry?.metadata?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function buildAutomationKeywordMappings(code: string, repository: AutomationLearningCacheEntry[] = []): AutomationKeywordMapping[] {
+  const mappings: AutomationKeywordMapping[] = [];
+  const normalizedCode = normalizeAutomationCode(code);
+  let match: RegExpExecArray | null;
+
+  while ((match = CODE_CALL_PATTERN.exec(normalizedCode))) {
+    const [, scope, method, argsSource] = match;
+    const args = splitCallArguments(argsSource || "").map(unquoteCallArgument);
+    const target = args[0] || "";
+    const value = args[1] || "";
+    const entry = resolveObjectForLocator(target, repository);
+    const objectName = readRepositoryText(entry, "object_name") || entry?.locator_intent || "";
+    const displayTarget = objectName || target || "(no target)";
+
+    mappings.push({
+      id: `${match.index}:${scope}.${method}:${target}:${value}`,
+      keyword: `${scope}.${method}`,
+      target,
+      displayTarget,
+      value,
+      objectName: objectName || undefined,
+      screenName: readRepositoryText(entry, "screen_name") || entry?.page_key || undefined,
+      locatorKind: entry?.locator_kind || entry?.source || null
+    });
+  }
+
+  return mappings;
 }
 
 export function getStepTypeMeta(value?: string | null) {
