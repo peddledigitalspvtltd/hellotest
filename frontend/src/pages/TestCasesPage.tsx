@@ -175,6 +175,7 @@ type StepActionMenuAction = {
 
 type CaseStepFilter = "all" | "with-steps" | "no-steps";
 type CaseRunFilter = "all" | "with-runs" | "no-runs";
+type SuiteTransferAction = "add" | "move" | "copy";
 type TestCaseExecutionAssigneeOption = AssigneeOption;
 
 type TestCaseEditorSectionKey = "case" | "steps" | "automation" | "history";
@@ -719,7 +720,7 @@ export function TestCasesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
-  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
+  const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -736,6 +737,12 @@ export function TestCasesPage() {
   const [linkedPreviewCaseId, setLinkedPreviewCaseId] = useState("");
   const [isDeletingSelectedTestCases, setIsDeletingSelectedTestCases] = useState(false);
   const [isCreateSuiteModalOpen, setIsCreateSuiteModalOpen] = useState(false);
+  const [isSuiteTransferModalOpen, setIsSuiteTransferModalOpen] = useState(false);
+  const [suiteTransferAction, setSuiteTransferAction] = useState<SuiteTransferAction>("move");
+  const [suiteTransferCaseIds, setSuiteTransferCaseIds] = useState<string[]>([]);
+  const [suiteTransferProjectId, setSuiteTransferProjectId] = useState("");
+  const [suiteTransferAppTypeId, setSuiteTransferAppTypeId] = useState("");
+  const [suiteTransferSuiteIds, setSuiteTransferSuiteIds] = useState<string[]>([]);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
   const [executionName, setExecutionName] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
@@ -840,6 +847,11 @@ export function TestCasesPage() {
     queryKey: ["app-types", projectId],
     queryFn: () => api.appTypes.list({ project_id: projectId }),
     enabled: Boolean(projectId)
+  });
+  const allAppTypesQuery = useQuery({
+    queryKey: ["app-types", "all"],
+    queryFn: () => api.appTypes.list(),
+    enabled: Boolean(session)
   });
   const requirementsQuery = useQuery({
     queryKey: ["requirements", projectId],
@@ -1021,6 +1033,8 @@ export function TestCasesPage() {
   const projectMembers = (projectMembersQuery.data || []) as ProjectMember[];
   const testEngineIntegrations = testEngineIntegrationsQuery.data || [];
   const appTypes = appTypesQuery.data || [];
+  const accessibleProjectIds = new Set(projects.map((project) => String(project.id)));
+  const allAppTypes = (allAppTypesQuery.data || appTypes).filter((item) => accessibleProjectIds.has(String(item.project_id)));
   const requirements = requirementsQuery.data || [];
   const suites = suitesQuery.data || [];
   const testCases = testCasesQuery.data || [];
@@ -2613,6 +2627,117 @@ export function TestCasesPage() {
     }
   };
 
+  const openSuiteTransferModal = (testCaseIds: string[], action: SuiteTransferAction = "move") => {
+    const normalizedCaseIds = Array.from(new Set(testCaseIds.filter(Boolean)));
+
+    if (!normalizedCaseIds.length) {
+      showError(new Error("Select one or more test cases first."), "Unable to open suite transfer");
+      return;
+    }
+
+    setSuiteTransferAction(action);
+    setSuiteTransferCaseIds(normalizedCaseIds);
+    setSuiteTransferProjectId(projectId || "");
+    setSuiteTransferAppTypeId(appTypeId || "");
+    setSuiteTransferSuiteIds([]);
+    setIsSuiteTransferModalOpen(true);
+  };
+
+  const closeSuiteTransferModal = () => {
+    setIsSuiteTransferModalOpen(false);
+    setSuiteTransferCaseIds([]);
+    setSuiteTransferSuiteIds([]);
+  };
+
+  const handleApplySuiteTransfer = async () => {
+    const targetAppType = allAppTypes.find((item) => item.id === suiteTransferAppTypeId) || null;
+    const selectedCases = testCases.filter((item) => suiteTransferCaseIds.includes(item.id));
+
+    if (!targetAppType || !selectedCases.length) {
+      showError(new Error("Select a target app type and at least one test case."), "Unable to update suite links");
+      return;
+    }
+
+    if (!suiteTransferSuiteIds.length) {
+      showError(new Error("Select one or more target suites."), "Unable to update suite links");
+      return;
+    }
+
+    const isCrossAppType = suiteTransferAppTypeId !== appTypeId;
+    const isCrossProject = String(targetAppType.project_id) !== String(projectId);
+
+    if (suiteTransferAction === "add" && isCrossAppType) {
+      showError(new Error("Use Copy or Move when the target suite belongs to another app type or project."), "Unable to add suite links");
+      return;
+    }
+
+    try {
+      if (suiteTransferAction === "copy") {
+        for (const testCase of selectedCases) {
+          await createTestCase.mutateAsync({
+            app_type_id: suiteTransferAppTypeId,
+            suite_ids: suiteTransferSuiteIds,
+            title: `${testCase.title} (Copy)`,
+            description: testCase.description || undefined,
+            external_references: testCase.external_references || [],
+            parameter_values: testCase.parameter_values || undefined,
+            automated: testCase.automated || defaultTestCaseAutomated,
+            priority: testCase.priority || 3,
+            status: testCase.status || defaultTestCaseStatus,
+            requirement_ids: isCrossProject
+              ? []
+              : testCase.requirement_ids || (testCase.requirement_id ? [testCase.requirement_id] : []),
+            steps: (allStepsByCaseId[testCase.id] || []).map((step) => ({
+              step_order: step.step_order,
+              action: step.action || undefined,
+              expected_result: step.expected_result || undefined,
+              step_type: step.step_type,
+              automation_code: step.automation_code || undefined,
+              api_request: step.api_request || undefined,
+              group_id: step.group_id || undefined,
+              group_name: step.group_name || undefined,
+              group_kind: step.group_kind || undefined,
+              reusable_group_id: step.reusable_group_id || undefined
+            }))
+          });
+        }
+      } else {
+        for (const testCase of selectedCases) {
+          const currentSuiteIds = testCase.suite_ids || (testCase.suite_id ? [testCase.suite_id] : []);
+          const nextSuiteIds = suiteTransferAction === "add"
+            ? Array.from(new Set([...currentSuiteIds, ...suiteTransferSuiteIds]))
+            : suiteTransferSuiteIds;
+
+          await updateTestCase.mutateAsync({
+            id: testCase.id,
+            input: {
+              app_type_id: suiteTransferAppTypeId,
+              suite_ids: nextSuiteIds,
+              requirement_ids: isCrossProject
+                ? []
+                : testCase.requirement_ids || (testCase.requirement_id ? [testCase.requirement_id] : [])
+            }
+          });
+          syncCachedTestCaseSuiteIds(testCase.id, nextSuiteIds);
+        }
+      }
+
+      closeSuiteTransferModal();
+      setSelectedActionTestCaseIds([]);
+      await refreshCases();
+      await queryClient.invalidateQueries({ queryKey: ["test-case-suites", suiteTransferAppTypeId] });
+      showSuccess(
+        suiteTransferAction === "copy"
+          ? `Copied ${selectedCases.length} case${selectedCases.length === 1 ? "" : "s"} into the selected suite scope.`
+          : suiteTransferAction === "add"
+            ? `Added ${selectedCases.length} case${selectedCases.length === 1 ? "" : "s"} to the selected suite link${suiteTransferSuiteIds.length === 1 ? "" : "s"}.`
+            : `Moved ${selectedCases.length} case${selectedCases.length === 1 ? "" : "s"} to the selected suite link${suiteTransferSuiteIds.length === 1 ? "" : "s"}.`
+      );
+    } catch (error) {
+      showError(error, "Unable to update suite links");
+    }
+  };
+
   const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -3968,7 +4093,12 @@ export function TestCasesPage() {
       ? `Replace "${selectedTestCase.title}" with the AI-authored draft? This will overwrite ${displaySteps.length} saved step${displaySteps.length === 1 ? "" : "s"} and remove automation code or API request setup from ${aiCaseAuthoringAutomationStepCount} step${aiCaseAuthoringAutomationStepCount === 1 ? "" : "s"}.`
       : `Replace "${selectedTestCase.title}" with the AI-authored draft and overwrite its ${displaySteps.length} saved step${displaySteps.length === 1 ? "" : "s"}?`;
 
-    if (!window.confirm(stepReplacementMessage)) {
+    if (!(await confirmAction({
+      title: "Replace saved steps?",
+      message: stepReplacementMessage,
+      confirmLabel: "Replace steps",
+      tone: "danger"
+    }))) {
       return;
     }
 
@@ -5056,12 +5186,9 @@ export function TestCasesPage() {
               },
               {
                 label: "Move to suite",
-                description: "Create or pick a suite, then link this case into it.",
+                description: "Pick existing suite links and replace this case's current suite scope.",
                 icon: <MoveIcon />,
-                onClick: () => {
-                  setSelectedActionTestCaseIds([testCase.id]);
-                  setIsCreateSuiteModalOpen(true);
-                }
+                onClick: () => openSuiteTransferModal([testCase.id], "move")
               },
               {
                 label: "Delete case",
@@ -5593,6 +5720,27 @@ export function TestCasesPage() {
                     tone: "danger"
                   },
                   {
+                    label: `Add to suite${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
+                    description: "Attach selected cases to one or more existing suites without removing current links.",
+                    icon: <AddIcon />,
+                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
+                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "add")
+                  },
+                  {
+                    label: `Move to suite${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
+                    description: "Replace selected cases' suite links with the chosen suite scope.",
+                    icon: <MoveIcon />,
+                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
+                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "move")
+                  },
+                  {
+                    label: `Copy to suite/project${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
+                    description: "Duplicate selected cases and steps into another suite, app type, or project.",
+                    icon: <CopyIcon />,
+                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
+                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "copy")
+                  },
+                  {
                     label: isDeletingSelectedTestCases ? "Deleting selected cases" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
                     description: "Delete selected test cases while preserving existing run history.",
                     icon: <TestCaseDeleteIcon />,
@@ -5608,7 +5756,7 @@ export function TestCasesPage() {
             {selectedActionTestCaseIds.length ? (
               <div className="detail-summary test-case-selection-summary">
                 <strong>{selectedActionTestCaseIds.length} test case{selectedActionTestCaseIds.length === 1 ? "" : "s"} selected for bulk actions</strong>
-                <span>Use the checked cases to create a suite, create a run, schedule manual cases for AI automation, or bulk delete them. Open any tile body to keep editing one case at a time.</span>
+                <span>Use the checked cases to create a suite, add or move suite links, copy across projects, create a run, schedule AI automation, or bulk delete them. Open any tile body to keep editing one case at a time.</span>
               </div>
             ) : null}
 
@@ -5692,12 +5840,9 @@ export function TestCasesPage() {
                           },
                           {
                             label: "Move to suite",
-                            description: "Create or pick a suite, then link this case into it.",
+                            description: "Pick existing suite links and replace this case's current suite scope.",
                             icon: <MoveIcon />,
-                            onClick: () => {
-                              setSelectedActionTestCaseIds([testCase.id]);
-                              setIsCreateSuiteModalOpen(true);
-                            }
+                            onClick: () => openSuiteTransferModal([testCase.id], "move")
                           },
                           {
                             label: "Delete case",
@@ -6578,6 +6723,26 @@ export function TestCasesPage() {
         />
       ) : null}
 
+      {isSuiteTransferModalOpen ? (
+        <TestCaseSuiteTransferModal
+          action={suiteTransferAction}
+          appTypes={allAppTypes}
+          caseCount={suiteTransferCaseIds.length}
+          currentAppTypeId={appTypeId}
+          isSaving={createTestCase.isPending || updateTestCase.isPending}
+          onActionChange={setSuiteTransferAction}
+          onAppTypeChange={setSuiteTransferAppTypeId}
+          onClose={closeSuiteTransferModal}
+          onProjectChange={setSuiteTransferProjectId}
+          onSubmit={() => void handleApplySuiteTransfer()}
+          onSuiteIdsChange={setSuiteTransferSuiteIds}
+          projects={projects}
+          selectedSuiteIds={suiteTransferSuiteIds}
+          targetAppTypeId={suiteTransferAppTypeId}
+          targetProjectId={suiteTransferProjectId}
+        />
+      ) : null}
+
       {isCreateSuiteModalOpen ? (
         <TestCaseSuiteModal
           appTypeCases={testCases}
@@ -7006,6 +7171,230 @@ function AutomationLearningMemory({ entries }: { entries: AutomationLearningCach
         <div className="empty-state compact">Run the recorder once; QAira will learn screen objects, labels, field names, and locators for future keyword mapping.</div>
       )}
     </details>
+  );
+}
+
+function TestCaseSuiteTransferModal({
+  action,
+  caseCount,
+  projects,
+  appTypes,
+  currentAppTypeId,
+  targetProjectId,
+  targetAppTypeId,
+  selectedSuiteIds,
+  isSaving,
+  onActionChange,
+  onProjectChange,
+  onAppTypeChange,
+  onSuiteIdsChange,
+  onClose,
+  onSubmit
+}: {
+  action: SuiteTransferAction;
+  caseCount: number;
+  projects: Project[];
+  appTypes: AppType[];
+  currentAppTypeId: string;
+  targetProjectId: string;
+  targetAppTypeId: string;
+  selectedSuiteIds: string[];
+  isSaving: boolean;
+  onActionChange: (action: SuiteTransferAction) => void;
+  onProjectChange: (projectId: string) => void;
+  onAppTypeChange: (appTypeId: string) => void;
+  onSuiteIdsChange: (suiteIds: string[]) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const dialogRef = useDialogFocus<HTMLDivElement>();
+  const targetAppType = appTypes.find((item) => item.id === targetAppTypeId) || null;
+  const targetSuitesQuery = useQuery({
+    queryKey: ["test-case-suites", targetAppTypeId],
+    queryFn: () => api.testSuites.list({ app_type_id: targetAppTypeId }),
+    enabled: Boolean(targetAppTypeId)
+  });
+  const targetSuites = targetSuitesQuery.data || [];
+  const selectedSuiteSet = useMemo(() => new Set(selectedSuiteIds), [selectedSuiteIds]);
+  const scopedAppTypes = useMemo(
+    () =>
+      appTypes
+        .filter((item) => String(item.project_id) === String(targetProjectId))
+        .slice()
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [appTypes, targetProjectId]
+  );
+  const isCrossAppType = Boolean(targetAppTypeId && currentAppTypeId && targetAppTypeId !== currentAppTypeId);
+
+  useEffect(() => {
+    if (!targetProjectId && projects[0]?.id) {
+      onProjectChange(projects[0].id);
+    }
+  }, [onProjectChange, projects, targetProjectId]);
+
+  useEffect(() => {
+    if (!targetAppTypeId && scopedAppTypes[0]?.id) {
+      onAppTypeChange(scopedAppTypes[0].id);
+      return;
+    }
+
+    if (targetAppTypeId && !scopedAppTypes.some((item) => item.id === targetAppTypeId)) {
+      onAppTypeChange(scopedAppTypes[0]?.id || "");
+    }
+  }, [onAppTypeChange, scopedAppTypes, targetAppTypeId]);
+
+  const toggleSuite = (suiteId: string) => {
+    if (selectedSuiteSet.has(suiteId)) {
+      onSuiteIdsChange(selectedSuiteIds.filter((id) => id !== suiteId));
+      return;
+    }
+
+    onSuiteIdsChange([...selectedSuiteIds, suiteId]);
+  };
+
+  const actionCopy = {
+    add: "Add keeps existing suite links and app scope. Use it when the same cases should run from several suites.",
+    move: "Move replaces suite links. If you choose another app type or project, the case ownership moves with it.",
+    copy: "Copy creates new cases with the same steps in the target suite scope."
+  }[action];
+
+  return (
+    <div className="modal-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
+      <div
+        aria-label="Move or copy test cases to suites"
+        aria-modal="true"
+        className="modal-card suite-create-modal suite-link-modal"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+      >
+        <div className="suite-create-header">
+          <div className="suite-create-title">
+            <h3>Suite transfer</h3>
+            <p>Choose an existing suite target for {caseCount} selected case{caseCount === 1 ? "" : "s"}. Multi-suite links are preserved when you add.</p>
+          </div>
+          <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Close</button>
+        </div>
+
+        <form
+          className="suite-modal-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <div className="suite-link-modal-body">
+            <div className="suite-transfer-config-grid">
+              <FormField label="Action" hint={isCrossAppType && action === "add" ? "Add is available only inside the current app type. Use Copy or Move for cross-project work." : actionCopy}>
+                <div className="segmented-control">
+                  {([
+                    ["add", "Add links", <AddIcon key="add-icon" />],
+                    ["move", "Move", <MoveIcon key="move-icon" />],
+                    ["copy", "Copy", <CopyIcon key="copy-icon" />]
+                  ] as Array<[SuiteTransferAction, string, ReactNode]>).map(([value, label, icon]) => (
+                    <button
+                      aria-pressed={action === value}
+                      className={action === value ? "is-active" : ""}
+                      disabled={isSaving}
+                      key={value}
+                      onClick={() => onActionChange(value)}
+                      type="button"
+                    >
+                      {icon}
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </FormField>
+
+              <div className="suite-transfer-scope-grid">
+                <FormField label="Target project">
+                  <select
+                    disabled={isSaving}
+                    value={targetProjectId}
+                    onChange={(event) => {
+                      onProjectChange(event.target.value);
+                      onAppTypeChange("");
+                      onSuiteIdsChange([]);
+                    }}
+                  >
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.name}</option>
+                    ))}
+                  </select>
+                </FormField>
+
+                <FormField label="Target app type">
+                  <select
+                    disabled={isSaving || !scopedAppTypes.length}
+                    value={targetAppTypeId}
+                    onChange={(event) => {
+                      onAppTypeChange(event.target.value);
+                      onSuiteIdsChange([]);
+                    }}
+                  >
+                    {scopedAppTypes.map((appType) => (
+                      <option key={appType.id} value={appType.id}>{appType.name}</option>
+                    ))}
+                  </select>
+                </FormField>
+              </div>
+            </div>
+
+            <div className="suite-link-list-shell">
+              <div className="suite-link-list-header">
+                <strong>Target suites</strong>
+                <span>{targetSuitesQuery.isLoading ? "Loading" : `${targetSuites.length} available`}</span>
+              </div>
+
+              {targetSuites.length ? (
+                <div className="suite-link-list">
+                  {targetSuites.map((suite, index) => {
+                    const isSelected = selectedSuiteSet.has(suite.id);
+
+                    return (
+                      <div className={isSelected ? "suite-link-row is-linked" : "suite-link-row"} key={suite.id}>
+                        <div className="suite-link-row-copy">
+                          <strong>{suite.name}</strong>
+                          {suite.display_id ? <span>{suite.display_id}</span> : null}
+                        </div>
+                        <div className="suite-link-row-actions">
+                          {isSelected ? <span className="suite-link-row-status">Selected</span> : null}
+                          <button
+                            aria-label={`${isSelected ? "Remove" : "Select"} ${suite.name}`}
+                            className={isSelected ? "ghost-button suite-link-toggle is-linked" : "ghost-button suite-link-toggle"}
+                            data-autofocus={index === 0 ? "true" : undefined}
+                            disabled={isSaving}
+                            onClick={() => toggleSuite(suite.id)}
+                            type="button"
+                          >
+                            {isSelected ? <SuiteUnlinkIcon /> : <AddIcon />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-state compact">No suites exist for this app type yet. Create the suite first, then return here to link, move, or copy cases.</div>
+              )}
+            </div>
+
+            <div className="detail-summary">
+              <strong>{selectedSuiteIds.length} selected suite{selectedSuiteIds.length === 1 ? "" : "s"}</strong>
+              <span>{targetAppType?.name || "Choose an app type"} will receive the selected case scope. Cross-project copies drop requirement links because requirements belong to one project.</span>
+            </div>
+          </div>
+
+          <div className="action-row suite-modal-actions">
+            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
+            <button className="primary-button" disabled={isSaving || !targetAppTypeId || !selectedSuiteIds.length || (isCrossAppType && action === "add")} type="submit">
+              {isSaving ? "Saving…" : action === "copy" ? "Copy cases" : action === "add" ? "Add suite links" : "Move cases"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

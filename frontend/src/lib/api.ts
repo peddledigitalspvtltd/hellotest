@@ -401,6 +401,27 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    previewOptimization: (id: string, input?: { integration_id?: string; additional_context?: string }) =>
+      request<{
+        requirement: { id: string; title: string };
+        integration: { id: string; name: string; type: string; model?: string | null } | null;
+        suggestion: {
+          title: string;
+          description: string;
+          external_references: string[];
+          priority: number;
+          status: string;
+          acceptance_criteria: string[];
+          risks: string[];
+          open_questions: string[];
+          change_summary: string[];
+        };
+        fallback_used: boolean;
+        fallback_reason?: string | null;
+      }>(`/requirements/${id}/ai-optimize-preview`, {
+        method: "POST",
+        body: JSON.stringify(input || {})
+      }),
     generateTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; status?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
       request<{ generated: number; created: Array<{ id: string; title: string; step_count: number }>; integration: { id: string; name: string; type: string; model?: string | null } }>(`/requirements/${id}/generate-test-cases`, {
         method: "POST",
@@ -602,6 +623,35 @@ export const api = {
       }),
     learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
+    updateLearningCacheEntry: (id: string, input: Partial<{
+      page_url: string;
+      page_key: string;
+      locator_intent: string;
+      locator: string;
+      locator_kind: string;
+      confidence: number;
+      source: string;
+      screen_name: string;
+      object_name: string;
+      object_role: string;
+      target_criteria: string[];
+      dom_structure: string;
+      dom_path: string;
+      screenshot_url: string;
+      screenshot_path: string;
+      fallback_strategy: string;
+      platform: string;
+      metadata: Record<string, unknown>;
+    }>) =>
+      request<AutomationLearningCacheEntry>(`/test-cases/automation/learning-cache/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input)
+      }),
+    improveLearningCacheEntry: (id: string, input?: { integration_id?: string; guidance?: string }) =>
+      request<{ entry: AutomationLearningCacheEntry; suggestion: Record<string, unknown>; fallback_used: boolean; fallback_reason?: string | null }>(`/test-cases/automation/learning-cache/${id}/ai-improve`, {
+        method: "POST",
+        body: JSON.stringify(input || {})
+      }),
     buildAutomation: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",

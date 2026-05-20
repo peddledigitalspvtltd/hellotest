@@ -45,6 +45,15 @@ const selectTestCaseDispatchMetadata = db.prepare(`
   WHERE id = ?
 `);
 
+const selectObjectRepositoryEntries = obsDb.prepare(`
+  SELECT id, test_case_id, page_url, page_key, locator_intent, locator, locator_kind, confidence, source, metadata, updated_at
+  FROM automation_learning_cache
+  WHERE (project_id = ? OR ? IS NULL)
+    AND (app_type_id = ? OR ? IS NULL)
+  ORDER BY hit_count DESC, updated_at DESC
+  LIMIT 500
+`);
+
 const selectExecutionCaseIds = db.prepare(`
   SELECT test_case_id
   FROM execution_case_snapshots
@@ -166,6 +175,43 @@ const normalizeEngineHostUrl = (value) => {
   } catch {
     return normalized.replace(/\/+$/, "");
   }
+};
+
+const normalizeObjectRepositoryEntry = (row) => {
+  const metadata = normalizeJsonValue(row.metadata, {});
+
+  return {
+    id: row.id,
+    test_case_id: normalizeText(row.test_case_id),
+    page_url: normalizeText(row.page_url),
+    page_key: normalizeText(row.page_key) || "screen",
+    locator_intent: normalizeText(row.locator_intent) || "object",
+    locator: normalizeText(row.locator),
+    locator_kind: normalizeText(row.locator_kind),
+    confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : 0,
+    source: normalizeText(row.source) || "repository",
+    screen_name: normalizeText(metadata.screen_name) || normalizeText(row.page_key) || "Screen",
+    object_name: normalizeText(metadata.object_name) || normalizeText(row.locator_intent) || "Object",
+    object_role: normalizeText(metadata.object_role) || normalizeText(row.locator_kind) || null,
+    target_criteria: Array.isArray(metadata.target_criteria) ? metadata.target_criteria.map(String) : [],
+    dom_structure: normalizeText(metadata.dom_structure || metadata.dom_path || metadata.html),
+    screenshot_url: normalizeText(metadata.screenshot_url || metadata.screenshot_path),
+    fallback_strategy: normalizeText(metadata.fallback_strategy),
+    previous_locators: Array.isArray(metadata.previous_locators) ? metadata.previous_locators.map(String).filter(Boolean) : [],
+    updated_at: row.updated_at || null
+  };
+};
+
+const listObjectRepositoryForEnvelope = async ({ projectId, appTypeId, testCaseId }) => {
+  const rows = await selectObjectRepositoryEntries.all(projectId || null, projectId || null, appTypeId || null, appTypeId || null);
+  const normalized = rows
+    .map(normalizeObjectRepositoryEntry)
+    .filter((entry) => entry.locator);
+
+  const direct = normalized.filter((entry) => entry.test_case_id && entry.test_case_id === testCaseId);
+  const shared = normalized.filter((entry) => !entry.test_case_id || entry.test_case_id !== testCaseId);
+
+  return [...direct, ...shared].slice(0, 250);
 };
 
 const nowIso = () => new Date().toISOString();
@@ -807,7 +853,8 @@ const buildEngineEnvelope = ({
   caseSnapshot,
   steps,
   stepsByCaseId,
-  integration
+  integration,
+  objectRepository = []
 }) => {
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
@@ -892,6 +939,7 @@ const buildEngineEnvelope = ({
       stepsByCaseId,
       appTypeKind: appType?.type || "web"
     }),
+    object_repository: objectRepository,
     steps,
     suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
     case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
@@ -1246,6 +1294,11 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
   for (let i = 0; i < plan.eligibleCases.length; i += concurrencyLimit) {
     const chunk = plan.eligibleCases.slice(i, i + concurrencyLimit);
     await Promise.all(chunk.map(async (item) => {
+      const objectRepository = await listObjectRepositoryForEnvelope({
+        projectId: plan.execution.project_id,
+        appTypeId: plan.execution.app_type_id,
+        testCaseId: item.case_snapshot.test_case_id
+      });
       const envelope = buildEngineEnvelope({
         engineRunId: item.engine_run_id,
         execution: plan.execution,
@@ -1254,7 +1307,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         caseSnapshot: item.case_snapshot,
         steps: item.steps,
         stepsByCaseId: plan.stepsByCaseId,
-        integration
+        integration,
+        objectRepository
       });
       const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
       const stepEngineClasses = resolveStepEngineClasses(item.steps, plan.appType?.type || "web");
@@ -1375,6 +1429,11 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
   const callback = buildDirectCallback(directIntegration);
 
   for (const item of plan.eligibleCases) {
+    const objectRepository = await listObjectRepositoryForEnvelope({
+      projectId: plan.execution.project_id,
+      appTypeId: plan.execution.app_type_id,
+      testCaseId: item.case_snapshot.test_case_id
+    });
     const envelope = {
       ...buildEngineEnvelope({
         engineRunId: item.engine_run_id,
@@ -1383,7 +1442,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
         appType: plan.appType,
         caseSnapshot: item.case_snapshot,
         steps: item.steps,
-        integration: directIntegration
+        integration: directIntegration,
+        objectRepository
       }),
       callback
     };
@@ -1519,6 +1579,11 @@ async function queueSingleStepDispatch({
       : null
   };
   const engineRunId = uuid();
+  const objectRepository = await listObjectRepositoryForEnvelope({
+    projectId: execution.project_id,
+    appTypeId: execution.app_type_id,
+    testCaseId
+  });
   const envelope = buildEngineEnvelope({
     engineRunId,
     execution,
@@ -1526,7 +1591,8 @@ async function queueSingleStepDispatch({
     appType,
     caseSnapshot,
     steps: [step],
-    integration
+    integration,
+    objectRepository
   });
   const activeWebEngine = envelope.web_engine?.active || "playwright";
   const orchestrationClass = resolveOrchestrationClass([step], appType?.type || "web");

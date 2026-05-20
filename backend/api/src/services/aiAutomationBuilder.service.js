@@ -112,6 +112,26 @@ const upsertLearningCache = obsDb.prepare(`
     updated_at = CURRENT_TIMESTAMP
 `);
 
+const selectLearningCacheEntry = obsDb.prepare(`
+  SELECT *
+  FROM automation_learning_cache
+  WHERE id = ?
+`);
+
+const updateLearningCacheEntry = obsDb.prepare(`
+  UPDATE automation_learning_cache
+  SET page_url = ?,
+      page_key = ?,
+      locator_intent = ?,
+      locator = ?,
+      locator_kind = ?,
+      confidence = ?,
+      source = ?,
+      metadata = ?,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
 const normalizeText = (value) => {
   if (typeof value !== "string") {
     return null;
@@ -142,6 +162,14 @@ const clampNumber = (value, fallback = 0) => {
 
 const safeJson = (value, fallback) => parseJsonValue(value, fallback);
 
+const normalizeLearningCacheRow = (row) => row
+  ? {
+      ...row,
+      confidence: clampNumber(row.confidence, 0),
+      metadata: safeJson(row.metadata, {})
+    }
+  : null;
+
 const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_ROWS } = {}) => {
   let query = `
     SELECT *
@@ -164,6 +192,56 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
 
   return obsDb.prepare(query).all(...params);
+};
+
+const normalizeRepositoryPatch = (existing, patch = {}) => {
+  const existingMetadata = normalizeObject(safeJson(existing.metadata, {}));
+  const nextMetadata = {
+    ...existingMetadata,
+    ...normalizeObject(patch.metadata)
+  };
+  const metadataFieldMap = {
+    screen_name: "screen_name",
+    object_name: "object_name",
+    object_role: "object_role",
+    target_criteria: "target_criteria",
+    dom_structure: "dom_structure",
+    dom_path: "dom_path",
+    screenshot_url: "screenshot_url",
+    screenshot_path: "screenshot_path",
+    fallback_strategy: "fallback_strategy",
+    platform: "platform"
+  };
+
+  Object.entries(metadataFieldMap).forEach(([inputKey, metadataKey]) => {
+    if (patch[inputKey] !== undefined) {
+      nextMetadata[metadataKey] = patch[inputKey];
+    }
+  });
+
+  const nextLocator = normalizeText(patch.locator) || existing.locator;
+  if (existing.locator && nextLocator !== existing.locator) {
+    nextMetadata.previous_locators = [
+      ...new Set([
+        ...(Array.isArray(nextMetadata.previous_locators) ? nextMetadata.previous_locators : []),
+        existing.locator
+      ].filter(Boolean))
+    ];
+  }
+
+  nextMetadata.repository_version = Number(nextMetadata.repository_version || 0) + 1;
+  nextMetadata.last_curated_at = new Date().toISOString();
+
+  return {
+    page_url: patch.page_url !== undefined ? normalizeText(patch.page_url) : existing.page_url,
+    page_key: normalizeText(patch.page_key) || existing.page_key,
+    locator_intent: normalizeText(patch.locator_intent || patch.intent) || existing.locator_intent,
+    locator: nextLocator,
+    locator_kind: patch.locator_kind !== undefined ? normalizeText(patch.locator_kind) : existing.locator_kind,
+    confidence: Math.max(0, Math.min(1, clampNumber(patch.confidence, clampNumber(existing.confidence, 0)))),
+    source: normalizeText(patch.source) || "curated_repository",
+    metadata: nextMetadata
+  };
 };
 
 const summarizeVariables = (variables = []) =>
@@ -1284,6 +1362,63 @@ const buildPrompt = ({
   }
 
   return prompt.join("\n");
+};
+
+const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
+  "Improve this QAira object repository entry for stable Test Engine execution.",
+  "",
+  "Return strict JSON with this shape:",
+  "{",
+  '  "page_key": "stable screen key",',
+  '  "screen_name": "human readable screen name",',
+  '  "object_name": "human readable field/control name",',
+  '  "object_role": "button|textbox|link|checkbox|dropdown|field|view|mobile-control",',
+  '  "locator": "best target locator string",',
+  '  "locator_kind": "role|label|placeholder|testid|css|xpath|text|accessibility_id|android_uiautomator",',
+  '  "target_criteria": ["primary criteria", "secondary criteria"],',
+  '  "dom_structure": "short DOM/accessibility structure around the element",',
+  '  "fallback_strategy": "how screenshot/visual fallback should be used if locator fails",',
+  '  "confidence": 0.91',
+  "}",
+  "",
+  "Rules:",
+  "- Prefer stable semantic locators over brittle CSS/XPath.",
+  "- For mobile objects, use accessibility id or Android UiAutomator when available.",
+  "- Keep screenshot fallback descriptive; do not replace locator-first execution.",
+  "- Preserve user supplied intent unless there is a clear naming improvement.",
+  "",
+  "Current repository entry:",
+  JSON.stringify(entry, null, 2),
+  "",
+  guidance ? `User guidance:\n${guidance}` : "User guidance: none"
+].join("\n");
+
+const buildDeterministicRepositorySuggestion = (entry, guidance) => {
+  const metadata = normalizeObject(entry.metadata);
+  const objectName = normalizeText(metadata.object_name) || normalizeText(entry.locator_intent) || "Object";
+  const screenName = normalizeText(metadata.screen_name) || normalizeText(entry.page_key) || "Screen";
+  const criteria = [
+    entry.locator ? `Primary locator: ${entry.locator}` : null,
+    entry.locator_kind ? `Locator kind: ${entry.locator_kind}` : null,
+    normalizeText(metadata.dom_structure) ? "Use curated DOM structure as secondary evidence." : null,
+    normalizeText(metadata.screenshot_url || metadata.screenshot_path) ? "Use screenshot fallback when locator confidence drops." : null,
+    guidance ? `Curator guidance: ${guidance}` : null
+  ].filter(Boolean);
+
+  return {
+    page_key: entry.page_key,
+    screen_name: screenName,
+    object_name: objectName,
+    object_role: normalizeText(metadata.object_role) || entry.locator_kind || "field",
+    locator: entry.locator,
+    locator_kind: entry.locator_kind || "curated",
+    target_criteria: criteria,
+    dom_structure: normalizeText(metadata.dom_structure || metadata.dom_path || metadata.html) || `Stable ${objectName} control on ${screenName}.`,
+    fallback_strategy: normalizeText(metadata.fallback_strategy) || "Use screenshot and nearby DOM/accessibility labels only after locator retry fails.",
+    confidence: Math.max(0.72, clampNumber(entry.confidence, 0.72)),
+    fallback_used: true,
+    fallback_reason: "No active LLM repository improvement was available."
+  };
 };
 
 const inferQuotedText = (value) => {
@@ -2718,11 +2853,100 @@ exports.buildAutomationBatch = async ({
 
 exports.listLearningCache = async ({ project_id, app_type_id, limit } = {}) => {
   const boundedLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-  return listLearningCacheRows({
+  const rows = await listLearningCacheRows({
     projectId: normalizeText(project_id),
     appTypeId: normalizeText(app_type_id),
     limit: boundedLimit
   });
+
+  return rows.map(normalizeLearningCacheRow);
+};
+
+exports.getLearningCacheEntry = async (id) => {
+  const entry = normalizeLearningCacheRow(await selectLearningCacheEntry.get(normalizeText(id)));
+
+  if (!entry) {
+    throw new Error("Object repository entry not found");
+  }
+
+  return entry;
+};
+
+exports.updateLearningCacheEntry = async (id, patch = {}) => {
+  const existing = await exports.getLearningCacheEntry(id);
+  const next = normalizeRepositoryPatch(existing, patch);
+
+  await updateLearningCacheEntry.run(
+    next.page_url,
+    next.page_key,
+    next.locator_intent,
+    next.locator,
+    next.locator_kind,
+    next.confidence,
+    next.source,
+    next.metadata,
+    existing.id
+  );
+
+  return exports.getLearningCacheEntry(existing.id);
+};
+
+exports.improveLearningCacheEntry = async ({ id, integration_id, guidance } = {}) => {
+  const existing = await exports.getLearningCacheEntry(id);
+  let suggestion;
+  let integration = null;
+
+  try {
+    integration = await resolveLlmIntegration(integration_id);
+  } catch {
+    integration = null;
+  }
+
+  if (integration) {
+    try {
+      const content = await requestChatCompletion({
+        integration,
+        prompt: buildRepositoryImprovePrompt({ entry: existing, guidance: normalizeText(guidance) })
+      });
+      suggestion = extractJsonPayload(content);
+    } catch (error) {
+      suggestion = {
+        ...buildDeterministicRepositorySuggestion(existing, normalizeText(guidance)),
+        fallback_reason: error instanceof Error ? error.message : "LLM repository improvement failed"
+      };
+    }
+  } else {
+    suggestion = buildDeterministicRepositorySuggestion(existing, normalizeText(guidance));
+  }
+
+  const updated = await exports.updateLearningCacheEntry(existing.id, {
+    page_key: suggestion.page_key,
+    locator_intent: suggestion.intent || suggestion.locator_intent || suggestion.object_name,
+    locator: suggestion.locator,
+    locator_kind: suggestion.locator_kind || suggestion.kind,
+    confidence: suggestion.confidence,
+    source: suggestion.fallback_used ? "ai_repository_fallback" : "ai_repository_improved",
+    metadata: {
+      ...existing.metadata,
+      screen_name: suggestion.screen_name,
+      object_name: suggestion.object_name,
+      object_role: suggestion.object_role,
+      target_criteria: Array.isArray(suggestion.target_criteria) ? suggestion.target_criteria : [],
+      dom_structure: suggestion.dom_structure,
+      fallback_strategy: suggestion.fallback_strategy,
+      ai_improved_at: new Date().toISOString(),
+      ai_integration_id: integration?.id || null,
+      ai_fallback_used: Boolean(suggestion.fallback_used),
+      ai_fallback_reason: suggestion.fallback_reason || null
+    }
+  });
+
+  return {
+    entry: updated,
+    suggestion,
+    fallback_used: Boolean(suggestion.fallback_used),
+    fallback_reason: suggestion.fallback_reason || null
+  };
 };
 
 const resolveTestEngineIntegration = async (testCase) => {

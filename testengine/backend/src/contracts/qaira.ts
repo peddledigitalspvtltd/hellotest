@@ -63,6 +63,27 @@ export type EngineRunHook = {
   steps: EngineRunStep[];
 };
 
+export type EngineObjectRepositoryEntry = {
+  id: string;
+  test_case_id?: string | null;
+  page_url?: string | null;
+  page_key: string;
+  locator_intent: string;
+  locator: string;
+  locator_kind?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+  screen_name?: string | null;
+  object_name?: string | null;
+  object_role?: string | null;
+  target_criteria?: string[];
+  dom_structure?: string | null;
+  screenshot_url?: string | null;
+  fallback_strategy?: string | null;
+  previous_locators?: string[];
+  updated_at?: string | null;
+};
+
 export type EngineMobileProvider = "local-appium" | "saucelabs" | "browserstack";
 
 export type EngineManualSpec = {
@@ -288,6 +309,7 @@ export type EngineRunEnvelope = {
   manual_spec: EngineManualSpec;
   attached_script?: EngineAttachedScript | null;
   hooks?: EngineRunHook[];
+  object_repository?: EngineObjectRepositoryEntry[];
   steps: EngineRunStep[];
   suite_parameters: Record<string, string>;
   case_parameters: Record<string, string>;

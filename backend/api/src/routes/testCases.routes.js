@@ -145,6 +145,70 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.put("/test-cases/automation/learning-cache/:id", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      page_url: { required: false, type: "string" },
+      page_key: { required: false, type: "string" },
+      locator_intent: { required: false, type: "string" },
+      locator: { required: false, type: "string" },
+      locator_kind: { required: false, type: "string" },
+      confidence: { required: false, type: "number" },
+      source: { required: false, type: "string" },
+      screen_name: { required: false, type: "string" },
+      object_name: { required: false, type: "string" },
+      object_role: { required: false, type: "string" },
+      target_criteria: { required: false, type: "array" },
+      dom_structure: { required: false, type: "string" },
+      dom_path: { required: false, type: "string" },
+      screenshot_url: { required: false, type: "string" },
+      screenshot_path: { required: false, type: "string" },
+      fallback_strategy: { required: false, type: "string" },
+      platform: { required: false, type: "string" },
+      metadata: { required: false, type: "object" }
+    }, req.body || {});
+
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+
+    if (entry.app_type_id) {
+      const appType = await appTypeService.getAppType(entry.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (entry.project_id) {
+      await projectService.getProject(entry.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Object repository entry is not scoped to a project");
+    }
+
+    return aiAutomationBuilderService.updateLearningCacheEntry(req.params.id, req.body || {});
+  });
+
+  fastify.post("/test-cases/automation/learning-cache/:id/ai-improve", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      integration_id: { required: false, type: "string" },
+      guidance: { required: false, type: "string" }
+    }, req.body || {});
+
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+
+    if (entry.app_type_id) {
+      const appType = await appTypeService.getAppType(entry.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (entry.project_id) {
+      await projectService.getProject(entry.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Object repository entry is not scoped to a project");
+    }
+
+    return aiAutomationBuilderService.improveLearningCacheEntry({
+      id: req.params.id,
+      integration_id: req.body?.integration_id,
+      guidance: req.body?.guidance
+    });
+  });
+
   fastify.post("/test-cases/automation/build-batch", async (req) => {
     await fastify.authenticate(req);
 
@@ -506,6 +570,11 @@ module.exports = async function (fastify) {
     if (testCase.app_type_id) {
       const appType = await appTypeService.getAppType(testCase.app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+    }
+
+    if (req.body.app_type_id && req.body.app_type_id !== testCase.app_type_id) {
+      const targetAppType = await appTypeService.getAppType(req.body.app_type_id);
+      await projectService.getProject(targetAppType.project_id, req.user.id);
     }
 
     return service.updateTestCase(req.params.id, {

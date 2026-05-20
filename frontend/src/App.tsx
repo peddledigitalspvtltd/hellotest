@@ -26,6 +26,7 @@ import { SharedStepsPage } from "./pages/SharedStepsPage";
 import { TestEnvironmentPage } from "./pages/TestEnvironmentPage";
 import { TestOpsPage } from "./pages/TestOpsPage";
 import { KnowledgeRepoPage } from "./pages/KnowledgeRepoPage";
+import { AutomationPage } from "./pages/AutomationPage";
 
 const queryClient = new QueryClient();
 const THEME_KEY = "app_theme";
@@ -44,6 +45,7 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/test-cases": { key: "page.testCases", fallback: "Test Cases" },
   "/shared-steps": { key: "page.sharedSteps", fallback: "Shared Step Groups" },
   "/executions": { key: "page.executions", fallback: "Test Runs" },
+  "/automation": { fallback: "Automation" },
   "/testops": { fallback: "TestOps" },
   "/ops-telemetry": { fallback: "OPS Telemetry" },
   "/traces": { fallback: "Distributed Traces" },
@@ -141,6 +143,7 @@ const router = createBrowserRouter([
       { path: "test-cases", element: <TestCasesPage /> },
       { path: "shared-steps", element: <SharedStepsPage /> },
       { path: "executions", element: <ExecutionsPage /> },
+      { path: "automation", element: <AutomationPage /> },
       { path: "testops", element: <TestOpsPage /> },
       { path: "ops-telemetry", element: <TestOpsPage initialView="ops-telemetry" /> },
       { path: "traces", element: <TestOpsPage initialView="traces" /> },

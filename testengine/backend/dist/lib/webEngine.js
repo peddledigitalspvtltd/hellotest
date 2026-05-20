@@ -344,6 +344,29 @@ const candidateTokens = (target) => {
         text: fallback
     };
 };
+const normalizeRepositoryKey = (value) => normalizeText(typeof value === "string" ? value : null)
+    ?.toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    || "";
+const resolveObjectRepositoryLocator = (envelope, target) => {
+    const targetKey = normalizeRepositoryKey(stripWrappingQuotes(target));
+    if (!targetKey || !Array.isArray(envelope.object_repository)) {
+        return target;
+    }
+    const match = envelope.object_repository.find((entry) => {
+        const candidates = [
+            entry.locator,
+            entry.locator_intent,
+            entry.object_name,
+            entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+            entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
+            ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
+        ];
+        return candidates.some((candidate) => normalizeRepositoryKey(candidate) === targetKey);
+    });
+    return normalizeText(match?.locator || null) || target;
+};
 const createPlaywrightLocatorFacade = (resolver, target) => ({
     click: async () => {
         const locator = await resolver(target);
@@ -546,7 +569,7 @@ class PlaywrightWebSession {
     }
     async resolveLocator(target) {
         const page = this.pageOrThrow;
-        const tokens = candidateTokens(target);
+        const tokens = candidateTokens(resolveObjectRepositoryLocator(this.envelope, target));
         if (tokens.raw.startsWith("css=")) {
             return page.locator(tokens.raw.slice(4)).first();
         }
@@ -896,8 +919,9 @@ class SeleniumWebSession {
     }
     async resolveElement(target) {
         const driver = this.driverOrThrow;
+        const resolvedTarget = resolveObjectRepositoryLocator(this.envelope, target);
         let lastError = null;
-        for (const strategy of this.byStrategies(target)) {
+        for (const strategy of this.byStrategies(resolvedTarget)) {
             try {
                 const matches = await driver.findElements(strategy);
                 const visibleMatch = matches[0];
@@ -909,7 +933,7 @@ class SeleniumWebSession {
                 lastError = error;
             }
         }
-        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${target}" in Selenium`);
+        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${resolvedTarget}" in Selenium`);
     }
     async goto(target, _options) {
         await this.driverOrThrow.get(target);

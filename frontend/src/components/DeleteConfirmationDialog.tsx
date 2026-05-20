@@ -2,13 +2,17 @@ import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type DeleteConfirmationState = {
+  title: string;
   message: string;
   confirmLabel: string;
+  tone: "danger" | "primary";
 };
 
 type DeleteConfirmationOptions = {
   message: string;
   confirmLabel?: string;
+  title?: string;
+  tone?: "danger" | "primary";
 };
 
 export function useDeleteConfirmation() {
@@ -21,11 +25,13 @@ export function useDeleteConfirmation() {
     setState(null);
   }, []);
 
-  const confirmDelete = useCallback(({ message, confirmLabel = "Confirm delete" }: DeleteConfirmationOptions) =>
+  const confirmAction = useCallback(({ message, confirmLabel = "Confirm", title = "Confirm action", tone = "primary" }: DeleteConfirmationOptions) =>
     new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
-      setState({ message, confirmLabel });
+      setState({ title, message, confirmLabel, tone });
     }), []);
+  const confirmDelete = useCallback(({ message, confirmLabel = "Confirm delete", title = "Warning, can't revert" }: DeleteConfirmationOptions) =>
+    confirmAction({ message, confirmLabel, title, tone: "danger" }), [confirmAction]);
 
   const confirmationDialog = state && typeof document !== "undefined"
     ? createPortal(
@@ -38,7 +44,7 @@ export function useDeleteConfirmation() {
         >
           <div className="resource-modal-header">
             <div className="resource-modal-title">
-              <h3>Warning, can't revert</h3>
+              <h3>{state.title}</h3>
               <p>{state.message}</p>
             </div>
           </div>
@@ -46,7 +52,7 @@ export function useDeleteConfirmation() {
             <button className="ghost-button" onClick={() => close(false)} type="button">
               Cancel
             </button>
-            <button className="primary-button danger-button" onClick={() => close(true)} type="button">
+            <button className={state.tone === "danger" ? "primary-button danger-button" : "primary-button"} onClick={() => close(true)} type="button">
               {state.confirmLabel}
             </button>
           </div>
@@ -56,5 +62,5 @@ export function useDeleteConfirmation() {
     )
     : null;
 
-  return { confirmDelete, confirmationDialog };
+  return { confirmAction, confirmDelete, confirmationDialog };
 }

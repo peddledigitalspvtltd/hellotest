@@ -54,6 +54,8 @@ type RequirementCoverageMetric = {
   percent: number;
 };
 
+type RequirementOptimizationSuggestion = Awaited<ReturnType<typeof api.requirements.previewOptimization>>["suggestion"];
+
 const createEmptyRequirementDraft = (defaultStatus = "open"): RequirementDraft => ({
   title: "",
   description: "",
@@ -147,6 +149,18 @@ export function RequirementsPage() {
   const [importRows, setImportRows] = useState<Array<{ title: string; description?: string; external_references?: string[]; priority?: number; status?: string }>>([]);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importFileName, setImportFileName] = useState("");
+  const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState(false);
+  const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
+  const [optimizeRequirementIndex, setOptimizeRequirementIndex] = useState(0);
+  const [optimizeContext, setOptimizeContext] = useState("");
+  const [optimizationSuggestion, setOptimizationSuggestion] = useState<RequirementOptimizationSuggestion | null>(null);
+  const [optimizationFields, setOptimizationFields] = useState({
+    title: true,
+    description: true,
+    external_references: true,
+    priority: true,
+    status: true
+  });
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -211,6 +225,10 @@ export function RequirementsPage() {
   const acceptDesignedCases = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.acceptDesignedTestCases>[1] }) =>
       api.requirements.acceptDesignedTestCases(requirementId, input)
+  });
+  const previewRequirementOptimization = useMutation({
+    mutationFn: ({ requirementId, input }: { requirementId: string; input?: Parameters<typeof api.requirements.previewOptimization>[1] }) =>
+      api.requirements.previewOptimization(requirementId, input)
   });
 
   const projects = projectsQuery.data || [];
@@ -300,6 +318,15 @@ export function RequirementsPage() {
     () => requirements.find((item) => item.id === selectedRequirementId) || null,
     [requirements, selectedRequirementId]
   );
+  const optimizeTargets = useMemo(
+    () =>
+      optimizeRequirementIds
+        .map((id) => requirements.find((item) => item.id === id) || null)
+        .filter(Boolean) as Requirement[],
+    [optimizeRequirementIds, requirements]
+  );
+  const activeOptimizeRequirement = optimizeTargets[optimizeRequirementIndex] || selectedRequirement;
+  const selectedRequirementActionCount = deleteSelectedRequirementIds.length;
 
   const latestResultByCaseId = useMemo(() => {
     const map: Record<string, ExecutionResult> = {};
@@ -1061,6 +1088,135 @@ export function RequirementsPage() {
     }
   };
 
+  const openRequirementOptimization = (requirementIds?: string[]) => {
+    const targetIds = Array.from(
+      new Set((requirementIds?.length ? requirementIds : selectedRequirement ? [selectedRequirement.id] : []).filter(Boolean))
+    );
+
+    if (!targetIds.length) {
+      showError(new Error("Select one or more requirements first."), "Unable to complete requirement");
+      return;
+    }
+
+    setOptimizeRequirementIds(targetIds);
+    setOptimizeRequirementIndex(0);
+    setOptimizationSuggestion(null);
+    setOptimizationFields({
+      title: true,
+      description: true,
+      external_references: true,
+      priority: true,
+      status: true
+    });
+    setPreviewMessage("");
+    setPreviewTone("success");
+    setIsOptimizeModalOpen(true);
+  };
+
+  const handlePreviewRequirementOptimization = async () => {
+    if (!activeOptimizeRequirement) {
+      return;
+    }
+
+    try {
+      const response = await previewRequirementOptimization.mutateAsync({
+        requirementId: activeOptimizeRequirement.id,
+        input: {
+          integration_id: integrationId || undefined,
+          additional_context: optimizeContext || undefined
+        }
+      });
+      setOptimizationSuggestion(response.suggestion);
+      setPreviewTone(response.fallback_used ? "error" : "success");
+      setPreviewMessage(
+        response.fallback_used
+          ? `AI fallback used: ${response.fallback_reason || "LLM unavailable"}`
+          : `Requirement optimized using ${response.integration?.name || "AI"}.`
+      );
+    } catch (error) {
+      setPreviewTone("error");
+      setPreviewMessage(error instanceof Error ? error.message : "Unable to optimize requirement");
+    }
+  };
+
+  const handleApplyRequirementOptimization = async () => {
+    if (!activeOptimizeRequirement || !optimizationSuggestion) {
+      return;
+    }
+
+    const acceptanceAppend = [
+      optimizationSuggestion.acceptance_criteria.length ? "Acceptance criteria:" : "",
+      ...optimizationSuggestion.acceptance_criteria.map((item) => `- ${item}`),
+      optimizationSuggestion.risks.length ? "\nRisks:" : "",
+      ...optimizationSuggestion.risks.map((item) => `- ${item}`),
+      optimizationSuggestion.open_questions.length ? "\nOpen questions:" : "",
+      ...optimizationSuggestion.open_questions.map((item) => `- ${item}`)
+    ].filter(Boolean).join("\n");
+
+    const baseDraft = activeOptimizeRequirement.id === selectedRequirement?.id
+      ? draft
+      : {
+          title: activeOptimizeRequirement.title,
+          description: activeOptimizeRequirement.description || "",
+          externalReferencesText: formatReferenceList(activeOptimizeRequirement.external_references),
+          priority: activeOptimizeRequirement.priority ?? 3,
+          status: activeOptimizeRequirement.status || defaultRequirementStatus
+        };
+
+    const nextDescription = optimizationFields.description
+      ? optimizationSuggestion.description
+      : [baseDraft.description, acceptanceAppend].filter(Boolean).join("\n\n");
+
+    const nextDraft = {
+      title: optimizationFields.title ? optimizationSuggestion.title : baseDraft.title,
+      description: nextDescription,
+      externalReferencesText: optimizationFields.external_references ? formatReferenceList(optimizationSuggestion.external_references) : baseDraft.externalReferencesText,
+      priority: optimizationFields.priority ? optimizationSuggestion.priority : baseDraft.priority,
+      status: optimizationFields.status ? optimizationSuggestion.status : baseDraft.status
+    };
+
+    if (activeOptimizeRequirement.id === selectedRequirement?.id) {
+      setDraft(nextDraft);
+    }
+
+    try {
+      await updateRequirement.mutateAsync({
+        id: activeOptimizeRequirement.id,
+        input: {
+          title: nextDraft.title,
+          description: nextDraft.description,
+          external_references: parseReferenceList(nextDraft.externalReferencesText),
+          priority: nextDraft.priority,
+          status: nextDraft.status
+        }
+      });
+      setOptimizationSuggestion(null);
+      setPreviewMessage("");
+      const hasNextRequirement = optimizeRequirementIndex + 1 < optimizeTargets.length;
+
+      if (hasNextRequirement) {
+        setOptimizeRequirementIndex((current) => current + 1);
+        setOptimizationFields({
+          title: true,
+          description: true,
+          external_references: true,
+          priority: true,
+          status: true
+        });
+        showSuccess(`AI changes applied to "${activeOptimizeRequirement.title}". Review the next selected requirement.`);
+      } else {
+        setIsOptimizeModalOpen(false);
+        setOptimizeRequirementIds([]);
+        setOptimizeRequirementIndex(0);
+        setDeleteSelectedRequirementIds([]);
+        showSuccess(`AI requirement changes applied to ${optimizeTargets.length || 1} requirement${(optimizeTargets.length || 1) === 1 ? "" : "s"}.`);
+      }
+      await refresh();
+    } catch (error) {
+      showError(error, "Unable to apply AI requirement changes");
+    }
+  };
+
   const metrics = useMemo(() => {
     const mapped = requirements.filter((item) => (item.test_case_ids || []).length).length;
     const highPriority = requirements.filter((item) => (item.priority || 3) <= 2).length;
@@ -1116,6 +1272,15 @@ export function RequirementsPage() {
             >
               <SparkIcon />
               AI Test Case Generation
+            </button>
+            <button
+              className="ghost-button"
+              disabled={!selectedRequirement && !selectedRequirementActionCount}
+              onClick={() => openRequirementOptimization(selectedRequirementActionCount ? deleteSelectedRequirementIds : undefined)}
+              type="button"
+            >
+              <SparkIcon />
+              {selectedRequirementActionCount ? `Complete Selected (${selectedRequirementActionCount})` : "Complete Requirement"}
             </button>
             <button className="primary-button" disabled={!projectId} onClick={openCreateRequirementModal} type="button">
               <AddIcon />
@@ -1231,12 +1396,21 @@ export function RequirementsPage() {
               >
                 {isDeletingSelectedRequirements ? "Deleting…" : `Delete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}
               </button>
+              <button
+                className="ghost-button"
+                disabled={!deleteSelectedRequirementIds.length}
+                onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
+                type="button"
+              >
+                <SparkIcon />
+                {`Complete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}
+              </button>
             </div>
 
             {deleteSelectedRequirementIds.length ? (
               <div className="detail-summary requirement-selection-summary">
-                <strong>{deleteSelectedRequirementIds.length} requirement{deleteSelectedRequirementIds.length === 1 ? "" : "s"} marked for delete</strong>
-                <span>Checkbox selections are only used for bulk delete. Open any tile to continue editing one requirement in a full-page workspace.</span>
+                <strong>{deleteSelectedRequirementIds.length} requirement{deleteSelectedRequirementIds.length === 1 ? "" : "s"} selected</strong>
+                <span>Use the selection to complete requirements with AI or bulk delete. Open any tile to continue editing one requirement in a full-page workspace.</span>
               </div>
             ) : null}
 
@@ -1385,6 +1559,19 @@ export function RequirementsPage() {
                       </FormField>
 
                       <div className="action-row">
+                        <button
+                          className="ghost-button"
+                          disabled={previewRequirementOptimization.isPending}
+                          onClick={() => {
+                            setOptimizationSuggestion(null);
+                            setPreviewMessage("");
+                            setIsOptimizeModalOpen(true);
+                          }}
+                          type="button"
+                        >
+                          <SparkIcon />
+                          AI complete
+                        </button>
                         <button className="primary-button" disabled={updateRequirement.isPending || replaceMappings.isPending} type="submit">
                           {updateRequirement.isPending || replaceMappings.isPending ? "Saving…" : "Save requirement"}
                         </button>
@@ -1649,6 +1836,150 @@ export function RequirementsPage() {
                 type="button"
               >
                 Clear preview
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isOptimizeModalOpen && activeOptimizeRequirement ? (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!previewRequirementOptimization.isPending) {
+              setIsOptimizeModalOpen(false);
+              setOptimizeRequirementIds([]);
+              setOptimizeRequirementIndex(0);
+            }
+          }}
+          role="presentation"
+        >
+          <div
+            aria-modal="true"
+            className="modal-card requirement-create-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="requirement-create-header">
+              <div className="requirement-create-title">
+                <p className="eyebrow">AI Product Owner</p>
+                <h3>Complete requirement</h3>
+                <p>
+                  {optimizeTargets.length > 1
+                    ? `Reviewing ${optimizeRequirementIndex + 1} of ${optimizeTargets.length}: ${activeOptimizeRequirement.title}`
+                    : "Generate a testable requirement upgrade, then accept all changes, decline, or apply only selected fields."}
+                </p>
+              </div>
+              <button
+                className="ghost-button"
+                disabled={previewRequirementOptimization.isPending}
+                onClick={() => {
+                  setIsOptimizeModalOpen(false);
+                  setOptimizeRequirementIds([]);
+                  setOptimizeRequirementIndex(0);
+                }}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="requirement-create-modal-body">
+              <div className="record-grid">
+                <FormField label="LLM integration">
+                  <select value={integrationId} onChange={(event) => setIntegrationId(event.target.value)}>
+                    <option value="">Use active local/project LLM</option>
+                    {integrations.map((integration) => (
+                      <option key={integration.id} value={integration.id}>
+                        {integration.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Product guidance">
+                  <textarea
+                    rows={4}
+                    value={optimizeContext}
+                    onChange={(event) => setOptimizeContext(event.target.value)}
+                    placeholder="Mention business rules, missing acceptance criteria, compliance expectations, or local domain language."
+                  />
+                </FormField>
+              </div>
+
+              <div className="action-row">
+                <button className="primary-button" disabled={previewRequirementOptimization.isPending} onClick={() => void handlePreviewRequirementOptimization()} type="button">
+                  <SparkIcon />
+                  {previewRequirementOptimization.isPending ? "Thinking…" : "Suggest improvements"}
+                </button>
+              </div>
+
+              {previewMessage ? <ToastMessage message={previewMessage} onDismiss={() => setPreviewMessage("")} tone={previewTone} /> : null}
+
+              {optimizationSuggestion ? (
+                <div className="ai-requirement-review">
+                  {([
+                    ["title", "Title", optimizationSuggestion.title],
+                    ["description", "Description", optimizationSuggestion.description],
+                    ["external_references", "References", formatReferenceList(optimizationSuggestion.external_references)],
+                    ["priority", "Priority", `P${optimizationSuggestion.priority}`],
+                    ["status", "Status", optimizationSuggestion.status]
+                  ] as Array<[keyof typeof optimizationFields, string, string]>).map(([key, label, value]) => (
+                    <label className="ai-requirement-review-row" key={key}>
+                      <input
+                        checked={optimizationFields[key]}
+                        onChange={(event) => setOptimizationFields((current) => ({ ...current, [key]: event.target.checked }))}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{value || "No suggestion"}</small>
+                      </span>
+                    </label>
+                  ))}
+
+                  <div className="detail-summary">
+                    <strong>Change summary</strong>
+                    <span>{optimizationSuggestion.change_summary.join(" ") || "No summary returned."}</span>
+                  </div>
+                  <div className="detail-summary">
+                    <strong>Acceptance criteria</strong>
+                    <span>{optimizationSuggestion.acceptance_criteria.join(" ") || "No acceptance criteria returned."}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="action-row requirement-create-modal-actions">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setIsOptimizeModalOpen(false);
+                  setOptimizeRequirementIds([]);
+                  setOptimizeRequirementIndex(0);
+                }}
+                type="button"
+              >
+                Decline
+              </button>
+              {optimizeTargets.length > 1 && optimizeRequirementIndex + 1 < optimizeTargets.length ? (
+                <button
+                  className="ghost-button"
+                  disabled={previewRequirementOptimization.isPending || updateRequirement.isPending}
+                  onClick={() => {
+                    setOptimizationSuggestion(null);
+                    setPreviewMessage("");
+                    setOptimizeRequirementIndex((current) => current + 1);
+                  }}
+                  type="button"
+                >
+                  Skip current
+                </button>
+              ) : null}
+              <button className="ghost-button" disabled={!optimizationSuggestion} onClick={() => setOptimizationFields({ title: false, description: false, external_references: false, priority: false, status: false })} type="button">
+                Clear fields
+              </button>
+              <button className="primary-button" disabled={!optimizationSuggestion || updateRequirement.isPending} onClick={() => void handleApplyRequirementOptimization()} type="button">
+                {updateRequirement.isPending ? "Applying…" : "Apply selected"}
               </button>
             </div>
           </div>

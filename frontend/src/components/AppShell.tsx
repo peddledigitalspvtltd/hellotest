@@ -52,6 +52,14 @@ const navigation = [
         disabledWhenNoProjects: true
       },
       {
+        id: "automation",
+        to: "/automation",
+        label: "Automation",
+        shortLabel: "Auto",
+        icon: AutomationIcon,
+        disabledWhenNoProjects: true
+      },
+      {
         id: "testops",
         to: "/testops",
         label: "TestOps",
@@ -278,6 +286,8 @@ export function AppShell() {
         return t("nav.testAuthoring", defaultLabel);
       case "runs":
         return t("nav.testRuns", defaultLabel);
+      case "automation":
+        return defaultLabel;
       case "testops":
         return defaultLabel;
       case "environment":
@@ -689,6 +699,21 @@ function RunIcon() {
 
 function ActivityIcon() {
   return <IconFrame><path d="M4 12h3l2-6 4 12 2-6h5" /></IconFrame>;
+}
+
+function AutomationIcon() {
+  return (
+    <IconFrame>
+      <rect x="6" y="8" width="12" height="10" rx="2.5" />
+      <path d="M12 8V5" />
+      <path d="M9 5h6" />
+      <path d="M9.5 13h.01" />
+      <path d="M14.5 13h.01" />
+      <path d="M10 16h4" />
+      <path d="M4 12h2" />
+      <path d="M18 12h2" />
+    </IconFrame>
+  );
 }
 
 function LogoutIcon() {

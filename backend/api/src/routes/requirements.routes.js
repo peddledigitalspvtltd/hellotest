@@ -92,6 +92,24 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/requirements/:id/ai-optimize-preview", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      integration_id: { required: false, type: "string" },
+      additional_context: { required: false, type: "string" }
+    }, req.body || {});
+
+    const requirement = await service.getRequirement(req.params.id);
+    await projectService.getProject(requirement.project_id, req.user.id);
+
+    return service.previewRequirementOptimization({
+      id: req.params.id,
+      integration_id: req.body?.integration_id,
+      additional_context: req.body?.additional_context
+    });
+  });
+
   fastify.post("/requirements/:id/generate-test-cases", async (req) => {
     await fastify.authenticate(req);
 
