@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -229,6 +229,7 @@ const createDraftGroupId = () =>
 const TEST_CASE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.testCaseParameterDrafts.v1";
 const SUITE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.suiteParameterDrafts.v1";
 const RUN_PARAMETER_PREVIEW_STORAGE_KEY = "qaira.runParameterPreviewDrafts.v1";
+const AUTOMATION_MANUAL_LINKS_STORAGE_KEY = "qaira.automationManualLinks.v1";
 
 const normalizeScopedParameterValues = (
   values?: Record<string, unknown> | null,
@@ -798,6 +799,13 @@ export function TestCasesPage() {
   const [sharedGroupSearchTerm, setSharedGroupSearchTerm] = useState("");
   const [isSuiteLinkModalOpen, setIsSuiteLinkModalOpen] = useState(false);
   const [suiteLinkDraftIds, setSuiteLinkDraftIds] = useState<string[]>([]);
+  const [manualCaseAutomationLinks, setManualCaseAutomationLinks] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY) || "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
   const [editingAutomationStepId, setEditingAutomationStepId] = useState("");
   const [rephrasingStepId, setRephrasingStepId] = useState("");
   const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string; objectRepository?: AutomationLearningCacheEntry[] } | null>(null);
@@ -1537,6 +1545,32 @@ export function TestCasesPage() {
     () => testCases.filter((item) => automationTargetCaseIds.includes(item.id)),
     [automationTargetCaseIds, testCases]
   );
+  const automatedCaseOptions = useMemo(
+    () => testCases.filter((item) => item.automated === "yes"),
+    [testCases]
+  );
+  const linkedAutomationCase = useMemo(() => {
+    if (!selectedTestCase) {
+      return null;
+    }
+
+    return automatedCaseOptions.find((item) => manualCaseAutomationLinks[item.id] === selectedTestCase.id) || null;
+  }, [automatedCaseOptions, manualCaseAutomationLinks, selectedTestCase]);
+  const setLinkedAutomationCase = (manualCaseId: string, automationCaseId: string) => {
+    setManualCaseAutomationLinks((current) => {
+      const next = { ...current };
+      Object.entries(next).forEach(([automationId, linkedManualId]) => {
+        if (linkedManualId === manualCaseId) {
+          delete next[automationId];
+        }
+      });
+      if (automationCaseId) {
+        next[automationCaseId] = manualCaseId;
+      }
+      window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
   const selectedCaseSuiteIds = useMemo(
     () =>
       Array.from(
@@ -2462,6 +2496,14 @@ export function TestCasesPage() {
   const handleSaveCase = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await handleSaveCaseDirect();
+  };
+
+  const handleSaveCaseAndSteps = async () => {
+    await handleSaveCaseDirect();
+
+    if (!isCreating && displaySteps.length) {
+      await handleSaveMultipleSteps(dirtyStepIds.length ? dirtyStepIds : displaySteps.map((step) => step.id), "All steps");
+    }
   };
 
   const handleDeleteCase = async () => {
@@ -4559,26 +4601,12 @@ export function TestCasesPage() {
   const selectionPasteBelowIndex = selectionMaxOrder ? selectionMaxOrder : null;
   const editorStepActions: StepActionMenuAction[] = [
     {
-      label: isCreating ? "Create test case" : "Save test case",
-      description: isCreating ? "Create this test case and keep the current draft steps." : "Save the case title, metadata, and requirement mapping.",
+      label: isCreating ? "Create test case" : "Save changes",
+      description: isCreating ? "Create this test case and keep the current draft steps." : "Save the case metadata and all step edits together.",
       icon: <StepSaveIcon />,
-      onClick: () => void handleSaveCaseDirect(),
+      onClick: () => void handleSaveCaseAndSteps(),
       tone: "primary",
-      disabled: createTestCase.isPending || updateTestCase.isPending
-    },
-    {
-      label: "Save selected steps",
-      description: "Persist the current edits for the selected steps only.",
-      icon: <StepSaveIcon />,
-      onClick: () => void handleSaveMultipleSteps(dirtySelectedStepIds.length ? dirtySelectedStepIds : selectedEditorSteps.map((step) => step.id), "Selected steps"),
-      disabled: isCreating || !selectedEditorSteps.length
-    },
-    {
-      label: "Save all steps",
-      description: "Persist every pending step change in this test case.",
-      icon: <StepSaveIcon />,
-      onClick: () => void handleSaveMultipleSteps(dirtyStepIds.length ? dirtyStepIds : displaySteps.map((step) => step.id), "All steps"),
-      disabled: isCreating || !displaySteps.length
+      disabled: createTestCase.isPending || updateTestCase.isPending || updateStep.isPending
     },
     {
       label: "Expand all steps",
@@ -4697,6 +4725,20 @@ export function TestCasesPage() {
   const automationSectionSummary = automationTargetCaseIds.length
     ? `${automationTargetCaseIds.length} case${automationTargetCaseIds.length === 1 ? "" : "s"} selected for AI automation or recorder capture.`
     : "Select a saved case to automate with AI or recorder capture.";
+  const caseSectionSummaryContent = (
+    <>
+      <span>{caseSectionSummary}</span>
+      {automationTargetCases.length ? (
+        <div className="selection-chip-row selection-chip-row--inline-description">
+          {automationTargetCases.map((testCase) => (
+            <span className="selection-chip" key={testCase.id}>
+              {testCase.display_id || testCase.title}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
   const historySectionSummary = selectedHistory.length
     ? "Review the latest recorded outcomes and preserved run evidence for this reusable test case."
     : "No run history has been recorded for this reusable test case yet.";
@@ -5484,6 +5526,73 @@ export function TestCasesPage() {
       return;
     }
 
+    const upsertLinkedAutomationCase = async () => {
+      if (!selectedTestCase || selectedTestCase.automated === "yes") {
+        return;
+      }
+
+      const linkedCase = automatedCaseOptions.find((item) => manualCaseAutomationLinks[item.id] === selectedTestCase.id) || null;
+      const buildAutomationStepPayload = (step: TestStep) => {
+        const isTarget = step.id === stepId;
+        const action = isTarget
+          ? nextDraft.automation_code || step.action || ""
+          : step.automation_code || step.action || "";
+
+        return {
+          step_order: step.step_order,
+          action,
+          expected_result: isTarget ? targetStep.expected_result || "" : step.expected_result || "",
+          step_type: isTarget ? nextDraft.step_type : normalizeStepType(step.step_type),
+          automation_code: isTarget ? nextDraft.automation_code : normalizeAutomationCode(step.automation_code),
+          api_request: isTarget ? nextDraft.api_request : normalizeApiRequest(step.api_request)
+        };
+      };
+
+      if (!linkedCase) {
+        const created = await api.testCases.create({
+          app_type_id: appTypeId || selectedTestCase.app_type_id || undefined,
+          title: `Automation - ${selectedTestCase.title}`,
+          description: selectedTestCase.description || undefined,
+          automated: "yes",
+          priority: selectedTestCase.priority || 3,
+          status: selectedTestCase.status || "active",
+          parameter_values: selectedTestCase.parameter_values || {},
+          steps: displaySteps.map(buildAutomationStepPayload)
+        });
+        setLinkedAutomationCase(selectedTestCase.id, created.id);
+        await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
+        return;
+      }
+
+      await api.testCases.update(linkedCase.id, {
+        title: linkedCase.title || `Automation - ${selectedTestCase.title}`,
+        description: linkedCase.description || selectedTestCase.description || "",
+        automated: "yes",
+        parameter_values: linkedCase.parameter_values || selectedTestCase.parameter_values || {}
+      });
+
+      const linkedSteps = await api.testSteps.list({ test_case_id: linkedCase.id }).catch(() => []);
+      const linkedStep = linkedSteps.find((step) => Number(step.step_order) === Number(targetStep.step_order));
+      const payload = buildAutomationStepPayload(targetStep);
+
+      if (linkedStep) {
+        await api.testSteps.update(linkedStep.id, {
+          action: payload.action,
+          expected_result: payload.expected_result,
+          step_type: payload.step_type,
+          automation_code: payload.automation_code,
+          api_request: payload.api_request || {}
+        });
+      } else {
+        await api.testSteps.create({
+          test_case_id: linkedCase.id,
+          ...payload
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", linkedCase.id] });
+      await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
+    };
+
     try {
       await updateStep.mutateAsync({
         id: stepId,
@@ -5493,12 +5602,13 @@ export function TestCasesPage() {
           api_request: nextDraft.api_request || {}
         }
       });
+      await upsertLinkedAutomationCase();
       setStepDrafts((current) => ({
         ...current,
         [stepId]: nextDraft
       }));
       setEditingAutomationStepId("");
-      showSuccess("Step automation updated.");
+      showSuccess(selectedTestCase?.automated === "yes" ? "Step automation updated." : "Step automation saved and linked automation case updated.");
       await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
       if (targetStep.reusable_group_id) {
         await refreshSharedGroups();
@@ -6062,7 +6172,7 @@ export function TestCasesPage() {
                       countLabel={isCreating ? "Draft" : caseDraft.status || defaultTestCaseStatus}
                       isExpanded={expandedSections.case}
                       onToggle={() => setExpandedSections((current) => ({ ...current, case: !current.case }))}
-                      summary={caseSectionSummary}
+                      summary={caseSectionSummaryContent}
                       title={isCreating ? "New test case" : "Selected test case"}
                     >
                       <form className="form-grid" onSubmit={(event) => void handleSaveCase(event)}>
@@ -6138,6 +6248,32 @@ export function TestCasesPage() {
                             onChange={(event) => setCaseDraft((current) => ({ ...current, externalReferencesText: event.target.value }))}
                           />
                         </FormField>
+
+                        {!isCreating && selectedTestCase ? (
+                          <div className="detail-summary automation-link-summary">
+                            <strong>Linked automation case</strong>
+                            <span>
+                              {linkedAutomationCase
+                                ? `${linkedAutomationCase.display_id || linkedAutomationCase.title} is linked and will receive automation updates from this manual case.`
+                                : "No automation case is linked yet. Saving step automation can create one automatically, or link an existing automated case here."}
+                            </span>
+                            <div className="record-grid automation-link-grid">
+                              <FormField label="Automation case">
+                                <select
+                                  value={linkedAutomationCase?.id || ""}
+                                  onChange={(event) => setLinkedAutomationCase(selectedTestCase.id, event.target.value)}
+                                >
+                                  <option value="">No linked automation case</option>
+                                  {automatedCaseOptions.map((testCase) => (
+                                    <option key={testCase.id} value={testCase.id}>
+                                      {testCase.display_id || testCase.title} · {testCase.title}
+                                    </option>
+                                  ))}
+                                </select>
+                              </FormField>
+                            </div>
+                          </div>
+                        ) : null}
 
                         {selectedCaseSuites.length ? (
                           <div className="detail-summary">
@@ -6468,16 +6604,6 @@ export function TestCasesPage() {
                           />
                         </FormField>
 
-                        {automationTargetCases.length ? (
-                          <div className="selection-chip-row">
-                            {automationTargetCases.map((testCase) => (
-                              <span className="selection-chip" key={testCase.id}>
-                                {testCase.display_id || testCase.title}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-
                         <div className="testops-action-row">
                           <button
                             className="primary-button"
@@ -6509,24 +6635,24 @@ export function TestCasesPage() {
                                 isStarting={startRecorder.isPending}
                                 mobileRemoteEnabled={mobileRemoteRecorderEnabled}
                                 onStart={(options) => void handleStartRecorder(options)}
-                              />
-                              <div className="testops-recorder-actions recorder-control-buttons recorder-finish-actions">
-                                <button
-                                  className="primary-button"
-                                  disabled={!recorderSession || finishRecorder.isPending}
-                                  onClick={() => void handleFinishRecorder()}
-                                  type="button"
-                                >
-                                  <AutomationCodeIcon />
-                                  <span>{finishRecorder.isPending ? "Stopping..." : "Stop and create steps"}</span>
-                                </button>
-                                {recorderLiveUrl ? (
+                                primaryAction={(
+                                  <button
+                                    className="primary-button recorder-stop-button"
+                                    disabled={!recorderSession || finishRecorder.isPending}
+                                    onClick={() => void handleFinishRecorder()}
+                                    type="button"
+                                  >
+                                    <PauseIcon />
+                                    <span>{finishRecorder.isPending ? "Stopping..." : "Stop and capture steps"}</span>
+                                  </button>
+                                )}
+                                moreActions={recorderLiveUrl ? (
                                   <a className="ghost-button compact" href={recorderLiveUrl} rel="noreferrer" target="_blank">
                                     <OpenIcon size={16} />
                                     <span>Open live view</span>
                                   </a>
                                 ) : null}
-                              </div>
+                              />
                             </div>
                           </div>
                           {recorderSession ? (
@@ -7125,13 +7251,121 @@ function AutomationScriptLens({
 }
 
 function AutomationLearningMemory({ entries }: { entries: AutomationLearningCacheEntry[] }) {
-  const topEntries = entries.slice(0, 6);
-  const strongEntries = entries.filter((entry) => Number(entry.confidence) >= 0.8).length;
-  const objectEntries = entries.filter((entry) => typeof entry.metadata?.object_name === "string" || entry.source === "object_repository");
   const readMetaText = (entry: AutomationLearningCacheEntry, key: string) => {
     const value = entry.metadata?.[key];
     return typeof value === "string" ? value.trim() : "";
   };
+  const isNonElementEntry = (entry: AutomationLearningCacheEntry) => {
+    const locator = String(entry.locator || "").trim().toLowerCase();
+    const intent = String(entry.locator_intent || "").trim().toLowerCase();
+    const role = readMetaText(entry, "object_role").toLowerCase();
+    const blockedLocators = new Set(["viewport", "location", "browser.tab", "keyboard", "window", "document", "page"]);
+    const blockedIntents = new Set(["scroll", "navigation", "navigate", "goto", "tab", "press"]);
+
+    return blockedLocators.has(locator) || blockedIntents.has(intent) || role === "viewport" || role === "page";
+  };
+  const toTitleText = (value: string) => {
+    const normalized = value
+      .replace(/^[#.]+/, "")
+      .replace(/\[[^\]]+\]/g, " ")
+      .replace(/[_./:-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalized) {
+      return "";
+    }
+
+    return normalized
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 6)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(" ");
+  };
+  const toPascalCase = (value: string) => {
+    const normalized = value.replace(/https?:\/\//i, "").replace(/[^A-Za-z0-9]+/g, " ").trim();
+    const tokens = normalized ? normalized.split(/\s+/) : ["Page"];
+    const name = tokens.map((token) => token.charAt(0).toUpperCase() + token.slice(1)).join("");
+    return name.toLowerCase().endsWith("page") ? name : `${name}Page`;
+  };
+  const getObjectLabel = (entry: AutomationLearningCacheEntry) => {
+    const metadataLabel =
+      readMetaText(entry, "object_label") ||
+      readMetaText(entry, "field_name") ||
+      readMetaText(entry, "name");
+    const objectName = readMetaText(entry, "object_name");
+    const objectNameTail = objectName.includes(".") ? objectName.split(".").filter(Boolean).pop() || "" : objectName;
+    const intent = String(entry.locator_intent || "").trim();
+    const genericIntent = ["click", "fill", "change", "select", "check", "uncheck", "submit", "object"].includes(intent.toLowerCase()) ? "" : intent;
+    const locatorAttr =
+      String(entry.locator || "").match(/\[(?:aria-label|name|id|data-testid|placeholder)=["']?([^"'\]]+)["']?\]/i)?.[1] ||
+      String(entry.locator || "").match(/^#([\w-]+)/)?.[1] ||
+      String(entry.locator || "").match(/text=["']?([^"']+)["']?/i)?.[1] ||
+      "";
+
+    return toTitleText(metadataLabel || objectNameTail || genericIntent || locatorAttr || "HTML element");
+  };
+  const getHtmlTag = (entry: AutomationLearningCacheEntry) => {
+    const metadataTag =
+      readMetaText(entry, "html_tag") ||
+      readMetaText(entry, "tag_name") ||
+      readMetaText(entry, "tag") ||
+      readMetaText(entry, "element_tag");
+    const domStructure = readMetaText(entry, "dom_structure") || readMetaText(entry, "dom_path") || readMetaText(entry, "html");
+    const domTag = domStructure.match(/<\s*([a-z][a-z0-9-]*)/i)?.[1] || "";
+    const locatorTag = String(entry.locator || "").match(/^([a-z][a-z0-9-]*)[#.[\s]/i)?.[1] || "";
+    const role = (readMetaText(entry, "object_role") || entry.locator_kind || entry.locator_intent || "").toLowerCase();
+
+    if (metadataTag) {
+      return metadataTag.toLowerCase();
+    }
+
+    if (domTag) {
+      return domTag.toLowerCase();
+    }
+
+    if (locatorTag) {
+      return locatorTag.toLowerCase();
+    }
+
+    if (role.includes("textbox") || role.includes("field") || role.includes("fill") || role.includes("input")) {
+      return "input";
+    }
+
+    if (role.includes("dropdown") || role.includes("select") || role.includes("combobox")) {
+      return "select";
+    }
+
+    if (role.includes("link")) {
+      return "a";
+    }
+
+    if (role.includes("button") || role.includes("click") || role.includes("submit")) {
+      return "button";
+    }
+
+    return "element";
+  };
+  const getTagDetail = (entry: AutomationLearningCacheEntry) => {
+    const tag = getHtmlTag(entry);
+    const locator = String(entry.locator || "").trim();
+    const locatorId = locator.match(/^#([\w-]+)/)?.[1] || locator.match(/\bid=["']?([^"'\]\s>]+)/i)?.[1] || "";
+    const locatorName = locator.match(/\bname=["']?([^"'\]\s>]+)/i)?.[1] || "";
+    const role = readMetaText(entry, "object_role");
+    const qualifier = locatorId ? `#${locatorId}` : locatorName ? `[name="${locatorName}"]` : role ? `[role="${role}"]` : "";
+
+    return `${tag}${qualifier}`;
+  };
+  const elementEntries = entries
+    .filter((entry) => !isNonElementEntry(entry))
+    .sort((left, right) => Number(right.confidence || 0) - Number(left.confidence || 0) || Number(right.hit_count || 0) - Number(left.hit_count || 0));
+  const pageObjects = Array.from(elementEntries.reduce<Map<string, AutomationLearningCacheEntry[]>>((map, entry) => {
+    const screen = readMetaText(entry, "screen_name") || entry.page_key || "UnassignedPage";
+    map.set(screen, [...(map.get(screen) || []), entry]);
+    return map;
+  }, new Map()).entries()).slice(0, 4);
+  const strongEntries = elementEntries.filter((entry) => Number(entry.confidence) >= 0.8).length;
 
   return (
     <details className="automation-learning-memory">
@@ -7139,36 +7373,37 @@ function AutomationLearningMemory({ entries }: { entries: AutomationLearningCach
         <div>
           <strong>Object repository</strong>
           <span>
-            {entries.length
-              ? `${objectEntries.length || entries.length} learned object${(objectEntries.length || entries.length) === 1 ? "" : "s"} · ${strongEntries} high confidence`
+            {elementEntries.length
+              ? `${elementEntries.length} HTML element${elementEntries.length === 1 ? "" : "s"} · ${strongEntries} high confidence`
               : "No reusable screen objects learned for this scope yet"}
           </span>
         </div>
         <AutomationCodeIcon />
       </summary>
 
-      {topEntries.length ? (
-        <div className="automation-learning-grid">
-          {topEntries.map((entry) => (
-            <article className="automation-learning-card" key={entry.id}>
+      {pageObjects.length ? (
+        <div className="automation-learning-pom-list">
+          {pageObjects.map(([screen, pageEntries]) => (
+            <article className="automation-learning-pom-card" key={screen}>
               <div className="automation-learning-card-head">
-                <strong>{readMetaText(entry, "object_name") || entry.locator_intent || "Object"}</strong>
-                <span>{Math.round(Number(entry.confidence || 0) * 100)}%</span>
+                <strong>class {toPascalCase(screen)}</strong>
+                <span>{pageEntries.length} member{pageEntries.length === 1 ? "" : "s"}</span>
               </div>
-              <span className="automation-learning-page">
-                {readMetaText(entry, "screen_name") || entry.page_key || entry.page_url || "Unknown screen"}
-                {readMetaText(entry, "object_role") ? ` · ${readMetaText(entry, "object_role")}` : ""}
-              </span>
-              <code>{entry.locator}</code>
-              <div className="automation-learning-meta">
-                <span>{readMetaText(entry, "keyword") || entry.locator_kind || entry.source || "learned"}</span>
-                <span>{entry.hit_count || 0} hit{entry.hit_count === 1 ? "" : "s"}</span>
+              <span className="automation-learning-page">{pageEntries[0]?.page_url || screen}</span>
+              <div className="automation-learning-pom-members">
+                {pageEntries.slice(0, 5).map((entry) => (
+                  <div className="automation-learning-pom-member" key={entry.id}>
+                    <code>{getObjectLabel(entry).replace(/\s+/g, "")}</code>
+                    <span>{getTagDetail(entry)}</span>
+                    <small>{entry.locator}</small>
+                  </div>
+                ))}
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="empty-state compact">Run the recorder once; QAira will learn screen objects, labels, field names, and locators for future keyword mapping.</div>
+        <div className="empty-state compact">No HTML elements are available yet. Run a click, fill, select, or check recording so QAira can learn friendly element names and tags.</div>
       )}
     </details>
   );
@@ -7826,7 +8061,7 @@ function EditorAccordionSection({
   children
 }: {
   title: string;
-  summary: string;
+  summary: ReactNode;
   countLabel: string;
   isExpanded: boolean;
   onToggle: () => void;

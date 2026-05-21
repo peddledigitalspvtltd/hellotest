@@ -133,6 +133,34 @@ export function PlayIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function RecordIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <circle cx="12" cy="12" r="6.5" />
+      <circle cx="12" cy="12" fill="currentColor" r="2.25" stroke="none" />
+    </IconFrame>
+  );
+}
+
+export function PauseIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <rect height="12" rx="1" width="4" x="7" y="6" />
+      <rect height="12" rx="1" width="4" x="13" y="6" />
+    </IconFrame>
+  );
+}
+
+export function MoreHorizontalIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <circle cx="5" cy="12" fill="currentColor" r="1.3" stroke="none" />
+      <circle cx="12" cy="12" fill="currentColor" r="1.3" stroke="none" />
+      <circle cx="19" cy="12" fill="currentColor" r="1.3" stroke="none" />
+    </IconFrame>
+  );
+}
+
 export function MousePointerIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

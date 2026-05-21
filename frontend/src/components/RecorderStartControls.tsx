@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MousePointerIcon, PlayIcon, PlugIcon } from "./AppIcons";
+import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "./AppIcons";
 
 export type RecorderStartMode = "local" | "remote";
 
@@ -52,7 +52,9 @@ export function RecorderStartControls({
   onStart,
   localLabel = "Local Playwright",
   remoteLabel = "Remote browser",
-  mobileRemoteEnabled = false
+  mobileRemoteEnabled = false,
+  primaryAction,
+  moreActions
 }: {
   disabled: boolean;
   isStarting: boolean;
@@ -61,6 +63,8 @@ export function RecorderStartControls({
   localLabel?: string;
   remoteLabel?: string;
   mobileRemoteEnabled?: boolean;
+  primaryAction?: ReactNode;
+  moreActions?: ReactNode;
 }) {
   const localAvailable = useMemo(() => !isMobileOrTablet(), []);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
@@ -68,8 +72,23 @@ export function RecorderStartControls({
   const [localEngineUrl, setLocalEngineUrl] = useState(DEFAULT_LOCAL_ENGINE_URL);
   const [checkState, setCheckState] = useState<LocalCheckState>("idle");
   const [checkMessage, setCheckMessage] = useState("Check your local Test Engine before starting the recorder.");
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const normalizedBrowserUrl = localBrowserUrl.replace(/\/+$/, "");
   const setupModalRoot = typeof document === "undefined" ? null : document.body;
+  const overlayRoot = typeof document === "undefined" ? null : document.body;
+
+  const updateMoreMenuPosition = () => {
+    const trigger = moreButtonRef.current;
+    if (!trigger || typeof window === "undefined") return;
+
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(288, window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
+    const top = rect.bottom + 8;
+    setMoreMenuStyle({ left, top, width });
+  };
 
   const handleCheckSetup = async () => {
     setCheckState("checking");
@@ -110,48 +129,42 @@ export function RecorderStartControls({
     setIsSetupOpen(false);
   };
 
+  useEffect(() => {
+    if (!isMoreOpen) return undefined;
+
+    updateMoreMenuPosition();
+    const handleReposition = () => updateMoreMenuPosition();
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (moreButtonRef.current?.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest(".recorder-more-menu-popover")) return;
+      setIsMoreOpen(false);
+    };
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMoreOpen]);
+
   return (
     <div className="recorder-control-pane">
-      <div className="recorder-control-pane-head">
-        <span className="recorder-control-icon">
-          <MousePointerIcon size={16} />
-        </span>
-        <div>
-          <strong>Capture source</strong>
-          <span>{hasSession ? "Capture is active" : checkState === "ready" ? "Local Playwright is ready" : "Choose where the browser opens. QAira still learns steps, locators, objects, and API calls."}</span>
-        </div>
-      </div>
       <div className="testops-recorder-actions recorder-control-buttons">
         {localAvailable ? (
-          <>
-            <button
-              className="ghost-button"
-              disabled={disabled || isStarting || hasSession || checkState === "checking"}
-              onClick={() => void handleCheckSetup()}
-              type="button"
-            >
-              <PlugIcon size={16} />
-              <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
-            </button>
-            <button
-              className="primary-button"
-              disabled={disabled || isStarting || hasSession || checkState === "checking"}
-              onClick={() => void handleStartLocal()}
-              type="button"
-            >
-              <PlayIcon size={16} />
-              <span>{isStarting ? "Starting..." : localLabel}</span>
-            </button>
-            <button
-              className="ghost-button"
-              disabled={disabled || isStarting || hasSession}
-              onClick={() => setIsSetupOpen(true)}
-              type="button"
-            >
-              <PlugIcon size={16} />
-              <span>Settings</span>
-            </button>
-          </>
+          <button
+            className="primary-button"
+            disabled={disabled || isStarting || hasSession || checkState === "checking"}
+            onClick={() => void handleStartLocal()}
+            type="button"
+          >
+            <RecordIcon size={16} />
+            <span>{isStarting ? "Starting..." : localLabel}</span>
+          </button>
         ) : null}
         <button
           className={localAvailable ? "ghost-button" : "primary-button"}
@@ -159,29 +172,87 @@ export function RecorderStartControls({
           onClick={() => onStart({ recorder_mode: "remote", recorder_target: "web" })}
           type="button"
         >
-          <MousePointerIcon size={16} />
+          <RecordIcon size={16} />
           <span>{isStarting ? "Starting..." : remoteLabel}</span>
         </button>
-        <button
-          className="ghost-button"
-          disabled={disabled || isStarting || hasSession}
-          onClick={() => onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" })}
-          type="button"
-        >
-          <MousePointerIcon size={16} />
-          <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
-        </button>
-        {mobileRemoteEnabled ? (
+        {primaryAction}
+        <div className="recorder-more-menu">
           <button
-            className="ghost-button"
-            disabled={disabled || isStarting || hasSession}
-            onClick={() => onStart({ recorder_mode: "remote", recorder_target: "mobile" })}
+            aria-expanded={isMoreOpen}
+            aria-haspopup="menu"
+            aria-label="More recorder options"
+            className="recorder-more-trigger"
+            onClick={() => setIsMoreOpen((current) => !current)}
+            ref={moreButtonRef}
             type="button"
           >
-            <MousePointerIcon size={16} />
-            <span>{isStarting ? "Starting..." : "Mobile cloud"}</span>
+            <MoreHorizontalIcon size={18} />
           </button>
-        ) : null}
+          {isMoreOpen && overlayRoot ? createPortal(
+            <div className="recorder-more-menu-popover" role="menu" style={moreMenuStyle}>
+            {localAvailable ? (
+              <>
+                <button
+                  className="ghost-button"
+                  disabled={disabled || isStarting || hasSession || checkState === "checking"}
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    void handleCheckSetup();
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <PlugIcon size={16} />
+                  <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
+                </button>
+                {moreActions}
+                <button
+                  className="ghost-button"
+                  disabled={disabled || isStarting || hasSession}
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    setIsSetupOpen(true);
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <PlugIcon size={16} />
+                  <span>Settings</span>
+                </button>
+              </>
+            ) : null}
+            <button
+              className="ghost-button"
+              disabled={disabled || isStarting || hasSession}
+              onClick={() => {
+                setIsMoreOpen(false);
+                onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" });
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <MousePointerIcon size={16} />
+              <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
+            </button>
+            {mobileRemoteEnabled ? (
+              <button
+                className="ghost-button"
+                disabled={disabled || isStarting || hasSession}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onStart({ recorder_mode: "remote", recorder_target: "mobile" });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <MousePointerIcon size={16} />
+                <span>{isStarting ? "Starting..." : "Mobile cloud"}</span>
+              </button>
+            ) : null}
+            </div>,
+            overlayRoot
+          ) : null}
+        </div>
       </div>
 
       {isSetupOpen && setupModalRoot ? createPortal(

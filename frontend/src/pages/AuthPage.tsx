@@ -69,6 +69,30 @@ const INITIAL_FORM_VALUES: FormValues = {
   verificationCode: ""
 };
 
+const authStorySlides = [
+  {
+    eyebrow: "Design",
+    title: "Turn requirements into reusable test intent.",
+    description: "Capture acceptance criteria, author cases, and keep the reasoning connected before automation starts.",
+    metric: "Traceable by design",
+    facts: ["Requirements", "Manual cases", "AI design"]
+  },
+  {
+    eyebrow: "Automate",
+    title: "Build keyword automation around stable objects.",
+    description: "Use screen-level object repositories, DOM context, and AI-assisted locator strategy to reduce brittle scripts.",
+    metric: "Locator-aware",
+    facts: ["Keyword steps", "Object repository", "Local capture"]
+  },
+  {
+    eyebrow: "Execute",
+    title: "Run with evidence, not guesswork.",
+    description: "Plan local or remote runs, inspect history, and keep defects tied to the cases that produced them.",
+    metric: "Evidence ready",
+    facts: ["Runs", "History", "Defects"]
+  }
+];
+
 let googleScriptPromise: Promise<void> | null = null;
 
 function mergeIds(...values: Array<string | undefined>) {
@@ -293,12 +317,14 @@ export function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingVerification, setPendingVerification] = useState<PendingVerification | null>(null);
+  const [activeStorySlide, setActiveStorySlide] = useState(0);
 
   const isSuccessMode = mode === "signup-success" || mode === "reset-success";
   const isCodeMode = mode === "signup-code" || mode === "forgot-code";
   const isEmailVerificationReady = authSetup.emailVerification.enabled;
   const isGoogleReady = authSetup.google.enabled && Boolean(authSetup.google.clientId);
   const currentCopy = getCurrentCopy(mode, pendingVerification, authSetup);
+  const activeStory = authStorySlides[activeStorySlide] || authStorySlides[0];
   const isBusy = isSubmitting || isGoogleSubmitting || isResendingCode;
 
   useEffect(() => {
@@ -329,6 +355,14 @@ export function AuthPage() {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setActiveStorySlide((current) => (current + 1) % authStorySlides.length);
+    }, 5200);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -664,32 +698,60 @@ export function AuthPage() {
 
       <div className="container auth-shell">
         <section className="left auth-aside" aria-label="QAira product overview">
-          <div className="auth-product-story">
+          <div className="auth-simple-carousel">
             <div className="auth-product-brand">
               <div className="brand-mark">Q</div>
               <div>
-                <strong>QAIra</strong>
+                <strong>QAira</strong>
                 <p>AI quality workspace</p>
               </div>
             </div>
 
-            <div className="auth-product-copy">
-              <p className="eyebrow">Quality intelligence</p>
-              <h1>Design, run, and review QA from one calm workspace.</h1>
-              <p>
-                Keep requirements, reusable tests, executions, and evidence close together without turning login into another dashboard.
-              </p>
+            <div className="auth-carousel-stage" key={activeStory.eyebrow}>
+              <div className="auth-product-copy">
+                <p className="eyebrow">{activeStory.eyebrow}</p>
+                <h1>{activeStory.title}</h1>
+                <p>{activeStory.description}</p>
+              </div>
+
+              <div className="auth-carousel-proof-card">
+                <span>{activeStory.metric}</span>
+                <strong>{activeStory.facts.join(" / ")}</strong>
+              </div>
             </div>
 
-            <div className="auth-flow-line" aria-label="QAira workflow">
-              <span>Design</span>
-              <span>Automate</span>
-              <span>Execute</span>
-              <span>Evidence</span>
+            <div className="auth-carousel-controls" aria-label="QAira story carousel">
+              <button
+                aria-label="Previous story"
+                onClick={() => setActiveStorySlide((current) => (current + authStorySlides.length - 1) % authStorySlides.length)}
+                type="button"
+              >
+                ‹
+              </button>
+              <div className="auth-carousel-dots" role="tablist" aria-label="QAira story slides">
+                {authStorySlides.map((slide, index) => (
+                  <button
+                    aria-label={`Show ${slide.eyebrow} story`}
+                    aria-selected={activeStorySlide === index}
+                    className={activeStorySlide === index ? "auth-carousel-dot is-active" : "auth-carousel-dot"}
+                    key={slide.eyebrow}
+                    onClick={() => setActiveStorySlide(index)}
+                    role="tab"
+                    type="button"
+                  />
+                ))}
+              </div>
+              <button
+                aria-label="Next story"
+                onClick={() => setActiveStorySlide((current) => (current + 1) % authStorySlides.length)}
+                type="button"
+              >
+                ›
+              </button>
             </div>
 
             <p className="auth-aside-footer">
-              Built for secure teams that need traceability without noise.
+              Built for secure teams that need traceability, automation, and run evidence without noise.
             </p>
           </div>
         </section>
@@ -699,7 +761,7 @@ export function AuthPage() {
             <div className="auth-card-brand">
               <div className="brand-mark">Q</div>
               <div>
-                <strong>QAIra</strong>
+                <strong>QAira</strong>
                 <p>Secure workspace access</p>
               </div>
             </div>
