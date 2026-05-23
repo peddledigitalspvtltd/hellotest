@@ -75,6 +75,7 @@ export function RecorderStartControls({
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const normalizedBrowserUrl = localBrowserUrl.replace(/\/+$/, "");
   const setupModalRoot = typeof document === "undefined" ? null : document.body;
   const overlayRoot = typeof document === "undefined" ? null : document.body;
@@ -85,9 +86,18 @@ export function RecorderStartControls({
 
     const rect = trigger.getBoundingClientRect();
     const width = Math.min(288, window.innerWidth - 24);
+    const menuHeight = moreMenuRef.current?.offsetHeight || 280;
+    const viewportPadding = 12;
     const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
-    const top = rect.bottom + 8;
-    setMoreMenuStyle({ left, top, width });
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const shouldOpenAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(180, shouldOpenAbove ? spaceAbove - 8 : spaceBelow - 8);
+    const top = shouldOpenAbove
+      ? Math.max(viewportPadding, rect.top - Math.min(menuHeight, maxHeight) - 8)
+      : Math.min(rect.bottom + 8, window.innerHeight - viewportPadding - Math.min(menuHeight, maxHeight));
+
+    setMoreMenuStyle({ left, top, width, maxHeight, overflowY: "auto" });
   };
 
   const handleCheckSetup = async () => {
@@ -189,7 +199,7 @@ export function RecorderStartControls({
             <MoreHorizontalIcon size={18} />
           </button>
           {isMoreOpen && overlayRoot ? createPortal(
-            <div className="recorder-more-menu-popover" role="menu" style={moreMenuStyle}>
+            <div className="recorder-more-menu-popover" ref={moreMenuRef} role="menu" style={moreMenuStyle}>
             {localAvailable ? (
               <>
                 <button

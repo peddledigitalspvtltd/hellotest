@@ -48,8 +48,8 @@ const selectTestCaseDispatchMetadata = db.prepare(`
 const selectObjectRepositoryEntries = obsDb.prepare(`
   SELECT id, test_case_id, page_url, page_key, locator_intent, locator, locator_kind, confidence, source, metadata, updated_at
   FROM automation_learning_cache
-  WHERE (project_id = ? OR ? IS NULL)
-    AND (app_type_id = ? OR ? IS NULL)
+  WHERE (?::text IS NULL OR project_id = ?::text)
+    AND (?::text IS NULL OR app_type_id = ?::text)
   ORDER BY hit_count DESC, updated_at DESC
   LIMIT 500
 `);
@@ -203,7 +203,9 @@ const normalizeObjectRepositoryEntry = (row) => {
 };
 
 const listObjectRepositoryForEnvelope = async ({ projectId, appTypeId, testCaseId }) => {
-  const rows = await selectObjectRepositoryEntries.all(projectId || null, projectId || null, appTypeId || null, appTypeId || null);
+  const scopedProjectId = projectId || null;
+  const scopedAppTypeId = appTypeId || null;
+  const rows = await selectObjectRepositoryEntries.all(scopedProjectId, scopedProjectId, scopedAppTypeId, scopedAppTypeId);
   const normalized = rows
     .map(normalizeObjectRepositoryEntry)
     .filter((entry) => entry.locator);

@@ -178,7 +178,7 @@ type CaseRunFilter = "all" | "with-runs" | "no-runs";
 type SuiteTransferAction = "add" | "move" | "copy";
 type TestCaseExecutionAssigneeOption = AssigneeOption;
 
-type TestCaseEditorSectionKey = "case" | "steps" | "automation" | "history";
+type TestCaseEditorSectionKey = "case" | "preconditions" | "steps" | "automation" | "history";
 
 const createEmptyCaseDraft = (defaultStatus = "active", defaultAutomated: "yes" | "no" = "no"): TestCaseDraft => ({
   title: "",
@@ -208,6 +208,7 @@ const executionHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
 
 const createDefaultTestCaseSections = (): Record<TestCaseEditorSectionKey, boolean> => ({
   case: false,
+  preconditions: true,
   steps: true,
   automation: false,
   history: false
@@ -215,6 +216,7 @@ const createDefaultTestCaseSections = (): Record<TestCaseEditorSectionKey, boole
 
 const createCreateModeTestCaseSections = (): Record<TestCaseEditorSectionKey, boolean> => ({
   case: true,
+  preconditions: true,
   steps: true,
   automation: false,
   history: false
@@ -776,6 +778,7 @@ export function TestCasesPage() {
   );
   const [caseDraft, setCaseDraft] = useState<TestCaseDraft>(() => createEmptyCaseDraft());
   const [newStepDraft, setNewStepDraft] = useState<StepDraft>(EMPTY_STEP_DRAFT);
+  const [newPreconditionDraft, setNewPreconditionDraft] = useState<StepDraft>(EMPTY_STEP_DRAFT);
   const [stepInsertIndex, setStepInsertIndex] = useState<number | null>(null);
   const [stepInsertGroupContext, setStepInsertGroupContext] = useState<StepInsertionGroupContext | null>(null);
   const [draftSteps, setDraftSteps] = useState<DraftTestStep[]>([]);
@@ -1092,6 +1095,10 @@ export function TestCasesPage() {
         : steps,
     [draftSteps, isCreating, selectedTestCaseId, steps]
   );
+  const preconditionSteps = useMemo(
+    () => displaySteps.filter((step) => (step.group_name || "").toLowerCase() === "preconditions"),
+    [displaySteps]
+  );
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -1271,6 +1278,7 @@ export function TestCasesPage() {
     setRecorderSessionCaseId("");
     setCaseDraft(emptyCaseDraft);
     setNewStepDraft(EMPTY_STEP_DRAFT);
+    setNewPreconditionDraft(EMPTY_STEP_DRAFT);
     setStepInsertIndex(null);
     setStepInsertGroupContext(null);
     setDraftSteps([]);
@@ -1570,6 +1578,32 @@ export function TestCasesPage() {
       window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+  };
+  const unlinkDeletedAutomationReferences = async (deletedCaseIds: string[]) => {
+    if (!deletedCaseIds.length) {
+      return;
+    }
+
+    const deletedIdSet = new Set(deletedCaseIds);
+    const manualCaseIdsToMarkNotAutomated = new Set<string>();
+
+    setManualCaseAutomationLinks((current) => {
+      const next = { ...current };
+      Object.entries(current).forEach(([automationCaseId, manualCaseId]) => {
+        if (deletedIdSet.has(automationCaseId)) {
+          if (manualCaseId && !deletedIdSet.has(manualCaseId)) {
+            manualCaseIdsToMarkNotAutomated.add(manualCaseId);
+          }
+          delete next[automationCaseId];
+        } else if (deletedIdSet.has(manualCaseId)) {
+          delete next[automationCaseId];
+        }
+      });
+      window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    await Promise.all(Array.from(manualCaseIdsToMarkNotAutomated).map((manualCaseId) => api.testCases.update(manualCaseId, { automated: "no" }).catch(() => null)));
   };
   const selectedCaseSuiteIds = useMemo(
     () =>
@@ -2513,6 +2547,7 @@ export function TestCasesPage() {
 
     try {
       await deleteTestCase.mutateAsync(selectedTestCase.id);
+      await unlinkDeletedAutomationReferences([selectedTestCase.id]);
       clearStoredTestCaseParameterDraft(buildTestCaseParameterDraftScopeKey({ isCreating: false, testCaseId: selectedTestCase.id }));
       setSelectedActionTestCaseIds((current) => current.filter((id) => id !== selectedTestCase.id));
       syncTestCaseSearchParams(null);
@@ -2552,6 +2587,8 @@ export function TestCasesPage() {
         .filter((_, index) => results[index]?.status === "fulfilled")
         .map((testCase) => testCase.id);
       const failedResults = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+
+      await unlinkDeletedAutomationReferences(deletedIds);
 
       deletedIds.forEach((testCaseId) => {
         clearStoredTestCaseParameterDraft(buildTestCaseParameterDraftScopeKey({ isCreating: false, testCaseId }));
@@ -2996,6 +3033,69 @@ export function TestCasesPage() {
       }
     } catch (error) {
       showError(error, "Unable to add step");
+    }
+  };
+
+  const handleCreatePreconditionStep = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const normalizedDraft = {
+      action: newPreconditionDraft.action.trim(),
+      expected_result: newPreconditionDraft.expected_result.trim(),
+      step_type: normalizeStepType(newPreconditionDraft.step_type),
+      automation_code: normalizeAutomationCode(newPreconditionDraft.automation_code),
+      api_request: normalizeApiRequest(newPreconditionDraft.api_request)
+    };
+
+    if (!normalizedDraft.action && !normalizedDraft.expected_result) {
+      setMessageTone("error");
+      setMessage("Add a precondition action or expected result before saving.");
+      return;
+    }
+
+    const preconditionGroup = {
+      group_id: `preconditions-${selectedTestCaseId || "draft"}`,
+      group_name: "Preconditions",
+      group_kind: "local" as const,
+      reusable_group_id: null
+    };
+
+    if (isCreating) {
+      const draftId = createDraftStepId();
+      setDraftSteps((current) => [{
+        id: draftId,
+        ...normalizedDraft,
+        ...preconditionGroup
+      }, ...current]);
+      setExpandedStepIds((current) => [...new Set([...current, draftId])]);
+      setNewPreconditionDraft(EMPTY_STEP_DRAFT);
+      showSuccess("Precondition added to the new test case draft.");
+      return;
+    }
+
+    if (!selectedTestCaseId) {
+      return;
+    }
+
+    try {
+      const response = await createStep.mutateAsync({
+        test_case_id: selectedTestCaseId,
+        step_order: 1,
+        action: normalizedDraft.action || undefined,
+        expected_result: normalizedDraft.expected_result || undefined,
+        step_type: normalizedDraft.step_type,
+        automation_code: normalizedDraft.automation_code || undefined,
+        api_request: normalizedDraft.api_request || undefined,
+        group_id: preconditionGroup.group_id,
+        group_name: preconditionGroup.group_name,
+        group_kind: preconditionGroup.group_kind
+      });
+      setNewPreconditionDraft(EMPTY_STEP_DRAFT);
+      setExpandedStepIds((current) => [...new Set([...current, response.id])]);
+      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
+      showSuccess("Precondition step added.");
+    } catch (error) {
+      showError(error, "Unable to add precondition");
     }
   };
 
@@ -3963,6 +4063,7 @@ export function TestCasesPage() {
 
     try {
       await deleteTestCase.mutateAsync(testCase.id);
+      await unlinkDeletedAutomationReferences([testCase.id]);
       setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCase.id));
 
       if (selectedTestCaseId === testCase.id) {
@@ -4296,25 +4397,13 @@ export function TestCasesPage() {
         created_by: session.user.id
       });
 
-      try {
-        const startResponse = await startExecution.mutateAsync(response.id);
-        showSuccess(summarizeExecutionStart(startResponse, `${testCase.title} run started.`));
-      } catch (error) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["executions"] }),
-          queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
-        ]);
-        navigate(`/executions?view=test-case-runs&execution=${response.id}&testCase=${testCaseId}`);
-        showError(error, "Run created, but QAira could not start it");
-        return;
-      }
-
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["executions"] }),
         queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
       ]);
 
       navigate(`/executions?view=test-case-runs&execution=${response.id}&testCase=${testCaseId}`);
+      showSuccess(`Manual run created for ${testCase.title}.`);
     } catch (error) {
       showError(error, "Unable to run test case");
     } finally {
@@ -4725,19 +4814,31 @@ export function TestCasesPage() {
   const automationSectionSummary = automationTargetCaseIds.length
     ? `${automationTargetCaseIds.length} case${automationTargetCaseIds.length === 1 ? "" : "s"} selected for AI automation or recorder capture.`
     : "Select a saved case to automate with AI or recorder capture.";
-  const caseSectionSummaryContent = (
-    <>
-      <span>{caseSectionSummary}</span>
-      {automationTargetCases.length ? (
-        <div className="selection-chip-row selection-chip-row--inline-description">
+  const caseSectionTitleContent = (
+    <span className="editor-accordion-title-line">
+      {isCreating ? (
+        <span>New test case</span>
+      ) : selectedTestCase ? (
+        <>
+          <span>Selected test case</span>
+          <span className="selection-chip-row selection-chip-row--inline-description">
+            <span className="selection-chip is-selected">{selectedTestCase.display_id || selectedTestCase.id}</span>
+          </span>
+          <span>{selectedTestCase.title}</span>
+        </>
+      ) : (
+        <span>Selected test case</span>
+      )}
+      {!selectedTestCase && automationTargetCases.length ? (
+        <span className="selection-chip-row selection-chip-row--inline-description">
           {automationTargetCases.map((testCase) => (
             <span className="selection-chip" key={testCase.id}>
               {testCase.display_id || testCase.title}
             </span>
           ))}
-        </div>
+        </span>
       ) : null}
-    </>
+    </span>
   );
   const historySectionSummary = selectedHistory.length
     ? "Review the latest recorded outcomes and preserved run evidence for this reusable test case."
@@ -4899,15 +5000,11 @@ export function TestCasesPage() {
           className="test-case-tile-action-button is-run test-case-header-run-button"
           disabled={isSelectedCaseRunning || !projectId || !appTypeId || !session?.user.id}
           onClick={() => void handleRunTestCase(selectedTestCase.id)}
-          title={
-            selectedTestCase.automated === "yes"
-              ? "Run the automated test case now in Test Runs"
-              : "Create and open a manual run for this test case"
-          }
+          title="Create and open a manual run for this test case. Manual runs are completed from Test Runs."
           type="button"
         >
           <TestCaseRunIcon />
-          <span>{isSelectedCaseRunning ? "Starting…" : "Run in Test Engine"}</span>
+          <span>{isSelectedCaseRunning ? "Creating…" : "Run manually"}</span>
         </button>
       ) : null}
       {selectedTestCase && supportsLocalDesktopExecution ? (
@@ -6107,7 +6204,7 @@ export function TestCasesPage() {
                                 type="button"
                               >
                                 <TestCaseRunIcon />
-                                {isRunningCase ? "Running..." : isFailedCase ? "Re-run" : "Run Test"}
+                                {isRunningCase ? "Creating..." : isFailedCase ? "Re-run manually" : "Run manually"}
                               </button>
                               {testCase.automated === "yes" ? (
                                 <button
@@ -6172,8 +6269,8 @@ export function TestCasesPage() {
                       countLabel={isCreating ? "Draft" : caseDraft.status || defaultTestCaseStatus}
                       isExpanded={expandedSections.case}
                       onToggle={() => setExpandedSections((current) => ({ ...current, case: !current.case }))}
-                      summary={caseSectionSummaryContent}
-                      title={isCreating ? "New test case" : "Selected test case"}
+                      summary={caseSectionSummary}
+                      title={caseSectionTitleContent}
                     >
                       <form className="form-grid" onSubmit={(event) => void handleSaveCase(event)}>
                         {hasReadableCasePreview ? (
@@ -6272,6 +6369,12 @@ export function TestCasesPage() {
                                 </select>
                               </FormField>
                             </div>
+                            {linkedAutomationCase ? (
+                              <button className="ghost-button compact" onClick={() => navigate(`/automation?case=${encodeURIComponent(linkedAutomationCase.id)}`)} type="button">
+                                <OpenIcon size={16} />
+                                <span>Open automation case</span>
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
 
@@ -6342,6 +6445,37 @@ export function TestCasesPage() {
                       </form>
                     </EditorAccordionSection>
                   </div>
+
+                  <EditorAccordionSection
+                    countLabel={`${preconditionSteps.length} item${preconditionSteps.length === 1 ? "" : "s"}`}
+                    isExpanded={expandedSections.preconditions}
+                    onToggle={() => setExpandedSections((current) => ({ ...current, preconditions: !current.preconditions }))}
+                    summary={preconditionSteps.length ? "Setup assumptions and pre-run steps captured before the main flow." : "Add setup assumptions or pre-run steps before the main test steps."}
+                    title="Preconditions"
+                  >
+                    <div className="precondition-step-panel">
+                      {preconditionSteps.length ? (
+                        <div className="precondition-step-list">
+                          {preconditionSteps.map((step) => (
+                            <div className="precondition-step-row" key={step.id}>
+                              <span className="count-pill">Pre {step.step_order}</span>
+                              <span>{step.action || step.expected_result || "Precondition"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="empty-state compact">No preconditions yet.</div>
+                      )}
+                      <InlineStepInsertSlot
+                        draft={newPreconditionDraft}
+                        index={0}
+                        isActive
+                        onCancel={() => setNewPreconditionDraft(EMPTY_STEP_DRAFT)}
+                        onChange={setNewPreconditionDraft}
+                        onSubmit={(event) => void handleCreatePreconditionStep(event)}
+                      />
+                    </div>
+                  </EditorAccordionSection>
 
                   <EditorAccordionSection
                     actions={(
@@ -6821,6 +6955,7 @@ export function TestCasesPage() {
         <StepAutomationDialog
           availableParameters={detectedStepParameters}
           getParameterScopeState={resolveScopedParameterInputState}
+          objectRepository={automationLearningCache}
           onClose={() => setEditingAutomationStepId("")}
           onSaveResponseValue={handleScopedParameterValueChange}
           onSave={(input) => void handleSaveStepAutomation(editingAutomationStep.id, input)}
@@ -8060,7 +8195,7 @@ function EditorAccordionSection({
   actions,
   children
 }: {
-  title: string;
+  title: ReactNode;
   summary: ReactNode;
   countLabel: string;
   isExpanded: boolean;

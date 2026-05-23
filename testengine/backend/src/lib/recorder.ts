@@ -75,7 +75,26 @@ type RecorderSession = {
   };
 };
 
+type RecorderInspectResult = {
+  captured_at: string;
+  page_id: string | null;
+  page_title: string | null;
+  page_url: string | null;
+  screen_dom: string | null;
+  screen_screenshot_url: string | null;
+  element: {
+    friendly_name: string;
+    html_tag: string;
+    role: string;
+    locator: string;
+    locator_kind: string;
+    dom_structure: string;
+    text: string | null;
+  };
+};
+
 const sessions = new Map<string, RecorderSession>();
+const inspectResults = new Map<string, RecorderInspectResult>();
 const RECORDER_ACTION_TYPES = new Set<RecorderAction["type"]>([
   "click",
   "dblclick",
@@ -717,6 +736,122 @@ const resolveActivePage = async (session: RecorderSession) => {
   return page || session.context.newPage();
 };
 
+const resolveRecorderPage = async (session: RecorderSession, pageId?: string | null) => {
+  const pages = session.context.pages().filter((candidate) => !candidate.isClosed());
+
+  if (pageId) {
+    const match = pages.find((page) => getRecorderPageId(page) === pageId);
+    if (match) {
+      return match;
+    }
+  }
+
+  return pages.at(-1) || session.context.newPage();
+};
+
+const serializeRecorderPage = async (page: Page) => ({
+  id: getRecorderPageId(page),
+  title: await resolvePageTitle(page),
+  url: page.url()
+});
+
+const installInspectMode = async (page: Page) => {
+  await page.evaluate(() => {
+    const inspectWindow = window as typeof window & {
+      __qairaInspectCleanup?: () => void;
+      __qairaInspectResult?: unknown;
+      __qairaRecorderLocatorFor?: (element: Element | null) => string | null;
+      __qairaRecorderVisibleTextFor?: (element: Element | null) => string | null;
+    };
+
+    inspectWindow.__qairaInspectCleanup?.();
+    inspectWindow.__qairaInspectResult = null;
+
+    const clean = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
+    const cssEscape = (value: string) => {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
+      return String(value || "").replace(/[^A-Za-z0-9_-]/g, "\\$&");
+    };
+    const friendlyName = (element: Element) => {
+      const text = clean(
+        element.getAttribute("aria-label")
+        || element.getAttribute("placeholder")
+        || element.getAttribute("name")
+        || element.getAttribute("id")
+        || element.getAttribute("data-testid")
+        || inspectWindow.__qairaRecorderVisibleTextFor?.(element)
+        || element.tagName.toLowerCase()
+      );
+      return text
+        .replace(/^text=/i, "")
+        .replace(/[^A-Za-z0-9]+/g, " ")
+        .trim()
+        .split(" ")
+        .filter(Boolean)
+        .map((part, index) => index ? part.charAt(0).toUpperCase() + part.slice(1) : part.charAt(0).toLowerCase() + part.slice(1))
+        .join("") || "element";
+    };
+    const fallbackLocator = (element: Element) => {
+      const testId = clean(element.getAttribute("data-testid"));
+      if (testId) return `[data-testid="${testId.replace(/"/g, '\\"')}"]`;
+      const id = clean(element.getAttribute("id"));
+      if (id) return `#${cssEscape(id)}`;
+      const name = clean(element.getAttribute("name"));
+      if (name) return `${element.tagName.toLowerCase()}[name="${name.replace(/"/g, '\\"')}"]`;
+      const aria = clean(element.getAttribute("aria-label"));
+      if (aria) return `${element.tagName.toLowerCase()}[aria-label="${aria.replace(/"/g, '\\"')}"]`;
+      const text = inspectWindow.__qairaRecorderVisibleTextFor?.(element);
+      if (text && ["button", "a"].includes(element.tagName.toLowerCase())) return `text=${text}`;
+      return inspectWindow.__qairaRecorderLocatorFor?.(element) || element.tagName.toLowerCase();
+    };
+    const clearHighlight = () => {
+      document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+        const target = node as HTMLElement;
+        target.style.outline = target.dataset.qairaPreviousOutline || "";
+        target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+        delete target.dataset.qairaPreviousOutline;
+        delete target.dataset.qairaPreviousBoxShadow;
+        delete target.dataset.qairaInspectHighlight;
+      });
+    };
+    const highlight = (element: Element) => {
+      if (!(element instanceof HTMLElement)) return;
+      clearHighlight();
+      element.dataset.qairaPreviousOutline = element.style.outline || "";
+      element.dataset.qairaPreviousBoxShadow = element.style.boxShadow || "";
+      element.dataset.qairaInspectHighlight = "true";
+      element.style.outline = "3px solid #2f6df6";
+      element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.22)";
+      element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    };
+    const handler = (event: MouseEvent) => {
+      const element = event.target instanceof Element ? event.target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || event.target : null;
+      if (!element) return;
+      event.preventDefault();
+      event.stopPropagation();
+      highlight(element);
+      const tag = element.tagName.toLowerCase();
+      const role = clean(element.getAttribute("role") || element.getAttribute("type") || tag);
+      const locator = fallbackLocator(element);
+      inspectWindow.__qairaInspectResult = {
+        friendly_name: friendlyName(element),
+        html_tag: tag,
+        role,
+        locator,
+        locator_kind: locator.startsWith("text=") ? "text" : "css",
+        dom_structure: element.outerHTML.slice(0, 12_000),
+        text: inspectWindow.__qairaRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200)
+      };
+    };
+
+    document.addEventListener("click", handler, true);
+    inspectWindow.__qairaInspectCleanup = () => {
+      document.removeEventListener("click", handler, true);
+      clearHighlight();
+    };
+  });
+};
+
 const enrichRemoteClickAction = async (
   session: RecorderSession,
   page: Page,
@@ -1278,6 +1413,127 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     }
 
     return serializeSession(session);
+  });
+
+  app.get("/api/v1/recorder/sessions/:id/tabs", async (request, reply) => {
+    const params = request.params as { id: string };
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+
+    const pages = session.context.pages().filter((page) => !page.isClosed());
+    const activePage = await resolveActivePage(session);
+    const activePageId = getRecorderPageId(activePage);
+
+    return {
+      session_id: session.id,
+      active_page_id: activePageId,
+      tabs: await Promise.all(pages.map(async (page) => ({
+        ...await serializeRecorderPage(page),
+        active: getRecorderPageId(page) === activePageId
+      })))
+    };
+  });
+
+  app.post("/api/v1/recorder/sessions/:id/inspect/start", async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = request.body as { page_id?: string | null } | null;
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Recorder session is not running" };
+    }
+
+    try {
+      const page = await resolveRecorderPage(session, body?.page_id);
+      await page.bringToFront().catch(() => undefined);
+      await installInspectMode(page);
+      inspectResults.delete(`${session.id}:${getRecorderPageId(page) || ""}`);
+      touchSession(session);
+
+      return {
+        ok: true,
+        page: await serializeRecorderPage(page)
+      };
+    } catch (error) {
+      reply.code(409);
+      return {
+        message: error instanceof Error ? error.message : "Unable to start inspect mode"
+      };
+    }
+  });
+
+  app.get("/api/v1/recorder/sessions/:id/inspect/result", async (request, reply) => {
+    const params = request.params as { id: string };
+    const query = request.query as { page_id?: string | null };
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+
+    try {
+      const page = await resolveRecorderPage(session, query.page_id);
+      const pageId = getRecorderPageId(page);
+      const cacheKey = `${session.id}:${pageId || ""}`;
+      const cached = inspectResults.get(cacheKey);
+
+      if (cached) {
+        return cached;
+      }
+
+      const element = await page.evaluate(() => {
+        const inspectWindow = window as typeof window & {
+          __qairaInspectResult?: unknown;
+        };
+        return inspectWindow.__qairaInspectResult || null;
+      }).catch(() => null) as RecorderInspectResult["element"] | null;
+
+      if (!element) {
+        reply.code(204);
+        return "";
+      }
+
+      const [pageTitle, screenDom, screenshot] = await Promise.all([
+        resolvePageTitle(page),
+        page.evaluate(() => document.documentElement?.outerHTML?.slice(0, 100_000) || "").catch(() => ""),
+        page.screenshot({
+          type: "jpeg",
+          quality: SCREENCAST_QUALITY,
+          fullPage: false,
+          timeout: 5_000
+        }).catch(() => null)
+      ]);
+
+      const result: RecorderInspectResult = {
+        captured_at: new Date().toISOString(),
+        page_id: pageId,
+        page_title: pageTitle,
+        page_url: page.url(),
+        screen_dom: screenDom || null,
+        screen_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null,
+        element
+      };
+
+      inspectResults.set(cacheKey, result);
+      touchSession(session);
+      return result;
+    } catch (error) {
+      reply.code(409);
+      return {
+        message: error instanceof Error ? error.message : "Unable to read inspect result"
+      };
+    }
   });
 
   app.get("/api/v1/recorder/sessions/:id/live", async (request, reply) => {

@@ -623,6 +623,30 @@ export const api = {
       }),
     learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
+    createLearningCacheEntry: (input: Partial<{
+      project_id: string;
+      app_type_id: string;
+      page_url: string;
+      page_key: string;
+      locator_intent: string;
+      locator: string;
+      locator_kind: string;
+      confidence: number;
+      source: string;
+      screen_name: string;
+      object_name: string;
+      object_role: string;
+      target_criteria: string[];
+      dom_structure: string;
+      screenshot_url: string;
+      screen_dom_compressed: string;
+      screen_screenshot_url: string;
+      metadata: Record<string, unknown>;
+    }>) =>
+      request<AutomationLearningCacheEntry>("/test-cases/automation/learning-cache", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     updateLearningCacheEntry: (id: string, input: Partial<{
       page_url: string;
       page_key: string;
@@ -652,6 +676,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
+    deleteLearningCacheEntry: (id: string) =>
+      request<{ deleted: boolean; blocked: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }> }>(`/test-cases/automation/learning-cache/${id}`, { method: "DELETE" }),
+    deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string }) =>
+      request<{ deleted: boolean; blocked: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }> }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}${toQueryString(query)}`, { method: "DELETE" }),
     buildAutomation: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",
@@ -776,7 +804,7 @@ export const api = {
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
     create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string }) =>
       request<{ id: string }>("/executions", { method: "POST", body: JSON.stringify(input) }),
-    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; assigned_to?: string; name?: string; created_by: string; engine_base_url?: string }) =>
+    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: { assigned_to?: string }) =>
       request<{ updated: boolean }>(`/executions/${id}`, { method: "PUT", body: JSON.stringify(input) }),

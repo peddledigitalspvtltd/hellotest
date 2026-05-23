@@ -646,6 +646,8 @@ const candidateTokens = (target: string) => {
 const normalizeRepositoryKey = (value: unknown) =>
   normalizeText(typeof value === "string" ? value : null)
     ?.toLowerCase()
+    .replace(/page\b/g, "")
+    .replace(/[^a-z0-9.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
   || "";
@@ -663,6 +665,8 @@ const resolveObjectRepositoryLocator = (envelope: EngineRunEnvelope, target: str
       entry.locator_intent,
       entry.object_name,
       entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+      entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+      entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
       entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
       ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
     ];
@@ -1618,18 +1622,23 @@ const buildBindings = (
 
   const expect = buildExpectApi();
   const providerBindings = session.bindings();
+  const resolveTarget = (target: string) =>
+    interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
   const page: PageFacade = {
     goto: async (target: string) => providerBindings.page.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
-    click: async (target: string) => providerBindings.page.click(interpolateText(target, context)),
-    fill: async (target: string, value: string) => providerBindings.page.fill(interpolateText(target, context), interpolateText(value, context)),
-    press: async (target: string, key: string) => providerBindings.page.press(interpolateText(target, context), interpolateText(key, context)),
+    click: async (target: string) => providerBindings.page.click(resolveTarget(target)),
+    fill: async (target: string, value: string) => providerBindings.page.fill(resolveTarget(target), interpolateText(value, context)),
+    press: async (target: string, key: string) => {
+      const resolvedTarget = resolveTarget(target).trim();
+      return resolvedTarget ? providerBindings.page.press(resolvedTarget, interpolateText(key, context)) : providerBindings.page.keyboard.press(interpolateText(key, context));
+    },
     waitForTimeout: (ms: number) => providerBindings.page.waitForTimeout(ms),
     waitForURL: async (expected: string) => providerBindings.page.waitForURL(interpolateText(expected, context)),
     waitForLoadState: (state?: string) => providerBindings.page.waitForLoadState(state),
-    waitForSelector: async (target: string, options) => providerBindings.page.waitForSelector(interpolateText(target, context), options),
+    waitForSelector: async (target: string, options) => providerBindings.page.waitForSelector(resolveTarget(target), options),
     url: () => providerBindings.page.url(),
-    textContent: async (target: string) => providerBindings.page.textContent(interpolateText(target, context)),
-    locator: (target: string) => providerBindings.page.locator(interpolateText(target, context)),
+    textContent: async (target: string) => providerBindings.page.textContent(resolveTarget(target)),
+    locator: (target: string) => providerBindings.page.locator(resolveTarget(target)),
     getByText: (target: string) => providerBindings.page.getByText(interpolateText(target, context)),
     getByLabel: (target: string) => providerBindings.page.getByLabel(interpolateText(target, context)),
     getByPlaceholder: (target: string) => providerBindings.page.getByPlaceholder(interpolateText(target, context)),
@@ -1645,15 +1654,26 @@ const buildBindings = (
 
   const web = {
     step: async (_title: string, fn: () => Promise<unknown>) => fn(),
+    aiStep: async (instruction: string, options?: { target?: string | null }) => {
+      const target = normalizeText(options?.target || null);
+      const resolvedInstruction = interpolateText(instruction, context);
+      if (target) {
+        await session.expectVisible(resolveTarget(target), { timeoutMs: 10_000 }).catch(() => undefined);
+      }
+      return resolvedInstruction;
+    },
     goto: async (target: string, options?: WebGotoOptions) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
-    click: async (target: string, options?: WebElementOptions) => session.click(interpolateText(target, context), options),
-    dblclick: async (target: string, options?: WebElementOptions) => session.dblclick(interpolateText(target, context), options),
-    rightClick: async (target: string, options?: WebElementOptions) => session.rightClick(interpolateText(target, context), options),
-    fill: async (target: string, value: string, options?: WebFillOptions) => session.fill(interpolateText(target, context), interpolateText(value, context), options),
-    select: async (target: string, value: string, options?: WebElementOptions) => session.select(interpolateText(target, context), interpolateText(value, context), options),
-    check: async (target: string, options?: WebElementOptions) => session.check(interpolateText(target, context), options),
-    uncheck: async (target: string, options?: WebElementOptions) => session.uncheck(interpolateText(target, context), options),
-    press: async (target: string, key: string, options?: WebElementOptions) => session.press(interpolateText(target, context), interpolateText(key, context), options),
+    click: async (target: string, options?: WebElementOptions) => session.click(resolveTarget(target), options),
+    dblclick: async (target: string, options?: WebElementOptions) => session.dblclick(resolveTarget(target), options),
+    rightClick: async (target: string, options?: WebElementOptions) => session.rightClick(resolveTarget(target), options),
+    fill: async (target: string, value: string, options?: WebFillOptions) => session.fill(resolveTarget(target), interpolateText(value, context), options),
+    select: async (target: string, value: string, options?: WebElementOptions) => session.select(resolveTarget(target), interpolateText(value, context), options),
+    check: async (target: string, options?: WebElementOptions) => session.check(resolveTarget(target), options),
+    uncheck: async (target: string, options?: WebElementOptions) => session.uncheck(resolveTarget(target), options),
+    press: async (target: string | null, key: string, options?: WebElementOptions) => {
+      const resolvedTarget = target === null ? "" : resolveTarget(target).trim();
+      return session.press(resolvedTarget || null, interpolateText(key, context), options);
+    },
     scroll: async (deltaX?: number, deltaY?: number, options?: WebScrollOptions) => session.scroll(deltaX, deltaY, options),
     wait: async (ms: number) => session.waitForTimeout(ms),
     waitForTimeout: async (ms: number) => session.waitForTimeout(ms),
@@ -1663,12 +1683,12 @@ const buildBindings = (
         return;
       }
 
-      await session.expectText(interpolateText(first, context), interpolateText(second, context), options);
+      await session.expectText(resolveTarget(first), interpolateText(second, context), options);
     },
-    expectVisible: async (target: string, options?: WebElementOptions) => session.expectVisible(interpolateText(target, context), options),
+    expectVisible: async (target: string, options?: WebElementOptions) => session.expectVisible(resolveTarget(target), options),
     expectUrl: async (expected: string, options?: { timeoutMs?: number; match?: "contains" | "equals" }) => session.waitForUrl(interpolateText(expected, context), options),
-    text: async (target: string, options?: WebElementOptions & { trim?: boolean }) => session.text(interpolateText(target, context), options),
-    value: async (target: string, options?: WebElementOptions) => session.value(interpolateText(target, context), options),
+    text: async (target: string, options?: WebElementOptions & { trim?: boolean }) => session.text(resolveTarget(target), options),
+    value: async (target: string, options?: WebElementOptions) => session.value(resolveTarget(target), options),
     resolve: (value: string) => interpolateText(value, context),
     capture
   };

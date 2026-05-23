@@ -183,6 +183,72 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.updateLearningCacheEntry(req.params.id, req.body || {});
   });
 
+  fastify.post("/test-cases/automation/learning-cache", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      project_id: { required: false, type: "string" },
+      app_type_id: { required: false, type: "string" },
+      page_url: { required: false, type: "string" },
+      page_key: { required: false, type: "string" },
+      locator_intent: { required: false, type: "string" },
+      locator: { required: true, type: "string" },
+      locator_kind: { required: false, type: "string" },
+      screen_name: { required: false, type: "string" },
+      object_name: { required: false, type: "string" },
+      object_role: { required: false, type: "string" },
+      dom_structure: { required: false, type: "string" },
+      screenshot_url: { required: false, type: "string" },
+      screen_dom_compressed: { required: false, type: "string" },
+      screen_screenshot_url: { required: false, type: "string" },
+      metadata: { required: false, type: "object" }
+    }, req.body || {});
+
+    if (req.body?.app_type_id) {
+      const appType = await appTypeService.getAppType(req.body.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.body?.project_id) {
+      await projectService.getProject(req.body.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Project or app type scope is required");
+    }
+
+    return aiAutomationBuilderService.createLearningCacheEntry(req.body || {});
+  });
+
+  fastify.delete("/test-cases/automation/learning-cache/:id", async (req) => {
+    await fastify.authenticate(req);
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+
+    if (entry.app_type_id) {
+      const appType = await appTypeService.getAppType(entry.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (entry.project_id) {
+      await projectService.getProject(entry.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Object repository entry is not scoped to a project");
+    }
+
+    return aiAutomationBuilderService.deleteLearningCacheEntry(req.params.id);
+  });
+
+  fastify.delete("/test-cases/automation/learning-cache/screens/:screenName", async (req) => {
+    await fastify.authenticate(req);
+    const { app_type_id } = req.query || {};
+
+    if (app_type_id) {
+      const appType = await appTypeService.getAppType(app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("App type scope is required");
+    }
+
+    return aiAutomationBuilderService.deleteLearningCacheScreen({
+      app_type_id,
+      screen_name: decodeURIComponent(req.params.screenName)
+    });
+  });
+
   fastify.post("/test-cases/automation/learning-cache/:id/ai-improve", async (req) => {
     await fastify.authenticate(req);
 

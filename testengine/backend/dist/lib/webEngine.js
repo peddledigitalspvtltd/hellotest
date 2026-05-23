@@ -346,6 +346,8 @@ const candidateTokens = (target) => {
 };
 const normalizeRepositoryKey = (value) => normalizeText(typeof value === "string" ? value : null)
     ?.toLowerCase()
+    .replace(/page\b/g, "")
+    .replace(/[^a-z0-9.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     || "";
@@ -360,6 +362,8 @@ const resolveObjectRepositoryLocator = (envelope, target) => {
             entry.locator_intent,
             entry.object_name,
             entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+            entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+            entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
             entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
             ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
         ];
@@ -1180,18 +1184,22 @@ const buildBindings = (session, context, captures, envelope) => {
     };
     const expect = buildExpectApi();
     const providerBindings = session.bindings();
+    const resolveTarget = (target) => interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
     const page = {
         goto: async (target) => providerBindings.page.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
-        click: async (target) => providerBindings.page.click(interpolateText(target, context)),
-        fill: async (target, value) => providerBindings.page.fill(interpolateText(target, context), interpolateText(value, context)),
-        press: async (target, key) => providerBindings.page.press(interpolateText(target, context), interpolateText(key, context)),
+        click: async (target) => providerBindings.page.click(resolveTarget(target)),
+        fill: async (target, value) => providerBindings.page.fill(resolveTarget(target), interpolateText(value, context)),
+        press: async (target, key) => {
+            const resolvedTarget = resolveTarget(target).trim();
+            return resolvedTarget ? providerBindings.page.press(resolvedTarget, interpolateText(key, context)) : providerBindings.page.keyboard.press(interpolateText(key, context));
+        },
         waitForTimeout: (ms) => providerBindings.page.waitForTimeout(ms),
         waitForURL: async (expected) => providerBindings.page.waitForURL(interpolateText(expected, context)),
         waitForLoadState: (state) => providerBindings.page.waitForLoadState(state),
-        waitForSelector: async (target, options) => providerBindings.page.waitForSelector(interpolateText(target, context), options),
+        waitForSelector: async (target, options) => providerBindings.page.waitForSelector(resolveTarget(target), options),
         url: () => providerBindings.page.url(),
-        textContent: async (target) => providerBindings.page.textContent(interpolateText(target, context)),
-        locator: (target) => providerBindings.page.locator(interpolateText(target, context)),
+        textContent: async (target) => providerBindings.page.textContent(resolveTarget(target)),
+        locator: (target) => providerBindings.page.locator(resolveTarget(target)),
         getByText: (target) => providerBindings.page.getByText(interpolateText(target, context)),
         getByLabel: (target) => providerBindings.page.getByLabel(interpolateText(target, context)),
         getByPlaceholder: (target) => providerBindings.page.getByPlaceholder(interpolateText(target, context)),
@@ -1205,15 +1213,26 @@ const buildBindings = (session, context, captures, envelope) => {
     };
     const web = {
         step: async (_title, fn) => fn(),
+        aiStep: async (instruction, options) => {
+            const target = normalizeText(options?.target || null);
+            const resolvedInstruction = interpolateText(instruction, context);
+            if (target) {
+                await session.expectVisible(resolveTarget(target), { timeoutMs: 10_000 }).catch(() => undefined);
+            }
+            return resolvedInstruction;
+        },
         goto: async (target, options) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
-        click: async (target, options) => session.click(interpolateText(target, context), options),
-        dblclick: async (target, options) => session.dblclick(interpolateText(target, context), options),
-        rightClick: async (target, options) => session.rightClick(interpolateText(target, context), options),
-        fill: async (target, value, options) => session.fill(interpolateText(target, context), interpolateText(value, context), options),
-        select: async (target, value, options) => session.select(interpolateText(target, context), interpolateText(value, context), options),
-        check: async (target, options) => session.check(interpolateText(target, context), options),
-        uncheck: async (target, options) => session.uncheck(interpolateText(target, context), options),
-        press: async (target, key, options) => session.press(interpolateText(target, context), interpolateText(key, context), options),
+        click: async (target, options) => session.click(resolveTarget(target), options),
+        dblclick: async (target, options) => session.dblclick(resolveTarget(target), options),
+        rightClick: async (target, options) => session.rightClick(resolveTarget(target), options),
+        fill: async (target, value, options) => session.fill(resolveTarget(target), interpolateText(value, context), options),
+        select: async (target, value, options) => session.select(resolveTarget(target), interpolateText(value, context), options),
+        check: async (target, options) => session.check(resolveTarget(target), options),
+        uncheck: async (target, options) => session.uncheck(resolveTarget(target), options),
+        press: async (target, key, options) => {
+            const resolvedTarget = target === null ? "" : resolveTarget(target).trim();
+            return session.press(resolvedTarget || null, interpolateText(key, context), options);
+        },
         scroll: async (deltaX, deltaY, options) => session.scroll(deltaX, deltaY, options),
         wait: async (ms) => session.waitForTimeout(ms),
         waitForTimeout: async (ms) => session.waitForTimeout(ms),
@@ -1222,12 +1241,12 @@ const buildBindings = (session, context, captures, envelope) => {
                 await session.expectText(null, interpolateText(first, context), options);
                 return;
             }
-            await session.expectText(interpolateText(first, context), interpolateText(second, context), options);
+            await session.expectText(resolveTarget(first), interpolateText(second, context), options);
         },
-        expectVisible: async (target, options) => session.expectVisible(interpolateText(target, context), options),
+        expectVisible: async (target, options) => session.expectVisible(resolveTarget(target), options),
         expectUrl: async (expected, options) => session.waitForUrl(interpolateText(expected, context), options),
-        text: async (target, options) => session.text(interpolateText(target, context), options),
-        value: async (target, options) => session.value(interpolateText(target, context), options),
+        text: async (target, options) => session.text(resolveTarget(target), options),
+        value: async (target, options) => session.value(resolveTarget(target), options),
         resolve: (value) => interpolateText(value, context),
         capture
     };

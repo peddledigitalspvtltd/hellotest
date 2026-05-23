@@ -57,10 +57,13 @@ type AndroidKeywordOption = {
 };
 
 const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
+  { id: "aiStep", label: "AI Step", locatorLabel: "Optional target", dataLabel: "Instruction", dataRequired: true },
   { id: "goto", label: "Open URL", locatorLabel: "URL or path", dataLabel: "Optional note", locatorRequired: true },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "fill", label: "Fill", locatorLabel: "Locator", dataLabel: "Text or token", locatorRequired: true, dataRequired: true },
+  { id: "clear", label: "Clear", locatorLabel: "Input locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "press", label: "Press Key", locatorLabel: "Locator optional", dataLabel: "Key", dataRequired: true },
+  { id: "scroll", label: "Scroll", locatorLabel: "Direction", dataLabel: "Pixels", dataRequired: true },
   { id: "wait", label: "Wait", locatorLabel: "Optional note", dataLabel: "Milliseconds", dataRequired: true },
   { id: "expectVisible", label: "Assert Visible", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "expectText", label: "Assert Text", locatorLabel: "Locator optional", dataLabel: "Expected text", dataRequired: true },
@@ -70,6 +73,7 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
 ];
 
 const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
+  { id: "aiStep", label: "AI Step", selectorLabel: "Optional selector", valueLabel: "Instruction", valueRequired: true },
   { id: "tap", label: "Tap", selectorLabel: "UiAutomator/XPath/accessibility id", valueLabel: "Optional note", selectorRequired: true },
   { id: "type", label: "Type", selectorLabel: "Input selector", valueLabel: "Text or token", selectorRequired: true, valueRequired: true },
   { id: "clear", label: "Clear", selectorLabel: "Input selector", valueLabel: "Optional note", selectorRequired: true },
@@ -108,16 +112,27 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
   const value = data.trim();
 
   switch (option.id) {
+    case "aiStep":
+      return `await web.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ target: target || undefined })});`;
     case "goto":
       return `await web.goto(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "click":
       return `await web.click(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
     case "fill":
       return `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_TYPE_DEFAULTS)});`;
+    case "clear":
+      return `await web.fill(${quoteCodeString(target)}, "", ${formatOptionsObject({ ...WEB_TYPE_DEFAULTS, clear: true })});`;
     case "press":
       return target
         ? `await web.press(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`
         : `await page.press("body", ${quoteCodeString(value)});`;
+    case "scroll": {
+      const direction = /^(up|left)$/i.test(target) ? target.toLowerCase() : "down";
+      const amount = Math.max(1, Number.parseInt(value, 10) || 600);
+      const deltaX = direction === "left" ? -amount : direction === "right" ? amount : 0;
+      const deltaY = direction === "up" ? -amount : direction === "down" ? amount : 0;
+      return `await web.scroll(${deltaX}, ${deltaY}, ${formatOptionsObject({ direction, amount })});`;
+    }
     case "wait":
       return `await web.wait(${Math.max(0, Number.parseInt(value, 10) || 1000)});`;
     case "expectVisible":
@@ -143,6 +158,8 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
   const splitNumbers = (source: string) => source.split(",").map((item) => Number.parseInt(item.trim(), 10) || 0);
 
   switch (option.id) {
+    case "aiStep":
+      return `await android.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ selector: target || undefined })});`;
     case "tap":
       return `await android.tap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, waitFor: "displayed" })});`;
     case "type":
@@ -1542,6 +1559,7 @@ export function StepAutomationDialog({
   title,
   subtitle,
   step,
+  objectRepository = [],
   parameterValues = {},
   availableParameters = [],
   getParameterScopeState,
@@ -1552,6 +1570,7 @@ export function StepAutomationDialog({
   title: string;
   subtitle: string;
   step: StepAutomationInput;
+  objectRepository?: AutomationLearningCacheEntry[];
   parameterValues?: Record<string, string>;
   availableParameters?: StepParameterDefinition[];
   getParameterScopeState?: (scope: StepParameterScope) => StepAutomationParameterScopeState;
@@ -1651,6 +1670,25 @@ export function StepAutomationDialog({
   const selectedJsonValue = selectedJsonPath ? formatJsonSelectionValue(selectedJsonPath.value) : "";
   const selectedWebKeyword = WEB_KEYWORD_OPTIONS.find((option) => option.id === webKeywordId) || WEB_KEYWORD_OPTIONS[0];
   const selectedAndroidKeyword = ANDROID_KEYWORD_OPTIONS.find((option) => option.id === androidKeywordId) || ANDROID_KEYWORD_OPTIONS[0];
+  const repositoryFieldOptions = useMemo(
+    () => objectRepository
+      .filter((entry) => entry.locator)
+      .map((entry) => {
+        const metadata = entry.metadata || {};
+        const screenName = String(metadata.screen_name || entry.page_key || "Screen").trim();
+        const objectName = String(metadata.object_name || entry.locator_intent || entry.locator || "Field").trim();
+        const htmlTag = String(metadata.object_role || entry.locator_kind || "locator").trim();
+        const reference = `${screenName}.${objectName}`;
+
+        return {
+          id: entry.id,
+          reference,
+          locator: entry.locator,
+          label: `${reference} · ${htmlTag} · ${entry.locator}`
+        };
+      }),
+    [objectRepository]
+  );
   const groupedAvailableParameters = useMemo(
     () => [
       {
@@ -2362,11 +2400,29 @@ export function StepAutomationDialog({
                         </select>
                       </FormField>
                       <FormField label={selectedWebKeyword.locatorLabel}>
-                        <input
-                          placeholder="css=[data-testid='submit']"
-                          value={webKeywordLocator}
-                          onChange={(event) => setWebKeywordLocator(event.target.value)}
-                        />
+                        <div className="automation-repository-target-field">
+                          <input
+                            list={repositoryFieldOptions.length ? "automation-repository-target-options" : undefined}
+                            placeholder="Login.Email or css=[data-testid='submit']"
+                            value={webKeywordLocator}
+                            onChange={(event) => setWebKeywordLocator(event.target.value)}
+                          />
+                          {repositoryFieldOptions.length ? (
+                            <datalist id="automation-repository-target-options">
+                              {repositoryFieldOptions.map((option) => (
+                                <option key={option.id} label={option.label} value={option.reference} />
+                              ))}
+                            </datalist>
+                          ) : null}
+                          {repositoryFieldOptions.length ? (
+                            <select aria-label="Use object repository field" value="" onChange={(event) => event.target.value ? setWebKeywordLocator(event.target.value) : undefined}>
+                              <option value="">Object repository</option>
+                              {repositoryFieldOptions.map((option) => (
+                                <option key={option.id} value={option.reference}>{option.label}</option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
                       </FormField>
                       <FormField label={selectedWebKeyword.dataLabel}>
                         <input

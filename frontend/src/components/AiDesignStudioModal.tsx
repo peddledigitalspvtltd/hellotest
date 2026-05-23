@@ -102,6 +102,7 @@ export function AiDesignStudioModal({
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRequirementDialogOpen, setIsRequirementDialogOpen] = useState(false);
+  const [requirementSearchTerm, setRequirementSearchTerm] = useState("");
 
   const handleRequirementToggle = (requirementId: string, checked: boolean) => {
     if (allowMultipleRequirements) {
@@ -123,6 +124,12 @@ export function AiDesignStudioModal({
   const scopedPreviewRequirements = selectedRequirementIds.length
     ? requirements.filter((requirement) => selectedRequirementIds.includes(requirement.id))
     : requirements;
+  const filteredRequirements = requirements.filter((requirement) => {
+    const query = requirementSearchTerm.trim().toLowerCase();
+    if (!query) return true;
+    return [requirement.title, requirement.description, requirement.status, String(requirement.priority ?? "")]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
 
   return (
     <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
@@ -468,16 +475,24 @@ export function AiDesignStudioModal({
                 Done
               </button>
             </div>
+            <FormField label="Search requirements">
+              <input
+                autoFocus
+                placeholder="Search title, description, status, or priority"
+                value={requirementSearchTerm}
+                onChange={(event) => setRequirementSearchTerm(event.target.value)}
+              />
+            </FormField>
             <div className="requirement-selection-dialog-actions">
-              <button className="ghost-button compact" onClick={() => onRequirementSelectionChange(requirements.map((requirement) => requirement.id))} type="button">
-                Select all
+              <button className="ghost-button compact" onClick={() => onRequirementSelectionChange(filteredRequirements.map((requirement) => requirement.id))} type="button">
+                Select visible
               </button>
               <button className="ghost-button compact" onClick={() => onRequirementSelectionChange([])} type="button">
                 Clear
               </button>
             </div>
             <div className="modal-case-picker ai-studio-requirement-picker requirement-selection-dialog-list">
-              {requirements.map((requirement) => (
+              {filteredRequirements.map((requirement) => (
                 <label className="modal-case-option requirement-link-option" key={requirement.id}>
                   <input
                     checked={selectedRequirementIds.includes(requirement.id)}
@@ -491,6 +506,7 @@ export function AiDesignStudioModal({
                   </div>
                 </label>
               ))}
+              {!filteredRequirements.length ? <div className="empty-state compact">No requirements match the current search.</div> : null}
             </div>
             <div className="action-row ai-studio-footer">
               <button className="ghost-button" onClick={() => onRequirementSelectionChange(requirements.map((requirement) => requirement.id))} type="button">

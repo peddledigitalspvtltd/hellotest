@@ -1223,7 +1223,8 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
 exports.startExecution = async (id, options = {}) => {
   const execution = await exports.getExecution(id);
-  const skipTestEngineDispatch = Boolean(options.skip_testengine_dispatch);
+  const skipTestEngineDispatch = Boolean(options.skip_testengine_dispatch)
+    || (execution.trigger === "manual" && options.execution_mode !== "local" && options.execution_mode !== "remote");
 
   if (execution.status !== "queued") {
     throw new Error("Only queued executions can be started");

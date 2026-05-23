@@ -205,6 +205,12 @@ const deleteProjectAiGenerationJobs = db.prepare(`
   WHERE project_id = ?
 `);
 
+const deleteProjectIntegrations = db.prepare(`
+  DELETE FROM integrations
+  WHERE config->>'project_id' = ?
+     OR project_key = ?
+`);
+
 const deleteProjectWorkspaceTransactions = obsDb.prepare(`
   DELETE FROM workspace_transactions
   WHERE project_id = ?
@@ -388,7 +394,7 @@ exports.deleteProject = async (id) => {
     await deleteProjectTestConfigurations.run(id);
     await deleteProjectTestDataSets.run(id);
     await deleteProjectAiGenerationJobs.run(id);
-    await deleteProjectIntegrations.run(id);
+    await deleteProjectIntegrations.run(id, id);
     await deleteProjectAppTypes.run(id);
     await deleteProjectMembers.run(id);
     await deleteProjectRecord.run(id);

@@ -42,6 +42,14 @@ const navigation = [
         disabledWhenNoProjects: true
       },
       {
+        id: "automation",
+        to: "/automation",
+        label: "Automation",
+        shortLabel: "Auto",
+        icon: AutomationIcon,
+        disabledWhenNoProjects: true
+      },
+      {
         id: "runs",
         to: "/executions",
         label: "Test Runs",
@@ -49,14 +57,6 @@ const navigation = [
         icon: PlayIcon,
         subItems: [{ to: "/executions", label: "Run Console", shortLabel: "Console", icon: "executions" }],
         matchPaths: ["/executions"],
-        disabledWhenNoProjects: true
-      },
-      {
-        id: "automation",
-        to: "/automation",
-        label: "Automation",
-        shortLabel: "Auto",
-        icon: AutomationIcon,
         disabledWhenNoProjects: true
       },
       {

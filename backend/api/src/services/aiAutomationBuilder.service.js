@@ -132,6 +132,17 @@ const updateLearningCacheEntry = obsDb.prepare(`
   WHERE id = ?
 `);
 
+const deleteLearningCacheEntry = obsDb.prepare(`
+  DELETE FROM automation_learning_cache
+  WHERE id = ?
+`);
+
+const deleteLearningCacheScreen = obsDb.prepare(`
+  DELETE FROM automation_learning_cache
+  WHERE app_type_id IS NOT DISTINCT FROM ?
+    AND COALESCE(metadata->>'screen_name', page_key, page_url, '') = ?
+`);
+
 const normalizeText = (value) => {
   if (typeof value !== "string") {
     return null;
@@ -887,7 +898,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `Press ${normalizedKey}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press("", ${quoteCodeString(normalizedKey)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+      automation_code: `await web.press(null, ${quoteCodeString(normalizedKey)}, ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -898,7 +909,7 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Press Tab",
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press("", "Tab", ${WEB_ELEMENT_OPTIONS_CODE});`
+      automation_code: `await web.press(null, "Tab", ${WEB_ELEMENT_OPTIONS_CODE});`
     };
   }
 
@@ -1285,7 +1296,7 @@ const buildPrompt = ({
     "Build automation for this QAira manual web test case.",
     "",
     "Runtime contract:",
-    "- Use QAira keyword/facade calls only: web.goto, web.click, web.dblclick, web.rightClick, web.fill, web.select, web.check, web.uncheck, web.press, web.scroll, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
+    "- Use QAira keyword/facade calls only: web.aiStep, web.goto, web.click, web.dblclick, web.rightClick, web.fill, web.select, web.check, web.uncheck, web.press, web.scroll, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
     "- Each step automation_code must be executable JavaScript statements, not a full Playwright test file.",
     "- Include tweakable element-level option objects directly in keyword calls where relevant: timeoutMs, scroll, waitFor, force, clear, type, delayMs, direction, amount, match.",
     "- For text entry, prefer char-by-char typing by default: web.fill(target, value, { timeoutMs: 10000, scroll: \"nearest\", waitFor: \"visible\", clear: true, type: \"char-by-char\", delayMs: 35 }).",
@@ -2875,6 +2886,16 @@ exports.getLearningCacheEntry = async (id) => {
 exports.updateLearningCacheEntry = async (id, patch = {}) => {
   const existing = await exports.getLearningCacheEntry(id);
   const next = normalizeRepositoryPatch(existing, patch);
+  const duplicate = await exports.findDuplicateLearningCacheEntry({
+    app_type_id: existing.app_type_id,
+    screen_name: next.metadata?.screen_name || next.page_key || next.page_url,
+    locator: next.locator,
+    exclude_id: existing.id
+  });
+
+  if (duplicate) {
+    throw new Error("Another object repository field on this screen already uses the same locator.");
+  }
 
   await updateLearningCacheEntry.run(
     next.page_url,
@@ -2889,6 +2910,157 @@ exports.updateLearningCacheEntry = async (id, patch = {}) => {
   );
 
   return exports.getLearningCacheEntry(existing.id);
+};
+
+exports.createLearningCacheEntry = async (input = {}) => {
+  const pageKey = normalizeText(input.page_key) || normalizeText(input.screen_name) || normalizeUrlKey(input.page_url) || "unknown-page";
+  const locator = normalizeText(input.locator);
+  const screenName = normalizeText(input.screen_name) || pageKey;
+
+  if (!locator) {
+    throw new Error("Locator is required");
+  }
+
+  const duplicate = await exports.findDuplicateLearningCacheEntry({
+    app_type_id: normalizeText(input.app_type_id),
+    screen_name: screenName,
+    locator
+  });
+
+  if (duplicate) {
+    throw new Error("Another object repository field on this screen already uses the same locator.");
+  }
+
+  await upsertLearningCache.run(
+    uuid(),
+    normalizeText(input.project_id),
+    normalizeText(input.app_type_id),
+    normalizeText(input.test_case_id),
+    normalizeText(input.page_url),
+    pageKey,
+    normalizeText(input.locator_intent || input.object_name) || "field",
+    locator,
+    normalizeText(input.locator_kind) || "css",
+    clampNumber(input.confidence, 0.8),
+    normalizeText(input.source) || "object_repository",
+    {
+      ...normalizeObject(input.metadata),
+      screen_name: screenName,
+      object_name: normalizeText(input.object_name) || normalizeText(input.locator_intent) || "field",
+      object_role: normalizeText(input.object_role) || "field",
+      target_criteria: Array.isArray(input.target_criteria) ? input.target_criteria : [],
+      dom_structure: normalizeText(input.dom_structure),
+      screenshot_url: normalizeText(input.screenshot_url),
+      fallback_strategy: normalizeText(input.fallback_strategy),
+      screen_dom_compressed: normalizeText(input.screen_dom_compressed),
+      screen_screenshot_url: normalizeText(input.screen_screenshot_url)
+    }
+  );
+
+  const rows = await listLearningCacheRows({
+    projectId: normalizeText(input.project_id),
+    appTypeId: normalizeText(input.app_type_id),
+    limit: 200
+  });
+  return rows.map(normalizeLearningCacheRow).find((row) =>
+    row.locator === locator && (row.metadata?.screen_name || row.page_key) === screenName
+  ) || null;
+};
+
+exports.findDuplicateLearningCacheEntry = async ({ app_type_id, screen_name, locator, exclude_id } = {}) => {
+  const normalizedScreen = normalizeText(screen_name);
+  const normalizedLocator = normalizeText(locator);
+
+  if (!normalizedScreen || !normalizedLocator) {
+    return null;
+  }
+
+  const rows = await listLearningCacheRows({ appTypeId: normalizeText(app_type_id), limit: 200 });
+  return rows.map(normalizeLearningCacheRow).find((entry) =>
+    entry.id !== exclude_id
+    && normalizeText(entry.locator) === normalizedLocator
+    && normalizeText(entry.metadata?.screen_name || entry.page_key || entry.page_url) === normalizedScreen
+  ) || null;
+};
+
+const buildRepositoryUsageNeedles = (entry) => {
+  const screenName = normalizeText(entry.metadata?.screen_name || entry.page_key);
+  const objectName = normalizeText(entry.metadata?.object_name || entry.locator_intent);
+  return [
+    entry.locator,
+    objectName,
+    screenName && objectName ? `${screenName}.${objectName}` : null,
+    entry.locator_intent
+  ].map(normalizeText).filter(Boolean);
+};
+
+exports.findLearningCacheUsage = async (entryOrEntries) => {
+  const entries = (Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries]).filter(Boolean);
+  const needles = [...new Set(entries.flatMap(buildRepositoryUsageNeedles))];
+
+  if (!needles.length) {
+    return [];
+  }
+
+  const scopedAppTypeIds = [...new Set(entries.map((entry) => normalizeText(entry.app_type_id)).filter(Boolean))];
+  let query = `
+    SELECT DISTINCT test_cases.id, test_cases.display_id, test_cases.title, test_cases.automated
+    FROM test_steps
+    JOIN test_cases ON test_cases.id = test_steps.test_case_id
+    WHERE 1 = 1
+  `;
+  const params = [];
+
+  if (scopedAppTypeIds.length === 1) {
+    query += ` AND test_cases.app_type_id = ?`;
+    params.push(scopedAppTypeIds[0]);
+  }
+
+  const likeClauses = needles.flatMap(() => [
+    `LOWER(COALESCE(test_steps.action, '')) LIKE ?`,
+    `LOWER(COALESCE(test_steps.expected_result, '')) LIKE ?`,
+    `LOWER(COALESCE(test_steps.automation_code, '')) LIKE ?`
+  ]);
+  query += ` AND (${likeClauses.join(" OR ")}) ORDER BY test_cases.title`;
+  needles.forEach((needle) => {
+    const pattern = `%${needle.toLowerCase()}%`;
+    params.push(pattern, pattern, pattern);
+  });
+
+  return obsDb.prepare(query).all(...params);
+};
+
+exports.deleteLearningCacheEntry = async (id) => {
+  const existing = await exports.getLearningCacheEntry(id);
+  const usage = await exports.findLearningCacheUsage(existing);
+
+  if (usage.length) {
+    return { deleted: false, blocked: true, usage };
+  }
+
+  await deleteLearningCacheEntry.run(existing.id);
+  return { deleted: true, blocked: false, usage: [] };
+};
+
+exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name } = {}) => {
+  const screenName = normalizeText(screen_name);
+  const appTypeId = normalizeText(app_type_id);
+
+  if (!screenName) {
+    throw new Error("Screen name is required");
+  }
+
+  const rows = (await listLearningCacheRows({ appTypeId, limit: 200 }))
+    .map(normalizeLearningCacheRow)
+    .filter((entry) => normalizeText(entry.metadata?.screen_name || entry.page_key || entry.page_url) === screenName);
+  const usage = await exports.findLearningCacheUsage(rows);
+
+  if (usage.length) {
+    return { deleted: false, blocked: true, usage };
+  }
+
+  await deleteLearningCacheScreen.run(appTypeId || null, screenName);
+  return { deleted: true, blocked: false, usage: [] };
 };
 
 exports.improveLearningCacheEntry = async ({ id, integration_id, guidance } = {}) => {

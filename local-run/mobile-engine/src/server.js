@@ -11,6 +11,7 @@ const normalizeText = (value) => String(value || "").trim();
 const nowIso = () => new Date().toISOString();
 
 const KEYWORDS = [
+  "aiStep",
   "tap",
   "type",
   "clear",
@@ -124,6 +125,8 @@ function recordAction(session, action) {
 async function executeKeyword(driver, command) {
   const [selector, value, extra] = command.args;
   switch (command.keyword) {
+    case "aiStep":
+      return { status: "passed", note: `AI step noted: ${selector || value || "instruction"}` };
     case "tap":
       if (String(selector).startsWith("point:")) {
         const [x, y] = String(selector).replace(/^point:/, "").split(",").map((item) => Number(item.trim()) || 0);
