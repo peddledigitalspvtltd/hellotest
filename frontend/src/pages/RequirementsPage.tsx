@@ -658,6 +658,25 @@ export function RequirementsPage() {
   );
 
   const openTestCaseWorkspace = (testCaseId: string) => setLinkedPreviewCaseId(testCaseId);
+  const openNewTestCase = (requirement: Requirement) => {
+    if (!appTypeId) {
+      setMessageTone("error");
+      setMessage("Select an app type before creating a test case for this requirement.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      create: "1",
+      requirement: requirement.id,
+      appType: appTypeId
+    });
+
+    if (projectId) {
+      params.set("project", projectId);
+    }
+
+    navigate(`/test-cases?${params.toString()}`);
+  };
   const authoringSectionItems = useMemo(
     () =>
       TEST_AUTHORING_SECTION_ITEMS.map((item) => ({
@@ -1507,7 +1526,17 @@ export function RequirementsPage() {
         )}
         detailView={(
           <Panel
-            actions={<WorkspaceBackButton label="Back to requirement tiles" onClick={closeRequirementDetail} />}
+            actions={(
+              <div className="panel-head-actions-row">
+                <WorkspaceBackButton label="Back to requirement tiles" onClick={closeRequirementDetail} />
+                {selectedRequirement ? (
+                  <button className="primary-button" disabled={!appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
+                    <AddIcon />
+                    <span>New Test Case</span>
+                  </button>
+                ) : null}
+              </div>
+            )}
             title={selectedRequirement ? selectedRequirement.title : "Requirement details"}
             subtitle={selectedRequirement ? "Edit the requirement, manage reusable coverage links, and keep the selected item in focus." : "Select a requirement to review its details."}
           >

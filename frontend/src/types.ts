@@ -401,6 +401,30 @@ export type AutomationLearningCacheEntry = {
   updated_at?: string;
 };
 
+export type ObjectRepositoryContext = {
+  repositoryType: "ui_intelligence_repository";
+  generatedAt: string;
+  screens: Array<{
+    screen: string;
+    appType: string | null;
+    urlPattern: { type: string; value: string | null };
+    fingerprint: string | null;
+    fields: Array<{
+      name: string;
+      type: string;
+      primaryLocator: string;
+      primaryStrategy: string | null;
+      confidenceScore: number;
+      fallbackLocators: unknown[];
+      description: string | null;
+      businessMeaning: string | null;
+      usageKeywords: unknown[];
+      stabilityScore: number;
+      lastValidatedDate: string | null;
+    }>;
+  }>;
+};
+
 export type AutomationBuildResponse = {
   test_case_id: string;
   title: string;

@@ -42254,7 +42254,7 @@ var require_websocket = __commonJS({
     var http = require("http");
     var net = require("net");
     var tls = require("tls");
-    var { randomBytes, createHash } = require("crypto");
+    var { randomBytes, createHash: createHash2 } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL: URL2 } = require("url");
     var PerMessageDeflate = require_permessage_deflate();
@@ -42914,7 +42914,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -43281,7 +43281,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = require("events");
     var http = require("http");
     var { Duplex } = require("stream");
-    var { createHash } = require("crypto");
+    var { createHash: createHash2 } = require("crypto");
     var extension = require_extension();
     var PerMessageDeflate = require_permessage_deflate();
     var subprotocol = require_subprotocol();
@@ -43582,7 +43582,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -140768,7 +140768,46 @@ var resolveTimeoutPolicy = (envelope) => ({
   assertion: normalizePositiveInteger(envelope.timeouts?.assertion_timeout_ms, 1e4, 250, 12e4),
   recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 3e4)
 });
+var clampTimeout = (value, fallback) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.min(Math.max(250, numeric), 12e4) : fallback;
+};
+var normalizeElementOptions = (options2, fallbackTimeout = 1e4) => ({
+  timeoutMs: clampTimeout(options2?.timeoutMs, fallbackTimeout),
+  scroll: options2?.scroll ?? "nearest",
+  waitFor: options2?.waitFor || "visible",
+  force: options2?.force === true,
+  trial: options2?.trial === true
+});
+var resolveScrollDelta = (deltaX, deltaY, options2) => {
+  const amount = Math.max(1, Math.abs(Number(options2?.amount || 0)) || Math.max(Math.abs(Number(deltaY || 0)), Math.abs(Number(deltaX || 0)), 600));
+  if (options2?.direction === "up") {
+    return { x: 0, y: -amount };
+  }
+  if (options2?.direction === "down") {
+    return { x: 0, y: amount };
+  }
+  if (options2?.direction === "left") {
+    return { x: -amount, y: 0 };
+  }
+  if (options2?.direction === "right") {
+    return { x: amount, y: 0 };
+  }
+  return {
+    x: Number.isFinite(Number(options2?.deltaX)) ? Number(options2?.deltaX) : Number(deltaX || 0),
+    y: Number.isFinite(Number(options2?.deltaY)) ? Number(options2?.deltaY) : Number(deltaY ?? 600)
+  };
+};
 var shouldRecordVideo = (envelope) => envelope.artifact_policy?.video_mode !== "off";
+var shouldLaunchHeadless = (envelope) => {
+  if (envelope.headless !== false) {
+    return true;
+  }
+  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return true;
+  }
+  return false;
+};
 var shouldAttachVideo = (envelope, finalStatus) => {
   const mode = envelope.artifact_policy?.video_mode || "off";
   if (mode === "off") {
@@ -141035,6 +141074,27 @@ var candidateTokens = (target) => {
     text: fallback
   };
 };
+var normalizeRepositoryKey = (value) => normalizeText(typeof value === "string" ? value : null)?.toLowerCase().replace(/page\b/g, "").replace(/[^a-z0-9.]+/g, " ").replace(/\s+/g, " ").trim() || "";
+var resolveObjectRepositoryLocator = (envelope, target) => {
+  const targetKey = normalizeRepositoryKey(stripWrappingQuotes(target));
+  if (!targetKey || !Array.isArray(envelope.object_repository)) {
+    return target;
+  }
+  const match = envelope.object_repository.find((entry) => {
+    const candidates = [
+      entry.locator,
+      entry.locator_intent,
+      entry.object_name,
+      entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+      entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+      entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
+      entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
+      ...Array.isArray(entry.previous_locators) ? entry.previous_locators : []
+    ];
+    return candidates.some((candidate) => normalizeRepositoryKey(candidate) === targetKey);
+  });
+  return normalizeText(match?.locator || null) || target;
+};
 var createPlaywrightLocatorFacade = (resolver, target) => ({
   click: async () => {
     const locator = await resolver(target);
@@ -141092,6 +141152,8 @@ var PlaywrightWebSession = class {
   browser = null;
   browserContext = null;
   browserPage = null;
+  ownsBrowser = true;
+  ownsContext = true;
   consoleEntries = [];
   networkEntries = [];
   liveSessionId = null;
@@ -141106,23 +141168,35 @@ var PlaywrightWebSession = class {
     if (this.browserPage) {
       return;
     }
-    const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
-    this.browser = await browserType.launch({
-      headless: this.envelope.headless !== false
-    });
-    this.browserContext = await this.browser.newContext({
-      ignoreHTTPSErrors: true,
-      ...shouldRecordVideo(this.envelope) ? {
-        recordVideo: {
-          dir: import_node_path.default.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
-          size: {
-            width: 960,
-            height: 540
+    const cdpEndpoint = normalizeText(this.envelope.session_policy?.web?.connect_over_cdp_endpoint || null);
+    const shouldAttach = normalizeText(this.envelope.session_policy?.web?.mode || null) === "attach" && Boolean(cdpEndpoint);
+    if (shouldAttach && cdpEndpoint) {
+      this.browser = await chromium.connectOverCDP(cdpEndpoint);
+      this.ownsBrowser = this.envelope.session_policy?.web?.close_on_finish === true;
+      this.browserContext = this.browser.contexts()[0] || await this.browser.newContext({ ignoreHTTPSErrors: true });
+      this.ownsContext = false;
+      this.browserPage = this.browserContext.pages()[0] || await this.browserContext.newPage();
+    } else {
+      const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
+      this.browser = await browserType.launch({
+        headless: shouldLaunchHeadless(this.envelope)
+      });
+      this.ownsBrowser = true;
+      this.ownsContext = true;
+      this.browserContext = await this.browser.newContext({
+        ignoreHTTPSErrors: true,
+        ...shouldRecordVideo(this.envelope) ? {
+          recordVideo: {
+            dir: import_node_path.default.join(ARTIFACT_ROOT, "playwright-videos", this.envelope.engine_run_id),
+            size: {
+              width: 960,
+              height: 540
+            }
           }
-        }
-      } : {}
-    });
-    this.browserPage = await this.browserContext.newPage();
+        } : {}
+      });
+      this.browserPage = await this.browserContext.newPage();
+    }
     this.liveSessionId = `${this.envelope.engine_run_id}:playwright`;
     registerLiveViewSession({
       id: this.liveSessionId,
@@ -141181,7 +141255,9 @@ var PlaywrightWebSession = class {
     const artifactFullPath = import_node_path.default.join(ARTIFACT_ROOT, artifactPath);
     const artifacts = {};
     unregisterLiveViewSession(this.liveSessionId);
-    await this.browserContext?.close();
+    if (this.ownsContext) {
+      await this.browserContext?.close();
+    }
     if (video && shouldAttach) {
       try {
         await (0, import_promises.mkdir)(import_node_path.default.dirname(artifactFullPath), { recursive: true });
@@ -141203,7 +141279,9 @@ var PlaywrightWebSession = class {
         artifacts.video_path = null;
       }
     }
-    await this.browser?.close();
+    if (this.ownsBrowser) {
+      await this.browser?.close();
+    }
     this.browserContext = null;
     this.browser = null;
     this.browserPage = null;
@@ -141212,7 +141290,7 @@ var PlaywrightWebSession = class {
   }
   async resolveLocator(target) {
     const page = this.pageOrThrow;
-    const tokens = candidateTokens(target);
+    const tokens = candidateTokens(resolveObjectRepositoryLocator(this.envelope, target));
     if (tokens.raw.startsWith("css=")) {
       return page.locator(tokens.raw.slice(4)).first();
     }
@@ -141242,36 +141320,71 @@ var PlaywrightWebSession = class {
     }
     throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${tokens.text}" in the browser page`);
   }
-  async goto(target) {
+  async prepareLocator(target, options2, fallbackTimeout = this.timeouts.action) {
+    const normalized = normalizeElementOptions(options2, fallbackTimeout);
+    const locator = await this.resolveLocator(target);
+    if (normalized.waitFor !== "hidden" && normalized.waitFor !== "detached") {
+      await locator.waitFor({ state: normalized.waitFor, timeout: normalized.timeoutMs });
+    }
+    if (normalized.scroll && normalized.scroll !== "none") {
+      await locator.scrollIntoViewIfNeeded({ timeout: normalized.timeoutMs }).catch(() => void 0);
+    }
+    return { locator, options: normalized };
+  }
+  async goto(target, options2) {
     await this.pageOrThrow.goto(target, {
-      waitUntil: "domcontentloaded",
-      timeout: Math.min(Math.max(1e3, this.envelope.run_timeout_seconds * 1e3), this.timeouts.navigation)
+      waitUntil: options2?.waitUntil || "domcontentloaded",
+      timeout: clampTimeout(options2?.timeoutMs, Math.min(Math.max(1e3, this.envelope.run_timeout_seconds * 1e3), this.timeouts.navigation))
     });
   }
-  async click(target) {
-    const locator = await this.resolveLocator(target);
-    await locator.click();
+  async click(target, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.click({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
   }
-  async dblclick(target) {
-    const locator = await this.resolveLocator(target);
-    await locator.dblclick();
+  async dblclick(target, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.dblclick({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
   }
-  async rightClick(target) {
-    const locator = await this.resolveLocator(target);
-    await locator.click({ button: "right" });
+  async rightClick(target, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.click({
+      button: "right",
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
   }
-  async fill(target, value) {
-    const locator = await this.resolveLocator(target);
+  async fill(target, value, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    const locator = prepared.locator;
+    const fillOptions = {
+      ...prepared.options,
+      clear: options2?.clear !== false,
+      type: options2?.type || "fill",
+      delayMs: Math.max(0, Number(options2?.delayMs || 0))
+    };
     const editableDescendant = locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
     const editableDescendantCount = await editableDescendant.count().catch(() => 0);
-    if (editableDescendantCount > 0) {
-      await editableDescendant.fill(value);
+    const targetLocator = editableDescendantCount > 0 ? editableDescendant : locator;
+    if (fillOptions.type === "char-by-char") {
+      if (fillOptions.clear) {
+        await targetLocator.fill("", { timeout: fillOptions.timeoutMs });
+      }
+      await targetLocator.pressSequentially(value, { delay: fillOptions.delayMs, timeout: fillOptions.timeoutMs });
       return;
     }
-    await locator.fill(value);
+    await targetLocator.fill(value, { timeout: fillOptions.timeoutMs });
   }
-  async select(target, value) {
-    const locator = await this.resolveLocator(target);
+  async select(target, value, options2) {
+    const prepared = await this.prepareLocator(target, options2);
     const optionValue = (() => {
       try {
         const parsed = JSON.parse(value);
@@ -141280,60 +141393,65 @@ var PlaywrightWebSession = class {
         return value;
       }
     })();
-    await locator.selectOption(optionValue);
+    await prepared.locator.selectOption(optionValue, { timeout: prepared.options.timeoutMs });
   }
-  async check(target) {
-    const locator = await this.resolveLocator(target);
-    await locator.check();
+  async check(target, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.check({ force: prepared.options.force, trial: prepared.options.trial, timeout: prepared.options.timeoutMs });
   }
-  async uncheck(target) {
-    const locator = await this.resolveLocator(target);
-    await locator.uncheck();
+  async uncheck(target, options2) {
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.uncheck({ force: prepared.options.force, trial: prepared.options.trial, timeout: prepared.options.timeoutMs });
   }
-  async press(target, key) {
+  async press(target, key, options2) {
     if (!target) {
       await this.pageOrThrow.keyboard.press(key);
       return;
     }
-    const locator = await this.resolveLocator(target);
-    await locator.press(key);
+    const prepared = await this.prepareLocator(target, options2);
+    await prepared.locator.press(key, { timeout: prepared.options.timeoutMs });
   }
-  async scroll(deltaX = 0, deltaY = 600) {
-    await this.pageOrThrow.mouse.wheel(deltaX, deltaY);
+  async scroll(deltaX = 0, deltaY = 600, options2) {
+    const delta = resolveScrollDelta(deltaX, deltaY, options2);
+    await this.pageOrThrow.mouse.wheel(delta.x, delta.y);
   }
   async waitForTimeout(ms) {
     await this.pageOrThrow.waitForTimeout(Math.max(0, ms));
   }
-  async waitForUrl(expected) {
+  async waitForUrl(expected, options2) {
     const resolved = stripWrappingQuotes(expected);
     await this.pageOrThrow.waitForURL((url) => url.toString().includes(resolved), {
-      timeout: this.timeouts.assertion
+      timeout: clampTimeout(options2?.timeoutMs, this.timeouts.assertion)
     });
   }
-  async expectVisible(target) {
-    const locator = await this.resolveLocator(target);
+  async expectVisible(target, options2) {
+    const prepared = await this.prepareLocator(target, options2, this.timeouts.assertion);
+    const locator = prepared.locator;
     const isVisible = await locator.isVisible();
     if (!isVisible) {
       throw new Error(`Expected ${target} to be visible`);
     }
   }
-  async expectText(target, expected) {
+  async expectText(target, expected, options2) {
+    const normalized = normalizeElementOptions(options2, this.timeouts.assertion);
     if (!target) {
-      await this.pageOrThrow.getByText(expected, { exact: false }).first().waitFor({ state: "visible", timeout: this.timeouts.assertion });
+      await this.pageOrThrow.getByText(expected, { exact: options2?.match === "equals" }).first().waitFor({ state: "visible", timeout: normalized.timeoutMs });
       return;
     }
-    const actual = await this.text(target);
-    if (!actual.includes(expected)) {
+    const actual = await this.text(target, options2);
+    const passed = options2?.match === "equals" ? actual === expected : actual.includes(expected);
+    if (!passed) {
       throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
     }
   }
-  async text(target) {
-    const locator = await this.resolveLocator(target);
-    return (await locator.textContent() || "").trim();
+  async text(target, options2) {
+    const prepared = await this.prepareLocator(target, options2, this.timeouts.assertion);
+    const value = await prepared.locator.textContent({ timeout: prepared.options.timeoutMs }) || "";
+    return options2?.trim === false ? value : value.trim();
   }
-  async value(target) {
-    const locator = await this.resolveLocator(target);
-    return await locator.inputValue();
+  async value(target, options2) {
+    const prepared = await this.prepareLocator(target, options2, this.timeouts.assertion);
+    return await prepared.locator.inputValue({ timeout: prepared.options.timeoutMs });
   }
   async screenshot(label) {
     const buffer = await this.pageOrThrow.screenshot({
@@ -141519,8 +141637,9 @@ var SeleniumWebSession = class {
   }
   async resolveElement(target) {
     const driver = this.driverOrThrow;
+    const resolvedTarget = resolveObjectRepositoryLocator(this.envelope, target);
     let lastError = null;
-    for (const strategy of this.byStrategies(target)) {
+    for (const strategy of this.byStrategies(resolvedTarget)) {
       try {
         const matches = await driver.findElements(strategy);
         const visibleMatch = matches[0];
@@ -141531,9 +141650,9 @@ var SeleniumWebSession = class {
         lastError = error;
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${target}" in Selenium`);
+    throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${resolvedTarget}" in Selenium`);
   }
-  async goto(target) {
+  async goto(target, _options) {
     await this.driverOrThrow.get(target);
     this.networkEntries.push({
       method: "GET",
@@ -141543,26 +141662,38 @@ var SeleniumWebSession = class {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     });
   }
-  async click(target) {
+  async click(target, _options) {
     const element = await this.resolveElement(target);
     await element.click();
   }
-  async dblclick(target) {
+  async dblclick(target, _options) {
     const element = await this.resolveElement(target);
     await this.driverOrThrow.actions().doubleClick(element).perform();
   }
-  async rightClick(target) {
+  async rightClick(target, _options) {
     const element = await this.resolveElement(target);
     await this.driverOrThrow.actions().contextClick(element).perform();
   }
-  async fill(target, value) {
+  async fill(target, value, options2) {
     const element = await this.resolveElement(target);
     const descendants = await element.findElements(import_selenium_webdriver.By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
     const targetElement = descendants[0] || element;
-    await targetElement.clear();
+    if (options2?.clear !== false) {
+      await targetElement.clear();
+    }
+    if (options2?.type === "char-by-char") {
+      const delayMs = Math.max(0, Number(options2.delayMs || 0));
+      for (const char of value) {
+        await targetElement.sendKeys(char);
+        if (delayMs) {
+          await this.driverOrThrow.sleep(delayMs);
+        }
+      }
+      return;
+    }
     await targetElement.sendKeys(value);
   }
-  async select(target, value) {
+  async select(target, value, _options) {
     const element = await this.resolveElement(target);
     await this.driverOrThrow.executeScript(
       "const element = arguments[0]; const raw = arguments[1]; const values = (() => { try { const parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed.map(String) : [String(raw)]; } catch { return [String(raw)]; } })(); Array.from(element.options || []).forEach((option) => { option.selected = values.includes(String(option.value)); }); if (!element.multiple) element.value = values[0] || ''; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }));",
@@ -141570,21 +141701,21 @@ var SeleniumWebSession = class {
       value
     );
   }
-  async check(target) {
+  async check(target, _options) {
     const element = await this.resolveElement(target);
     const checked = await element.isSelected().catch(() => false);
     if (!checked) {
       await element.click();
     }
   }
-  async uncheck(target) {
+  async uncheck(target, _options) {
     const element = await this.resolveElement(target);
     const checked = await element.isSelected().catch(() => false);
     if (checked) {
       await element.click();
     }
   }
-  async press(target, key) {
+  async press(target, key, _options) {
     const seleniumKey = import_selenium_webdriver.Key[key.toUpperCase()] || key;
     if (!target) {
       await this.driverOrThrow.actions().sendKeys(seleniumKey).perform();
@@ -141593,23 +141724,24 @@ var SeleniumWebSession = class {
     const element = await this.resolveElement(target);
     await element.sendKeys(seleniumKey);
   }
-  async scroll(deltaX = 0, deltaY = 600) {
-    await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", deltaX, deltaY);
+  async scroll(deltaX = 0, deltaY = 600, options2) {
+    const delta = resolveScrollDelta(deltaX, deltaY, options2);
+    await this.driverOrThrow.executeScript("window.scrollBy(arguments[0], arguments[1]);", delta.x, delta.y);
   }
   async waitForTimeout(ms) {
     await this.driverOrThrow.sleep(Math.max(0, ms));
   }
-  async waitForUrl(expected) {
-    await this.driverOrThrow.wait(import_selenium_webdriver.until.urlContains(stripWrappingQuotes(expected)), this.timeouts.assertion);
+  async waitForUrl(expected, options2) {
+    await this.driverOrThrow.wait(import_selenium_webdriver.until.urlContains(stripWrappingQuotes(expected)), clampTimeout(options2?.timeoutMs, this.timeouts.assertion));
   }
-  async expectVisible(target) {
+  async expectVisible(target, _options) {
     const element = await this.resolveElement(target);
     const visible = await element.isDisplayed();
     if (!visible) {
       throw new Error(`Expected ${target} to be visible`);
     }
   }
-  async expectText(target, expected) {
+  async expectText(target, expected, options2) {
     if (!target) {
       const source = await this.driverOrThrow.getPageSource();
       if (!source.includes(expected)) {
@@ -141618,15 +141750,17 @@ var SeleniumWebSession = class {
       return;
     }
     const actual = await this.text(target);
-    if (!actual.includes(expected)) {
+    const passed = options2?.match === "equals" ? actual === expected : actual.includes(expected);
+    if (!passed) {
       throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
     }
   }
-  async text(target) {
+  async text(target, options2) {
     const element = await this.resolveElement(target);
-    return await element.getText() || "";
+    const value = await element.getText() || "";
+    return options2?.trim === false ? value : value.trim();
   }
-  async value(target) {
+  async value(target, _options) {
     const element = await this.resolveElement(target);
     return await element.getAttribute("value") || "";
   }
@@ -141764,18 +141898,22 @@ var buildBindings = (session, context, captures, envelope) => {
   };
   const expect = buildExpectApi();
   const providerBindings = session.bindings();
+  const resolveTarget = (target) => interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
   const page = {
     goto: async (target) => providerBindings.page.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
-    click: async (target) => providerBindings.page.click(interpolateText(target, context)),
-    fill: async (target, value) => providerBindings.page.fill(interpolateText(target, context), interpolateText(value, context)),
-    press: async (target, key) => providerBindings.page.press(interpolateText(target, context), interpolateText(key, context)),
+    click: async (target) => providerBindings.page.click(resolveTarget(target)),
+    fill: async (target, value) => providerBindings.page.fill(resolveTarget(target), interpolateText(value, context)),
+    press: async (target, key) => {
+      const resolvedTarget = resolveTarget(target).trim();
+      return resolvedTarget ? providerBindings.page.press(resolvedTarget, interpolateText(key, context)) : providerBindings.page.keyboard.press(interpolateText(key, context));
+    },
     waitForTimeout: (ms) => providerBindings.page.waitForTimeout(ms),
     waitForURL: async (expected) => providerBindings.page.waitForURL(interpolateText(expected, context)),
     waitForLoadState: (state) => providerBindings.page.waitForLoadState(state),
-    waitForSelector: async (target, options2) => providerBindings.page.waitForSelector(interpolateText(target, context), options2),
+    waitForSelector: async (target, options2) => providerBindings.page.waitForSelector(resolveTarget(target), options2),
     url: () => providerBindings.page.url(),
-    textContent: async (target) => providerBindings.page.textContent(interpolateText(target, context)),
-    locator: (target) => providerBindings.page.locator(interpolateText(target, context)),
+    textContent: async (target) => providerBindings.page.textContent(resolveTarget(target)),
+    locator: (target) => providerBindings.page.locator(resolveTarget(target)),
     getByText: (target) => providerBindings.page.getByText(interpolateText(target, context)),
     getByLabel: (target) => providerBindings.page.getByLabel(interpolateText(target, context)),
     getByPlaceholder: (target) => providerBindings.page.getByPlaceholder(interpolateText(target, context)),
@@ -141789,29 +141927,40 @@ var buildBindings = (session, context, captures, envelope) => {
   };
   const web = {
     step: async (_title, fn) => fn(),
-    goto: async (target) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
-    click: async (target) => session.click(interpolateText(target, context)),
-    dblclick: async (target) => session.dblclick(interpolateText(target, context)),
-    rightClick: async (target) => session.rightClick(interpolateText(target, context)),
-    fill: async (target, value) => session.fill(interpolateText(target, context), interpolateText(value, context)),
-    select: async (target, value) => session.select(interpolateText(target, context), interpolateText(value, context)),
-    check: async (target) => session.check(interpolateText(target, context)),
-    uncheck: async (target) => session.uncheck(interpolateText(target, context)),
-    press: async (target, key) => session.press(interpolateText(target, context), interpolateText(key, context)),
-    scroll: async (deltaX, deltaY) => session.scroll(deltaX, deltaY),
+    aiStep: async (instruction, options2) => {
+      const target = normalizeText(options2?.target || null);
+      const resolvedInstruction = interpolateText(instruction, context);
+      if (target) {
+        await session.expectVisible(resolveTarget(target), { timeoutMs: 1e4 }).catch(() => void 0);
+      }
+      return resolvedInstruction;
+    },
+    goto: async (target, options2) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options2),
+    click: async (target, options2) => session.click(resolveTarget(target), options2),
+    dblclick: async (target, options2) => session.dblclick(resolveTarget(target), options2),
+    rightClick: async (target, options2) => session.rightClick(resolveTarget(target), options2),
+    fill: async (target, value, options2) => session.fill(resolveTarget(target), interpolateText(value, context), options2),
+    select: async (target, value, options2) => session.select(resolveTarget(target), interpolateText(value, context), options2),
+    check: async (target, options2) => session.check(resolveTarget(target), options2),
+    uncheck: async (target, options2) => session.uncheck(resolveTarget(target), options2),
+    press: async (target, key, options2) => {
+      const resolvedTarget = target === null ? "" : resolveTarget(target).trim();
+      return session.press(resolvedTarget || null, interpolateText(key, context), options2);
+    },
+    scroll: async (deltaX, deltaY, options2) => session.scroll(deltaX, deltaY, options2),
     wait: async (ms) => session.waitForTimeout(ms),
     waitForTimeout: async (ms) => session.waitForTimeout(ms),
-    expectText: async (first, second) => {
+    expectText: async (first, second, options2) => {
       if (second === void 0 || second === null) {
-        await session.expectText(null, interpolateText(first, context));
+        await session.expectText(null, interpolateText(first, context), options2);
         return;
       }
-      await session.expectText(interpolateText(first, context), interpolateText(second, context));
+      await session.expectText(resolveTarget(first), interpolateText(second, context), options2);
     },
-    expectVisible: async (target) => session.expectVisible(interpolateText(target, context)),
-    expectUrl: async (expected) => session.waitForUrl(interpolateText(expected, context)),
-    text: async (target) => session.text(interpolateText(target, context)),
-    value: async (target) => session.value(interpolateText(target, context)),
+    expectVisible: async (target, options2) => session.expectVisible(resolveTarget(target), options2),
+    expectUrl: async (expected, options2) => session.waitForUrl(interpolateText(expected, context), options2),
+    text: async (target, options2) => session.text(resolveTarget(target), options2),
+    value: async (target, options2) => session.value(resolveTarget(target), options2),
     resolve: (value) => interpolateText(value, context),
     capture
   };
@@ -141865,15 +142014,24 @@ var executeAutomationCode = async (source, bindings) => {
     `${executableSource}
 return undefined;`
   );
-  return fn(
-    bindings.page,
-    bindings.web,
-    bindings.expect,
-    bindings.params,
-    bindings.capture,
-    bindings.playwrightPage,
-    bindings.driver
-  );
+  try {
+    return await fn(
+      bindings.page,
+      bindings.web,
+      bindings.expect,
+      bindings.params,
+      bindings.capture,
+      bindings.playwrightPage,
+      bindings.driver
+    );
+  } catch (error) {
+    const stack = error instanceof Error ? error.stack || "" : "";
+    const lineMatch = stack.match(/<anonymous>:(\d+):\d+/);
+    if (error instanceof Error && lineMatch) {
+      error.qairaLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+    }
+    throw error;
+  }
 };
 var executeStepAttempt = async (session, options2, captures) => {
   const bindings = buildBindings(session, options2.context, captures, options2.envelope);
@@ -141906,6 +142064,10 @@ var buildStepNote = ({
     lines.push(`Capture ${key} = ${value}`);
   });
   if (error) {
+    const qairaLine = error.qairaLine;
+    if (qairaLine) {
+      lines.push(`Code line: ${qairaLine}`);
+    }
     lines.push(`Error: ${error.message}`);
   }
   return lines.join("\n");
@@ -142281,7 +142443,7 @@ var buildStepApiDetailMap = (stepSummaries = []) => stepSummaries.reduce((accumu
   accumulator[summary.step_id] = summary;
   return accumulator;
 }, {});
-var buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}) => stepOutcomes.reduce(
+var buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}, stepWebDetails = {}, stepAutomationDetails = {}) => stepOutcomes.reduce(
   (accumulator, outcome) => {
     if (outcome.status === "passed" || outcome.status === "failed" || outcome.status === "blocked") {
       accumulator.stepStatuses[outcome.step_id] = outcome.status;
@@ -142303,6 +142465,8 @@ var buildLogsPayload = (stepOutcomes, stepSummaries = [], stepCaptures = {}) => 
     stepNotes: {},
     stepEvidence: {},
     stepApiDetails: buildStepApiDetailMap(stepSummaries),
+    stepWebDetails: { ...stepWebDetails },
+    stepAutomationDetails: { ...stepAutomationDetails },
     stepCaptures: Object.entries(stepCaptures).reduce((accumulator, [stepId, captures]) => {
       accumulator[stepId] = { ...captures };
       return accumulator;
@@ -142338,6 +142502,48 @@ var syncCapturedValues = (context, captures) => {
   });
 };
 var summarizeAssertionProgress = (assertions) => `${assertions.filter((assertion) => assertion.passed).length}/${assertions.length} assertions passed`;
+var buildStepAutomationDetail = ({
+  step,
+  status,
+  provider,
+  startedAt,
+  endedAt,
+  errorMessage
+}) => {
+  const code = normalizeText2(step.automation_code) || (step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : "") || step.action || "";
+  const reportedLine = errorMessage?.match(/Code line:\s*(\d+)/i)?.[1];
+  const errorLine = reportedLine ? Number.parseInt(reportedLine, 10) : errorMessage ? code.split(/\r?\n/).findIndex((line) => errorMessage.includes(line.trim()) && line.trim().length > 8) + 1 || null : null;
+  return {
+    engine: step.step_type,
+    provider: provider || null,
+    status,
+    code,
+    language: step.step_type === "api" ? "json" : "javascript",
+    active_line: status === "running" ? 1 : errorLine,
+    error_line: errorLine,
+    error_message: errorMessage || null,
+    started_at: startedAt || null,
+    ended_at: endedAt || null
+  };
+};
+var normalizeHooks = (envelope, phase) => (envelope.hooks || []).filter((hook) => hook?.phase === phase && Array.isArray(hook.steps) && hook.steps.length).flatMap(
+  (hook) => hook.steps.slice().sort((left, right) => left.order - right.order).map((step, index) => ({
+    hook,
+    step: {
+      ...step,
+      id: step.id || `${hook.id}:${phase}:${index + 1}`,
+      order: step.order || index + 1
+    }
+  }))
+);
+var decorateHookOutcome = (hook, step, outcome) => ({
+  ...outcome,
+  step_id: `${hook.scope}:${hook.phase}:${hook.id}:${outcome.step_id}`,
+  note: [
+    `[${hook.phase === "pre" ? "Pre" : "Post"} ${hook.scope} hook] ${hook.name}`,
+    outcome.note || `${step.action || `Step ${step.order}`} completed.`
+  ].filter(Boolean).join("\n")
+});
 var buildApiAssertionResult = (validation, response) => {
   const kind = validation.kind || "status";
   if (kind === "header") {
@@ -142514,6 +142720,14 @@ var executeApiStep = async ({
       assertions
     },
     captures,
+    automation_detail: buildStepAutomationDetail({
+      step,
+      status: passed ? "passed" : "failed",
+      provider: "api",
+      startedAt: new Date(startedAt).toISOString(),
+      endedAt: nowIso2(),
+      errorMessage: passed ? null : note
+    }),
     recovery_attempted: false,
     recovery_succeeded: false
   };
@@ -142538,6 +142752,15 @@ var executeWebStep = async ({
       } : null
     },
     captures: result.captures,
+    web_detail: result.web_detail,
+    automation_detail: buildStepAutomationDetail({
+      step,
+      status: result.status,
+      provider: result.web_detail?.provider || webRunSession.provider,
+      startedAt: result.web_detail?.started_at || null,
+      endedAt: result.web_detail?.ended_at || null,
+      errorMessage: result.status === "failed" ? result.note : null
+    }),
     recovery_attempted: result.recovery_attempted,
     recovery_succeeded: result.recovery_succeeded
   };
@@ -142555,6 +142778,8 @@ var buildFinalCallback = ({
   stepOutcomes,
   stepSummaries,
   stepCaptures,
+  stepWebDetails,
+  stepAutomationDetails,
   status,
   durationMs,
   errorMessage,
@@ -142576,7 +142801,7 @@ var buildFinalCallback = ({
     status,
     duration_ms: durationMs,
     error: errorMessage || null,
-    logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures)
+    logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
   },
   artifact_bundle: run.artifact_bundle,
   patch_proposals: run.patch_proposals,
@@ -142588,6 +142813,8 @@ var buildProgressCallback = ({
   stepOutcomes,
   stepSummaries,
   stepCaptures,
+  stepWebDetails,
+  stepAutomationDetails,
   latestOutcome,
   durationMs,
   totalSteps,
@@ -142609,7 +142836,7 @@ var buildProgressCallback = ({
     status: stepOutcomes.length === totalSteps && stepOutcomes.every((outcome) => outcome.status === "passed") ? "passed" : "blocked",
     duration_ms: durationMs,
     error: null,
-    logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures)
+    logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
   },
   artifact_bundle: run.artifact_bundle,
   patch_proposals: run.patch_proposals,
@@ -142631,6 +142858,8 @@ var executeUnsupportedRun = async ({
     stepOutcomes: [],
     stepSummaries: [],
     stepCaptures: {},
+    stepWebDetails: {},
+    stepAutomationDetails: {},
     status: "failed",
     durationMs: 0,
     errorMessage: reason
@@ -142666,7 +142895,11 @@ async function executeRun(envelope, run, logger) {
   const stepOutcomes = [];
   const stepSummaries = [];
   const stepCaptures = {};
+  const stepWebDetails = {};
+  const stepAutomationDetails = {};
   const orderedSteps = envelope.steps.slice().sort((left, right) => left.order - right.order);
+  const preHookSteps = normalizeHooks(envelope, "pre");
+  const postHookSteps = normalizeHooks(envelope, "post");
   const webRunSession = hasWebSteps ? createWebRunSession(envelope, context.values) : null;
   let healingAttempted = false;
   let healingSucceeded = false;
@@ -142683,39 +142916,68 @@ async function executeRun(envelope, run, logger) {
       return {};
     }
   };
+  const executeEngineStep = async (step) => {
+    const result = step.step_type === "api" ? await executeApiStep({
+      envelope,
+      run: running,
+      step,
+      context
+    }) : webRunSession ? await executeWebStep({
+      step,
+      webRunSession
+    }) : null;
+    if (!result) {
+      throw new Error(`Unable to execute step ${step.order}.`);
+    }
+    syncCapturedValues(context, result.captures);
+    if (webRunSession && step.step_type === "api") {
+      syncCapturedValues(webRunSession.context, result.captures);
+    }
+    return result;
+  };
+  const recordStepResult = (result) => {
+    stepOutcomes.push(result.outcome);
+    if (Object.keys(result.captures || {}).length) {
+      stepCaptures[result.outcome.step_id] = {
+        ...stepCaptures[result.outcome.step_id] || {},
+        ...result.captures
+      };
+    }
+    if (result.summary) {
+      stepSummaries.push(result.summary);
+    }
+    if (result.web_detail) {
+      stepWebDetails[result.outcome.step_id] = result.web_detail;
+    }
+    if (result.automation_detail) {
+      stepAutomationDetails[result.outcome.step_id] = result.automation_detail;
+    }
+    healingAttempted = healingAttempted || result.recovery_attempted;
+    healingSucceeded = healingSucceeded || result.recovery_succeeded;
+  };
+  const runHookSteps = async (phase, entries) => {
+    for (const entry of entries) {
+      const result = await executeEngineStep(entry.step);
+      result.outcome = decorateHookOutcome(entry.hook, entry.step, result.outcome);
+      recordStepResult(result);
+      if (result.outcome.status === "failed" && entry.hook.fail_behavior !== "continue") {
+        const behavior = entry.hook.fail_behavior || "fail-run";
+        if (behavior === "mark-blocked") {
+          result.outcome.status = "blocked";
+          return;
+        }
+        throw new Error(`${entry.hook.name} ${phase} hook failed: ${result.outcome.note || "hook step failed"}`);
+      }
+    }
+  };
   try {
     if (webRunSession) {
       await webRunSession.start();
     }
+    await runHookSteps("pre", preHookSteps);
     for (const step of orderedSteps) {
-      const result = step.step_type === "api" ? await executeApiStep({
-        envelope,
-        run: running,
-        step,
-        context
-      }) : webRunSession ? await executeWebStep({
-        step,
-        webRunSession
-      }) : null;
-      if (!result) {
-        throw new Error(`Unable to execute step ${step.order}.`);
-      }
-      syncCapturedValues(context, result.captures);
-      if (webRunSession && step.step_type === "api") {
-        syncCapturedValues(webRunSession.context, result.captures);
-      }
-      stepOutcomes.push(result.outcome);
-      if (Object.keys(result.captures || {}).length) {
-        stepCaptures[result.outcome.step_id] = {
-          ...stepCaptures[result.outcome.step_id] || {},
-          ...result.captures
-        };
-      }
-      if (result.summary) {
-        stepSummaries.push(result.summary);
-      }
-      healingAttempted = healingAttempted || result.recovery_attempted;
-      healingSucceeded = healingSucceeded || result.recovery_succeeded;
+      const result = await executeEngineStep(step);
+      recordStepResult(result);
       const progressSummary = `${envelope.qaira_test_case_title}: completed step ${stepOutcomes.length} of ${orderedSteps.length}.`;
       const progressRun = markRunState(run.id, "running", progressSummary);
       if (progressRun) {
@@ -142739,6 +143001,8 @@ async function executeRun(envelope, run, logger) {
                 stepOutcomes,
                 stepSummaries,
                 stepCaptures,
+                stepWebDetails,
+                stepAutomationDetails,
                 latestOutcome: result.outcome,
                 durationMs: Date.now() - startedAt,
                 totalSteps: orderedSteps.length,
@@ -142780,6 +143044,8 @@ async function executeRun(envelope, run, logger) {
             stepOutcomes,
             stepSummaries,
             stepCaptures,
+            stepWebDetails,
+            stepAutomationDetails,
             status: "failed",
             durationMs: Date.now() - startedAt,
             errorMessage: result.outcome.note || `${envelope.qaira_test_case_title} failed on step ${step.order}.`,
@@ -142790,11 +143056,13 @@ async function executeRun(envelope, run, logger) {
         return;
       }
     }
-    const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("passed"));
+    await runHookSteps("post", postHookSteps);
+    const finalStatus = stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
+    const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
     const completedRun = markRunState(
       run.id,
-      "completed",
-      `${envelope.qaira_test_case_title} completed successfully.`,
+      finalStatus === "passed" ? "completed" : "incident",
+      finalStatus === "passed" ? `${envelope.qaira_test_case_title} completed successfully.` : `${envelope.qaira_test_case_title} completed with blocked hook or step outcomes.`,
       { artifact_bundle: artifactBundle }
     );
     if (!completedRun) {
@@ -142804,7 +143072,7 @@ async function executeRun(envelope, run, logger) {
       execution: {
         started_at: new Date(startedAt).toISOString(),
         ended_at: nowIso2(),
-        status: "passed",
+        status: finalStatus,
         summary: completedRun.summary
       },
       steps: stepSummaries,
@@ -142818,7 +143086,9 @@ async function executeRun(envelope, run, logger) {
         stepOutcomes,
         stepSummaries,
         stepCaptures,
-        status: "passed",
+        stepWebDetails,
+        stepAutomationDetails,
+        status: finalStatus,
         durationMs: Date.now() - startedAt,
         healingAttempted,
         healingSucceeded
@@ -142854,6 +143124,8 @@ async function executeRun(envelope, run, logger) {
           stepOutcomes,
           stepSummaries,
           stepCaptures,
+          stepWebDetails,
+          stepAutomationDetails,
           status: "failed",
           durationMs: Date.now() - startedAt,
           errorMessage: failedRun.summary,
@@ -144678,6 +144950,20 @@ function mergeArtifactBundle2(base, patch) {
     artifact_refs: mergedRefs
   };
 }
+function buildAutomationDetail(step, status, note, provider) {
+  const code = String(step.automation_code || "").trim() || (step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : "") || String(step.action || "");
+  return {
+    engine: step.step_type,
+    provider: provider || null,
+    status,
+    code,
+    language: step.step_type === "api" ? "json" : "javascript",
+    active_line: null,
+    error_line: status === "failed" || status === "blocked" ? 1 : null,
+    error_message: status === "failed" || status === "blocked" ? note || null : null,
+    ended_at: nowIso3()
+  };
+}
 async function executeQueuedJob(job, workerId, logger, telemetry) {
   const envelope = job.payload;
   const existingStatuses = job.runtime_state?.logs?.stepStatuses || {};
@@ -144781,6 +145067,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
           note: result.note,
           evidence: result.evidence,
           api_detail: result.detail,
+          automation_detail: buildAutomationDetail(step, result.status, result.note, "api"),
           captures: result.captures
         });
         capturedValues = {
@@ -144824,6 +145111,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
           note: message,
           evidence: null,
           web_detail: null,
+          automation_detail: buildAutomationDetail(step, result.status, message, envelope.mobile_engine?.active || "mobile"),
           captures: {}
         });
         if (result.status === "passed") {
@@ -144895,6 +145183,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         note: stepResult.note,
         evidence: stepResult.evidence || null,
         web_detail: stepResult.web_detail,
+        automation_detail: buildAutomationDetail(step, stepResult.status, stepResult.note, stepResult.web_detail?.provider || webRunSession.provider),
         captures: stepResult.captures,
         recovery_attempted: stepResult.recovery_attempted,
         recovery_succeeded: stepResult.recovery_succeeded
@@ -145078,6 +145367,7 @@ var import_node_os = __toESM(require("node:os"), 1);
 var import_node_path4 = __toESM(require("node:path"), 1);
 var import_node_crypto4 = require("node:crypto");
 var sessions = /* @__PURE__ */ new Map();
+var inspectResults = /* @__PURE__ */ new Map();
 var RECORDER_ACTION_TYPES = /* @__PURE__ */ new Set([
   "click",
   "dblclick",
@@ -145654,6 +145944,116 @@ var resolveActivePage = async (session) => {
   const page = session.context.pages().filter((candidate) => !candidate.isClosed()).at(-1);
   return page || session.context.newPage();
 };
+var resolveRecorderPage = async (session, pageId) => {
+  const pages = session.context.pages().filter((candidate) => !candidate.isClosed());
+  if (pageId) {
+    const match = pages.find((page) => getRecorderPageId(page) === pageId);
+    if (match) {
+      return match;
+    }
+  }
+  return pages.at(-1) || session.context.newPage();
+};
+var serializeRecorderPage = async (page) => ({
+  id: getRecorderPageId(page),
+  title: await resolvePageTitle(page),
+  url: page.url()
+});
+var installInspectMode = async (page) => {
+  await page.evaluate(() => {
+    const inspectWindow = window;
+    inspectWindow.__qairaInspectCleanup?.();
+    inspectWindow.__qairaInspectResult = null;
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const cssEscape = (value) => {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
+      return String(value || "").replace(/[^A-Za-z0-9_-]/g, "\\$&");
+    };
+    const friendlyName = (element) => {
+      const text = clean(
+        element.getAttribute("aria-label") || element.getAttribute("placeholder") || element.getAttribute("name") || element.getAttribute("id") || element.getAttribute("data-testid") || inspectWindow.__qairaRecorderVisibleTextFor?.(element) || element.tagName.toLowerCase()
+      );
+      return text.replace(/^text=/i, "").replace(/[^A-Za-z0-9]+/g, " ").trim().split(" ").filter(Boolean).map((part, index) => index ? part.charAt(0).toUpperCase() + part.slice(1) : part.charAt(0).toLowerCase() + part.slice(1)).join("") || "element";
+    };
+    const locatorCandidates = (element) => {
+      const testId = clean(element.getAttribute("data-testid"));
+      const aria = clean(element.getAttribute("aria-label"));
+      const explicitRole = clean(element.getAttribute("role"));
+      const accessibleName = aria || clean(inspectWindow.__qairaRecorderVisibleTextFor?.(element));
+      const id = clean(element.getAttribute("id"));
+      const name = clean(element.getAttribute("name"));
+      const placeholder = clean(element.getAttribute("placeholder"));
+      const text = inspectWindow.__qairaRecorderVisibleTextFor?.(element);
+      const tag = element.tagName.toLowerCase();
+      const inputType = clean(element.getAttribute("type")).toLowerCase();
+      const semanticRole = explicitRole || (tag === "button" ? "button" : "") || (tag === "a" ? "link" : "") || (tag === "select" ? "combobox" : "") || (tag === "textarea" || tag === "input" && !["checkbox", "radio"].includes(inputType) ? "textbox" : "") || (tag === "input" && ["checkbox", "radio"].includes(inputType) ? inputType : "");
+      return [
+        testId ? { locator: `[data-testid="${testId.replace(/"/g, '\\"')}"]`, strategy: "data-testid", confidenceScore: 0.98 } : null,
+        aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.94 } : null,
+        semanticRole && accessibleName ? { locator: `role=${semanticRole}[name="${accessibleName.replace(/"/g, '\\"')}"]`, strategy: "role + name", confidenceScore: 0.92 } : null,
+        id ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88 } : null,
+        name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
+        placeholder ? { locator: `${tag}[placeholder="${placeholder.replace(/"/g, '\\"')}"]`, strategy: "placeholder", confidenceScore: 0.78 } : null,
+        text && ["button", "a"].includes(tag) ? { locator: `text=${text}`, strategy: "text", confidenceScore: 0.7 } : null,
+        { locator: inspectWindow.__qairaRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
+      ].filter((candidate) => Boolean(candidate)).filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
+    };
+    const clearHighlight = () => {
+      document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+        const target = node;
+        target.style.outline = target.dataset.qairaPreviousOutline || "";
+        target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+        delete target.dataset.qairaPreviousOutline;
+        delete target.dataset.qairaPreviousBoxShadow;
+        delete target.dataset.qairaInspectHighlight;
+      });
+    };
+    const highlight = (element) => {
+      if (!(element instanceof HTMLElement)) return;
+      clearHighlight();
+      element.dataset.qairaPreviousOutline = element.style.outline || "";
+      element.dataset.qairaPreviousBoxShadow = element.style.boxShadow || "";
+      element.dataset.qairaInspectHighlight = "true";
+      element.style.outline = "3px solid #2f6df6";
+      element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.22)";
+      element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    };
+    const handler = (event) => {
+      const element = event.target instanceof Element ? event.target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || event.target : null;
+      if (!element) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const tag = element.tagName.toLowerCase();
+      const role = clean(element.getAttribute("role") || element.getAttribute("type") || tag);
+      const candidates = locatorCandidates(element);
+      const locator = candidates[0].locator;
+      const ancestor = element.closest("form,[role=dialog],section,fieldset,main,article") || element.parentElement;
+      const rect = element.getBoundingClientRect();
+      const ancestorRect = ancestor?.getBoundingClientRect();
+      const domStructure = element.outerHTML.slice(0, 12e3);
+      const ancestorDom = ancestor?.outerHTML.slice(0, 3e4) || null;
+      highlight(element);
+      inspectWindow.__qairaInspectResult = {
+        friendly_name: friendlyName(element),
+        html_tag: tag,
+        role,
+        locator,
+        locator_kind: candidates[0].strategy,
+        locator_candidates: candidates,
+        dom_structure: domStructure,
+        ancestor_dom: ancestorDom,
+        text: inspectWindow.__qairaRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200),
+        rect: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
+        ancestor_rect: ancestorRect ? { x: ancestorRect.x + window.scrollX, y: ancestorRect.y + window.scrollY, width: ancestorRect.width, height: ancestorRect.height } : null
+      };
+    };
+    document.addEventListener("click", handler, true);
+    inspectWindow.__qairaInspectCleanup = () => {
+      document.removeEventListener("click", handler, true);
+      clearHighlight();
+    };
+  });
+};
 var enrichRemoteClickAction = async (session, page, actionIndex, x, y, logger) => {
   try {
     const target = await page.evaluate(
@@ -146174,6 +146574,144 @@ var registerRecorderRoutes = async (app2) => {
       return { message: "Recorder session not found" };
     }
     return serializeSession(session);
+  });
+  app2.get("/api/v1/recorder/sessions/:id/tabs", async (request3, reply) => {
+    const params = request3.params;
+    const session = sessions.get(params.id);
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    const pages = session.context.pages().filter((page) => !page.isClosed());
+    const activePage = await resolveActivePage(session);
+    const activePageId = getRecorderPageId(activePage);
+    return {
+      session_id: session.id,
+      active_page_id: activePageId,
+      tabs: await Promise.all(pages.map(async (page) => ({
+        ...await serializeRecorderPage(page),
+        active: getRecorderPageId(page) === activePageId
+      })))
+    };
+  });
+  app2.post("/api/v1/recorder/sessions/:id/inspect/start", async (request3, reply) => {
+    const params = request3.params;
+    const body = request3.body;
+    const session = sessions.get(params.id);
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Recorder session is not running" };
+    }
+    try {
+      const page = await resolveRecorderPage(session, body?.page_id);
+      await page.bringToFront().catch(() => void 0);
+      await installInspectMode(page);
+      inspectResults.delete(`${session.id}:${getRecorderPageId(page) || ""}`);
+      touchSession(session);
+      return {
+        ok: true,
+        page: await serializeRecorderPage(page)
+      };
+    } catch (error) {
+      reply.code(409);
+      return {
+        message: error instanceof Error ? error.message : "Unable to start inspect mode"
+      };
+    }
+  });
+  app2.get("/api/v1/recorder/sessions/:id/inspect/result", async (request3, reply) => {
+    const params = request3.params;
+    const query = request3.query;
+    const session = sessions.get(params.id);
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    try {
+      const page = await resolveRecorderPage(session, query.page_id);
+      const pageId = getRecorderPageId(page);
+      const cacheKey = `${session.id}:${pageId || ""}`;
+      const cached = inspectResults.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const element = await page.evaluate(() => {
+        const inspectWindow = window;
+        return inspectWindow.__qairaInspectResult || null;
+      }).catch(() => null);
+      if (!element) {
+        reply.code(204);
+        return "";
+      }
+      const [pageTitle, screenDom, accessibilityTree, screenshot] = await Promise.all([
+        resolvePageTitle(page),
+        page.evaluate(() => {
+          const source = document.documentElement;
+          if (!source) return "";
+          const cloned = source.cloneNode(true);
+          cloned.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+            const target = node;
+            target.style.outline = target.dataset.qairaPreviousOutline || "";
+            target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+            delete target.dataset.qairaPreviousOutline;
+            delete target.dataset.qairaPreviousBoxShadow;
+            delete target.dataset.qairaInspectHighlight;
+          });
+          return cloned.outerHTML.slice(0, 1e5);
+        }).catch(() => ""),
+        page.locator("body").ariaSnapshot({ timeout: 2e3 }).catch(() => ""),
+        page.screenshot({
+          type: "jpeg",
+          quality: SCREENCAST_QUALITY,
+          fullPage: true,
+          timeout: 5e3
+        }).catch(() => null)
+      ]);
+      const screenshotClip = async (rect) => {
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        return page.screenshot({
+          type: "jpeg",
+          quality: SCREENCAST_QUALITY,
+          clip: {
+            x: Math.max(0, rect.x),
+            y: Math.max(0, rect.y),
+            width: Math.max(1, rect.width),
+            height: Math.max(1, rect.height)
+          },
+          timeout: 5e3
+        }).catch(() => null);
+      };
+      const [elementScreenshot, ancestorScreenshot] = await Promise.all([
+        screenshotClip(element.rect),
+        screenshotClip(element.ancestor_rect)
+      ]);
+      const result = {
+        captured_at: (/* @__PURE__ */ new Date()).toISOString(),
+        page_id: pageId,
+        page_title: pageTitle,
+        page_url: page.url(),
+        screen_dom: screenDom || null,
+        accessibility_tree: accessibilityTree || null,
+        screen_fingerprint: (0, import_node_crypto4.createHash)("sha256").update(`${page.url()}
+${screenDom}`).digest("hex"),
+        screen_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null,
+        element_screenshot_url: elementScreenshot ? `data:image/jpeg;base64,${elementScreenshot.toString("base64")}` : null,
+        ancestor_screenshot_url: ancestorScreenshot ? `data:image/jpeg;base64,${ancestorScreenshot.toString("base64")}` : null,
+        element
+      };
+      inspectResults.set(cacheKey, result);
+      touchSession(session);
+      return result;
+    } catch (error) {
+      reply.code(409);
+      return {
+        message: error instanceof Error ? error.message : "Unable to read inspect result"
+      };
+    }
   });
   app2.get("/api/v1/recorder/sessions/:id/live", async (request3, reply) => {
     const params = request3.params;

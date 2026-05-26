@@ -145,6 +145,43 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/automation/repository-context", async (req) => {
+    await fastify.authenticate(req);
+
+    const { project_id, app_type_id, limit } = req.query;
+
+    if (app_type_id) {
+      const appType = await appTypeService.getAppType(app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (project_id) {
+      await projectService.getProject(project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Project or app type scope is required");
+    }
+
+    return aiAutomationBuilderService.exportRepositoryContext({
+      project_id,
+      app_type_id,
+      limit: limit !== undefined ? Number(limit) : undefined
+    });
+  });
+
+  fastify.get("/test-cases/automation/learning-cache/:id/usage", async (req) => {
+    await fastify.authenticate(req);
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+
+    if (entry.app_type_id) {
+      const appType = await appTypeService.getAppType(entry.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (entry.project_id) {
+      await projectService.getProject(entry.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Object repository entry is not scoped to a project");
+    }
+
+    return aiAutomationBuilderService.findLearningCacheUsage(entry);
+  });
+
   fastify.put("/test-cases/automation/learning-cache/:id", async (req) => {
     await fastify.authenticate(req);
 
@@ -166,6 +203,20 @@ module.exports = async function (fastify) {
       screenshot_path: { required: false, type: "string" },
       fallback_strategy: { required: false, type: "string" },
       platform: { required: false, type: "string" },
+      url_pattern_type: { required: false, type: "string" },
+      url_pattern_value: { required: false, type: "string" },
+      screen_fingerprint: { required: false, type: "string" },
+      accessibility_tree: { required: false, type: "string" },
+      fallback_locators: { required: false, type: "array" },
+      description: { required: false, type: "string" },
+      business_meaning: { required: false, type: "string" },
+      usage_keywords: { required: false, type: "array" },
+      stability_score: { required: false, type: "number" },
+      last_validated_at: { required: false, type: "string" },
+      validation_history: { required: false, type: "array" },
+      ancestor_dom: { required: false, type: "string" },
+      ancestor_screenshot_url: { required: false, type: "string" },
+      element_screenshot_url: { required: false, type: "string" },
       metadata: { required: false, type: "object" }
     }, req.body || {});
 
@@ -199,6 +250,7 @@ module.exports = async function (fastify) {
       object_role: { required: false, type: "string" },
       dom_structure: { required: false, type: "string" },
       screenshot_url: { required: false, type: "string" },
+      fallback_strategy: { required: false, type: "string" },
       screen_dom_compressed: { required: false, type: "string" },
       screen_screenshot_url: { required: false, type: "string" },
       metadata: { required: false, type: "object" }
@@ -400,7 +452,8 @@ module.exports = async function (fastify) {
       recorder_public_base_url: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
-      test_data_set_id: { required: false, type: "string" }
+      test_data_set_id: { required: false, type: "string" },
+      target_step_id: { required: false, type: "string" }
     }, req.body || {});
 
     const testCase = await service.getTestCase(req.params.id);
@@ -420,6 +473,7 @@ module.exports = async function (fastify) {
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
+      target_step_id: req.body?.target_step_id,
       created_by: req.user.id
     });
   });
@@ -436,7 +490,8 @@ module.exports = async function (fastify) {
       engine_base_url: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
-      test_data_set_id: { required: false, type: "string" }
+      test_data_set_id: { required: false, type: "string" },
+      target_step_id: { required: false, type: "string" }
     }, req.body || {});
 
     const testCase = await service.getTestCase(req.params.id);
@@ -458,6 +513,7 @@ module.exports = async function (fastify) {
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
+      target_step_id: req.body?.target_step_id,
       created_by: req.user.id
     });
   });

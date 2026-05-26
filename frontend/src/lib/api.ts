@@ -7,6 +7,7 @@ import type {
   AiTestCaseGenerationJob,
   AutomationBuildResponse,
   AutomationLearningCacheEntry,
+  ObjectRepositoryContext,
   AuthSetupPayload,
   ApiError,
   AppType,
@@ -623,6 +624,8 @@ export const api = {
       }),
     learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
+    repositoryContext: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
+      request<ObjectRepositoryContext>(`/test-cases/automation/repository-context${toQueryString(query)}`),
     createLearningCacheEntry: (input: Partial<{
       project_id: string;
       app_type_id: string;
@@ -639,6 +642,7 @@ export const api = {
       target_criteria: string[];
       dom_structure: string;
       screenshot_url: string;
+      fallback_strategy: string;
       screen_dom_compressed: string;
       screen_screenshot_url: string;
       metadata: Record<string, unknown>;
@@ -665,6 +669,20 @@ export const api = {
       screenshot_path: string;
       fallback_strategy: string;
       platform: string;
+      url_pattern_type: string;
+      url_pattern_value: string;
+      screen_fingerprint: string;
+      accessibility_tree: string;
+      fallback_locators: Array<Record<string, unknown>>;
+      description: string;
+      business_meaning: string;
+      usage_keywords: string[];
+      stability_score: number;
+      last_validated_at: string;
+      validation_history: Array<Record<string, unknown>>;
+      ancestor_dom: string;
+      ancestor_screenshot_url: string;
+      element_screenshot_url: string;
       metadata: Record<string, unknown>;
     }>) =>
       request<AutomationLearningCacheEntry>(`/test-cases/automation/learning-cache/${id}`, {
@@ -676,6 +694,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
+    learningCacheUsage: (id: string) =>
+      request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/${id}/usage`),
     deleteLearningCacheEntry: (id: string) =>
       request<{ deleted: boolean; blocked: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }> }>(`/test-cases/automation/learning-cache/${id}`, { method: "DELETE" }),
     deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string }) =>
@@ -695,12 +715,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
       request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
       request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, {
         method: "POST",
         body: JSON.stringify(input || {})

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Page, type Request } from "playwright";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 
@@ -81,7 +81,11 @@ type RecorderInspectResult = {
   page_title: string | null;
   page_url: string | null;
   screen_dom: string | null;
+  accessibility_tree: string | null;
+  screen_fingerprint: string | null;
   screen_screenshot_url: string | null;
+  element_screenshot_url: string | null;
+  ancestor_screenshot_url: string | null;
   element: {
     friendly_name: string;
     html_tag: string;
@@ -89,7 +93,15 @@ type RecorderInspectResult = {
     locator: string;
     locator_kind: string;
     dom_structure: string;
+    ancestor_dom: string | null;
+    locator_candidates: Array<{
+      locator: string;
+      strategy: string;
+      confidenceScore: number;
+    }>;
     text: string | null;
+    rect?: { x: number; y: number; width: number; height: number } | null;
+    ancestor_rect?: { x: number; y: number; width: number; height: number } | null;
   };
 };
 
@@ -791,18 +803,34 @@ const installInspectMode = async (page: Page) => {
         .map((part, index) => index ? part.charAt(0).toUpperCase() + part.slice(1) : part.charAt(0).toLowerCase() + part.slice(1))
         .join("") || "element";
     };
-    const fallbackLocator = (element: Element) => {
+    const locatorCandidates = (element: Element) => {
       const testId = clean(element.getAttribute("data-testid"));
-      if (testId) return `[data-testid="${testId.replace(/"/g, '\\"')}"]`;
-      const id = clean(element.getAttribute("id"));
-      if (id) return `#${cssEscape(id)}`;
-      const name = clean(element.getAttribute("name"));
-      if (name) return `${element.tagName.toLowerCase()}[name="${name.replace(/"/g, '\\"')}"]`;
       const aria = clean(element.getAttribute("aria-label"));
-      if (aria) return `${element.tagName.toLowerCase()}[aria-label="${aria.replace(/"/g, '\\"')}"]`;
+      const explicitRole = clean(element.getAttribute("role"));
+      const accessibleName = aria || clean(inspectWindow.__qairaRecorderVisibleTextFor?.(element));
+      const id = clean(element.getAttribute("id"));
+      const name = clean(element.getAttribute("name"));
+      const placeholder = clean(element.getAttribute("placeholder"));
       const text = inspectWindow.__qairaRecorderVisibleTextFor?.(element);
-      if (text && ["button", "a"].includes(element.tagName.toLowerCase())) return `text=${text}`;
-      return inspectWindow.__qairaRecorderLocatorFor?.(element) || element.tagName.toLowerCase();
+      const tag = element.tagName.toLowerCase();
+      const inputType = clean(element.getAttribute("type")).toLowerCase();
+      const semanticRole = explicitRole
+        || (tag === "button" ? "button" : "")
+        || (tag === "a" ? "link" : "")
+        || (tag === "select" ? "combobox" : "")
+        || (tag === "textarea" || (tag === "input" && !["checkbox", "radio"].includes(inputType)) ? "textbox" : "")
+        || (tag === "input" && ["checkbox", "radio"].includes(inputType) ? inputType : "");
+      return [
+        testId ? { locator: `[data-testid="${testId.replace(/"/g, '\\"')}"]`, strategy: "data-testid", confidenceScore: 0.98 } : null,
+        aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.94 } : null,
+        semanticRole && accessibleName ? { locator: `role=${semanticRole}[name="${accessibleName.replace(/"/g, '\\"')}"]`, strategy: "role + name", confidenceScore: 0.92 } : null,
+        id ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88 } : null,
+        name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
+        placeholder ? { locator: `${tag}[placeholder="${placeholder.replace(/"/g, '\\"')}"]`, strategy: "placeholder", confidenceScore: 0.78 } : null,
+        text && ["button", "a"].includes(tag) ? { locator: `text=${text}`, strategy: "text", confidenceScore: 0.7 } : null,
+        { locator: inspectWindow.__qairaRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
+      ].filter((candidate): candidate is { locator: string; strategy: string; confidenceScore: number } => Boolean(candidate))
+        .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
     };
     const clearHighlight = () => {
       document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
@@ -829,18 +857,28 @@ const installInspectMode = async (page: Page) => {
       if (!element) return;
       event.preventDefault();
       event.stopPropagation();
-      highlight(element);
       const tag = element.tagName.toLowerCase();
       const role = clean(element.getAttribute("role") || element.getAttribute("type") || tag);
-      const locator = fallbackLocator(element);
+      const candidates = locatorCandidates(element);
+      const locator = candidates[0].locator;
+      const ancestor = element.closest("form,[role=dialog],section,fieldset,main,article") || element.parentElement;
+      const rect = element.getBoundingClientRect();
+      const ancestorRect = ancestor?.getBoundingClientRect();
+      const domStructure = element.outerHTML.slice(0, 12_000);
+      const ancestorDom = ancestor?.outerHTML.slice(0, 30_000) || null;
+      highlight(element);
       inspectWindow.__qairaInspectResult = {
         friendly_name: friendlyName(element),
         html_tag: tag,
         role,
         locator,
-        locator_kind: locator.startsWith("text=") ? "text" : "css",
-        dom_structure: element.outerHTML.slice(0, 12_000),
-        text: inspectWindow.__qairaRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200)
+        locator_kind: candidates[0].strategy,
+        locator_candidates: candidates,
+        dom_structure: domStructure,
+        ancestor_dom: ancestorDom,
+        text: inspectWindow.__qairaRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200),
+        rect: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
+        ancestor_rect: ancestorRect ? { x: ancestorRect.x + window.scrollX, y: ancestorRect.y + window.scrollY, width: ancestorRect.width, height: ancestorRect.height } : null
       };
     };
 
@@ -1504,15 +1542,47 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         return "";
       }
 
-      const [pageTitle, screenDom, screenshot] = await Promise.all([
+      const [pageTitle, screenDom, accessibilityTree, screenshot] = await Promise.all([
         resolvePageTitle(page),
-        page.evaluate(() => document.documentElement?.outerHTML?.slice(0, 100_000) || "").catch(() => ""),
+        page.evaluate(() => {
+          const source = document.documentElement;
+          if (!source) return "";
+          const cloned = source.cloneNode(true) as HTMLElement;
+          cloned.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+            const target = node as HTMLElement;
+            target.style.outline = target.dataset.qairaPreviousOutline || "";
+            target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+            delete target.dataset.qairaPreviousOutline;
+            delete target.dataset.qairaPreviousBoxShadow;
+            delete target.dataset.qairaInspectHighlight;
+          });
+          return cloned.outerHTML.slice(0, 100_000);
+        }).catch(() => ""),
+        page.locator("body").ariaSnapshot({ timeout: 2_000 }).catch(() => ""),
         page.screenshot({
           type: "jpeg",
           quality: SCREENCAST_QUALITY,
-          fullPage: false,
+          fullPage: true,
           timeout: 5_000
         }).catch(() => null)
+      ]);
+      const screenshotClip = async (rect: RecorderInspectResult["element"]["rect"]) => {
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        return page.screenshot({
+          type: "jpeg",
+          quality: SCREENCAST_QUALITY,
+          clip: {
+            x: Math.max(0, rect.x),
+            y: Math.max(0, rect.y),
+            width: Math.max(1, rect.width),
+            height: Math.max(1, rect.height)
+          },
+          timeout: 5_000
+        }).catch(() => null);
+      };
+      const [elementScreenshot, ancestorScreenshot] = await Promise.all([
+        screenshotClip(element.rect),
+        screenshotClip(element.ancestor_rect)
       ]);
 
       const result: RecorderInspectResult = {
@@ -1521,7 +1591,11 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         page_title: pageTitle,
         page_url: page.url(),
         screen_dom: screenDom || null,
+        accessibility_tree: accessibilityTree || null,
+        screen_fingerprint: createHash("sha256").update(`${page.url()}\n${screenDom}`).digest("hex"),
         screen_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null,
+        element_screenshot_url: elementScreenshot ? `data:image/jpeg;base64,${elementScreenshot.toString("base64")}` : null,
+        ancestor_screenshot_url: ancestorScreenshot ? `data:image/jpeg;base64,${ancestorScreenshot.toString("base64")}` : null,
         element
       };
 

@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, RecordIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -208,7 +208,7 @@ const executionHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
 
 const createDefaultTestCaseSections = (): Record<TestCaseEditorSectionKey, boolean> => ({
   case: false,
-  preconditions: true,
+  preconditions: false,
   steps: true,
   automation: false,
   history: false
@@ -216,7 +216,7 @@ const createDefaultTestCaseSections = (): Record<TestCaseEditorSectionKey, boole
 
 const createCreateModeTestCaseSections = (): Record<TestCaseEditorSectionKey, boolean> => ({
   case: true,
-  preconditions: true,
+  preconditions: false,
   steps: true,
   automation: false,
   history: false
@@ -778,7 +778,6 @@ export function TestCasesPage() {
   );
   const [caseDraft, setCaseDraft] = useState<TestCaseDraft>(() => createEmptyCaseDraft());
   const [newStepDraft, setNewStepDraft] = useState<StepDraft>(EMPTY_STEP_DRAFT);
-  const [newPreconditionDraft, setNewPreconditionDraft] = useState<StepDraft>(EMPTY_STEP_DRAFT);
   const [stepInsertIndex, setStepInsertIndex] = useState<number | null>(null);
   const [stepInsertGroupContext, setStepInsertGroupContext] = useState<StepInsertionGroupContext | null>(null);
   const [draftSteps, setDraftSteps] = useState<DraftTestStep[]>([]);
@@ -838,7 +837,8 @@ export function TestCasesPage() {
   const [aiPreviewMessage, setAiPreviewMessage] = useState("");
   const [aiPreviewTone, setAiPreviewTone] = useState<"success" | "error">("success");
   const [schedulerActionCaseId, setSchedulerActionCaseId] = useState("");
-  const [schedulerActionKind, setSchedulerActionKind] = useState<"accept" | "reject" | "run" | "run-local" | "">("");
+  const [schedulerActionKind, setSchedulerActionKind] = useState<"accept" | "reject" | "run" | "run-local" | "run-remote" | "">("");
+  const [inspectingStepId, setInspectingStepId] = useState("");
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -970,18 +970,40 @@ export function TestCasesPage() {
       })
   });
   const analyzeAutomationGaps = useMutation({
-    mutationFn: ({ testCaseId }: { testCaseId: string }) =>
+    mutationFn: async ({ testCaseId, linkedAutomationCaseId }: { testCaseId: string; linkedAutomationCaseId?: string }) => {
+      const linkedSteps = linkedAutomationCaseId
+        ? await api.testSteps.list({ test_case_id: linkedAutomationCaseId }).catch(() => [])
+        : [];
+      const linkedAutomationContext = linkedSteps.length
+        ? [
+            "Linked automation case code is supplied below. Map these executable snippets to the closest matching existing manual step by business intent and flow order.",
+            "Return QAira keyword calls when the supplied code represents web or mobile interactions. Preserve valid existing custom code when no keyword conversion is appropriate.",
+            JSON.stringify(linkedSteps.map((step) => ({
+              step_order: step.step_order,
+              action: step.action,
+              expected_result: step.expected_result,
+              step_type: step.step_type,
+              automation_code: step.automation_code,
+              api_request: step.api_request
+            })), null, 2)
+          ].join("\n")
+        : "";
+
+      return (
       api.testCases.buildAutomation(testCaseId, {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: [
           automationContext.trim(),
-          "Analyze existing automation code and manual steps. Fill missing automation between actions, generate any missing manual step text implied by the code, and map each automation snippet to the best QAira step across web, API, and mobile keywords."
+          "Analyze existing automation code and manual steps. Fill missing automation between actions, generate any missing manual step text implied by the code, and map each automation snippet to the best QAira step across web, API, and mobile keywords.",
+          linkedAutomationContext
         ].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
       })
+      );
+    }
   });
   const buildBatchAutomation = useMutation({
     mutationFn: ({ testCaseIds }: { testCaseIds: string[] }) =>
@@ -998,7 +1020,7 @@ export function TestCasesPage() {
       })
   });
   const startRecorder = useMutation({
-    mutationFn: ({ testCaseId, options }: { testCaseId: string; options: RecorderStartOptions }) =>
+    mutationFn: ({ testCaseId, options, targetStepId }: { testCaseId: string; options: RecorderStartOptions; targetStepId?: string }) =>
       api.testCases.startRecorderSession(testCaseId, {
         start_url: automationStartUrl.trim() || undefined,
         recorder_mode: options.recorder_mode,
@@ -1007,11 +1029,12 @@ export function TestCasesPage() {
         recorder_public_base_url: options.recorder_public_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined
+        test_data_set_id: selectedExecutionDataSetId || undefined,
+        target_step_id: targetStepId || undefined
       })
   });
   const finishRecorder = useMutation({
-    mutationFn: ({ testCaseId, sessionId, transactionId, recorderStartOptions }: { testCaseId: string; sessionId: string; transactionId?: string; recorderStartOptions?: RecorderStartOptions | null }) =>
+    mutationFn: ({ testCaseId, sessionId, transactionId, recorderStartOptions, targetStepId }: { testCaseId: string; sessionId: string; transactionId?: string; recorderStartOptions?: RecorderStartOptions | null; targetStepId?: string }) =>
       api.testCases.finishRecorderSession(testCaseId, sessionId, {
         transaction_id: transactionId,
         integration_id: integrationId || undefined,
@@ -1021,7 +1044,8 @@ export function TestCasesPage() {
         engine_base_url: recorderStartOptions?.engine_base_url,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined
+        test_data_set_id: selectedExecutionDataSetId || undefined,
+        target_step_id: targetStepId || undefined
       })
   });
   const createStep = useMutation({ mutationFn: api.testSteps.create });
@@ -1099,6 +1123,10 @@ export function TestCasesPage() {
     () => displaySteps.filter((step) => (step.group_name || "").toLowerCase() === "preconditions"),
     [displaySteps]
   );
+  const mainSteps = useMemo(
+    () => displaySteps.filter((step) => (step.group_name || "").toLowerCase() !== "preconditions"),
+    [displaySteps]
+  );
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -1159,12 +1187,15 @@ export function TestCasesPage() {
     resetExecutionContextSelection();
   };
 
-  const beginCreateCase = (suiteContextId = "") => {
+  const beginCreateCase = (suiteContextId = "", requirementId = "") => {
     syncTestCaseSearchParams(null);
     setCreateSuiteContextId(suiteContextId);
     setIsCreating(true);
     setSelectedTestCaseId("");
-    setCaseDraft(emptyCaseDraft);
+    setCaseDraft({
+      ...emptyCaseDraft,
+      requirement_id: requirementId
+    });
     setDraftSteps([]);
     setNewStepDraft(EMPTY_STEP_DRAFT);
     setStepInsertIndex(null);
@@ -1276,9 +1307,9 @@ export function TestCasesPage() {
     setAutomationFailureThreshold(3);
     setRecorderSession(null);
     setRecorderSessionCaseId("");
+    setInspectingStepId("");
     setCaseDraft(emptyCaseDraft);
     setNewStepDraft(EMPTY_STEP_DRAFT);
-    setNewPreconditionDraft(EMPTY_STEP_DRAFT);
     setStepInsertIndex(null);
     setStepInsertGroupContext(null);
     setDraftSteps([]);
@@ -1316,13 +1347,15 @@ export function TestCasesPage() {
     }
 
     const requestedSuiteId = searchParams.get("suite") || "";
-    beginCreateCase(requestedSuiteId);
+    const requestedRequirementId = searchParams.get("requirement") || "";
+    beginCreateCase(requestedSuiteId, requestedRequirementId);
 
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      if (next.has("create") || next.has("suite")) {
+      if (next.has("create") || next.has("suite") || next.has("requirement")) {
         next.delete("create");
         next.delete("suite");
+        next.delete("requirement");
       }
       return next;
     }, { replace: true });
@@ -1585,15 +1618,11 @@ export function TestCasesPage() {
     }
 
     const deletedIdSet = new Set(deletedCaseIds);
-    const manualCaseIdsToMarkNotAutomated = new Set<string>();
 
     setManualCaseAutomationLinks((current) => {
       const next = { ...current };
       Object.entries(current).forEach(([automationCaseId, manualCaseId]) => {
         if (deletedIdSet.has(automationCaseId)) {
-          if (manualCaseId && !deletedIdSet.has(manualCaseId)) {
-            manualCaseIdsToMarkNotAutomated.add(manualCaseId);
-          }
           delete next[automationCaseId];
         } else if (deletedIdSet.has(manualCaseId)) {
           delete next[automationCaseId];
@@ -1602,8 +1631,6 @@ export function TestCasesPage() {
       window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
-
-    await Promise.all(Array.from(manualCaseIdsToMarkNotAutomated).map((manualCaseId) => api.testCases.update(manualCaseId, { automated: "no" }).catch(() => null)));
   };
   const selectedCaseSuiteIds = useMemo(
     () =>
@@ -2895,7 +2922,7 @@ export function TestCasesPage() {
     }
   };
 
-  const handleStartRecorder = async (options: RecorderStartOptions) => {
+  const handleStartRecorder = async (options: RecorderStartOptions, targetStepId = inspectingStepId) => {
     if (!selectedTestCase) {
       showError(new Error("Select a saved test case before starting the recorder."), "Unable to start recorder");
       return;
@@ -2907,7 +2934,7 @@ export function TestCasesPage() {
     }
 
     try {
-      const response = await startRecorder.mutateAsync({ testCaseId: selectedTestCase.id, options });
+      const response = await startRecorder.mutateAsync({ testCaseId: selectedTestCase.id, options, targetStepId: targetStepId || undefined });
       setRecorderSession(response);
       setRecorderSessionCaseId(selectedTestCase.id);
       setRecorderStartOptions(options);
@@ -2928,10 +2955,12 @@ export function TestCasesPage() {
         testCaseId: recorderSessionCaseId,
         sessionId: recorderSession.id,
         recorderStartOptions,
-        transactionId: recorderSession.transaction_id
+        transactionId: recorderSession.transaction_id,
+        targetStepId: inspectingStepId || undefined
       });
       setRecorderSession(null);
       setRecorderSessionCaseId("");
+      setInspectingStepId("");
       setRecentRecorderCompletedCaseId(recorderSessionCaseId);
       showSuccess(
         response.generated_step_count
@@ -3033,69 +3062,6 @@ export function TestCasesPage() {
       }
     } catch (error) {
       showError(error, "Unable to add step");
-    }
-  };
-
-  const handleCreatePreconditionStep = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const normalizedDraft = {
-      action: newPreconditionDraft.action.trim(),
-      expected_result: newPreconditionDraft.expected_result.trim(),
-      step_type: normalizeStepType(newPreconditionDraft.step_type),
-      automation_code: normalizeAutomationCode(newPreconditionDraft.automation_code),
-      api_request: normalizeApiRequest(newPreconditionDraft.api_request)
-    };
-
-    if (!normalizedDraft.action && !normalizedDraft.expected_result) {
-      setMessageTone("error");
-      setMessage("Add a precondition action or expected result before saving.");
-      return;
-    }
-
-    const preconditionGroup = {
-      group_id: `preconditions-${selectedTestCaseId || "draft"}`,
-      group_name: "Preconditions",
-      group_kind: "local" as const,
-      reusable_group_id: null
-    };
-
-    if (isCreating) {
-      const draftId = createDraftStepId();
-      setDraftSteps((current) => [{
-        id: draftId,
-        ...normalizedDraft,
-        ...preconditionGroup
-      }, ...current]);
-      setExpandedStepIds((current) => [...new Set([...current, draftId])]);
-      setNewPreconditionDraft(EMPTY_STEP_DRAFT);
-      showSuccess("Precondition added to the new test case draft.");
-      return;
-    }
-
-    if (!selectedTestCaseId) {
-      return;
-    }
-
-    try {
-      const response = await createStep.mutateAsync({
-        test_case_id: selectedTestCaseId,
-        step_order: 1,
-        action: normalizedDraft.action || undefined,
-        expected_result: normalizedDraft.expected_result || undefined,
-        step_type: normalizedDraft.step_type,
-        automation_code: normalizedDraft.automation_code || undefined,
-        api_request: normalizedDraft.api_request || undefined,
-        group_id: preconditionGroup.group_id,
-        group_name: preconditionGroup.group_name,
-        group_kind: preconditionGroup.group_kind
-      });
-      setNewPreconditionDraft(EMPTY_STEP_DRAFT);
-      setExpandedStepIds((current) => [...new Set([...current, response.id])]);
-      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
-      showSuccess("Precondition step added.");
-    } catch (error) {
-      showError(error, "Unable to add precondition");
     }
   };
 
@@ -4349,7 +4315,7 @@ export function TestCasesPage() {
     }
   };
 
-  const handleRunTestCase = async (testCaseId: string, mode?: "local") => {
+  const handleRunTestCase = async (testCaseId: string, mode?: "local" | "remote") => {
     const testCase = testCases.find((item) => item.id === testCaseId);
 
     if (!session?.user.id) {
@@ -4363,7 +4329,7 @@ export function TestCasesPage() {
     }
 
     setSchedulerActionCaseId(testCaseId);
-    setSchedulerActionKind(mode === "local" ? "run-local" : "run");
+    setSchedulerActionKind(mode === "local" ? "run-local" : mode === "remote" ? "run-remote" : "run");
 
     try {
       if (mode === "local") {
@@ -4396,6 +4362,18 @@ export function TestCasesPage() {
         name: `${testCase.title} Run`,
         created_by: session.user.id
       });
+
+      if (mode === "remote") {
+        await api.executions.start(response.id, { execution_mode: "remote" });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["executions"] }),
+          queryClient.invalidateQueries({ queryKey: ["executions", projectId] }),
+          queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
+        ]);
+        navigate(`/executions?view=test-case-runs&execution=${response.id}&testCase=${testCaseId}`);
+        showSuccess(`Remote run started for ${testCase.title}.`);
+        return;
+      }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["executions"] }),
@@ -4600,7 +4578,7 @@ export function TestCasesPage() {
     [displaySteps, selectedStepIds]
   );
   const stepBlocks = useMemo(() => {
-    return displaySteps.reduce<Array<{
+    return mainSteps.reduce<Array<{
       key: string;
       group_id: string | null;
       group_name: string | null;
@@ -4626,7 +4604,7 @@ export function TestCasesPage() {
 
       return blocks;
     }, []);
-  }, [displaySteps]);
+  }, [mainSteps]);
   const stepGroupIds = useMemo(
     () => [...new Set(stepBlocks.map((block) => block.group_id).filter((groupId): groupId is string => Boolean(groupId)))],
     [stepBlocks]
@@ -4660,8 +4638,8 @@ export function TestCasesPage() {
     [displaySteps, stepDrafts]
   );
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
-  const stepCountLabel = `${displaySteps.length} step${displaySteps.length === 1 ? "" : "s"}`;
-  const allStepsSelected = Boolean(displaySteps.length) && selectedStepIds.length === displaySteps.length;
+  const stepCountLabel = `${mainSteps.length} step${mainSteps.length === 1 ? "" : "s"}`;
+  const allStepsSelected = Boolean(mainSteps.length) && mainSteps.every((step) => selectedStepIds.includes(step.id));
   const dirtyStepIds = useMemo(
     () =>
       displaySteps
@@ -4800,46 +4778,27 @@ export function TestCasesPage() {
     || readableCaseDescription !== caseDraft.description
   );
   const firstStepPreview = resolveStepParameterText(
-    displaySteps[0]?.action || displaySteps[0]?.expected_result || "",
+    mainSteps[0]?.action || mainSteps[0]?.expected_result || "",
     mergedScopedParameterValues
   );
   const caseSectionSummary = isCreating
-    ? readableCaseTitle.trim() || "Start defining the reusable case before saving it."
-    : readableCaseTitle || selectedTestCase?.title || "Select a test case from the library to edit it here.";
+    ? "Enter the reusable case details before saving it."
+    : "Edit metadata, linked suites, and saved test data.";
   const stepSectionSummary = firstStepPreview
     ? `Starts with: ${firstStepPreview}`
     : isCreating
       ? "No draft steps added yet."
       : "No steps added yet for this test case.";
+  const preconditionGroupContext: StepInsertionGroupContext = {
+    group_id: preconditionSteps[0]?.group_id || `preconditions-${selectedTestCaseId || "draft"}`,
+    group_name: "Preconditions",
+    group_kind: "local",
+    reusable_group_id: null
+  };
   const automationSectionSummary = automationTargetCaseIds.length
     ? `${automationTargetCaseIds.length} case${automationTargetCaseIds.length === 1 ? "" : "s"} selected for AI automation or recorder capture.`
     : "Select a saved case to automate with AI or recorder capture.";
-  const caseSectionTitleContent = (
-    <span className="editor-accordion-title-line">
-      {isCreating ? (
-        <span>New test case</span>
-      ) : selectedTestCase ? (
-        <>
-          <span>Selected test case</span>
-          <span className="selection-chip-row selection-chip-row--inline-description">
-            <span className="selection-chip is-selected">{selectedTestCase.display_id || selectedTestCase.id}</span>
-          </span>
-          <span>{selectedTestCase.title}</span>
-        </>
-      ) : (
-        <span>Selected test case</span>
-      )}
-      {!selectedTestCase && automationTargetCases.length ? (
-        <span className="selection-chip-row selection-chip-row--inline-description">
-          {automationTargetCases.map((testCase) => (
-            <span className="selection-chip" key={testCase.id}>
-              {testCase.display_id || testCase.title}
-            </span>
-          ))}
-        </span>
-      ) : null}
-    </span>
-  );
+  const caseSectionTitleContent = isCreating ? "New test case" : "Case details";
   const historySectionSummary = selectedHistory.length
     ? "Review the latest recorded outcomes and preserved run evidence for this reusable test case."
     : "No run history has been recorded for this reusable test case yet.";
@@ -4975,10 +4934,57 @@ export function TestCasesPage() {
     }
 
     try {
-      const response = await analyzeAutomationGaps.mutateAsync({ testCaseId: selectedTestCase.id });
+      const response = await analyzeAutomationGaps.mutateAsync({
+        testCaseId: selectedTestCase.id,
+        linkedAutomationCaseId: selectedTestCase.automated === "yes" ? undefined : linkedAutomationCase?.id
+      });
+      const mappedSteps = await api.testSteps.list({ test_case_id: selectedTestCase.id });
+      let synchronizedLinkedAutomation = false;
+
+      if (selectedTestCase.automated !== "yes" && mappedSteps.some((step) => stepHasAutomation(step))) {
+        const automationSteps = mappedSteps.map((step) => ({
+          step_order: step.step_order,
+          action: step.action || undefined,
+          expected_result: step.expected_result || undefined,
+          step_type: step.step_type,
+          automation_code: step.automation_code || undefined,
+          api_request: step.api_request || undefined,
+          group_id: step.group_id || undefined,
+          group_name: step.group_name || undefined,
+          group_kind: step.group_kind || undefined,
+          reusable_group_id: step.reusable_group_id || undefined
+        }));
+
+        if (linkedAutomationCase) {
+          await api.testCases.update(linkedAutomationCase.id, {
+            automated: "yes",
+            steps: automationSteps
+          });
+          synchronizedLinkedAutomation = true;
+        } else {
+          const created = await api.testCases.create({
+            app_type_id: appTypeId || selectedTestCase.app_type_id || undefined,
+            title: `Automation - ${selectedTestCase.title}`,
+            description: selectedTestCase.description || undefined,
+            automated: "yes",
+            priority: selectedTestCase.priority || 3,
+            status: selectedTestCase.status || "active",
+            parameter_values: selectedTestCase.parameter_values || {},
+            steps: automationSteps
+          });
+          setLinkedAutomationCase(selectedTestCase.id, created.id);
+          synchronizedLinkedAutomation = true;
+        }
+      }
+
       await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCase.id] });
+      await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
       await queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
-      showSuccess(`AI analyzed automation gaps and updated ${response.generated_step_count || 0} step${response.generated_step_count === 1 ? "" : "s"}.`);
+      showSuccess(
+        synchronizedLinkedAutomation
+          ? `AI mapped automation onto ${response.generated_step_count || 0} manual step${response.generated_step_count === 1 ? "" : "s"} and synchronized the linked automation case.`
+          : `AI mapped automation onto ${response.generated_step_count || 0} step${response.generated_step_count === 1 ? "" : "s"}.`
+      );
     } catch (error) {
       showError(error, "Unable to analyze automation gaps");
     }
@@ -4992,6 +4998,10 @@ export function TestCasesPage() {
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
     && schedulerActionKind === "run-local";
+  const isSelectedCaseRemoteRunning =
+    Boolean(selectedTestCase?.id)
+    && schedulerActionCaseId === selectedTestCase?.id
+    && schedulerActionKind === "run-remote";
   const caseHeaderActions = (
     <div className="panel-head-actions-row">
       <WorkspaceBackButton label="Back to test case tiles" onClick={handleWorkspaceBack} />
@@ -5005,6 +5015,18 @@ export function TestCasesPage() {
         >
           <TestCaseRunIcon />
           <span>{isSelectedCaseRunning ? "Creating…" : "Run manually"}</span>
+        </button>
+      ) : null}
+      {selectedTestCase ? (
+        <button
+          className="test-case-tile-action-button is-run test-case-header-run-button"
+          disabled={isSelectedCaseRemoteRunning || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
+          onClick={() => void handleRunTestCase(selectedTestCase.id, "remote")}
+          title={selectedTestCase.automated === "yes" ? "Run this automated test case through the configured remote Test Engine" : "Automate this test case before starting a remote run"}
+          type="button"
+        >
+          <TestCaseRunIcon />
+          <span>{isSelectedCaseRemoteRunning ? "Starting..." : "Run remotely"}</span>
         </button>
       ) : null}
       {selectedTestCase && supportsLocalDesktopExecution ? (
@@ -5028,7 +5050,7 @@ export function TestCasesPage() {
           type="button"
         >
           <StepAiIcon />
-          <span>{analyzeAutomationGaps.isPending ? "Analyzing…" : "AI fill gaps"}</span>
+          <span>{analyzeAutomationGaps.isPending ? "Analyzing…" : "AI map steps"}</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5040,7 +5062,7 @@ export function TestCasesPage() {
           type="button"
         >
           <TestCaseSparkIcon />
-          <span>AI steps</span>
+          <span>AI generate steps</span>
         </button>
       ) : null}
       {isCaseWorkspaceOpen ? (
@@ -5382,7 +5404,27 @@ export function TestCasesPage() {
     />
   );
 
-  const renderStepCard = (step: TestStep, index: number, groupContext: StepInsertionGroupContext | null = null) => {
+  const openStepInspect = (step: TestStep) => {
+    if (isCreating) {
+      showError(new Error("Save the test case before recording an action for this step."), "Unable to inspect draft step");
+      return;
+    }
+
+    if (recorderSession) {
+      showError(new Error("Stop the active recorder session before inspecting another step."), "Unable to start step inspection");
+      return;
+    }
+
+    setInspectingStepId(step.id);
+  };
+
+  const renderStepCard = (
+    step: TestStep,
+    index: number,
+    groupContext: StepInsertionGroupContext | null = null,
+    sectionSteps: TestStep[] = displaySteps,
+    usePlainCardAppearance = false
+  ) => {
     const insertAboveIndex = Math.max(0, step.step_order - 1);
     const insertBelowIndex = step.step_order;
     const stepDraft = stepDrafts[step.id] || {
@@ -5392,10 +5434,10 @@ export function TestCasesPage() {
       automation_code: normalizeAutomationCode(step.automation_code),
       api_request: normalizeApiRequest(step.api_request)
     };
-    const previousStep = displaySteps[index - 1];
-    const nextStep = displaySteps[index + 1];
+    const previousStep = sectionSteps[index - 1];
+    const nextStep = sectionSteps[index + 1];
     const canMoveUp = step.group_id ? Boolean(previousStep && previousStep.group_id === step.group_id) : index > 0;
-    const canMoveDown = step.group_id ? Boolean(nextStep && nextStep.group_id === step.group_id) : index < displaySteps.length - 1;
+    const canMoveDown = step.group_id ? Boolean(nextStep && nextStep.group_id === step.group_id) : index < sectionSteps.length - 1;
 
     if (isCreating) {
       return (
@@ -5417,7 +5459,7 @@ export function TestCasesPage() {
           onMoveUp={() => handleReorderDraftStep(step.id, "up")}
           onChangeStepType={(nextType) => void handleChangeStepType(step.id, nextType)}
           onEditAutomation={() => setEditingAutomationStepId(step.id)}
-          onClearAutomation={() => void handleSaveStepAutomation(step.id, { step_type: normalizeStepType(step.step_type), automation_code: "", api_request: null })}
+          onInspect={() => openStepInspect(step)}
           onRephrase={() => void handleRephraseStepWithAi(step)}
           onPasteAbove={() => void handlePasteSteps(insertAboveIndex, groupContext)}
           onPasteBelow={() => void handlePasteSteps(insertBelowIndex, groupContext)}
@@ -5441,7 +5483,7 @@ export function TestCasesPage() {
             api_request: normalizeApiRequest(step.api_request),
             group_id: step.group_id || null,
             group_name: step.group_name || null,
-            group_kind: step.group_kind || null,
+            group_kind: usePlainCardAppearance ? null : step.group_kind || null,
             reusable_group_id: step.reusable_group_id || null
           }}
         />
@@ -5463,7 +5505,7 @@ export function TestCasesPage() {
         onCut={() => handleCutSteps([step.id])}
         onDelete={() => void handleDeleteStep(step.id)}
         onEditAutomation={() => setEditingAutomationStepId(step.id)}
-        onClearAutomation={() => void handleSaveStepAutomation(step.id, { step_type: normalizeStepType(step.step_type), automation_code: "", api_request: null })}
+        onInspect={() => openStepInspect(step)}
         onRephrase={() => void handleRephraseStepWithAi(step)}
         onInsertAbove={() => activateStepInsert(insertAboveIndex, groupContext)}
         onInsertBelow={() => activateStepInsert(insertBelowIndex, groupContext)}
@@ -5488,13 +5530,16 @@ export function TestCasesPage() {
             checked ? [...new Set([...current, step.id])] : current.filter((id) => id !== step.id)
           )
         }
-        step={step}
+        step={usePlainCardAppearance ? { ...step, group_kind: null } : step}
       />
     );
   };
 
   const editingAutomationStep = editingAutomationStepId
     ? displaySteps.find((step) => step.id === editingAutomationStepId) || null
+    : null;
+  const inspectingStep = inspectingStepId
+    ? displaySteps.find((step) => step.id === inspectingStepId) || null
     : null;
 
   const openCaseAutomationPreview = () => {
@@ -6453,27 +6498,41 @@ export function TestCasesPage() {
                     summary={preconditionSteps.length ? "Setup assumptions and pre-run steps captured before the main flow." : "Add setup assumptions or pre-run steps before the main test steps."}
                     title="Preconditions"
                   >
-                    <div className="precondition-step-panel">
-                      {preconditionSteps.length ? (
-                        <div className="precondition-step-list">
-                          {preconditionSteps.map((step) => (
-                            <div className="precondition-step-row" key={step.id}>
-                              <span className="count-pill">Pre {step.step_order}</span>
-                              <span>{step.action || step.expected_result || "Precondition"}</span>
+                    <div className="step-editor step-editor--embedded">
+                      <div className="step-list">
+                        {!preconditionSteps.length ? (
+                          <>
+                            <div className="step-empty-insert">
+                              <StepIconButton
+                                ariaLabel="Add first precondition"
+                                onClick={() => activateStepInsert(0, preconditionGroupContext)}
+                                title="Add first precondition"
+                                type="button"
+                              >
+                                <StepInsertIcon />
+                              </StepIconButton>
                             </div>
-                          ))}
+                            {renderStepInsertSlot(0, preconditionGroupContext)}
+                          </>
+                        ) : null}
+                        {preconditionSteps.map((step, index) => (
+                          <Fragment key={step.id}>
+                            {renderStepInsertSlot(Math.max(0, step.step_order - 1), preconditionGroupContext)}
+                            {renderStepCard(step, index, preconditionGroupContext, preconditionSteps, true)}
+                            {index === preconditionSteps.length - 1 ? renderStepInsertSlot(step.step_order, preconditionGroupContext) : null}
+                          </Fragment>
+                        ))}
+                      </div>
+                      {!preconditionSteps.length ? (
+                        <div className="empty-state compact">
+                          <div>No preconditions yet. Use the inline add action to create the first setup step.</div>
+                          {stepInsertIndex === null ? (
+                            <button className="ghost-button" onClick={() => activateStepInsert(0, preconditionGroupContext)} type="button">
+                              Add first precondition
+                            </button>
+                          ) : null}
                         </div>
-                      ) : (
-                        <div className="empty-state compact">No preconditions yet.</div>
-                      )}
-                      <InlineStepInsertSlot
-                        draft={newPreconditionDraft}
-                        index={0}
-                        isActive
-                        onCancel={() => setNewPreconditionDraft(EMPTY_STEP_DRAFT)}
-                        onChange={setNewPreconditionDraft}
-                        onSubmit={(event) => void handleCreatePreconditionStep(event)}
-                      />
+                      ) : null}
                     </div>
                   </EditorAccordionSection>
 
@@ -6490,7 +6549,7 @@ export function TestCasesPage() {
                         </button>
                         <button
                           className="ghost-button"
-                          disabled={!displaySteps.length}
+                          disabled={!mainSteps.length}
                           onClick={openCaseAutomationPreview}
                           type="button"
                         >
@@ -6506,16 +6565,16 @@ export function TestCasesPage() {
                     title={isCreating ? "Draft steps" : "Test steps"}
                   >
                     {isVisualBuilderActive ? (
-                      <VisualTestBuilder testSteps={displaySteps} />
+                      <VisualTestBuilder testSteps={mainSteps} />
                     ) : (
                     <div className="step-editor step-editor--embedded">
                       <div className="step-editor-toolbar">
                         <label className="checkbox-field step-select-all">
                           <input
                             checked={allStepsSelected}
-                            disabled={!displaySteps.length}
+                            disabled={!mainSteps.length}
                             onChange={(event) =>
-                              setSelectedStepIds(event.target.checked ? displaySteps.map((step) => step.id) : [])
+                              setSelectedStepIds(event.target.checked ? mainSteps.map((step) => step.id) : [])
                             }
                             type="checkbox"
                           />
@@ -6535,7 +6594,7 @@ export function TestCasesPage() {
       {!isCreating && stepsQuery.isLoading ? <div className="empty-state compact">Loading steps…</div> : null}
 
       <div className="step-list">
-                        {!displaySteps.length ? (
+                        {!mainSteps.length ? (
                           <>
                             <div className="step-empty-insert">
                               <StepIconButton ariaLabel="Add first step" onClick={() => activateStepInsert(0, null)} title="Add first step" type="button">
@@ -6628,12 +6687,12 @@ export function TestCasesPage() {
                                   {isGroupExpanded ? (
                                     <div className="step-group-block-body">
                                       {block.steps.map((step) => {
-                                        const stepIndex = displaySteps.findIndex((item) => item.id === step.id);
+                                        const stepIndex = mainSteps.findIndex((item) => item.id === step.id);
 
                                         return (
                                           <Fragment key={step.id}>
                                             {renderStepInsertSlot(Math.max(0, step.step_order - 1), blockGroupContext)}
-                                            {renderStepCard(step, stepIndex, blockGroupContext)}
+                                            {renderStepCard(step, stepIndex, blockGroupContext, mainSteps)}
                                           </Fragment>
                                         );
                                       })}
@@ -6641,25 +6700,25 @@ export function TestCasesPage() {
                                     </div>
                                   ) : null}
                                 </div>
-                                {lastStep.id === displaySteps[displaySteps.length - 1]?.id ? renderStepInsertSlot(lastStep.step_order) : null}
+                                {lastStep.id === mainSteps[mainSteps.length - 1]?.id ? renderStepInsertSlot(lastStep.step_order) : null}
                               </Fragment>
                             );
                           }
 
                           const step = block.steps[0];
-                          const stepIndex = displaySteps.findIndex((item) => item.id === step.id);
+                          const stepIndex = mainSteps.findIndex((item) => item.id === step.id);
 
                           return (
                             <Fragment key={block.key}>
                               {renderStepInsertSlot(Math.max(0, step.step_order - 1))}
-                              {renderStepCard(step, stepIndex)}
-                              {step.id === displaySteps[displaySteps.length - 1]?.id ? renderStepInsertSlot(step.step_order) : null}
+                              {renderStepCard(step, stepIndex, null, mainSteps)}
+                              {step.id === mainSteps[mainSteps.length - 1]?.id ? renderStepInsertSlot(step.step_order) : null}
                             </Fragment>
                           );
                         })}
                       </div>
 
-                      {!displaySteps.length ? (
+                      {!mainSteps.length ? (
                         <div className="empty-state compact">
                           <div>
                             {isCreating
@@ -6949,6 +7008,71 @@ export function TestCasesPage() {
           title="Test case parameter values"
           values={mergedScopedParameterValues}
         />
+      ) : null}
+
+      {inspectingStep ? (
+        <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !recorderSession && setInspectingStepId("")} role="presentation">
+          <div
+            aria-label={`Inspect step ${inspectingStep.step_order}`}
+            aria-modal="true"
+            className="modal-card resource-modal-card step-inspect-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="resource-modal-header">
+              <div className="resource-modal-title">
+                <h3>Inspect step {inspectingStep.step_order}</h3>
+                <p>{inspectingStep.action || inspectingStep.expected_result || "Record an action for this step."}</p>
+              </div>
+              <button className="ghost-button" disabled={Boolean(recorderSession)} onClick={() => setInspectingStepId("")} type="button">
+                Close
+              </button>
+            </div>
+            <div className="detail-stack step-inspect-body">
+              <div className="detail-summary">
+                <strong>Step-level capture</strong>
+                <span>Start an inspector session and perform only this step action. Captured automation and learned object repository evidence are mapped back to this step.</span>
+              </div>
+              <RecorderStartControls
+                disabled={!selectedTestCase || !testEngineIntegration}
+                hasSession={Boolean(recorderSession)}
+                isStarting={startRecorder.isPending}
+                mobileRemoteEnabled={mobileRemoteRecorderEnabled}
+                onStart={(options) => void handleStartRecorder(options, inspectingStep.id)}
+                localLabel="Inspect locally"
+                remoteLabel="Inspect remotely"
+                primaryAction={(
+                  <button
+                    className="primary-button recorder-stop-button"
+                    disabled={!recorderSession || finishRecorder.isPending}
+                    onClick={() => void handleFinishRecorder()}
+                    type="button"
+                  >
+                    <PauseIcon />
+                    <span>{finishRecorder.isPending ? "Saving..." : "Stop and map action"}</span>
+                  </button>
+                )}
+              />
+              {recorderLiveUrl ? (
+                <div className="step-inspect-browser-shell">
+                  <div className="step-inspect-browser-toolbar">
+                    <strong>Live browser view</strong>
+                    <span>Scroll vertically or horizontally to review the captured browser viewport.</span>
+                  </div>
+                  <div className="step-inspect-browser-viewport">
+                    <iframe
+                      allow="clipboard-read; clipboard-write"
+                      className="recorder-live-frame step-inspect-live-frame"
+                      src={recorderLiveUrl}
+                      title={`QAira inspector for step ${inspectingStep.step_order}`}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <RecorderSessionInsights session={recorderSession} />
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {editingAutomationStep ? (
@@ -8945,7 +9069,7 @@ function EditableStepCard({
   onMoveDown,
   onChangeStepType,
   onEditAutomation,
-  onClearAutomation,
+  onInspect,
   onRephrase,
   onPasteAbove,
   onPasteBelow
@@ -8972,7 +9096,7 @@ function EditableStepCard({
   onMoveDown: () => void;
   onChangeStepType: (nextType: TestStep["step_type"]) => void;
   onEditAutomation: () => void;
-  onClearAutomation: () => void;
+  onInspect: () => void;
   onRephrase: () => void;
   onPasteAbove: () => void;
   onPasteBelow: () => void;
@@ -9094,6 +9218,13 @@ function EditableStepCard({
         </button>
         <div className="step-inline-tools">
           <InlineStepToolButton
+            ariaLabel={`Inspect and record action for step ${step.step_order}`}
+            onClick={onInspect}
+            title="Inspect and record this step action"
+          >
+            <RecordIcon size={16} />
+          </InlineStepToolButton>
+          <InlineStepToolButton
             ariaLabel={`Rephrase step ${step.step_order} with AI`}
             className={isRephrasing ? "is-active is-loading" : ""}
             disabled={isRephrasing}
@@ -9105,8 +9236,8 @@ function EditableStepCard({
           <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
             className={stepHasAutomation(draft) ? "is-active" : ""}
-            onClick={stepHasAutomation(draft) ? onClearAutomation : onEditAutomation}
-            title={stepHasAutomation(draft) ? "Remove recorded automation from this step" : "Edit step automation"}
+            onClick={onEditAutomation}
+            title={stepHasAutomation(draft) ? "View or edit mapped automation for this step" : "Edit step automation"}
           >
             <AutomationCodeIcon />
           </InlineStepToolButton>
@@ -9155,7 +9286,7 @@ function DraftStepCard({
   onMoveDown,
   onChangeStepType,
   onEditAutomation,
-  onClearAutomation,
+  onInspect,
   onRephrase,
   onPasteAbove,
   onPasteBelow
@@ -9180,7 +9311,7 @@ function DraftStepCard({
   onMoveDown: () => void;
   onChangeStepType: (nextType: TestStep["step_type"]) => void;
   onEditAutomation: () => void;
-  onClearAutomation: () => void;
+  onInspect: () => void;
   onRephrase: () => void;
   onPasteAbove: () => void;
   onPasteBelow: () => void;
@@ -9290,6 +9421,13 @@ function DraftStepCard({
         </button>
         <div className="step-inline-tools">
           <InlineStepToolButton
+            ariaLabel={`Inspect and record action for step ${step.step_order}`}
+            onClick={onInspect}
+            title="Inspect and record this step action"
+          >
+            <RecordIcon size={16} />
+          </InlineStepToolButton>
+          <InlineStepToolButton
             ariaLabel={`Rephrase step ${step.step_order} with AI`}
             className={isRephrasing ? "is-active is-loading" : ""}
             disabled={isRephrasing}
@@ -9301,8 +9439,8 @@ function DraftStepCard({
           <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
             className={stepHasAutomation(step) ? "is-active" : ""}
-            onClick={stepHasAutomation(step) ? onClearAutomation : onEditAutomation}
-            title={stepHasAutomation(step) ? "Remove recorded automation from this step" : "Edit step automation"}
+            onClick={onEditAutomation}
+            title={stepHasAutomation(step) ? "View or edit mapped automation for this step" : "Edit step automation"}
           >
             <AutomationCodeIcon />
           </InlineStepToolButton>

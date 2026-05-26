@@ -510,6 +510,15 @@ export function AutomationCodeIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function RepositorySearchIcon({ size = 16 }: { size?: number }) {
+  return (
+    <IconFrame size={size}>
+      <path d="M10.5 18a7.5 7.5 0 1 1 5.3-2.2" />
+      <path d="m16 16 4.5 4.5" />
+    </IconFrame>
+  );
+}
+
 export function WebStepIcon({ size = 16 }: { size?: number }) {
   return (
     <IconFrame size={size}>
@@ -1600,6 +1609,9 @@ export function StepAutomationDialog({
   const [webKeywordLocator, setWebKeywordLocator] = useState("");
   const [webKeywordData, setWebKeywordData] = useState("");
   const [webKeywordMessage, setWebKeywordMessage] = useState("");
+  const [isRepositoryPickerOpen, setIsRepositoryPickerOpen] = useState(false);
+  const [repositorySearchTerm, setRepositorySearchTerm] = useState("");
+  const [selectedRepositoryScreen, setSelectedRepositoryScreen] = useState("");
   const [androidKeywordId, setAndroidKeywordId] = useState(ANDROID_KEYWORD_OPTIONS[0].id);
   const [androidKeywordSelector, setAndroidKeywordSelector] = useState("");
   const [androidKeywordData, setAndroidKeywordData] = useState("");
@@ -1620,6 +1632,9 @@ export function StepAutomationDialog({
     setWebKeywordLocator("");
     setWebKeywordData("");
     setWebKeywordMessage("");
+    setIsRepositoryPickerOpen(false);
+    setRepositorySearchTerm("");
+    setSelectedRepositoryScreen("");
     setAndroidKeywordId(ANDROID_KEYWORD_OPTIONS[0].id);
     setAndroidKeywordSelector("");
     setAndroidKeywordData("");
@@ -1659,6 +1674,10 @@ export function StepAutomationDialog({
       }),
     [automationCode, normalizedApiRequest, step.action, step.expected_result, step.step_order, stepType]
   );
+  const savedKeywordMappings = useMemo(
+    () => buildAutomationKeywordMappings(automationCode, objectRepository),
+    [automationCode, objectRepository]
+  );
   const responseHeaderEntries = useMemo(
     () => Object.entries(apiPreview?.response.headers || {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
     [apiPreview]
@@ -1684,11 +1703,46 @@ export function StepAutomationDialog({
           id: entry.id,
           reference,
           locator: entry.locator,
-          label: `${reference} · ${htmlTag} · ${entry.locator}`
+          objectName,
+          screenName,
+          htmlTag,
+          pageUrl: String(metadata.page_url || metadata.url_pattern || entry.page_key || "").trim()
         };
       }),
     [objectRepository]
   );
+  const repositoryScreens = useMemo(() => {
+    const searchTerm = repositorySearchTerm.trim().toLowerCase();
+    const groupedFields = new Map<string, typeof repositoryFieldOptions>();
+
+    repositoryFieldOptions.forEach((field) => {
+      if (
+        searchTerm
+        && !`${field.screenName} ${field.objectName} ${field.htmlTag} ${field.locator} ${field.pageUrl}`.toLowerCase().includes(searchTerm)
+      ) {
+        return;
+      }
+
+      groupedFields.set(field.screenName, [...(groupedFields.get(field.screenName) || []), field]);
+    });
+
+    return Array.from(groupedFields.entries()).map(([screenName, fields]) => ({
+      screenName,
+      fields,
+      pageUrl: fields[0]?.pageUrl || ""
+    }));
+  }, [repositoryFieldOptions, repositorySearchTerm]);
+  const selectedRepositoryFields = repositoryScreens.find((screen) => screen.screenName === selectedRepositoryScreen)?.fields || [];
+
+  useEffect(() => {
+    if (!isRepositoryPickerOpen) {
+      return;
+    }
+
+    if (!repositoryScreens.some((screen) => screen.screenName === selectedRepositoryScreen)) {
+      setSelectedRepositoryScreen(repositoryScreens[0]?.screenName || "");
+    }
+  }, [isRepositoryPickerOpen, repositoryScreens, selectedRepositoryScreen]);
   const groupedAvailableParameters = useMemo(
     () => [
       {
@@ -1902,6 +1956,24 @@ export function StepAutomationDialog({
     setAndroidKeywordMessage(`${selectedAndroidKeyword.label} keyword added to the Appium override.`);
   };
 
+  const handleUseCodedJavaScript = (type: "web" | "android") => {
+    setStepType(type);
+    setAutomationCode((current) => normalizeAutomationCode(current) || resolveStepAutomationCode({
+      step_order: step.step_order || 1,
+      action: step.action || null,
+      expected_result: step.expected_result || null,
+      step_type: type,
+      automation_code: "",
+      api_request: null
+    }));
+
+    if (type === "web") {
+      setWebKeywordMessage("Coded JavaScript web step ready. Edit the automation code and save.");
+    } else {
+      setAndroidKeywordMessage("Coded JavaScript Android step ready. Edit the automation code and save.");
+    }
+  };
+
   const handleInsertJsonPathAssertion = () => {
     if (!selectedJsonPath) {
       return;
@@ -2000,6 +2072,7 @@ export function StepAutomationDialog({
   };
 
   return (
+    <>
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
         aria-modal="true"
@@ -2030,6 +2103,14 @@ export function StepAutomationDialog({
                   <span>{option.label}</span>
                 </button>
               ))}
+              <button className="automation-type-pill" onClick={() => handleUseCodedJavaScript("web")} type="button">
+                <AutomationCodeIcon size={15} />
+                <span>Coded JS - Web</span>
+              </button>
+              <button className="automation-type-pill" onClick={() => handleUseCodedJavaScript("android")} type="button">
+                <AutomationCodeIcon size={15} />
+                <span>Coded JS - Android</span>
+              </button>
             </div>
 
             {stepType === "api" ? (
@@ -2402,26 +2483,24 @@ export function StepAutomationDialog({
                       <FormField label={selectedWebKeyword.locatorLabel}>
                         <div className="automation-repository-target-field">
                           <input
-                            list={repositoryFieldOptions.length ? "automation-repository-target-options" : undefined}
                             placeholder="Login.Email or css=[data-testid='submit']"
                             value={webKeywordLocator}
                             onChange={(event) => setWebKeywordLocator(event.target.value)}
                           />
-                          {repositoryFieldOptions.length ? (
-                            <datalist id="automation-repository-target-options">
-                              {repositoryFieldOptions.map((option) => (
-                                <option key={option.id} label={option.label} value={option.reference} />
-                              ))}
-                            </datalist>
-                          ) : null}
-                          {repositoryFieldOptions.length ? (
-                            <select aria-label="Use object repository field" value="" onChange={(event) => event.target.value ? setWebKeywordLocator(event.target.value) : undefined}>
-                              <option value="">Object repository</option>
-                              {repositoryFieldOptions.map((option) => (
-                                <option key={option.id} value={option.reference}>{option.label}</option>
-                              ))}
-                            </select>
-                          ) : null}
+                          <button
+                            aria-label="Use object repository field"
+                            className="automation-repository-search-button"
+                            disabled={!repositoryFieldOptions.length}
+                            onClick={() => {
+                              setRepositorySearchTerm("");
+                              setSelectedRepositoryScreen(repositoryFieldOptions[0]?.screenName || "");
+                              setIsRepositoryPickerOpen(true);
+                            }}
+                            title={repositoryFieldOptions.length ? "Choose a field from the Object Repository" : "No Object Repository fields available"}
+                            type="button"
+                          >
+                            <RepositorySearchIcon />
+                          </button>
                         </div>
                       </FormField>
                       <FormField label={selectedWebKeyword.dataLabel}>
@@ -2474,6 +2553,26 @@ export function StepAutomationDialog({
                     {androidKeywordMessage ? <div className="inline-message success-message">{androidKeywordMessage}</div> : null}
                   </div>
                 ) : null}
+                {automationCode ? (
+                  <div className="detail-summary automation-step-mapping-summary">
+                    <strong>{savedKeywordMappings.length ? "Mapped keyword automation" : "Coded JavaScript automation"}</strong>
+                    {savedKeywordMappings.length ? (
+                      <>
+                        <span>Saved QAira keyword calls mapped on this manual step.</span>
+                        <div className="automation-step-saved-keywords">
+                          {savedKeywordMappings.map((mapping) => (
+                            <div key={mapping.id}>
+                              <strong>{mapping.keyword}</strong>
+                              <code>{mapping.displayTarget}{mapping.value ? `, ${mapping.value}` : ""}</code>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <span>This step contains saved custom code. Review or modify it in the code field below.</span>
+                    )}
+                  </div>
+                ) : null}
                 <FormField
                   label="Step automation code"
                   hint="Use the same scoped tokens from the manual step text whenever automation needs case, suite, or run data."
@@ -2508,10 +2607,89 @@ export function StepAutomationDialog({
             <button className="ghost-button" onClick={onClose} type="button">
               Cancel
             </button>
+            <button
+              className="ghost-button danger"
+              disabled={!automationCode && !normalizedApiRequest}
+              onClick={() => {
+                setAutomationCode("");
+                setApiRequest(ensureApiRequest(null));
+              }}
+              type="button"
+            >
+              Clear mapped automation
+            </button>
           </div>
         </div>
       </div>
     </div>
+    {isRepositoryPickerOpen ? (
+      <div className="modal-backdrop automation-repository-picker-backdrop" onClick={() => setIsRepositoryPickerOpen(false)} role="presentation">
+        <div
+          aria-label="Object repository field picker"
+          aria-modal="true"
+          className="modal-card resource-modal-card automation-repository-picker-modal"
+          onClick={(event) => event.stopPropagation()}
+          role="dialog"
+        >
+          <div className="resource-modal-header">
+            <div className="resource-modal-title">
+              <h3>Use object repository field</h3>
+              <p>Select a screen, then map its saved field into this step locator.</p>
+            </div>
+            <button className="ghost-button" onClick={() => setIsRepositoryPickerOpen(false)} type="button">Close</button>
+          </div>
+          <div className="automation-repository-picker-body">
+            <label className="automation-repository-picker-search">
+              <span>Search screens or fields</span>
+              <input
+                autoFocus
+                placeholder="Login page, submit button, data-testid..."
+                value={repositorySearchTerm}
+                onChange={(event) => setRepositorySearchTerm(event.target.value)}
+              />
+            </label>
+            <div className="automation-repository-picker-grid">
+              <div aria-label="Repository screens" className="automation-repository-screen-list">
+                {repositoryScreens.map((screen) => (
+                  <button
+                    className={screen.screenName === selectedRepositoryScreen ? "is-selected" : ""}
+                    key={screen.screenName}
+                    onClick={() => setSelectedRepositoryScreen(screen.screenName)}
+                    type="button"
+                  >
+                    <strong>{screen.screenName}</strong>
+                    <span>{screen.fields.length} field{screen.fields.length === 1 ? "" : "s"}</span>
+                    {screen.pageUrl ? <small>{screen.pageUrl}</small> : null}
+                  </button>
+                ))}
+                {!repositoryScreens.length ? <div className="empty-state compact">No matching screens found.</div> : null}
+              </div>
+              <div aria-label="Fields in selected screen" className="automation-repository-field-list">
+                {selectedRepositoryFields.map((field) => (
+                  <button
+                    key={field.id}
+                    onClick={() => {
+                      setWebKeywordLocator(field.reference);
+                      setWebKeywordMessage(`${field.reference} selected from the Object Repository.`);
+                      setIsRepositoryPickerOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <strong>{field.objectName}</strong>
+                    <span>{field.htmlTag}</span>
+                    <code>{field.locator}</code>
+                  </button>
+                ))}
+                {selectedRepositoryScreen && !selectedRepositoryFields.length ? (
+                  <div className="empty-state compact">No fields are available for this screen.</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 
