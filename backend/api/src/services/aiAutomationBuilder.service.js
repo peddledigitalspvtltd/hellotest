@@ -2,7 +2,6 @@ const db = require("../db");
 const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const integrationService = require("./integration.service");
-const testCaseService = require("./testCase.service");
 const testStepService = require("./testStep.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const testEnvironmentService = require("./testEnvironment.service");
@@ -43,14 +42,6 @@ const selectStepsForCase = obsDb.prepare(`
   FROM test_steps
   WHERE test_case_id = ?
   ORDER BY step_order ASC, id ASC
-`);
-
-const selectCompanionApiCasesForSource = db.prepare(`
-  SELECT id, title
-  FROM test_cases
-  WHERE app_type_id = ?
-    AND external_references @> ?::jsonb
-  ORDER BY created_at ASC, id ASC
 `);
 
 const selectCasesForBatch = db.prepare(`
@@ -110,6 +101,14 @@ const selectLearningCacheEntry = obsDb.prepare(`
   WHERE id = ?
 `);
 
+const selectLearningCacheScreenEntries = obsDb.prepare(`
+  SELECT *
+  FROM automation_learning_cache
+  WHERE app_type_id IS NOT DISTINCT FROM ?
+    AND COALESCE(metadata->>'screen_name', page_key, page_url, '') = ?
+  ORDER BY hit_count DESC, updated_at DESC
+`);
+
 const updateLearningCacheEntry = obsDb.prepare(`
   UPDATE automation_learning_cache
   SET page_url = ?,
@@ -133,6 +132,44 @@ const deleteLearningCacheScreen = obsDb.prepare(`
   DELETE FROM automation_learning_cache
   WHERE app_type_id IS NOT DISTINCT FROM ?
     AND COALESCE(metadata->>'screen_name', page_key, page_url, '') = ?
+`);
+
+const renameLearningCacheScreen = obsDb.prepare(`
+  UPDATE automation_learning_cache
+  SET page_key = CASE WHEN page_key = ? THEN ? ELSE page_key END,
+      metadata = COALESCE(metadata, '{}'::jsonb) || ?::jsonb,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE app_type_id IS NOT DISTINCT FROM ?
+    AND COALESCE(metadata->>'screen_name', page_key, page_url, '') = ?
+`);
+
+const replaceTestStepRepositoryReference = db.prepare(`
+  UPDATE test_steps
+  SET action = CASE WHEN action IS NULL THEN NULL ELSE REPLACE(action, ?, ?) END,
+      automation_code = CASE WHEN automation_code IS NULL THEN NULL ELSE REPLACE(automation_code, ?, ?) END
+  WHERE test_case_id IN (
+    SELECT id FROM test_cases WHERE app_type_id IS NOT DISTINCT FROM ?
+  )
+    AND (
+      COALESCE(action, '') LIKE ?
+      OR COALESCE(automation_code, '') LIKE ?
+    )
+`);
+
+const markTestCaseAutomationReady = db.prepare(`
+  UPDATE test_cases
+  SET automated = 'yes',
+      automation_status = 'ready',
+      updated_by = COALESCE(?, updated_by),
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
+const markTestCaseAutomationIncomplete = db.prepare(`
+  UPDATE test_cases
+  SET automation_status = 'incomplete',
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND automated = 'yes'
 `);
 
 const normalizeText = (value) => {
@@ -208,6 +245,27 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
 
   return obsDb.prepare(query).all(...params);
+};
+
+const listLearningCacheScreenRows = async ({ appTypeId, screenName } = {}) =>
+  (await selectLearningCacheScreenEntries.all(normalizeText(appTypeId) || null, normalizeText(screenName)))
+    .map(normalizeLearningCacheRow);
+
+const listAllLearningCacheRows = async ({ appTypeId } = {}) => {
+  const appType = normalizeText(appTypeId);
+
+  if (!appType) {
+    throw new Error("App type scope is required");
+  }
+
+  const rows = await obsDb.prepare(`
+    SELECT *
+    FROM automation_learning_cache
+    WHERE app_type_id = ?
+    ORDER BY COALESCE(metadata->>'screen_name', page_key, page_url, ''), locator_intent, updated_at DESC
+  `).all(appType);
+
+  return rows.map(normalizeLearningCacheRow);
 };
 
 const normalizeRepositoryPatch = (existing, patch = {}) => {
@@ -433,7 +491,7 @@ const resolveLlmIntegration = async (integrationId, { allowFallback = true } = {
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, prompt }) => {
+const requestChatCompletion = async ({ integration, prompt, content }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -456,7 +514,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
         },
         {
           role: "user",
-          content: prompt
+          content: content || prompt
         }
       ]
     })
@@ -609,12 +667,11 @@ const buildObjectRepositoryEntry = (action) => {
   const role = inferObjectRole(action);
   const label = inferObjectLabel(action) || `${role} ${action?.index || ""}`.trim();
   const fieldName = toObjectSegment(label, toObjectSegment(role));
-  const objectName = `${toObjectSegment(screenName, "Screen")}.${fieldName}`;
 
   return {
     screen_name: screenName,
     field_name: fieldName,
-    object_name: objectName,
+    object_name: fieldName,
     object_role: role,
     object_label: label,
     keyword: inferKeywordForAction(action),
@@ -634,7 +691,7 @@ const summarizeStep = (step) => ({
 });
 
 const summarizeCache = (rows = []) =>
-  rows.map((row) => ({
+  rows.filter((row) => row?.locator_intent !== "__screen__" && row?.metadata?.record_kind !== "screen").map((row) => ({
     page_key: row.page_key,
     page_url: row.page_url,
     intent: row.locator_intent,
@@ -1424,6 +1481,91 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
   guidance ? `User guidance:\n${guidance}` : "User guidance: none"
 ].join("\n");
 
+const buildRepositoryExtractPrompt = ({ screenName, pageUrl, domStructure, businessMeaning, candidateFields }) => [
+  "Extract a mature object repository model from this QAira application screen.",
+  "",
+  "Return strict JSON only with this shape:",
+  "{",
+  '  "screen_summary": "string",',
+  '  "intended_flows": ["string"],',
+  '  "fields": [',
+  "    {",
+  '      "name": "friendly stable member name",',
+  '      "role": "textbox | button | link | checkbox | combobox | field",',
+  '      "locator": "stable locator",',
+  '      "locator_kind": "data-testid | aria-label | role | css | xpath",',
+  '      "description": "why this field matters in the flow",',
+  '      "business_meaning": "string",',
+  '      "usage_keywords": ["string"],',
+  '      "fallback_locators": [{ "locator": "string", "strategy": "string", "confidenceScore": 0.7 }]',
+  "    }",
+  "  ]",
+  "}",
+  "",
+  "Rules:",
+  "- Use both the DOM structure and supplied screenshot evidence when available.",
+  "- Identify interactive fields that support intended business flows, including buttons, inputs, selects, links, and controls visible in context.",
+  "- Prefer stable data-testid, accessibility labels, and role/name locators over positional CSS or XPath.",
+  "- Do not invent a control that cannot be supported by DOM or visible screenshot evidence.",
+  "- Keep names reusable as Screen.Field keyword references.",
+  "",
+  `Screen: ${screenName}`,
+  `URL: ${pageUrl || "Not supplied"}`,
+  `Business meaning: ${businessMeaning || "Not supplied"}`,
+  "",
+  "DOM structure:",
+  String(domStructure || "Not supplied").slice(0, 50_000),
+  "",
+  "Deterministic DOM candidates available for grounding:",
+  JSON.stringify(candidateFields || [], null, 2)
+].join("\n");
+
+const normalizeRepositoryExtractFields = (payload, fallbackFields = []) => {
+  const supplied = Array.isArray(payload?.fields) ? payload.fields : [];
+  const sourceFields = supplied.length ? supplied : fallbackFields;
+  const seenLocators = new Set();
+  const fields = sourceFields.slice(0, 100).map((field, index) => {
+    const fallbackLocators = Array.isArray(field?.fallback_locators || field?.fallbackLocators)
+      ? field.fallback_locators || field.fallbackLocators
+      : [];
+    const locator = normalizeText(field?.locator || field?.primaryLocator);
+
+    return {
+      name: normalizeText(field?.name || field?.object_name) || `Field ${index + 1}`,
+      tag: normalizeText(field?.tag || field?.html_tag) || "element",
+      role: normalizeText(field?.role || field?.object_role) || "field",
+      locator,
+      locatorKind: normalizeText(field?.locator_kind || field?.locatorKind || field?.primaryStrategy) || "css",
+      dom: normalizeText(field?.dom || field?.dom_structure) || "",
+      fallbackLocators: fallbackLocators.map((candidate) => ({
+        locator: normalizeText(candidate?.locator),
+        strategy: normalizeText(candidate?.strategy || candidate?.locator_kind) || "css",
+        confidenceScore: clampNumber(candidate?.confidenceScore ?? candidate?.confidence, 0.65)
+      })).filter((candidate) => candidate.locator),
+      description: normalizeText(field?.description),
+      businessMeaning: normalizeText(field?.business_meaning || field?.businessMeaning),
+      usageKeywords: Array.isArray(field?.usage_keywords || field?.usageKeywords)
+        ? field.usage_keywords || field.usageKeywords
+        : []
+    };
+  }).filter((field) => {
+    if (!field.locator || seenLocators.has(field.locator)) {
+      return false;
+    }
+
+    seenLocators.add(field.locator);
+    return true;
+  });
+
+  return {
+    screen_summary: normalizeText(payload?.screen_summary) || null,
+    intended_flows: Array.isArray(payload?.intended_flows)
+      ? payload.intended_flows.map(normalizeText).filter(Boolean)
+      : [],
+    fields
+  };
+};
+
 const buildDeterministicRepositorySuggestion = (entry, guidance) => {
   const metadata = normalizeObject(entry.metadata);
   const objectName = normalizeText(metadata.object_name) || normalizeText(entry.locator_intent) || "Object";
@@ -1709,9 +1851,10 @@ const persistLearning = async ({ testCase, learnedLocators, capturedActions, cap
   if (capturedNetwork.length) {
     await appendEvent(transactionId, {
       phase: "recorder.network.learned",
-      message: `Recorder captured ${capturedNetwork.length} candidate API request${capturedNetwork.length === 1 ? "" : "s"} for API test generation.`,
+      message: `Recorder retained ${capturedNetwork.length} API interaction${capturedNetwork.length === 1 ? "" : "s"} as flow evidence without creating a companion case.`,
       details: {
         captured_network_count: capturedNetwork.length,
+        companion_case_created: false,
         sample: capturedNetwork.slice(0, 5)
       }
     });
@@ -1868,6 +2011,9 @@ const buildCaseCore = async ({
   const stepUpdates = await applyBuild({
     build
   });
+  if (stepUpdates.length) {
+    await markTestCaseAutomationReady.run(normalizeText(created_by), testCase.id);
+  }
   const learnedCount = await persistLearning({
     testCase,
     learnedLocators: build.learned_locators,
@@ -1906,7 +2052,8 @@ const buildCaseCore = async ({
   return {
     test_case_id,
     title: testCase.title,
-    automated: testCase.automated || "no",
+    automated: stepUpdates.length ? "yes" : testCase.automated || "no",
+    automation_status: stepUpdates.length ? "ready" : testCase.automation_status || "not_automated",
     generated_step_count: stepUpdates.length,
     learned_locator_count: learnedCount,
     cache_hits: cacheRows.length,
@@ -2127,268 +2274,6 @@ const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, 
   return applied;
 };
 
-const isBusinessApiNetworkEntry = (entry) => {
-  const method = normalizeText(entry?.method)?.toUpperCase() || "GET";
-  const resourceType = normalizeText(entry?.resource_type)?.toLowerCase();
-  const url = normalizeText(entry?.url);
-
-  if (!url || method === "OPTIONS") {
-    return false;
-  }
-
-  let parsed;
-
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-
-  const path = parsed.pathname || "/";
-  const host = parsed.hostname.toLowerCase();
-
-  if (/\.(?:css|js|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|mp3|wav|pdf)$/i.test(path)) {
-    return false;
-  }
-
-  if (/(analytics|segment|posthog|rudder|sentry|hotjar|googletagmanager|google-analytics|doubleclick)/i.test(host + path)) {
-    return false;
-  }
-
-  if (/\/(?:health|ops-telemetry|live-session|recorder\/sessions)(?:\/|$)/i.test(path)) {
-    return false;
-  }
-
-  return resourceType === "fetch" || resourceType === "xhr" || /\/api(?:\/|$)/i.test(path);
-};
-
-const resolveBodyMode = (entry) => {
-  const contentType = normalizeText(entry?.content_type)?.toLowerCase() || "";
-  const body = normalizeRichText(entry?.request_body);
-
-  if (!body) {
-    return "none";
-  }
-
-  if (contentType.includes("json") || /^[\[{]/.test(body)) {
-    return "json";
-  }
-
-  if (contentType.includes("xml") || /^<[\s\S]+>$/.test(body)) {
-    return "xml";
-  }
-
-  if (contentType.includes("x-www-form-urlencoded")) {
-    return "form";
-  }
-
-  return "text";
-};
-
-const summarizeTriggerAction = (networkEntry, capturedActions = []) => {
-  const requestTime = Date.parse(networkEntry?.timestamp || "");
-  const samePageActions = capturedActions
-    .filter((action) => !networkEntry?.page_id || action.page_id === networkEntry.page_id)
-    .map((action) => ({
-      action,
-      time: Date.parse(action.timestamp || "")
-    }))
-    .filter((item) => Number.isFinite(item.time));
-
-  if (!Number.isFinite(requestTime) || !samePageActions.length) {
-    return null;
-  }
-
-  const prior = samePageActions
-    .filter((item) => item.time <= requestTime + 1500)
-    .sort((a, b) => Math.abs(requestTime - a.time) - Math.abs(requestTime - b.time))[0];
-
-  if (!prior) {
-    return null;
-  }
-
-  return [
-    prior.action.type,
-    prior.action.text || prior.action.locator || prior.action.value || null
-  ].filter(Boolean).join(": ");
-};
-
-const buildApiStepFromNetwork = (entry, index, capturedActions = []) => {
-  const method = normalizeText(entry?.method)?.toUpperCase() || "GET";
-  const url = normalizeText(entry?.url);
-  const status = Number(entry?.status);
-  const trigger = summarizeTriggerAction(entry, capturedActions);
-  const bodyMode = resolveBodyMode(entry);
-  const request = normalizeApiRequest({
-    method,
-    url,
-    headers: [],
-    body_mode: bodyMode,
-    body: bodyMode === "none" ? null : normalizeRichText(entry?.request_body),
-    validations: Number.isFinite(status)
-      ? [{ kind: "status", expected: String(status) }]
-      : [{ kind: "status", expected: "200" }],
-    captures: []
-  });
-
-  if (!request) {
-    return null;
-  }
-
-  let pathLabel = url;
-
-  try {
-    const parsed = new URL(url);
-    pathLabel = `${parsed.pathname}${parsed.search || ""}`;
-  } catch {
-    pathLabel = url;
-  }
-
-  return {
-    step_order: index + 1,
-    action: trigger
-      ? `${method} ${pathLabel} after web action "${trigger}"`
-      : `${method} ${pathLabel}`,
-    expected_result: Number.isFinite(status)
-      ? `Response status is ${status}.`
-      : "Response returns a successful status.",
-    step_type: "api",
-    automation_code: "",
-    api_request: request
-  };
-};
-
-const getApiRequestKey = (request) => {
-  const normalized = normalizeApiRequest(request);
-
-  if (!normalized?.url) {
-    return null;
-  }
-
-  let url = normalized.url;
-
-  try {
-    const parsed = new URL(normalized.url);
-    parsed.hash = "";
-    url = parsed.toString();
-  } catch {
-    url = normalized.url;
-  }
-
-  return [
-    normalizeText(normalized.method)?.toUpperCase() || "GET",
-    url,
-    normalizeRichText(normalized.body) || ""
-  ].join(" ");
-};
-
-const listExistingCompanionApiRequestKeys = async (testCase) => {
-  const companions = await selectCompanionApiCasesForSource.all(
-    testCase.app_type_id,
-    JSON.stringify([`source-web-case:${testCase.id}`])
-  );
-  const keys = new Set();
-
-  for (const companion of companions) {
-    const steps = await selectStepsForCase.all(companion.id);
-
-    steps.forEach((step) => {
-      const key = getApiRequestKey(step.api_request);
-      if (key) {
-        keys.add(key);
-      }
-    });
-  }
-
-  return { companions, keys };
-};
-
-const createCompanionApiCaseFromNetwork = async ({ testCase, capturedActions, capturedNetwork, session, createdBy, transactionId }) => {
-  const unique = new Set();
-  const candidateSteps = capturedNetwork
-    .filter(isBusinessApiNetworkEntry)
-    .filter((entry) => {
-      const key = [
-        normalizeText(entry.method)?.toUpperCase() || "GET",
-        normalizeText(entry.url),
-        normalizeRichText(entry.request_body) || ""
-      ].join(" ");
-
-      if (unique.has(key)) {
-        return false;
-      }
-
-      unique.add(key);
-      return true;
-    })
-    .slice(0, 25)
-    .map((entry, index) => buildApiStepFromNetwork(entry, index, capturedActions))
-    .filter(Boolean);
-  const existing = await listExistingCompanionApiRequestKeys(testCase);
-  const steps = candidateSteps.filter((step) => {
-    const key = getApiRequestKey(step.api_request);
-    return key && !existing.keys.has(key);
-  }).map((step, index) => ({
-    ...step,
-    step_order: index + 1
-  }));
-
-  if (!steps.length) {
-    if (candidateSteps.length && existing.companions.length) {
-      await appendEvent(transactionId, {
-        level: "info",
-        phase: "recorder.api_case.skipped_duplicate",
-        message: "Recorder skipped companion API case creation because the captured endpoints already exist for this web case.",
-        details: {
-          source_test_case_id: testCase.id,
-          existing_api_case_ids: existing.companions.map((item) => item.id),
-          captured_api_step_count: candidateSteps.length
-        }
-      });
-    }
-    return null;
-  }
-
-  const title = `[API capture] ${testCase.title}`;
-  const created = await testCaseService.createTestCase({
-    app_type_id: testCase.app_type_id,
-    title,
-    description: [
-      `Companion API test generated from recorder session ${session.id}.`,
-      `Source web case: ${testCase.title}.`,
-      "Steps are linked to the nearest captured web action when timing and page context are available."
-    ].join(" "),
-    external_references: [
-      `source-web-case:${testCase.id}`,
-      `recorder-session:${session.id}`
-    ],
-    automated: "yes",
-    status: testCase.status || "ready",
-    priority: testCase.priority,
-    created_by: createdBy,
-    updated_by: createdBy,
-    steps
-  });
-
-  await appendEvent(transactionId, {
-    level: "success",
-    phase: "recorder.api_case.created",
-    message: `Recorder created a companion API case with ${steps.length} captured request step${steps.length === 1 ? "" : "s"}.`,
-    details: {
-      source_test_case_id: testCase.id,
-      api_test_case_id: created.id,
-      recorder_session_id: session.id,
-      api_step_count: steps.length
-    }
-  });
-
-  return {
-    id: created.id,
-    title,
-    step_count: steps.length
-  };
-};
-
 const finalizeRecorderBuild = async ({
   testCase,
   session,
@@ -2487,14 +2372,10 @@ const finalizeRecorderBuild = async ({
     capturedNetwork,
     transactionId
   });
-  const apiCase = await createCompanionApiCaseFromNetwork({
-    testCase,
-    capturedActions,
-    capturedNetwork,
-    session,
-    createdBy,
-    transactionId
-  });
+  if (appliedSteps.length) {
+    await markTestCaseAutomationReady.run(normalizeText(createdBy), testCase.id);
+  }
+  const apiCase = null;
   let artifact = null;
 
   if (transactionId && appliedSteps.length) {
@@ -2532,8 +2413,9 @@ const finalizeRecorderBuild = async ({
       updated_steps: appliedSteps.filter((step) => step.operation === "updated").length,
       created_steps: appliedSteps.filter((step) => step.operation === "created").length,
       learned_locator_count: learnedCount,
-      api_test_case_id: apiCase?.id || null,
-      api_step_count: apiCase?.step_count || 0,
+      api_test_case_id: null,
+      api_step_count: 0,
+      captured_api_evidence_count: capturedNetwork.length,
       artifact_id: artifact?.id || null
     }
   });
@@ -2554,8 +2436,9 @@ const finalizeRecorderBuild = async ({
       mapping_source: mappingSource,
       ai_mapping_fallback_reason: aiMappingFallbackReason,
       learned_locator_count: learnedCount,
-      api_test_case_id: apiCase?.id || null,
-      api_step_count: apiCase?.step_count || 0,
+      api_test_case_id: null,
+      api_step_count: 0,
+      captured_api_evidence_count: capturedNetwork.length,
       artifact_id: artifact?.id || null
     },
     completed_at: new Date().toISOString()
@@ -2564,7 +2447,8 @@ const finalizeRecorderBuild = async ({
   return {
     test_case_id: testCase.id,
     title: testCase.title,
-    automated: testCase.automated || "no",
+    automated: appliedSteps.length ? "yes" : testCase.automated || "no",
+    automation_status: appliedSteps.length ? "ready" : testCase.automation_status || "not_automated",
     generated_step_count: appliedSteps.length,
     created_step_count: appliedSteps.filter((step) => step.operation === "created").length,
     updated_step_count: appliedSteps.filter((step) => step.operation === "updated").length,
@@ -2910,7 +2794,9 @@ exports.exportRepositoryContext = async ({ project_id, app_type_id, limit } = {}
   entries.forEach((entry) => {
     const metadata = normalizeObject(entry.metadata);
     const screenName = normalizeText(metadata.screen_name) || entry.page_key || "Unassigned screen";
-    const screen = screens.get(screenName) || {
+    const isScreenRecord = metadata.record_kind === "screen" || entry.locator_intent === "__screen__";
+    const existingScreen = screens.get(screenName);
+    const screen = existingScreen || {
       screen: screenName,
       appType: normalizeText(metadata.platform) || null,
       urlPattern: {
@@ -2920,23 +2806,35 @@ exports.exportRepositoryContext = async ({ project_id, app_type_id, limit } = {}
       fingerprint: normalizeText(metadata.screen_fingerprint) || null,
       fields: []
     };
+
+    if (isScreenRecord && existingScreen) {
+      screen.appType = normalizeText(metadata.platform) || screen.appType;
+      screen.urlPattern = {
+        type: normalizeText(metadata.url_pattern_type) || screen.urlPattern.type,
+        value: normalizeText(metadata.url_pattern_value) || entry.page_url || screen.urlPattern.value
+      };
+      screen.fingerprint = normalizeText(metadata.screen_fingerprint) || screen.fingerprint;
+    }
+
     const fallbackLocators = Array.isArray(metadata.fallback_locators)
       ? metadata.fallback_locators
       : [];
 
-    screen.fields.push({
-      name: normalizeText(metadata.object_name) || entry.locator_intent,
-      type: normalizeText(metadata.object_role) || entry.locator_kind || "field",
-      primaryLocator: entry.locator,
-      primaryStrategy: inferLocatorStrategy(entry.locator, entry.locator_kind),
-      confidenceScore: clampNumber(entry.confidence, 0),
-      fallbackLocators,
-      description: normalizeText(metadata.description) || null,
-      businessMeaning: normalizeText(metadata.business_meaning) || null,
-      usageKeywords: Array.isArray(metadata.usage_keywords) ? metadata.usage_keywords : [],
-      stabilityScore: clampNumber(metadata.stability_score, 0),
-      lastValidatedDate: normalizeText(metadata.last_validated_at) || null
-    });
+    if (!isScreenRecord) {
+      screen.fields.push({
+        name: normalizeText(metadata.object_name) || entry.locator_intent,
+        type: normalizeText(metadata.object_role) || entry.locator_kind || "field",
+        primaryLocator: entry.locator,
+        primaryStrategy: inferLocatorStrategy(entry.locator, entry.locator_kind),
+        confidenceScore: clampNumber(entry.confidence, 0),
+        fallbackLocators,
+        description: normalizeText(metadata.description) || null,
+        businessMeaning: normalizeText(metadata.business_meaning) || null,
+        usageKeywords: Array.isArray(metadata.usage_keywords) ? metadata.usage_keywords : [],
+        stabilityScore: clampNumber(metadata.stability_score, 0),
+        lastValidatedDate: normalizeText(metadata.last_validated_at) || null
+      });
+    }
     screens.set(screenName, screen);
   });
 
@@ -2947,6 +2845,64 @@ exports.exportRepositoryContext = async ({ project_id, app_type_id, limit } = {}
   };
 };
 
+const csvValue = (value) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`;
+
+exports.exportLearningCacheCsv = async ({ app_type_id } = {}) => {
+  const entries = await listAllLearningCacheRows({ appTypeId: app_type_id });
+  const headers = [
+    "screen_name",
+    "record_type",
+    "page_url",
+    "url_pattern_type",
+    "url_pattern_value",
+    "object_name",
+    "object_role",
+    "locator",
+    "locator_kind",
+    "confidence",
+    "source",
+    "description",
+    "business_meaning",
+    "target_criteria",
+    "fallback_locators",
+    "usage_keywords",
+    "stability_score",
+    "dom_structure",
+    "screenshot_url",
+    "metadata_json"
+  ];
+  const rows = entries.map((entry) => {
+    const metadata = normalizeObject(entry.metadata);
+    const screenName = normalizeText(metadata.screen_name) || entry.page_key || entry.page_url || "Screen";
+    const screenRecord = isRepositoryScreenRecord(entry);
+
+    return [
+      screenName,
+      screenRecord ? "screen" : "field",
+      entry.page_url,
+      metadata.url_pattern_type,
+      metadata.url_pattern_value,
+      screenRecord ? "__screen__" : normalizeText(metadata.object_name) || entry.locator_intent,
+      screenRecord ? "screen" : metadata.object_role,
+      screenRecord ? "__screen__" : entry.locator,
+      screenRecord ? "screen" : entry.locator_kind,
+      entry.confidence,
+      entry.source,
+      metadata.description,
+      metadata.business_meaning,
+      JSON.stringify(Array.isArray(metadata.target_criteria) ? metadata.target_criteria : []),
+      JSON.stringify(Array.isArray(metadata.fallback_locators) ? metadata.fallback_locators : []),
+      JSON.stringify(Array.isArray(metadata.usage_keywords) ? metadata.usage_keywords : []),
+      metadata.stability_score,
+      metadata.dom_structure,
+      metadata.screenshot_url,
+      JSON.stringify(metadata)
+    ].map(csvValue).join(",");
+  });
+
+  return [headers.map(csvValue).join(","), ...rows].join("\n");
+};
+
 exports.getLearningCacheEntry = async (id) => {
   const entry = normalizeLearningCacheRow(await selectLearningCacheEntry.get(normalizeText(id)));
 
@@ -2955,6 +2911,41 @@ exports.getLearningCacheEntry = async (id) => {
   }
 
   return entry;
+};
+
+const getRepositoryObjectName = (entry, screenName = normalizeText(entry?.metadata?.screen_name || entry?.page_key || entry?.page_url)) => {
+  const objectName = normalizeText(entry?.metadata?.object_name || entry?.locator_intent);
+  const screenPrefix = screenName ? `${screenName}.` : "";
+  return screenPrefix && objectName?.startsWith(screenPrefix) ? objectName.slice(screenPrefix.length) : objectName;
+};
+
+const isRepositoryScreenRecord = (entry) =>
+  entry?.locator_intent === "__screen__"
+  || entry?.metadata?.record_kind === "screen"
+  || entry?.source === "manual_screen";
+
+const getRepositoryMemberReference = (entry) => {
+  const screenName = normalizeText(entry?.metadata?.screen_name || entry?.page_key || entry?.page_url);
+  const objectName = getRepositoryObjectName(entry, screenName);
+  return screenName && objectName ? `${screenName}.${objectName}` : null;
+};
+
+const migrateRepositoryMemberReference = async ({ appTypeId, from, to } = {}) => {
+  if (!from || !to || from === to) {
+    return 0;
+  }
+
+  const pattern = `%${from}%`;
+  const result = await replaceTestStepRepositoryReference.run(
+    from,
+    to,
+    from,
+    to,
+    normalizeText(appTypeId) || null,
+    pattern,
+    pattern
+  );
+  return result.changes || 0;
 };
 
 exports.updateLearningCacheEntry = async (id, patch = {}) => {
@@ -2983,7 +2974,84 @@ exports.updateLearningCacheEntry = async (id, patch = {}) => {
     existing.id
   );
 
-  return exports.getLearningCacheEntry(existing.id);
+  const updated = await exports.getLearningCacheEntry(existing.id);
+  const updatedStepReferences = await migrateRepositoryMemberReference({
+    appTypeId: existing.app_type_id,
+    from: getRepositoryMemberReference(existing),
+    to: getRepositoryMemberReference(updated)
+  });
+
+  return {
+    ...updated,
+    updated_step_references: updatedStepReferences
+  };
+};
+
+exports.renameLearningCacheScreen = async ({ app_type_id, screen_name, new_name } = {}) => {
+  const appTypeId = normalizeText(app_type_id);
+  const screenName = normalizeText(screen_name);
+  const newName = normalizeText(new_name);
+
+  if (!screenName || !newName) {
+    throw new Error("Current and new screen names are required");
+  }
+
+  if (screenName === newName) {
+    return { renamed: true, screen_name: newName, updated_fields: 0, updated_step_references: 0 };
+  }
+
+  const selectedRows = await listLearningCacheScreenRows({ appTypeId, screenName });
+
+  if (!selectedRows.length) {
+    throw new Error("Object repository screen not found");
+  }
+
+  const destinationLocators = new Set(
+    (await listLearningCacheScreenRows({ appTypeId, screenName: newName }))
+      .map((entry) => normalizeText(entry.locator))
+      .filter(Boolean)
+  );
+
+  if (selectedRows.some((entry) => destinationLocators.has(normalizeText(entry.locator)))) {
+    throw new Error("The destination screen already has a field with the same locator.");
+  }
+
+  const result = await renameLearningCacheScreen.run(
+    screenName,
+    newName,
+    JSON.stringify({
+      screen_name: newName,
+      last_curated_at: new Date().toISOString()
+    }),
+    appTypeId || null,
+    screenName
+  );
+  let updatedStepReferences = 0;
+
+  for (const entry of selectedRows.filter((entry) => !isRepositoryScreenRecord(entry))) {
+    const rawObjectName = normalizeText(entry.metadata?.object_name || entry.locator_intent);
+    const objectName = getRepositoryObjectName(entry, screenName);
+    if (objectName) {
+      updatedStepReferences += await migrateRepositoryMemberReference({
+        appTypeId,
+        from: `${screenName}.${objectName}`,
+        to: `${newName}.${objectName}`
+      });
+    }
+    if (rawObjectName && rawObjectName !== objectName) {
+      await exports.updateLearningCacheEntry(entry.id, {
+        object_name: objectName,
+        locator_intent: objectName
+      });
+    }
+  }
+
+  return {
+    renamed: true,
+    screen_name: newName,
+    updated_fields: result.changes || selectedRows.length,
+    updated_step_references: updatedStepReferences
+  };
 };
 
 exports.createLearningCacheEntry = async (input = {}) => {
@@ -3031,12 +3099,11 @@ exports.createLearningCacheEntry = async (input = {}) => {
     }
   );
 
-  const rows = await listLearningCacheRows({
-    projectId: normalizeText(input.project_id),
+  const rows = await listLearningCacheScreenRows({
     appTypeId: normalizeText(input.app_type_id),
-    limit: 200
+    screenName
   });
-  return rows.map(normalizeLearningCacheRow).find((row) =>
+  return rows.find((row) =>
     row.locator === locator && (row.metadata?.screen_name || row.page_key) === screenName
   ) || null;
 };
@@ -3049,17 +3116,115 @@ exports.findDuplicateLearningCacheEntry = async ({ app_type_id, screen_name, loc
     return null;
   }
 
-  const rows = await listLearningCacheRows({ appTypeId: normalizeText(app_type_id), limit: 200 });
-  return rows.map(normalizeLearningCacheRow).find((entry) =>
+  const rows = await listLearningCacheScreenRows({ appTypeId: normalizeText(app_type_id), screenName: normalizedScreen });
+  return rows.find((entry) =>
     entry.id !== exclude_id
     && normalizeText(entry.locator) === normalizedLocator
     && normalizeText(entry.metadata?.screen_name || entry.page_key || entry.page_url) === normalizedScreen
   ) || null;
 };
 
+exports.importLearningCacheEntries = async ({ project_id, app_type_id, entries, import_source } = {}) => {
+  const appTypeId = normalizeText(app_type_id);
+  const projectId = normalizeText(project_id);
+  const rows = Array.isArray(entries) ? entries : [];
+
+  if (!appTypeId) {
+    throw new Error("App type scope is required");
+  }
+  if (!rows.length) {
+    throw new Error("Provide at least one object repository entry to import");
+  }
+  if (rows.length > 200) {
+    throw new Error("Import batches cannot exceed 200 repository entries");
+  }
+
+  const result = { created: 0, updated: 0, failed: 0, errors: [] };
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const raw = normalizeObject(rows[index]);
+    const rawMetadata = normalizeObject(raw.metadata);
+    const screenName = normalizeText(raw.screen_name || rawMetadata.screen_name || raw.page_key);
+    const screenRecord = raw.record_type === "screen"
+      || raw.locator_intent === "__screen__"
+      || rawMetadata.record_kind === "screen";
+    const objectName = screenRecord ? "__screen__" : normalizeText(raw.object_name || rawMetadata.object_name || raw.locator_intent);
+    const locator = screenRecord ? "__screen__" : normalizeText(raw.locator);
+
+    try {
+      if (!screenName) {
+        throw new Error("Screen name is required");
+      }
+      if (!screenRecord && (!objectName || !locator)) {
+        throw new Error("Fields require an object name and locator");
+      }
+
+      const metadata = {
+        ...rawMetadata,
+        screen_name: screenName,
+        object_name: objectName,
+        object_role: screenRecord ? "screen" : normalizeText(raw.object_role || rawMetadata.object_role) || "field",
+        ...(screenRecord ? { record_kind: "screen" } : {}),
+        import_source: normalizeText(import_source) || "object_repository_import",
+        imported_at: new Date().toISOString()
+      };
+      const input = {
+        project_id: projectId,
+        app_type_id: appTypeId,
+        page_url: normalizeText(raw.page_url),
+        page_key: screenName,
+        screen_name: screenName,
+        locator_intent: objectName,
+        object_name: objectName,
+        object_role: metadata.object_role,
+        locator,
+        locator_kind: screenRecord ? "screen" : normalizeText(raw.locator_kind) || inferLocatorStrategy(locator, "css"),
+        confidence: Math.max(0, Math.min(1, clampNumber(raw.confidence, screenRecord ? 1 : 0.8))),
+        source: normalizeText(raw.source) || (screenRecord ? "imported_screen" : "imported_repository"),
+        target_criteria: Array.isArray(raw.target_criteria) ? raw.target_criteria : rawMetadata.target_criteria,
+        dom_structure: normalizeText(raw.dom_structure || rawMetadata.dom_structure),
+        screenshot_url: normalizeText(raw.screenshot_url || rawMetadata.screenshot_url),
+        fallback_strategy: normalizeText(raw.fallback_strategy || rawMetadata.fallback_strategy),
+        screen_dom_compressed: normalizeText(raw.screen_dom_compressed || rawMetadata.screen_dom_compressed),
+        screen_screenshot_url: normalizeText(raw.screen_screenshot_url || rawMetadata.screen_screenshot_url),
+        metadata
+      };
+      const screenRows = await listLearningCacheScreenRows({ appTypeId, screenName });
+      const normalizedObjectName = String(objectName).toLowerCase();
+      const existing = screenRecord
+        ? screenRows.find(isRepositoryScreenRecord)
+        : screenRows.find((entry) => !isRepositoryScreenRecord(entry)
+            && String(getRepositoryObjectName(entry, screenName) || "").toLowerCase() === normalizedObjectName)
+          || screenRows.find((entry) => !isRepositoryScreenRecord(entry) && normalizeText(entry.locator) === locator);
+
+      if (existing) {
+        await exports.updateLearningCacheEntry(existing.id, input);
+        result.updated += 1;
+      } else {
+        await exports.createLearningCacheEntry(input);
+        result.created += 1;
+      }
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push({
+        index,
+        screen_name: screenName,
+        object_name: objectName,
+        message: error instanceof Error ? error.message : "Unable to import repository entry"
+      });
+    }
+  }
+
+  return result;
+};
+
 const buildRepositoryUsageNeedles = (entry) => {
+  if (isRepositoryScreenRecord(entry)) {
+    return [];
+  }
+
   const screenName = normalizeText(entry.metadata?.screen_name || entry.page_key);
-  const objectName = normalizeText(entry.metadata?.object_name || entry.locator_intent);
+  const objectName = getRepositoryObjectName(entry, screenName);
   return [
     entry.locator,
     objectName,
@@ -3104,19 +3269,7 @@ exports.findLearningCacheUsage = async (entryOrEntries) => {
   return obsDb.prepare(query).all(...params);
 };
 
-exports.deleteLearningCacheEntry = async (id) => {
-  const existing = await exports.getLearningCacheEntry(id);
-  const usage = await exports.findLearningCacheUsage(existing);
-
-  if (usage.length) {
-    return { deleted: false, blocked: true, usage };
-  }
-
-  await deleteLearningCacheEntry.run(existing.id);
-  return { deleted: true, blocked: false, usage: [] };
-};
-
-exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name } = {}) => {
+exports.findLearningCacheScreenUsage = async ({ app_type_id, screen_name } = {}) => {
   const screenName = normalizeText(screen_name);
   const appTypeId = normalizeText(app_type_id);
 
@@ -3124,17 +3277,59 @@ exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name } = {}) =>
     throw new Error("Screen name is required");
   }
 
-  const rows = (await listLearningCacheRows({ appTypeId, limit: 200 }))
-    .map(normalizeLearningCacheRow)
-    .filter((entry) => normalizeText(entry.metadata?.screen_name || entry.page_key || entry.page_url) === screenName);
+  const rows = await listLearningCacheScreenRows({ appTypeId, screenName });
+
+  return exports.findLearningCacheUsage(rows);
+};
+
+const invalidateRepositoryUsage = async (usage = []) => {
+  const affected = [];
+
+  for (const testCase of usage) {
+    if (testCase.automated !== "yes") {
+      continue;
+    }
+
+    const result = await markTestCaseAutomationIncomplete.run(testCase.id);
+    if (result.changes) {
+      affected.push(testCase);
+    }
+  }
+
+  return affected;
+};
+
+exports.deleteLearningCacheEntry = async (id, { confirmed = false } = {}) => {
+  const existing = await exports.getLearningCacheEntry(id);
+  const usage = await exports.findLearningCacheUsage(existing);
+
+  if (usage.length && !confirmed) {
+    return { deleted: false, requires_confirmation: true, usage, invalidated_cases: [] };
+  }
+
+  await deleteLearningCacheEntry.run(existing.id);
+  const invalidatedCases = await invalidateRepositoryUsage(usage);
+  return { deleted: true, requires_confirmation: false, usage, invalidated_cases: invalidatedCases };
+};
+
+exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name, confirmed = false } = {}) => {
+  const screenName = normalizeText(screen_name);
+  const appTypeId = normalizeText(app_type_id);
+
+  if (!screenName) {
+    throw new Error("Screen name is required");
+  }
+
+  const rows = await listLearningCacheScreenRows({ appTypeId, screenName });
   const usage = await exports.findLearningCacheUsage(rows);
 
-  if (usage.length) {
-    return { deleted: false, blocked: true, usage };
+  if (usage.length && !confirmed) {
+    return { deleted: false, requires_confirmation: true, usage, invalidated_cases: [] };
   }
 
   await deleteLearningCacheScreen.run(appTypeId || null, screenName);
-  return { deleted: true, blocked: false, usage: [] };
+  const invalidatedCases = await invalidateRepositoryUsage(usage);
+  return { deleted: true, requires_confirmation: false, usage, invalidated_cases: invalidatedCases };
 };
 
 exports.improveLearningCacheEntry = async ({ id, integration_id, guidance } = {}) => {
@@ -3193,6 +3388,75 @@ exports.improveLearningCacheEntry = async ({ id, integration_id, guidance } = {}
     fallback_used: Boolean(suggestion.fallback_used),
     fallback_reason: suggestion.fallback_reason || null
   };
+};
+
+exports.extractRepositoryFields = async ({
+  screen_name,
+  page_url,
+  dom_structure,
+  screenshot_url,
+  business_meaning,
+  candidate_fields,
+  integration_id
+} = {}) => {
+  const screenName = normalizeText(screen_name) || "Screen";
+  const pageUrl = normalizeText(page_url);
+  const domStructure = normalizeText(dom_structure);
+  const screenshotUrl = normalizeText(screenshot_url);
+  const candidateFields = Array.isArray(candidate_fields) ? candidate_fields : [];
+
+  if (!domStructure && !screenshotUrl) {
+    throw new Error("Provide captured DOM or a screenshot before extracting fields.");
+  }
+
+  let integration = null;
+  try {
+    integration = await resolveLlmIntegration(integration_id);
+  } catch {
+    integration = null;
+  }
+
+  if (!integration) {
+    return {
+      ...normalizeRepositoryExtractFields({}, candidateFields),
+      ai_used: false,
+      fallback_used: true,
+      fallback_reason: "No active LLM integration is configured; extracted deterministic DOM candidates."
+    };
+  }
+
+  const prompt = buildRepositoryExtractPrompt({
+    screenName,
+    pageUrl,
+    domStructure,
+    businessMeaning: normalizeText(business_meaning),
+    candidateFields
+  });
+
+  try {
+    const content = screenshotUrl
+      ? [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: screenshotUrl } }
+      ]
+      : prompt;
+    const response = await requestChatCompletion({ integration, prompt, content });
+    const payload = extractJsonPayload(response);
+    const hasAiFields = Array.isArray(payload?.fields) && payload.fields.length > 0;
+    return {
+      ...normalizeRepositoryExtractFields(payload, candidateFields),
+      ai_used: hasAiFields,
+      fallback_used: !hasAiFields,
+      fallback_reason: hasAiFields ? null : "AI returned no usable fields; extracted deterministic DOM candidates."
+    };
+  } catch (error) {
+    return {
+      ...normalizeRepositoryExtractFields({}, candidateFields),
+      ai_used: false,
+      fallback_used: true,
+      fallback_reason: error instanceof Error ? error.message : "AI screen extraction failed; extracted deterministic DOM candidates."
+    };
+  }
 };
 
 const resolveTestEngineIntegration = async (testCase) => {
@@ -3426,6 +3690,7 @@ exports.startRecorderSession = async ({
   recorder_target,
   engine_base_url,
   recorder_public_base_url,
+  reuse_existing,
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
@@ -3488,6 +3753,8 @@ exports.startRecorderSession = async ({
     },
     body: JSON.stringify({
       start_url: resolvedStartUrl,
+      reuse_existing: recorderMode === "local" && recorderTarget === "web" && reuse_existing !== false,
+      purpose: "automation-recording",
       recorder_mode: recorderMode,
       provider: recorderTarget === "mobile" ? integration.config?.mobile_cloud_provider || "local-appium" : undefined,
       config: recorderTarget === "mobile" ? integration.config || {} : undefined,
@@ -3546,6 +3813,7 @@ exports.startRecorderSession = async ({
       target_step_id: targetStepId || null,
       display_mode: session.display_mode || null,
       live_view_available: Boolean(session.live_view_path || session.live_view_url),
+      reused_existing_session: session.reused === true,
       start_url: resolvedStartUrl,
       test_environment_id: buildContext.environment?.id || null,
       test_configuration_id: buildContext.configuration?.id || null,
@@ -3624,6 +3892,9 @@ exports.finishRecorderSession = async ({
       createdBy: created_by,
       targetStepId
     });
+    if (stepUpdates.length) {
+      await markTestCaseAutomationReady.run(normalizeText(created_by), testCase.id);
+    }
     await workspaceTransactionService.updateTransaction(transactionId, {
       status: "completed",
       metadata: {

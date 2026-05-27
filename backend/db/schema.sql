@@ -180,6 +180,7 @@ CREATE TABLE test_cases (
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   automated TEXT NOT NULL DEFAULT 'no' CHECK(automated IN ('yes','no')),
+  automation_status TEXT NOT NULL DEFAULT 'not_automated' CHECK(automation_status IN ('not_automated','ready','incomplete')),
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'active',
   requirement_id TEXT,
@@ -345,6 +346,9 @@ CREATE TABLE execution_case_snapshots (
   priority INTEGER,
   status TEXT,
   parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+  parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+  suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+  suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   sort_order INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (execution_id, test_case_id),
   FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
@@ -456,11 +460,24 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS automation_status TEXT NOT NULL DEFAULT 'not_automated';
+
+UPDATE test_cases
+SET automation_status = CASE
+  WHEN automated = 'yes' AND automation_status = 'not_automated' THEN 'ready'
+  WHEN automated <> 'yes' THEN 'not_automated'
+  ELSE automation_status
+END;
 
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automated_check;
 ALTER TABLE test_cases
   ADD CONSTRAINT test_cases_automated_check
   CHECK (automated IN ('yes', 'no'));
+
+ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automation_status_check;
+ALTER TABLE test_cases
+  ADD CONSTRAINT test_cases_automation_status_check
+  CHECK (automation_status IN ('not_automated', 'ready', 'incomplete'));
 
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_source_check;
 ALTER TABLE test_cases
@@ -523,6 +540,8 @@ CREATE INDEX IF NOT EXISTS idx_execution_schedules_project_next_run
   ON execution_schedules (project_id, next_run_at ASC);
 
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 

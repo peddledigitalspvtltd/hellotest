@@ -330,6 +330,7 @@ const statements = [
   `UPDATE execution_case_snapshots SET parameter_values = '{}'::jsonb WHERE parameter_values IS NULL`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN parameter_values SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN parameter_values SET NOT NULL`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS external_references JSONB`,
   `UPDATE execution_case_snapshots SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN external_references SET DEFAULT '[]'::jsonb`,
@@ -338,6 +339,7 @@ const statements = [
   `UPDATE execution_case_snapshots SET suite_parameter_values = '{}'::jsonb WHERE suite_parameter_values IS NULL`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN suite_parameter_values SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN suite_parameter_values SET NOT NULL`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
   `
     CREATE TABLE IF NOT EXISTS execution_step_snapshots (
@@ -469,6 +471,7 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS automation_status TEXT NOT NULL DEFAULT 'not_automated'`,
   `UPDATE test_cases SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
   `ALTER TABLE test_cases ALTER COLUMN external_references SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_cases ALTER COLUMN external_references SET NOT NULL`,
@@ -481,8 +484,18 @@ const statements = [
       ELSE 'no'
     END
   `,
+  `
+    UPDATE test_cases
+    SET automation_status = CASE
+      WHEN automated = 'yes' AND automation_status = 'not_automated' THEN 'ready'
+      WHEN automated <> 'yes' THEN 'not_automated'
+      ELSE automation_status
+    END
+  `,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automated_check`,
   `ALTER TABLE test_cases ADD CONSTRAINT test_cases_automated_check CHECK (automated IN ('yes', 'no'))`,
+  `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automation_status_check`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_automation_status_check CHECK (automation_status IN ('not_automated', 'ready', 'incomplete'))`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_source_check`,
   `ALTER TABLE test_cases ADD CONSTRAINT test_cases_ai_generation_source_check CHECK (ai_generation_source IS NULL OR ai_generation_source IN ('scheduler'))`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_review_status_check`,

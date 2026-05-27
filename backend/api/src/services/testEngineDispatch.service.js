@@ -40,7 +40,7 @@ const selectAppType = db.prepare(`
 `);
 
 const selectTestCaseDispatchMetadata = db.prepare(`
-  SELECT id, title, display_id, automated
+  SELECT id, title, display_id, automated, automation_status
   FROM test_cases
   WHERE id = ?
 `);
@@ -208,7 +208,11 @@ const listObjectRepositoryForEnvelope = async ({ projectId, appTypeId, testCaseI
   const rows = await selectObjectRepositoryEntries.all(scopedProjectId, scopedProjectId, scopedAppTypeId, scopedAppTypeId);
   const normalized = rows
     .map(normalizeObjectRepositoryEntry)
-    .filter((entry) => entry.locator);
+    .filter((entry) =>
+      entry.locator
+      && entry.locator_intent !== "__screen__"
+      && entry.metadata?.record_kind !== "screen"
+    );
 
   const direct = normalized.filter((entry) => entry.test_case_id && entry.test_case_id === testCaseId);
   const shared = normalized.filter((entry) => !entry.test_case_id || entry.test_case_id !== testCaseId);
@@ -1110,15 +1114,13 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
 
   if (envelope.data_set?.mode === "key_value") {
     (envelope.data_set.rows || []).forEach((row) => {
-      Object.entries(row).forEach(([key, value]) => {
-        const normalizedKey = normalizeText(key)?.toLowerCase();
+      const normalizedKey = normalizeText(row?.key)?.replace(/^@+/, "").toLowerCase();
 
-        if (!normalizedKey) {
-          return;
-        }
+      if (!normalizedKey) {
+        return;
+      }
 
-        values[`t.${normalizedKey}`] = String(value ?? "");
-      });
+      values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(row?.value ?? "");
     });
   } else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {
     Object.entries(envelope.data_set.rows[0] || {}).forEach(([key, value]) => {
@@ -1150,7 +1152,7 @@ const resultStatusToJobStatus = (status) => {
   return "failed";
 };
 
-async function planExecutionDispatch(execution) {
+async function planExecutionDispatch(execution, options = {}) {
   const [project, appType] = await Promise.all([
     selectProject.get(execution.project_id),
     execution.app_type_id ? selectAppType.get(execution.app_type_id) : Promise.resolve(null)
@@ -1173,6 +1175,7 @@ async function planExecutionDispatch(execution) {
   let automatedCaseCount = 0;
   let manualCaseCount = 0;
   let unsupportedAutomatedCaseCount = 0;
+  const allowIncompleteAutomation = options.allowIncompleteAutomation === true;
 
   for (const caseSnapshot of execution.case_snapshots || []) {
     const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
@@ -1183,6 +1186,14 @@ async function planExecutionDispatch(execution) {
     }
 
     automatedCaseCount += 1;
+
+    if (caseRecord.automation_status && caseRecord.automation_status !== "ready") {
+      warnings.push(`${caseSnapshot.test_case_title}: automation is incomplete because a required repository object is missing or still needs review.`);
+      if (!allowIncompleteAutomation) {
+        unsupportedAutomatedCaseCount += 1;
+        continue;
+      }
+    }
 
     const rawSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
 

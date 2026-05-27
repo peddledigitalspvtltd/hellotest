@@ -58,6 +58,7 @@ type AndroidKeywordOption = {
 
 const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "aiStep", label: "AI Step", locatorLabel: "Optional target", dataLabel: "Instruction", dataRequired: true },
+  { id: "codedJS", label: "CodedJS", locatorLabel: "Optional target", dataLabel: "Edit generated code below" },
   { id: "goto", label: "Open URL", locatorLabel: "URL or path", dataLabel: "Optional note", locatorRequired: true },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "fill", label: "Fill", locatorLabel: "Locator", dataLabel: "Text or token", locatorRequired: true, dataRequired: true },
@@ -74,6 +75,7 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
 
 const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
   { id: "aiStep", label: "AI Step", selectorLabel: "Optional selector", valueLabel: "Instruction", valueRequired: true },
+  { id: "codedJS", label: "CodedJS", selectorLabel: "Optional selector", valueLabel: "Edit generated code below" },
   { id: "tap", label: "Tap", selectorLabel: "UiAutomator/XPath/accessibility id", valueLabel: "Optional note", selectorRequired: true },
   { id: "type", label: "Type", selectorLabel: "Input selector", valueLabel: "Text or token", selectorRequired: true, valueRequired: true },
   { id: "clear", label: "Clear", selectorLabel: "Input selector", valueLabel: "Optional note", selectorRequired: true },
@@ -1921,6 +1923,11 @@ export function StepAutomationDialog({
   };
 
   const handleAddWebKeyword = () => {
+    if (selectedWebKeyword.id === "codedJS") {
+      handleUseCodedJavaScript("web");
+      return;
+    }
+
     if (selectedWebKeyword.locatorRequired && !webKeywordLocator.trim()) {
       setWebKeywordMessage(`${selectedWebKeyword.locatorLabel} is required for ${selectedWebKeyword.label}.`);
       return;
@@ -1939,6 +1946,11 @@ export function StepAutomationDialog({
   };
 
   const handleAddAndroidKeyword = () => {
+    if (selectedAndroidKeyword.id === "codedJS") {
+      handleUseCodedJavaScript(stepType === "ios" ? "ios" : "android");
+      return;
+    }
+
     if (selectedAndroidKeyword.selectorRequired && !androidKeywordSelector.trim()) {
       setAndroidKeywordMessage(`${selectedAndroidKeyword.selectorLabel} is required for ${selectedAndroidKeyword.label}.`);
       return;
@@ -1956,7 +1968,7 @@ export function StepAutomationDialog({
     setAndroidKeywordMessage(`${selectedAndroidKeyword.label} keyword added to the Appium override.`);
   };
 
-  const handleUseCodedJavaScript = (type: "web" | "android") => {
+  const handleUseCodedJavaScript = (type: "web" | "android" | "ios") => {
     setStepType(type);
     setAutomationCode((current) => normalizeAutomationCode(current) || resolveStepAutomationCode({
       step_order: step.step_order || 1,
@@ -1970,7 +1982,7 @@ export function StepAutomationDialog({
     if (type === "web") {
       setWebKeywordMessage("Coded JavaScript web step ready. Edit the automation code and save.");
     } else {
-      setAndroidKeywordMessage("Coded JavaScript Android step ready. Edit the automation code and save.");
+      setAndroidKeywordMessage(`Coded JavaScript ${type === "ios" ? "iOS" : "Android"} step ready. Edit the automation code and save.`);
     }
   };
 
@@ -2103,14 +2115,6 @@ export function StepAutomationDialog({
                   <span>{option.label}</span>
                 </button>
               ))}
-              <button className="automation-type-pill" onClick={() => handleUseCodedJavaScript("web")} type="button">
-                <AutomationCodeIcon size={15} />
-                <span>Coded JS - Web</span>
-              </button>
-              <button className="automation-type-pill" onClick={() => handleUseCodedJavaScript("android")} type="button">
-                <AutomationCodeIcon size={15} />
-                <span>Coded JS - Android</span>
-              </button>
             </div>
 
             {stepType === "api" ? (
@@ -2515,12 +2519,12 @@ export function StepAutomationDialog({
                     {webKeywordMessage ? <div className="inline-message success-message">{webKeywordMessage}</div> : null}
                   </div>
                 ) : null}
-                {stepType === "android" ? (
+                {stepType === "android" || stepType === "ios" ? (
                   <div className="automation-response-shell">
                     <div className="automation-response-header">
                       <div>
-                        <strong>Android Appium keyword builder</strong>
-                        <span>Select a mobile action, provide the selector and data it needs, then add executable WebdriverIO/Appium code to the step.</span>
+                        <strong>{stepType === "ios" ? "iOS" : "Android"} Appium keyword builder</strong>
+                        <span>Select a mobile action or CodedJS, then add executable WebdriverIO/Appium code to the step.</span>
                       </div>
                       <button className="ghost-button inline-button" onClick={handleAddAndroidKeyword} type="button">
                         Add

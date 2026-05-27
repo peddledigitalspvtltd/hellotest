@@ -1,7 +1,7 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CopyIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -10,6 +10,7 @@ import { RecorderStartControls, type RecorderStartOptions } from "../components/
 import { StatusBadge } from "../components/StatusBadge";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SubnavTabs } from "../components/SubnavTabs";
+import { ToastMessage } from "../components/ToastMessage";
 import {
   TileCardCaseIcon,
   TileCardFact,
@@ -25,6 +26,7 @@ import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
 import {
   collectStepParameters,
   combineStepParameterValues,
@@ -37,9 +39,8 @@ import type { AutomationLearningCacheEntry, ExecutionResult, Integration, Record
 type AutomationView = "cases" | "repository" | "local-playwright";
 type AutomationCaseSectionKey = "case" | "steps" | "history";
 type AutomationStepView = "keyword" | "code";
-type RepositoryScreenTab = "fields" | "dom" | "suggestions" | "usage" | "validation";
+type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions" | "usage" | "validation";
 type RepositoryFieldTab = "locators" | "evidence" | "meaning" | "validation";
-const AUTOMATION_MANUAL_LINKS_STORAGE_KEY = "qaira.automationManualLinks.v1";
 const normalizeAutomationParameterValues = (values?: Record<string, unknown> | null, scope: StepParameterScope = "t") =>
   normalizeStepParameterValues((values || {}) as Record<string, string>, scope);
 
@@ -76,6 +77,12 @@ type RecorderTab = {
   active?: boolean;
 };
 
+type LocalInspectRuntime = {
+  publicBaseUrl: string;
+  label: string;
+  reusableSessions: number;
+};
+
 type RecorderInspectResult = {
   captured_at: string;
   page_id: string | null;
@@ -103,14 +110,6 @@ type RecorderInspectResult = {
     text: string | null;
   };
 };
-
-const createDefaultAutomationDraft = () => ({
-  title: "",
-  description: "",
-  start_url: "",
-  keyword_step: "",
-  expected_result: ""
-});
 
 const formatRunDate = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -264,7 +263,9 @@ function getObjectName(entry: AutomationLearningCacheEntry) {
 }
 
 function getObjectRole(entry: AutomationLearningCacheEntry) {
-  return normalizeMetadataValue(entry.metadata?.object_role) || entry.locator_kind || entry.source || "field";
+  const value = normalizeMetadataValue(entry.metadata?.object_role) || entry.locator_kind || entry.source || "field";
+  const parts = value.split(/\s*\/\s*/).filter(Boolean);
+  return parts[parts.length - 1] || value;
 }
 
 function extractQuotedTargets(code?: string | null) {
@@ -419,7 +420,11 @@ function isNonElementRepositoryEntry(entry: AutomationLearningCacheEntry) {
   const role = getObjectRole(entry).toLowerCase();
   const blockedLocators = new Set(["viewport", "location", "browser.tab", "keyboard", "window", "document", "page"]);
   const blockedIntents = new Set(["scroll", "navigation", "navigate", "goto", "tab", "press"]);
-  return blockedLocators.has(locator) || blockedIntents.has(intent) || role === "viewport" || role === "page";
+  return isScreenRepositoryRecord(entry) || blockedLocators.has(locator) || blockedIntents.has(intent) || role === "viewport" || role === "page";
+}
+
+function isScreenRepositoryRecord(entry: AutomationLearningCacheEntry) {
+  return entry.locator_intent === "__screen__" || entry.metadata?.record_kind === "screen" || entry.source === "manual_screen";
 }
 
 function getRepositoryMemberName(entry: AutomationLearningCacheEntry) {
@@ -569,6 +574,41 @@ async function readRecorderJson<T>(url: string, options?: RequestInit) {
   return payload as T;
 }
 
+const LOCAL_INSPECT_RUNTIMES = [
+  { publicBaseUrl: "http://localhost:4311", label: "local recorder" },
+  { publicBaseUrl: "http://localhost:4301", label: "Docker Test Engine" }
+];
+
+async function discoverLocalInspectRuntime() {
+  for (const runtime of LOCAL_INSPECT_RUNTIMES) {
+    try {
+      const sessions = await readRecorderJson<{ items?: RecorderSessionResponse[] }>(
+        `${runtime.publicBaseUrl}/api/v1/recorder/sessions`
+      );
+      const reusableSessions = (sessions?.items || []).filter((item) =>
+        item.status === "running" && item.purpose === "repository-inspect"
+      ).length;
+      return { ...runtime, reusableSessions };
+    } catch {
+      // The local recorder is optional until inspection is requested.
+    }
+  }
+
+  return null;
+}
+
+function connectLocalInspectSession(runtime: LocalInspectRuntime, session: RecorderSessionResponse) {
+  return {
+    ...session,
+    purpose: "repository-inspect" as const,
+    engine_base_url: runtime.publicBaseUrl,
+    status_url: `${runtime.publicBaseUrl}/api/v1/recorder/sessions/${encodeURIComponent(session.id)}`,
+    live_view_url: session.live_view_path
+      ? `${runtime.publicBaseUrl}${session.live_view_path}`
+      : session.live_view_url
+  };
+}
+
 function extractRepositoryFieldsFromDom(dom: string) {
   const source = String(dom || "");
   const fieldPattern = /<\s*(input|button|select|textarea|a)\b([^>]*)>/gi;
@@ -623,6 +663,18 @@ function extractRepositoryFieldsFromDom(dom: string) {
 
   return fields.slice(0, 40);
 }
+
+type RepositoryExtractedField = ReturnType<typeof extractRepositoryFieldsFromDom>[number] & {
+  description?: string | null;
+  businessMeaning?: string | null;
+  usageKeywords?: string[];
+  source?: "live_inspect" | "dom_candidate" | "ai_extract";
+  pageUrl?: string | null;
+  targetCriteria?: string | null;
+  elementScreenshotUrl?: string | null;
+  ancestorScreenshotUrl?: string | null;
+  ancestorDom?: string | null;
+};
 
 function parseAutomationStepDraft(step: TestStep): AutomationStepDraft {
   const code = step.automation_code || "";
@@ -700,37 +752,71 @@ export function AutomationPage() {
     value: "",
     expected_result: ""
   });
-  const [manualCaseLinks, setManualCaseLinks] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(window.localStorage.getItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY) || "{}") as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
-  const [isCreatingAutomationCase, setIsCreatingAutomationCase] = useState(false);
-  const [automationDraft, setAutomationDraft] = useState(createDefaultAutomationDraft);
   const [startUrl, setStartUrl] = useState("");
   const [builderContext, setBuilderContext] = useState("");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("success");
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
+  const [inspectRecorderSession, setInspectRecorderSession] = useState<RecorderSessionResponse | null>(null);
+  const [isLaunchingInspectBrowser, setIsLaunchingInspectBrowser] = useState(false);
+  const [highlightedRepositoryId, setHighlightedRepositoryId] = useState("");
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
   const [selectedScreenName, setSelectedScreenName] = useState("");
-  const [screenDetailTab, setScreenDetailTab] = useState<RepositoryScreenTab>("fields");
+  const [screenRenameDraft, setScreenRenameDraft] = useState("");
+  const [renamingScreenName, setRenamingScreenName] = useState("");
+  const [repositoryImportPreview, setRepositoryImportPreview] = useState<ObjectRepositoryImportPreview | null>(null);
+  const [isParsingRepositoryImport, setIsParsingRepositoryImport] = useState(false);
+  const [isAddingRepositoryScreen, setIsAddingRepositoryScreen] = useState(false);
+  const [newRepositoryScreenDraft, setNewRepositoryScreenDraft] = useState({
+    screen_name: "",
+    page_url: "",
+    url_pattern_type: "contains",
+    url_pattern_value: "",
+    description: "",
+    business_meaning: "",
+    dom_structure: "",
+    screenshot_url: ""
+  });
+  const [isAddingRepositoryField, setIsAddingRepositoryField] = useState(false);
+  const [newRepositoryFieldDraft, setNewRepositoryFieldDraft] = useState({
+    screen_name: "",
+    object_name: "",
+    object_role: "field",
+    locator: "",
+    locator_kind: "css"
+  });
+  const [screenDetailTab, setScreenDetailTab] = useState<RepositoryScreenTab>("overview");
   const [fieldDetailTab, setFieldDetailTab] = useState<RepositoryFieldTab>("locators");
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
   const [isInspectingLiveField, setIsInspectingLiveField] = useState(false);
   const [inspectMessage, setInspectMessage] = useState("");
-  const [lastInspectResult, setLastInspectResult] = useState<RecorderInspectResult | null>(null);
+  const [stagedInspectFields, setStagedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [repositoryUsageBlock, setRepositoryUsageBlock] = useState<{
     title: string;
     usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>;
+    kind: "field" | "screen";
   } | null>(null);
   const [screenDomDraft, setScreenDomDraft] = useState("");
   const [screenScreenshotDraft, setScreenScreenshotDraft] = useState("");
   const [screenUrlDraft, setScreenUrlDraft] = useState("");
+  const [screenInfoDraft, setScreenInfoDraft] = useState({
+    screen_name: "",
+    url_pattern_type: "contains",
+    url_pattern_value: "",
+    screen_fingerprint: "",
+    accessibility_tree: "",
+    description: "",
+    business_meaning: ""
+  });
+  const [screenExtractionDraft, setScreenExtractionDraft] = useState<{
+    intendedFlows: string[];
+    aiUsed: boolean;
+    fallbackReason: string | null;
+    extractedAt: string;
+  } | null>(null);
   const [repositoryDraft, setRepositoryDraft] = useState({
     screen_name: "",
     object_name: "",
@@ -779,15 +865,6 @@ export function AutomationPage() {
     }),
     enabled: Boolean((projectId || appTypeId) && session)
   });
-  const repositoryContextQuery = useQuery({
-    queryKey: ["automation-repository-context", projectId, appTypeId],
-    queryFn: () => api.testCases.repositoryContext({
-      project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
-      limit: 200
-    }),
-    enabled: Boolean((projectId || appTypeId) && session && view === "repository")
-  });
   const automatedStepsQuery = useQuery({
     queryKey: ["test-steps", "automation-workspace", selectedCaseId],
     queryFn: () => api.testSteps.list({ test_case_id: selectedCaseId }),
@@ -831,7 +908,7 @@ export function AutomationPage() {
   const activeAutomatedCase = automatedCases.find((testCase) => testCase.id === selectedAutomatedCaseId) || automatedCases[0] || null;
   const activeCase = automatedCases.find((testCase) => testCase.id === selectedCaseId) || null;
   const isAutomationCaseWorkspaceOpen = Boolean(activeCase);
-  const activeManualCase = manualCases.find((testCase) => testCase.id === selectedManualCaseId) || manualCases[0] || null;
+  const activeManualCase = testCases.find((testCase) => testCase.id === selectedManualCaseId) || activeCase || manualCases[0] || automatedCases[0] || null;
   const automatedSteps = automatedStepsQuery.data || [];
   const executionResults = executionResultsQuery.data || [];
   const historyByCaseId = useMemo(() => {
@@ -865,7 +942,6 @@ export function AutomationPage() {
     }))),
     [automatedSteps, stepCodeDrafts, stepDrafts]
   );
-  const linkedManualCase = activeCase ? testCases.find((testCase) => testCase.id === manualCaseLinks[activeCase.id]) || null : null;
   const hookTargetLabelByKey = useMemo(() => {
     const map: Record<string, string> = {};
     testCases.forEach((testCase) => {
@@ -879,12 +955,6 @@ export function AutomationPage() {
     });
     return map;
   }, [automatedSteps, suites, testCases]);
-  const selectedRepositoryEntry = learningCache.find((entry) => entry.id === selectedRepositoryId) || learningCache[0] || null;
-  const selectedRepositoryUsageQuery = useQuery({
-    queryKey: ["automation-learning-cache-usage", selectedRepositoryEntry?.id],
-    queryFn: () => api.testCases.learningCacheUsage(selectedRepositoryEntry!.id),
-    enabled: Boolean(selectedRepositoryEntry?.id && view === "repository")
-  });
   const groupedRepository = useMemo(() => {
     const grouped = new Map<string, AutomationLearningCacheEntry[]>();
 
@@ -900,6 +970,15 @@ export function AutomationPage() {
     return selected?.[1] || groupedRepository[0]?.[1] || [];
   }, [groupedRepository, selectedScreenName]);
   const activeScreenName = groupedRepository.find(([screenName]) => screenName === selectedScreenName)?.[0] || groupedRepository[0]?.[0] || "";
+  const activeScreenRecord = activeScreenEntries.find(isScreenRepositoryRecord) || activeScreenEntries[0] || null;
+  const selectedRepositoryEntry = activeScreenEntries.find((entry) => entry.id === selectedRepositoryId && !isNonElementRepositoryEntry(entry))
+    || activeScreenEntries.find((entry) => !isNonElementRepositoryEntry(entry))
+    || null;
+  const selectedScreenUsageQuery = useQuery({
+    queryKey: ["automation-learning-cache-screen-usage", activeScreenName, appTypeId],
+    queryFn: () => api.testCases.learningCacheScreenUsage(activeScreenName, { app_type_id: appTypeId || undefined }),
+    enabled: Boolean(activeScreenName && view === "repository")
+  });
   const pageObjectModels = useMemo(() => {
     return groupedRepository.map(([screenName, entries]) => {
       const members = entries.filter((entry) => !isNonElementRepositoryEntry(entry)).map((entry) => ({
@@ -923,8 +1002,8 @@ export function AutomationPage() {
   const allObjectMembers = useMemo(() => pageObjectModels.flatMap((page) => page.members), [pageObjectModels]);
   const inspectedFields = useMemo(() => extractRepositoryFieldsFromDom(screenDomDraft), [screenDomDraft]);
   const recorderLiveUrl = recorderSession?.live_view_url || "";
-  const selectedRepositoryUsage = selectedRepositoryUsageQuery.data || [];
-  const activeScreenMetadata = (activeScreenEntries[0]?.metadata || {}) as Record<string, unknown>;
+  const inspectRecorderLiveUrl = inspectRecorderSession?.live_view_url || "";
+  const selectedScreenUsage = selectedScreenUsageQuery.data || [];
   const selectedLocators = selectedRepositoryEntry ? getRepositoryLocators(selectedRepositoryEntry) : [];
   const selectedValidationHistory = Array.isArray(selectedRepositoryEntry?.metadata?.validation_history)
     ? selectedRepositoryEntry.metadata.validation_history.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
@@ -991,38 +1070,60 @@ export function AutomationPage() {
   }, [activeScreenName, selectedScreenName]);
 
   useEffect(() => {
-    if (!selectedRepositoryEntry) {
+    setScreenRenameDraft(activeScreenName);
+    setNewRepositoryFieldDraft((current) => ({ ...current, screen_name: activeScreenName || current.screen_name }));
+  }, [activeScreenName]);
+
+  useEffect(() => {
+    setStagedInspectFields([]);
+    setHighlightedRepositoryId("");
+    setScreenExtractionDraft(null);
+  }, [activeScreenName]);
+
+  useEffect(() => {
+    if (!activeScreenRecord && !selectedRepositoryEntry) {
       return;
     }
 
-    const metadata = selectedRepositoryEntry.metadata || {};
-    setScreenDomDraft(normalizeMetadataValue(metadata.screen_dom_compressed));
-    setScreenScreenshotDraft(normalizeMetadataValue(metadata.screen_screenshot_url));
-    setScreenUrlDraft(selectedRepositoryEntry.page_url || selectedRepositoryEntry.page_key || "");
+    const screenMetadata = activeScreenRecord?.metadata || {};
+    const fieldMetadata = selectedRepositoryEntry?.metadata || {};
+    const metadata = { ...screenMetadata, ...fieldMetadata };
+    setScreenDomDraft(normalizeMetadataValue(screenMetadata.screen_dom_compressed) || normalizeMetadataValue(metadata.screen_dom_compressed));
+    setScreenScreenshotDraft(normalizeMetadataValue(screenMetadata.screen_screenshot_url) || normalizeMetadataValue(metadata.screen_screenshot_url));
+    setScreenUrlDraft(activeScreenRecord?.page_url || selectedRepositoryEntry?.page_url || activeScreenRecord?.page_key || "");
+    setScreenInfoDraft({
+      screen_name: normalizeMetadataValue(screenMetadata.screen_name) || activeScreenName,
+      url_pattern_type: normalizeMetadataValue(screenMetadata.url_pattern_type) || "contains",
+      url_pattern_value: normalizeMetadataValue(screenMetadata.url_pattern_value) || activeScreenRecord?.page_url || activeScreenRecord?.page_key || "",
+      screen_fingerprint: normalizeMetadataValue(screenMetadata.screen_fingerprint),
+      accessibility_tree: normalizeMetadataValue(screenMetadata.accessibility_tree),
+      description: normalizeMetadataValue(screenMetadata.description),
+      business_meaning: normalizeMetadataValue(screenMetadata.business_meaning)
+    });
     setRepositoryDraft({
-      screen_name: normalizeMetadataValue(metadata.screen_name),
-      object_name: getRepositoryMemberName(selectedRepositoryEntry),
-      object_role: `${getRepositoryHtmlTag(selectedRepositoryEntry)} / ${getObjectRole(selectedRepositoryEntry)}`,
-      locator: selectedRepositoryEntry.locator || "",
-      locator_kind: selectedRepositoryEntry.locator_kind || "",
+      screen_name: activeScreenName,
+      object_name: selectedRepositoryEntry ? getRepositoryMemberName(selectedRepositoryEntry) : "",
+      object_role: selectedRepositoryEntry ? `${getRepositoryHtmlTag(selectedRepositoryEntry)} / ${getObjectRole(selectedRepositoryEntry)}` : "",
+      locator: selectedRepositoryEntry?.locator || "",
+      locator_kind: selectedRepositoryEntry?.locator_kind || "",
       target_criteria: Array.isArray(metadata.target_criteria) ? metadata.target_criteria.join("\n") : normalizeMetadataValue(metadata.target_criteria),
       dom_structure: normalizeMetadataValue(metadata.dom_structure) || normalizeMetadataValue(metadata.dom_path) || normalizeMetadataValue(metadata.html),
       screenshot_url: normalizeMetadataValue(metadata.screenshot_url) || normalizeMetadataValue(metadata.screenshot_path),
       fallback_strategy: normalizeMetadataValue(metadata.fallback_strategy),
-      url_pattern_type: normalizeMetadataValue(metadata.url_pattern_type) || "contains",
-      url_pattern_value: normalizeMetadataValue(metadata.url_pattern_value) || selectedRepositoryEntry.page_url || selectedRepositoryEntry.page_key || "",
-      screen_fingerprint: normalizeMetadataValue(metadata.screen_fingerprint),
-      accessibility_tree: normalizeMetadataValue(metadata.accessibility_tree),
-      fallback_locators: formatLocatorDraft(getRepositoryLocators(selectedRepositoryEntry)),
-      description: normalizeMetadataValue(metadata.description),
-      business_meaning: normalizeMetadataValue(metadata.business_meaning),
-      usage_keywords: metadataStringArray(metadata.usage_keywords).join(", "),
-      stability_score: String(Math.round(normalizeMetadataNumber(metadata.stability_score, selectedRepositoryEntry.confidence) * 100)),
-      ancestor_dom: normalizeMetadataValue(metadata.ancestor_dom),
-      ancestor_screenshot_url: normalizeMetadataValue(metadata.ancestor_screenshot_url),
-      element_screenshot_url: normalizeMetadataValue(metadata.element_screenshot_url) || normalizeMetadataValue(metadata.screenshot_url)
+      url_pattern_type: normalizeMetadataValue(screenMetadata.url_pattern_type) || "contains",
+      url_pattern_value: normalizeMetadataValue(screenMetadata.url_pattern_value) || activeScreenRecord?.page_url || selectedRepositoryEntry?.page_url || activeScreenRecord?.page_key || "",
+      screen_fingerprint: normalizeMetadataValue(screenMetadata.screen_fingerprint),
+      accessibility_tree: normalizeMetadataValue(screenMetadata.accessibility_tree),
+      fallback_locators: selectedRepositoryEntry ? formatLocatorDraft(getRepositoryLocators(selectedRepositoryEntry)) : "",
+      description: normalizeMetadataValue(fieldMetadata.description),
+      business_meaning: normalizeMetadataValue(fieldMetadata.business_meaning),
+      usage_keywords: metadataStringArray(fieldMetadata.usage_keywords).join(", "),
+      stability_score: String(Math.round(normalizeMetadataNumber(fieldMetadata.stability_score, selectedRepositoryEntry?.confidence || 0) * 100)),
+      ancestor_dom: normalizeMetadataValue(fieldMetadata.ancestor_dom),
+      ancestor_screenshot_url: normalizeMetadataValue(fieldMetadata.ancestor_screenshot_url),
+      element_screenshot_url: normalizeMetadataValue(fieldMetadata.element_screenshot_url) || normalizeMetadataValue(fieldMetadata.screenshot_url)
     });
-  }, [selectedRepositoryEntry?.id]);
+  }, [activeScreenName, activeScreenRecord?.id, activeScreenRecord?.updated_at, selectedRepositoryEntry?.id, selectedRepositoryEntry?.updated_at]);
 
   useEffect(() => {
     if (!activeCase) {
@@ -1147,25 +1248,37 @@ export function AutomationPage() {
     };
   }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
 
+  useEffect(() => {
+    if (!inspectRecorderSession?.status_url || inspectRecorderSession.status !== "running") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshInspectSession = async () => {
+      try {
+        const next = await readRecorderJson<Partial<RecorderSessionResponse>>(inspectRecorderSession.status_url as string);
+        if (!cancelled && next) {
+          setInspectRecorderSession((current) => current?.id === inspectRecorderSession.id ? { ...current, ...next } : current);
+        }
+      } catch {
+        // A disconnected local inspector is reported by the next explicit user action.
+      }
+    };
+    const timer = window.setInterval(() => void refreshInspectSession(), 3000);
+
+    void refreshInspectSession();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [inspectRecorderSession?.id, inspectRecorderSession?.status, inspectRecorderSession?.status_url]);
+
   const invalidateAutomationData = () => {
     void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
     void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
-  };
-
-  const setManualCaseLink = (automationCaseId: string, manualCaseId: string) => {
-    setManualCaseLinks((current) => {
-      const next = { ...current };
-      if (manualCaseId) {
-        next[automationCaseId] = manualCaseId;
-      } else {
-        delete next[automationCaseId];
-      }
-      window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
   };
 
   const selectAutomationCase = (testCaseId: string) => {
@@ -1229,6 +1342,102 @@ export function AutomationPage() {
     setExpandedAutomationStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId]);
   };
 
+  const showSuccess = (text: string) => {
+    setMessageTone("success");
+    setMessage(text);
+  };
+
+  const showInfo = (text: string) => {
+    setMessageTone("info");
+    setMessage(text);
+  };
+
+  const showError = (error: unknown, fallback: string) => {
+    setMessageTone("error");
+    setMessage(error instanceof Error ? error.message : fallback);
+  };
+
+  const handleRepositoryImportFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+
+    if (!files.length) {
+      return;
+    }
+
+    setIsParsingRepositoryImport(true);
+    try {
+      const preview = await parseObjectRepositoryFiles(files);
+      setRepositoryImportPreview(preview);
+      const fields = preview.entries.filter((entry) => entry.record_type === "field").length;
+      const screens = preview.entries.filter((entry) => entry.record_type === "screen").length;
+      if (!preview.entries.length) {
+        throw new Error("No importable screens or fields were detected in the selected files.");
+      }
+      showInfo(`Prepared ${screens} screen${screens === 1 ? "" : "s"} and ${fields} field${fields === 1 ? "" : "s"} for review before import.`);
+    } catch (error) {
+      setRepositoryImportPreview(null);
+      showError(error, "Unable to read object repository import files.");
+    } finally {
+      setIsParsingRepositoryImport(false);
+    }
+  };
+
+  const exportRepositoryCsv = useMutation({
+    mutationFn: () => {
+      if (!appTypeId) {
+        throw new Error("Select an application scope before exporting the repository.");
+      }
+      return api.testCases.exportLearningCacheCsv({ app_type_id: appTypeId });
+    },
+    onSuccess: (blob) => {
+      const selectedApp = appTypes.find((item) => item.id === appTypeId)?.name || "object-repository";
+      const fileName = `${selectedApp.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "object-repository"}-or.csv`;
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(downloadUrl);
+      showSuccess("Exported all object repository screens and fields as CSV.");
+    },
+    onError: (error) => showError(error, "Unable to export object repository CSV.")
+  });
+
+  const importRepositoryEntries = useMutation({
+    mutationFn: () => {
+      if (!appTypeId) {
+        throw new Error("Select an application scope before importing repository objects.");
+      }
+      if (!repositoryImportPreview?.entries.length) {
+        throw new Error("Choose CSV, source, or ZIP files before importing.");
+      }
+      return api.testCases.importLearningCacheEntries({
+        app_type_id: appTypeId,
+        import_source: "or_file_import",
+        entries: repositoryImportPreview.entries
+      });
+    },
+    onSuccess: (response) => {
+      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+      if (response.failed) {
+        setRepositoryImportPreview((current) => current ? {
+          ...current,
+          warnings: [
+            ...current.warnings,
+            ...response.errors.slice(0, 8).map((error) => `${error.screen_name || "Entry"}: ${error.message}`)
+          ]
+        } : current);
+        showError(new Error(`Imported ${response.created + response.updated} entries, but ${response.failed} could not be saved. Review the import warnings.`), "Some repository entries failed to import.");
+        return;
+      }
+      setRepositoryImportPreview(null);
+      showSuccess(`Imported ${response.created} new and updated ${response.updated} existing repository entr${response.created + response.updated === 1 ? "y" : "ies"}.`);
+    },
+    onError: (error) => showError(error, "Unable to import object repository entries.")
+  });
+
   const buildSingleAutomation = useMutation({
     mutationFn: () => {
       if (!activeManualCase) {
@@ -1241,10 +1450,10 @@ export function AutomationPage() {
       });
     },
     onSuccess: (response) => {
-      setMessage(`Automation build queued as ${response.transaction_id}.`);
+      showSuccess(`Automation build queued as ${response.transaction_id}.`);
       invalidateAutomationData();
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to queue automation.")
+    onError: (error) => showError(error, "Unable to queue automation.")
   });
 
   const optimizeAutomationCase = useMutation({
@@ -1253,66 +1462,18 @@ export function AutomationPage() {
         throw new Error("Select an automation case first.");
       }
 
-      return api.testCases.queueAutomationGenerator(linkedManualCase?.id || activeCase.id, {
+      return api.testCases.queueAutomationGenerator(activeCase.id, {
         additional_context: [
-          "Review the linked manual case, automation keyword steps, repository bindings, verification points, grouping, and coding standards.",
+          "Review the original manual case, its automation keyword steps, repository bindings, verification points, grouping, and coding standards.",
           "Suggest and regenerate optimized automation without removing business intent. Preserve @t and @s data scope tokens."
         ].join(" ")
       });
     },
     onSuccess: (response) => {
-      setMessage(`AI automation review queued as ${response.transaction_id}.`);
+      showSuccess(`AI automation review queued as ${response.transaction_id}.`);
       invalidateAutomationData();
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to queue AI automation review.")
-  });
-
-  const createAutomationCase = useMutation({
-    mutationFn: async () => {
-      if (!appTypeId) {
-        throw new Error("Select an app type before creating an automation case.");
-      }
-
-      if (!automationDraft.title.trim()) {
-        throw new Error("Add a case title first.");
-      }
-
-      const created = await api.testCases.create({
-        app_type_id: appTypeId,
-        title: automationDraft.title.trim(),
-        description: automationDraft.description.trim(),
-        automated: "yes",
-        status: "active",
-        priority: 3,
-        steps: automationDraft.keyword_step.trim()
-          ? [{
-            step_order: 1,
-            step_type: "web",
-            action: automationDraft.keyword_step.trim(),
-            expected_result: automationDraft.expected_result.trim(),
-            automation_code: automationDraft.keyword_step.trim()
-          }]
-          : []
-      });
-
-      if (automationDraft.start_url.trim()) {
-        await api.testCases.queueAutomationGenerator(created.id, {
-          start_url: automationDraft.start_url.trim(),
-          additional_context: builderContext || undefined
-        }).catch(() => null);
-      }
-
-      return created;
-    },
-    onSuccess: (created) => {
-      setMessage("Automation case created. It is ready for keyword steps and repository learning.");
-      setSelectedCaseId(created.id);
-      setSelectedAutomatedCaseId(created.id);
-      setIsCreatingAutomationCase(false);
-      setAutomationDraft(createDefaultAutomationDraft());
-      invalidateAutomationData();
-    },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to create automation case.")
+    onError: (error) => showError(error, "Unable to queue AI automation review.")
   });
 
   const updateAutomationCase = useMutation({
@@ -1341,26 +1502,19 @@ export function AutomationPage() {
           parameter_values: normalizeAutomationParameterValues(suiteParameterValues, "s")
         }).catch(() => null);
       }
-      setMessage("Automation case updated.");
+      showSuccess("Automation case updated.");
       void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
       void queryClient.invalidateQueries({ queryKey: ["test-case-suites"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to update automation case.")
+    onError: (error) => showError(error, "Unable to update automation case.")
   });
 
   const deleteAutomationCase = useMutation({
     mutationFn: async (testCase: TestCase) => {
       await api.testCases.delete(testCase.id);
-
-      setManualCaseLinks((current) => {
-        const next = { ...current };
-        delete next[testCase.id];
-        window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
-        return next;
-      });
     },
     onSuccess: () => {
-      setMessage("Automation case deleted. Any linked manual case remains available.");
+      showSuccess("Test case deleted from both manual and automation workspaces.");
       setSelectedCaseId("");
       setSelectedAutomatedCaseId("");
       setSearchParams((prev) => {
@@ -1370,17 +1524,17 @@ export function AutomationPage() {
       }, { replace: true });
       invalidateAutomationData();
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to delete automation case.")
+    onError: (error) => showError(error, "Unable to delete automation case.")
   });
 
   const createAutomationStep = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!activeCase) {
         throw new Error("Select an automation case first.");
       }
       const automation_code = buildAutomationCodeFromDraft(newStepDraft);
 
-      return api.testSteps.create({
+      const created = await api.testSteps.create({
         test_case_id: activeCase.id,
         step_order: automatedSteps.length + 1,
         action: automation_code,
@@ -1388,56 +1542,67 @@ export function AutomationPage() {
         step_type: "web",
         automation_code
       });
+      await api.testCases.update(activeCase.id, { automated: "yes", automation_status: "ready" });
+      return created;
     },
     onSuccess: () => {
-      setMessage("Automation step added.");
+      showSuccess("Automation step added.");
       setNewStepDraft({ keyword: "web.click", objectRef: "", value: "", expected_result: "" });
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to add automation step.")
+    onError: (error) => showError(error, "Unable to add automation step.")
   });
 
   const updateAutomationStep = useMutation({
-    mutationFn: (step: TestStep) => {
+    mutationFn: async (step: TestStep) => {
       const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
       const automation_code = applyAutomationStepOptions(
         buildAutomationCodeFromDraft(draft),
         stepOptionDrafts[step.id] || parseAutomationStepOptions(step)
       );
 
-      return api.testSteps.update(step.id, {
-        action: automation_code,
+      const updated = await api.testSteps.update(step.id, {
         expected_result: draft.expected_result,
         step_type: "web",
         automation_code
       });
+      if (activeCase) {
+        await api.testCases.update(activeCase.id, { automated: "yes", automation_status: "ready" });
+      }
+      return updated;
     },
     onSuccess: () => {
-      setMessage("Automation step updated.");
+      showSuccess("Automation step updated.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to update automation step.")
+    onError: (error) => showError(error, "Unable to update automation step.")
   });
 
   const updateAutomationStepCode = useMutation({
-    mutationFn: (step: TestStep) => {
+    mutationFn: async (step: TestStep) => {
       const automation_code = applyAutomationStepOptions(
         (stepCodeDrafts[step.id] || step.automation_code || step.action || "").trim(),
         stepOptionDrafts[step.id] || parseAutomationStepOptions(step)
       );
 
-      return api.testSteps.update(step.id, {
-        action: automation_code || step.action || "",
+      const updated = await api.testSteps.update(step.id, {
         expected_result: step.expected_result || "",
         step_type: step.step_type || "web",
         automation_code
       });
+      if (activeCase) {
+        await api.testCases.update(activeCase.id, { automated: "yes", automation_status: "ready" });
+      }
+      return updated;
     },
     onSuccess: () => {
-      setMessage("Automation code updated.");
+      showSuccess("Automation code updated.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to update automation code.")
+    onError: (error) => showError(error, "Unable to update automation code.")
   });
 
   const rephraseAutomationStep = useMutation({
@@ -1448,7 +1613,7 @@ export function AutomationPage() {
 
       const response = await api.testCases.rephraseStep({
         app_type_id: appTypeId,
-        requirement_id: activeCase.requirement_id || linkedManualCase?.requirement_id || undefined,
+        requirement_id: activeCase.requirement_id || undefined,
         additional_context: "Improve this automation keyword step for clarity, verification strength, and coding standard alignment. Keep locator/object references and @t/@s tokens intact.",
         test_case: {
           title: activeCase.title,
@@ -1471,10 +1636,10 @@ export function AutomationPage() {
       });
     },
     onSuccess: () => {
-      setMessage("AI improved the automation step text.");
+      showSuccess("AI improved the automation step text.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to improve automation step.")
+    onError: (error) => showError(error, "Unable to improve automation step.")
   });
 
   const reorderAutomationStep = useMutation({
@@ -1489,19 +1654,38 @@ export function AutomationPage() {
       return api.testSteps.reorder(activeCase.id, ids);
     },
     onSuccess: () => {
-      setMessage("Automation steps reordered.");
+      showSuccess("Automation steps reordered.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to reorder automation step.")
+    onError: (error) => showError(error, "Unable to reorder automation step.")
   });
 
   const deleteAutomationStep = useMutation({
-    mutationFn: (stepId: string) => api.testSteps.delete(stepId),
-    onSuccess: () => {
-      setMessage("Automation step deleted.");
-      void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
+    mutationFn: async (step: TestStep) => {
+      await api.testSteps.update(step.id, {
+        automation_code: "",
+        api_request: null
+      });
+
+      if (activeCase) {
+        const hasRemainingAutomation = automatedSteps.some((candidate) =>
+          candidate.id !== step.id
+          && Boolean(candidate.automation_code?.trim() || candidate.api_request)
+        );
+        await api.testCases.update(activeCase.id, {
+          automated: hasRemainingAutomation ? "yes" : "no",
+          automation_status: hasRemainingAutomation
+            ? activeCase.automation_status === "incomplete" ? "incomplete" : "ready"
+            : "not_automated"
+        });
+      }
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to delete automation step.")
+    onSuccess: () => {
+      showSuccess("Automation removed from the manual step; the manual text remains intact.");
+      void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
+    },
+    onError: (error) => showError(error, "Unable to remove automation from step.")
   });
 
   const runCase = useMutation({
@@ -1534,21 +1718,90 @@ export function AutomationPage() {
       });
     },
     onSuccess: (response) => {
-      setMessage(`Local Test Engine run started as ${response.id}.`);
+      showSuccess(`Local Test Engine run started as ${response.id}.`);
       void queryClient.invalidateQueries({ queryKey: ["executions"] });
       void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to run case.")
+    onError: (error) => showError(error, "Unable to run case.")
   });
+
+  const stageInspectField = (field: RepositoryExtractedField) => {
+    const isExistingSelection = stagedInspectFields.some((item) => item.locator === field.locator);
+    setStagedInspectFields((current) => {
+      const existingIndex = current.findIndex((item) => item.locator === field.locator);
+      if (existingIndex < 0) {
+        return [...current, field];
+      }
+      return current.map((item, index) => index === existingIndex ? { ...item, ...field } : item);
+    });
+    setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}. Remove unwanted fields or save the selected set.`);
+  };
+
+  const clearInspectHighlights = () => {
+    const baseUrl = getRecorderEngineBaseUrl(inspectRecorderSession);
+    const pageId = selectedInspectTabId || inspectTabs.find((tab) => tab.active)?.id || inspectTabs[0]?.id || "";
+    if (!inspectRecorderSession?.id || !baseUrl || !pageId) {
+      return;
+    }
+    void readRecorderJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(inspectRecorderSession.id)}/highlight`, {
+      method: "POST",
+      body: JSON.stringify({ page_id: pageId, clear_existing: true })
+    }).catch(() => null);
+  };
+
+  const persistRepositoryField = (field: RepositoryExtractedField) => {
+    const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+    const existingField = learningCache.find((entry) => !isScreenRepositoryRecord(entry) && getScreenName(entry) === screenName && entry.locator === field.locator);
+    const input = {
+      project_id: projectId || undefined,
+      app_type_id: appTypeId || undefined,
+      page_url: field.pageUrl || screenUrlDraft || undefined,
+      page_key: screenName,
+      screen_name: screenName,
+      object_name: field.name,
+      object_role: `${field.tag} / ${field.role}`,
+      locator: field.locator,
+      locator_kind: field.locatorKind,
+      locator_intent: field.name,
+      dom_structure: field.dom,
+      screenshot_url: field.elementScreenshotUrl || screenScreenshotDraft || undefined,
+      fallback_strategy: field.source === "live_inspect" ? "Use captured visual and nearby DOM evidence only after stable locator retries fail." : undefined,
+      screen_dom_compressed: screenDomDraft ? screenDomDraft.slice(0, 50_000) : undefined,
+      screen_screenshot_url: screenScreenshotDraft || undefined,
+      source: field.source || "inspect_ai_extract",
+      metadata: {
+        ...(existingField?.metadata || {}),
+        url_pattern_type: screenInfoDraft.url_pattern_type || "contains",
+        url_pattern_value: screenInfoDraft.url_pattern_value || screenUrlDraft || screenName,
+        screen_fingerprint: screenInfoDraft.screen_fingerprint || null,
+        accessibility_tree: screenInfoDraft.accessibility_tree || null,
+        screen_dom_compressed: screenDomDraft ? screenDomDraft.slice(0, 50_000) : null,
+        screen_screenshot_url: screenScreenshotDraft || null,
+        element_screenshot_url: field.elementScreenshotUrl || null,
+        ancestor_screenshot_url: field.ancestorScreenshotUrl || null,
+        ancestor_dom: field.ancestorDom || null,
+        target_criteria: field.targetCriteria ? [field.targetCriteria] : [],
+        description: field.description || `${field.name} captured from the selected screen.`,
+        business_meaning: field.businessMeaning || null,
+        stability_score: field.locator.includes("data-testid") ? 0.95 : 0.75,
+        fallback_locators: field.fallbackLocators,
+        usage_keywords: field.usageKeywords || []
+      }
+    };
+    return existingField
+      ? api.testCases.updateLearningCacheEntry(existingField.id, input)
+      : api.testCases.createLearningCacheEntry(input);
+  };
 
   const saveRepositoryEntry = useMutation({
     mutationFn: () => {
       if (!selectedRepositoryEntry) {
         throw new Error("Select an object repository field first.");
       }
+      const screenName = screenInfoDraft.screen_name.trim() || activeScreenName || getScreenName(selectedRepositoryEntry);
       const duplicate = learningCache.find((entry) =>
         entry.id !== selectedRepositoryEntry.id
-        && getScreenName(entry) === (repositoryDraft.screen_name || getScreenName(selectedRepositoryEntry))
+        && getScreenName(entry) === screenName
         && String(entry.locator || "").trim() === repositoryDraft.locator.trim()
       );
 
@@ -1558,8 +1811,8 @@ export function AutomationPage() {
 
       return api.testCases.updateLearningCacheEntry(selectedRepositoryEntry.id, {
         page_url: screenUrlDraft || selectedRepositoryEntry.page_url || undefined,
-        page_key: repositoryDraft.screen_name || selectedRepositoryEntry.page_key || undefined,
-        screen_name: repositoryDraft.screen_name,
+        page_key: screenName,
+        screen_name: screenName,
         object_name: repositoryDraft.object_name,
         object_role: repositoryDraft.object_role,
         locator: repositoryDraft.locator,
@@ -1569,10 +1822,10 @@ export function AutomationPage() {
         screenshot_url: repositoryDraft.screenshot_url,
         fallback_strategy: repositoryDraft.fallback_strategy,
         platform: appTypes.find((appType) => appType.id === appTypeId)?.type || "web",
-        url_pattern_type: repositoryDraft.url_pattern_type,
-        url_pattern_value: repositoryDraft.url_pattern_value,
-        screen_fingerprint: repositoryDraft.screen_fingerprint,
-        accessibility_tree: repositoryDraft.accessibility_tree,
+        url_pattern_type: screenInfoDraft.url_pattern_type,
+        url_pattern_value: screenInfoDraft.url_pattern_value,
+        screen_fingerprint: screenInfoDraft.screen_fingerprint,
+        accessibility_tree: screenInfoDraft.accessibility_tree,
         fallback_locators: parseLocatorDraft(repositoryDraft.fallback_locators),
         description: repositoryDraft.description,
         business_meaning: repositoryDraft.business_meaning,
@@ -1589,92 +1842,319 @@ export function AutomationPage() {
       });
     },
     onSuccess: () => {
-      setMessage("Object repository field saved for execution-time locator resolution.");
+      showSuccess("Object repository field saved for execution-time locator resolution.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to save repository field.")
+    onError: (error) => showError(error, "Unable to save repository field.")
   });
 
-  const createRepositoryField = useMutation({
-    mutationFn: (field: ReturnType<typeof extractRepositoryFieldsFromDom>[number]) => {
-      const screenName = screenUrlDraft || selectedScreenName || repositoryDraft.screen_name || "Screen";
+  const addRepositoryScreen = useMutation({
+    mutationFn: () => {
+      const screenName = newRepositoryScreenDraft.screen_name.trim();
+
+      if (!screenName) {
+        throw new Error("Add a screen name before saving the screen.");
+      }
+
+      return api.testCases.createLearningCacheEntry({
+        project_id: projectId || undefined,
+        app_type_id: appTypeId || undefined,
+        page_url: newRepositoryScreenDraft.page_url.trim() || undefined,
+        page_key: screenName,
+        screen_name: screenName,
+        object_name: "__screen__",
+        object_role: "screen",
+        locator: "__screen__",
+        locator_kind: "screen",
+        locator_intent: "__screen__",
+        screen_dom_compressed: newRepositoryScreenDraft.dom_structure.trim() || undefined,
+        screen_screenshot_url: newRepositoryScreenDraft.screenshot_url.trim() || undefined,
+        source: "manual_screen",
+        metadata: {
+          record_kind: "screen",
+          url_pattern_type: newRepositoryScreenDraft.url_pattern_type,
+          url_pattern_value: newRepositoryScreenDraft.url_pattern_value.trim() || newRepositoryScreenDraft.page_url.trim() || screenName,
+          description: newRepositoryScreenDraft.description.trim() || null,
+          business_meaning: newRepositoryScreenDraft.business_meaning.trim() || null
+        }
+      });
+    },
+    onSuccess: (entry) => {
+      const screenName = newRepositoryScreenDraft.screen_name.trim();
+      setSelectedScreenName(screenName);
+      setScreenUrlDraft(newRepositoryScreenDraft.page_url.trim());
+      setScreenDomDraft(newRepositoryScreenDraft.dom_structure.trim());
+      setScreenScreenshotDraft(newRepositoryScreenDraft.screenshot_url.trim());
+      setScreenInfoDraft({
+        screen_name: screenName,
+        url_pattern_type: newRepositoryScreenDraft.url_pattern_type,
+        url_pattern_value: newRepositoryScreenDraft.url_pattern_value.trim() || newRepositoryScreenDraft.page_url.trim() || screenName,
+        screen_fingerprint: "",
+        accessibility_tree: "",
+        description: newRepositoryScreenDraft.description.trim(),
+        business_meaning: newRepositoryScreenDraft.business_meaning.trim()
+      });
+      if (entry?.id) {
+        setSelectedRepositoryId(entry.id);
+      }
+      setIsAddingRepositoryScreen(false);
+      setIsInspectOpen(true);
+      setInspectMessage("Screen saved. Launch or reuse the local browser to inspect fields, or extract fields from supplied DOM evidence.");
+      showSuccess("Screen created. Inspect fields or request AI suggestions before saving its repository set.");
+      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+    },
+    onError: (error) => showError(error, "Unable to add repository screen.")
+  });
+
+  const persistRepositoryScreenEvidence = () => {
+    const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+    const existingScreenRecord = activeScreenEntries.find(isScreenRepositoryRecord);
+    const metadata = {
+      ...(existingScreenRecord?.metadata || {}),
+      record_kind: "screen",
+      screen_name: screenName,
+      url_pattern_type: screenInfoDraft.url_pattern_type || "contains",
+      url_pattern_value: screenInfoDraft.url_pattern_value || screenUrlDraft || screenName,
+      screen_fingerprint: screenInfoDraft.screen_fingerprint || null,
+      accessibility_tree: screenInfoDraft.accessibility_tree || null,
+      screen_dom_compressed: screenDomDraft ? screenDomDraft.slice(0, 50_000) : null,
+      screen_screenshot_url: screenScreenshotDraft || null,
+      description: screenInfoDraft.description || null,
+      business_meaning: screenInfoDraft.business_meaning || null,
+      ...(screenExtractionDraft ? {
+        intended_flows: screenExtractionDraft.intendedFlows,
+        ai_extract_used: screenExtractionDraft.aiUsed,
+        ai_extract_fallback_reason: screenExtractionDraft.fallbackReason,
+        ai_extracted_at: screenExtractionDraft.extractedAt
+      } : {})
+    };
+
+    if (existingScreenRecord) {
+      return api.testCases.updateLearningCacheEntry(existingScreenRecord.id, {
+        page_url: screenUrlDraft || undefined,
+        page_key: screenName,
+        screen_name: screenName,
+        source: "manual_screen",
+        metadata
+      });
+    }
+
+    return api.testCases.createLearningCacheEntry({
+      project_id: projectId || undefined,
+      app_type_id: appTypeId || undefined,
+      page_url: screenUrlDraft || undefined,
+      page_key: screenName,
+      screen_name: screenName,
+      object_name: "__screen__",
+      object_role: "screen",
+      locator: "__screen__",
+      locator_kind: "screen",
+      locator_intent: "__screen__",
+      screen_dom_compressed: screenDomDraft ? screenDomDraft.slice(0, 50_000) : undefined,
+      screen_screenshot_url: screenScreenshotDraft || undefined,
+      source: "manual_screen",
+      metadata
+    });
+  };
+
+  const saveRepositoryScreenEvidence = useMutation({
+    mutationFn: persistRepositoryScreenEvidence,
+    onSuccess: () => {
+      showSuccess("Screen details saved.");
+      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+    },
+    onError: (error) => showError(error, "Unable to save screen evidence.")
+  });
+
+  const saveInspectedScreenFields = useMutation({
+    mutationFn: async () => {
+      const fields = [...stagedInspectFields];
+      await persistRepositoryScreenEvidence();
+      const saved = await Promise.all(fields.map((field) => persistRepositoryField(field)));
+      return { count: fields.length, saved };
+    },
+    onSuccess: ({ count, saved }) => {
+      const lastEntry = saved[saved.length - 1];
+      if (lastEntry?.id) {
+        setSelectedRepositoryId(lastEntry.id);
+      }
+      setStagedInspectFields([]);
+      clearInspectHighlights();
+      showSuccess(count
+        ? `Saved screen details and ${count} selected field${count === 1 ? "" : "s"} to the repository.`
+        : "Screen details saved. No fields were selected.");
+      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+    },
+    onError: (error) => showError(error, "Unable to save screen and selected fields.")
+  });
+
+  const extractRepositoryFields = useMutation({
+    mutationFn: async () => {
+      const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+      const response = await api.testCases.extractLearningCacheFields({
+        app_type_id: appTypeId || undefined,
+        screen_name: screenName,
+        page_url: screenUrlDraft || undefined,
+        dom_structure: screenDomDraft || undefined,
+        screenshot_url: screenScreenshotDraft || undefined,
+        business_meaning: screenInfoDraft.business_meaning || undefined,
+        candidate_fields: inspectedFields,
+        integration_id: llmIntegration?.id
+      });
+
+      return response;
+    },
+    onSuccess: (response) => {
+      response.fields.forEach((field) => {
+        stageInspectField({ ...field, source: "ai_extract" });
+        if (inspectRecorderSession?.status === "running") {
+          void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
+        }
+      });
+      setScreenInfoDraft((current) => ({
+        ...current,
+        description: current.description || response.screen_summary || "",
+        business_meaning: current.business_meaning || response.intended_flows.join("; ")
+      }));
+      setScreenExtractionDraft({
+        intendedFlows: response.intended_flows,
+        aiUsed: response.ai_used,
+        fallbackReason: response.fallback_reason || null,
+        extractedAt: new Date().toISOString()
+      });
+      setInspectMessage(response.fallback_used
+        ? `Added ${response.fields.length} DOM-grounded suggestion${response.fields.length === 1 ? "" : "s"} to your selection. Review and save when ready.`
+        : `AI added ${response.fields.length} suggested field${response.fields.length === 1 ? "" : "s"} to your selection. Review and save when ready.`);
+      showInfo("Field suggestions are selected but not saved yet. Remove any unwanted fields before saving.");
+    },
+    onError: (error) => showError(error, "Unable to suggest screen fields.")
+  });
+
+  const addRepositoryField = useMutation({
+    mutationFn: () => {
+      const screenName = newRepositoryFieldDraft.screen_name.trim() || activeScreenName;
+      const objectName = newRepositoryFieldDraft.object_name.trim();
+      const locator = newRepositoryFieldDraft.locator.trim();
+
+      if (!screenName || !objectName || !locator) {
+        throw new Error("Add a screen name, field name, and primary locator.");
+      }
+
       return api.testCases.createLearningCacheEntry({
         project_id: projectId || undefined,
         app_type_id: appTypeId || undefined,
         page_url: screenUrlDraft || undefined,
         page_key: screenName,
         screen_name: screenName,
-        object_name: field.name,
-        object_role: `${field.tag} / ${field.role}`,
-        locator: field.locator,
-        locator_kind: field.locatorKind,
-        locator_intent: field.name,
-        dom_structure: field.dom,
-        screenshot_url: screenScreenshotDraft || undefined,
-        screen_dom_compressed: screenDomDraft ? screenDomDraft.slice(0, 50_000) : undefined,
-        screen_screenshot_url: screenScreenshotDraft || undefined,
-        source: "inspect_ai_extract",
+        object_name: objectName,
+        object_role: newRepositoryFieldDraft.object_role.trim() || "field",
+        locator,
+        locator_kind: newRepositoryFieldDraft.locator_kind.trim() || "css",
+        locator_intent: objectName,
+        source: "manual_repository",
         metadata: {
-          url_pattern_type: repositoryDraft.url_pattern_type || "contains",
-          url_pattern_value: repositoryDraft.url_pattern_value || screenUrlDraft || screenName,
-          screen_fingerprint: repositoryDraft.screen_fingerprint || null,
-          accessibility_tree: repositoryDraft.accessibility_tree || null,
-          description: `${field.name} detected from captured DOM.`,
-          stability_score: field.locator.includes("data-testid") ? 0.95 : 0.75,
-          fallback_locators: field.fallbackLocators,
-          usage_keywords: []
+          url_pattern_type: screenInfoDraft.url_pattern_type || "contains",
+          url_pattern_value: screenInfoDraft.url_pattern_value || screenUrlDraft || screenName,
+          screen_fingerprint: screenInfoDraft.screen_fingerprint || null,
+          accessibility_tree: screenInfoDraft.accessibility_tree || null
         }
       });
     },
     onSuccess: (entry) => {
-      setMessage("Object repository field extracted from screen DOM.");
-      if (entry?.id) setSelectedRepositoryId(entry.id);
+      setIsAddingRepositoryField(false);
+      showSuccess("Object repository field added manually.");
+      if (entry?.id) {
+        setSelectedRepositoryId(entry.id);
+      }
+      setNewRepositoryFieldDraft({
+        screen_name: activeScreenName,
+        object_name: "",
+        object_role: "field",
+        locator: "",
+        locator_kind: "css"
+      });
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to extract repository field.")
+    onError: (error) => showError(error, "Unable to add repository field.")
+  });
+
+  const renameRepositoryScreen = useMutation({
+    mutationFn: () => {
+      if (!activeScreenName || !screenRenameDraft.trim()) {
+        throw new Error("Select a screen and provide a new screen name.");
+      }
+
+      return api.testCases.renameLearningCacheScreen(activeScreenName, {
+        app_type_id: appTypeId || undefined,
+        new_name: screenRenameDraft.trim()
+      });
+    },
+    onSuccess: (response) => {
+      setSelectedScreenName(response.screen_name);
+      setRenamingScreenName("");
+      setScreenInfoDraft((current) => ({ ...current, screen_name: response.screen_name }));
+      showSuccess(`Renamed screen, updated ${response.updated_fields} field reference${response.updated_fields === 1 ? "" : "s"}, and migrated ${response.updated_step_references} step binding${response.updated_step_references === 1 ? "" : "s"}.`);
+      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+    },
+    onError: (error) => showError(error, "Unable to rename repository screen.")
   });
 
   const deleteRepositoryEntry = useMutation({
-    mutationFn: () => {
+    mutationFn: (confirmed: boolean) => {
       if (!selectedRepositoryEntry) {
         throw new Error("Select an object repository field first.");
       }
-      return api.testCases.deleteLearningCacheEntry(selectedRepositoryEntry.id);
+      return api.testCases.deleteLearningCacheEntry(selectedRepositoryEntry.id, confirmed);
     },
     onSuccess: (response) => {
-      if (response.blocked) {
-        setRepositoryUsageBlock({ title: "Field is used by tests", usage: response.usage });
+      if (response.requires_confirmation) {
+        setRepositoryUsageBlock({ title: "Delete field and invalidate automation?", usage: response.usage, kind: "field" });
         return;
       }
-      setMessage("Object repository field deleted.");
+      setRepositoryUsageBlock(null);
+      showSuccess(response.invalidated_cases.length
+        ? `Object repository field deleted. ${response.invalidated_cases.length} automation case${response.invalidated_cases.length === 1 ? " is" : "s are"} now incomplete.`
+        : "Object repository field deleted.");
       setSelectedRepositoryId("");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to delete repository field.")
+    onError: (error) => showError(error, "Unable to delete repository field.")
   });
 
   const deleteRepositoryScreen = useMutation({
-    mutationFn: () => {
+    mutationFn: (confirmed: boolean) => {
       if (!activePageObject) {
         throw new Error("Select a screen first.");
       }
-      return api.testCases.deleteLearningCacheScreen(activePageObject.screenName, { app_type_id: appTypeId || undefined });
+      return api.testCases.deleteLearningCacheScreen(activePageObject.screenName, {
+        app_type_id: appTypeId || undefined,
+        ...(confirmed ? { confirm: "true" } : {})
+      });
     },
     onSuccess: (response) => {
-      if (response.blocked) {
-        setRepositoryUsageBlock({ title: "Screen is used by tests", usage: response.usage });
+      if (response.requires_confirmation) {
+        setRepositoryUsageBlock({ title: "Delete screen and invalidate automation?", usage: response.usage, kind: "screen" });
         return;
       }
-      setMessage("Object repository screen deleted.");
+      setRepositoryUsageBlock(null);
+      showSuccess(response.invalidated_cases.length
+        ? `Object repository screen deleted. ${response.invalidated_cases.length} automation case${response.invalidated_cases.length === 1 ? " is" : "s are"} now incomplete.`
+        : "Object repository screen deleted.");
       setSelectedScreenName("");
       setSelectedRepositoryId("");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+      void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to delete repository screen.")
+    onError: (error) => showError(error, "Unable to delete repository screen.")
   });
 
   const improveRepositoryEntry = useMutation({
@@ -1689,11 +2169,11 @@ export function AutomationPage() {
       });
     },
     onSuccess: (response) => {
-      setMessage(response.fallback_used ? `Repository improved with deterministic fallback: ${response.fallback_reason || "AI unavailable"}` : "AI improved the object repository field.");
+      showSuccess(response.fallback_used ? `Repository improved with deterministic fallback: ${response.fallback_reason || "AI unavailable"}` : "AI improved the object repository field.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to improve repository field.")
+    onError: (error) => showError(error, "Unable to improve repository field.")
   });
 
   const validateRepositoryEntry = useMutation({
@@ -1718,11 +2198,11 @@ export function AutomationPage() {
       });
     },
     onSuccess: () => {
-      setMessage("Locator marked as validated and recorded in field history.");
+      showSuccess("Locator marked as validated and recorded in field history.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to validate repository field.")
+    onError: (error) => showError(error, "Unable to validate repository field.")
   });
 
   const startRecorder = useMutation({
@@ -1736,16 +2216,19 @@ export function AutomationPage() {
         recorder_mode: options.recorder_mode,
         recorder_target: options.recorder_target,
         engine_base_url: options.engine_base_url,
-        recorder_public_base_url: options.recorder_public_base_url
+        recorder_public_base_url: options.recorder_public_base_url,
+        reuse_existing: options.recorder_mode === "local" && options.recorder_target === "web"
       });
     },
     onSuccess: (response, options) => {
       setRecorderSession(response);
       setRecorderStartOptions(options);
-      setMessage(response.live_view_url ? "Local Playwright recorder is active and learning repository objects." : "Recorder started.");
+      showSuccess(response.reused
+        ? "Reused the open local Playwright browser and started a fresh repository capture."
+        : response.live_view_url ? "Local Playwright recorder is active and learning repository objects." : "Recorder started.");
       invalidateAutomationData();
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to start local Playwright recorder.")
+    onError: (error) => showError(error, "Unable to start local Playwright recorder.")
   });
 
   const finishRecorder = useMutation({
@@ -1763,7 +2246,7 @@ export function AutomationPage() {
       });
     },
     onSuccess: (response) => {
-      setMessage(
+      showSuccess(
         response.generated_step_count
           ? `Captured ${response.learned_locator_count} repository object${response.learned_locator_count === 1 ? "" : "s"} and updated ${response.generated_step_count} automation step${response.generated_step_count === 1 ? "" : "s"}.`
           : "Recorder stopped. No supported interactions were captured."
@@ -1772,15 +2255,15 @@ export function AutomationPage() {
       setRecorderStartOptions(null);
       invalidateAutomationData();
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Unable to finish recorder session.")
+    onError: (error) => showError(error, "Unable to finish recorder session.")
   });
 
   const loadInspectTabs = async (sessionOverride?: RecorderSessionResponse | null) => {
-    const targetSession = sessionOverride || recorderSession;
+    const targetSession = sessionOverride || inspectRecorderSession;
     const baseUrl = getRecorderEngineBaseUrl(targetSession);
 
     if (!targetSession?.id || !baseUrl) {
-      throw new Error("Start a local recorder browser before selecting a tab.");
+      throw new Error("Connect an inspection browser before selecting a tab.");
     }
 
     let response;
@@ -1806,41 +2289,81 @@ export function AutomationPage() {
   };
 
   const launchInspectBrowser = async () => {
-    setInspectMessage("Opening local Playwright browser for inspection...");
-    const activeSession = recorderSession?.status === "running"
-      ? recorderSession
-      : await startRecorder.mutateAsync({
-          recorder_mode: "local",
-          recorder_target: "web",
-          engine_base_url: "http://host.docker.internal:4311",
-          recorder_public_base_url: "http://localhost:4311"
-        });
+    setIsLaunchingInspectBrowser(true);
+    setInspectMessage("Looking for an existing local inspection browser on ports 4311 and 4301...");
 
-    const tabs = await loadInspectTabs(activeSession);
-    setInspectMessage(tabs.length ? "Choose a tab, then start inspect and click a field in the browser." : "Browser is open. Navigate to a page, then refresh tabs.");
+    try {
+      if (inspectRecorderSession?.status === "running") {
+        const tabs = await loadInspectTabs(inspectRecorderSession);
+        setInspectMessage(tabs.length
+          ? "Using the connected inspection browser. Select a tab to capture or highlight fields."
+          : "Inspection browser is connected. Navigate to a page, then refresh tabs.");
+        return inspectRecorderSession;
+      }
+
+      const runtime = await discoverLocalInspectRuntime();
+      if (!runtime) {
+        throw new Error("No local QAira recorder was found on localhost:4311 or localhost:4301. Start the local recorder or Test Engine, then launch browser again.");
+      }
+
+      const session = await readRecorderJson<RecorderSessionResponse>(`${runtime.publicBaseUrl}/api/v1/recorder/sessions`, {
+        method: "POST",
+        body: JSON.stringify({
+          start_url: screenUrlDraft || undefined,
+          reuse_existing: true,
+          purpose: "repository-inspect"
+        })
+      });
+      if (!session) {
+        throw new Error("The local recorder did not return an inspection browser session.");
+      }
+      const connectedSession = connectLocalInspectSession(runtime, session);
+      setInspectRecorderSession(connectedSession);
+      const tabs = await loadInspectTabs(connectedSession);
+      const reused = session.reused || runtime.reusableSessions > 0;
+      setInspectMessage(tabs.length
+        ? `${reused ? "Reused" : "Opened"} the ${runtime.label} browser for repository inspection. Select a tab, then inspect or highlight fields.`
+        : `${reused ? "Reused" : "Opened"} the ${runtime.label} browser. Navigate to a page, then refresh tabs.`);
+      return connectedSession;
+    } finally {
+      setIsLaunchingInspectBrowser(false);
+    }
   };
 
   const persistLiveInspectResult = async (result: RecorderInspectResult) => {
-    const screenName = inferScreenName(result.page_title, result.page_url) || selectedScreenName || repositoryDraft.screen_name || "Screen";
+    const screenName = selectedScreenName || screenInfoDraft.screen_name.trim() || inferScreenName(result.page_title, result.page_url) || "Screen";
     const urlPattern = inferUrlPattern(result.page_url);
     const candidates = getCapturedLocators(result);
-    const field = {
+    const field: RepositoryExtractedField = {
       name: result.element.friendly_name,
       tag: result.element.html_tag,
       role: result.element.role,
       locator: candidates[0].locator,
       locatorKind: candidates[0].strategy,
       dom: result.element.dom_structure,
-      fallbackLocators: candidates.slice(1)
+      fallbackLocators: candidates.slice(1),
+      source: "live_inspect",
+      pageUrl: result.page_url,
+      targetCriteria: result.element.text,
+      elementScreenshotUrl: result.element_screenshot_url,
+      ancestorScreenshotUrl: result.ancestor_screenshot_url,
+      ancestorDom: result.element.ancestor_dom,
+      description: `${result.element.friendly_name} captured during live inspection.`
     };
 
-    setLastInspectResult(result);
     setScreenUrlDraft(result.page_url || screenUrlDraft);
     setScreenDomDraft(result.screen_dom || screenDomDraft);
     setScreenScreenshotDraft(result.screen_screenshot_url || screenScreenshotDraft);
-    setRepositoryDraft((current) => ({
+    setScreenInfoDraft((current) => ({
       ...current,
       screen_name: screenName,
+      url_pattern_type: urlPattern.type,
+      url_pattern_value: urlPattern.value,
+      screen_fingerprint: result.screen_fingerprint || current.screen_fingerprint,
+      accessibility_tree: result.accessibility_tree || current.accessibility_tree
+    }));
+    setRepositoryDraft((current) => ({
+      ...current,
       object_name: field.name,
       object_role: `${field.tag} / ${field.role}`,
       locator: field.locator,
@@ -1848,10 +2371,6 @@ export function AutomationPage() {
       target_criteria: result.element.text || current.target_criteria,
       dom_structure: field.dom,
       screenshot_url: result.element_screenshot_url || current.screenshot_url,
-      url_pattern_type: urlPattern.type,
-      url_pattern_value: urlPattern.value,
-      screen_fingerprint: result.screen_fingerprint || current.screen_fingerprint,
-      accessibility_tree: result.accessibility_tree || current.accessibility_tree,
       fallback_locators: formatLocatorDraft(candidates),
       ancestor_dom: result.element.ancestor_dom || current.ancestor_dom,
       ancestor_screenshot_url: result.ancestor_screenshot_url || current.ancestor_screenshot_url,
@@ -1861,71 +2380,17 @@ export function AutomationPage() {
       fallback_strategy: current.fallback_strategy || "Use the captured screen screenshot and nearby DOM only after locator retries fail."
     }));
 
-    try {
-      const existingField = learningCache.find((entry) =>
-        (getScreenName(entry) === screenName || (result.page_url && entry.page_url === result.page_url))
-        && entry.locator === field.locator
-      );
-      const captureMetadata = {
-        ...(existingField?.metadata || {}),
-        url_pattern_type: urlPattern.type,
-        url_pattern_value: urlPattern.value,
-        screen_fingerprint: result.screen_fingerprint || null,
-        accessibility_tree: result.accessibility_tree || null,
-        ancestor_dom: result.element.ancestor_dom || null,
-        ancestor_screenshot_url: result.ancestor_screenshot_url || null,
-        element_screenshot_url: result.element_screenshot_url || null,
-        description: `${field.name} captured during live inspection.`,
-        stability_score: candidates[0].confidenceScore,
-        fallback_locators: field.fallbackLocators,
-        usage_keywords: Array.isArray(existingField?.metadata?.usage_keywords) ? existingField.metadata.usage_keywords : [],
-        screen_dom_compressed: result.screen_dom ? result.screen_dom.slice(0, 50_000) : null,
-        screen_screenshot_url: result.screen_screenshot_url || null
-      };
-      const capturedField = {
-        project_id: projectId || undefined,
-        app_type_id: appTypeId || undefined,
-        page_url: result.page_url || undefined,
-        page_key: screenName,
-        screen_name: screenName,
-        object_name: field.name,
-        object_role: `${field.tag} / ${field.role}`,
-        locator: field.locator,
-        locator_kind: field.locatorKind,
-        locator_intent: field.name,
-        dom_structure: field.dom,
-        screenshot_url: result.element_screenshot_url || undefined,
-        fallback_strategy: "Use the captured screen screenshot and nearby DOM only after locator retries fail.",
-        screen_dom_compressed: result.screen_dom ? result.screen_dom.slice(0, 50_000) : undefined,
-        screen_screenshot_url: result.screen_screenshot_url || undefined,
-        source: "live_inspect",
-        metadata: captureMetadata
-      };
-      const entry = existingField
-        ? await api.testCases.updateLearningCacheEntry(existingField.id, capturedField)
-        : await api.testCases.createLearningCacheEntry(capturedField);
-
-      if (entry?.id) {
-        setSelectedRepositoryId(entry.id);
-      }
-      setSelectedScreenName(screenName);
-      setInspectMessage(`Captured ${field.name} and ${existingField ? "refreshed its repository evidence" : "saved it to the object repository"}.`);
-      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
-      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
-    } catch (error) {
-      setInspectMessage(error instanceof Error ? error.message : "Captured the field, but could not save it automatically.");
-    }
+    setSelectedScreenName(screenName);
+    stageInspectField(field);
+    await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => {
+      setInspectMessage(error instanceof Error ? error.message : "Selected the field, but could not keep it highlighted in the browser.");
+    });
   };
 
   const startLiveInspect = async () => {
-    const targetSession = recorderSession?.status === "running"
-      ? recorderSession
-      : await startRecorder.mutateAsync({
-          recorder_mode: "local",
-          recorder_target: "web",
-          engine_base_url: "http://host.docker.internal:4311",
-          recorder_public_base_url: "http://localhost:4311"
-        });
+    const targetSession = inspectRecorderSession?.status === "running"
+      ? inspectRecorderSession
+      : await launchInspectBrowser();
     const baseUrl = getRecorderEngineBaseUrl(targetSession);
 
     if (!targetSession?.id || !baseUrl) {
@@ -1942,13 +2407,68 @@ export function AutomationPage() {
       body: JSON.stringify({ page_id: pageId || undefined })
     });
     setSelectedInspectTabId(pageId || "");
-    setLastInspectResult(null);
     setIsInspectingLiveField(true);
     setInspectMessage("Inspect is armed. Click any field in the selected browser tab; QAira will capture DOM and screenshot automatically.");
   };
 
+  const highlightRepositoryLocator = async (
+    locator: string,
+    label: string,
+    entryId = "",
+    options: { retainExisting?: boolean; silent?: boolean } = {}
+  ) => {
+    setIsInspectOpen(true);
+    const targetSession = inspectRecorderSession?.status === "running"
+      ? inspectRecorderSession
+      : await launchInspectBrowser();
+    const baseUrl = getRecorderEngineBaseUrl(targetSession);
+    const tabs = inspectTabs.length ? inspectTabs : await loadInspectTabs(targetSession);
+    const pageId = selectedInspectTabId || tabs.find((tab) => tab.active)?.id || tabs[0]?.id || "";
+
+    if (!targetSession?.id || !baseUrl || !pageId) {
+      throw new Error("Select an open browser tab before highlighting a repository field.");
+    }
+
+    await readRecorderJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(targetSession.id)}/highlight`, {
+      method: "POST",
+      body: JSON.stringify({ page_id: pageId, locator, label, retain_existing: options.retainExisting === true })
+    });
+    setSelectedInspectTabId(pageId);
+    setHighlightedRepositoryId(entryId);
+    if (!options.silent) {
+      setInspectMessage(`Highlighted ${label} in the selected browser tab.`);
+    }
+  };
+
+  const syncStagedHighlights = async (fields: RepositoryExtractedField[]) => {
+    if (!inspectRecorderSession?.id) {
+      return;
+    }
+    const baseUrl = getRecorderEngineBaseUrl(inspectRecorderSession);
+    const pageId = selectedInspectTabId || inspectTabs.find((tab) => tab.active)?.id || inspectTabs[0]?.id || "";
+    if (!baseUrl || !pageId) {
+      return;
+    }
+    await readRecorderJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(inspectRecorderSession.id)}/highlight`, {
+      method: "POST",
+      body: JSON.stringify({ page_id: pageId, clear_existing: true })
+    }).catch(() => null);
+    for (const field of fields) {
+      await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
+    }
+  };
+
+  const removeStagedInspectField = (locator: string) => {
+    const next = stagedInspectFields.filter((field) => field.locator !== locator);
+    setStagedInspectFields(next);
+    setInspectMessage(next.length
+      ? `${next.length} selected field${next.length === 1 ? "" : "s"} remain. Save when the selection is correct.`
+      : "No fields selected. Inspect or choose suggested fields before saving.");
+    void syncStagedHighlights(next);
+  };
+
   useEffect(() => {
-    if (!isInspectOpen || recorderSession?.status !== "running" || !recorderSession.id) {
+    if (!isInspectOpen || inspectRecorderSession?.status !== "running" || !inspectRecorderSession.id) {
       return undefined;
     }
 
@@ -1969,14 +2489,14 @@ export function AutomationPage() {
       isCancelled = true;
       window.clearInterval(interval);
     };
-  }, [isInspectOpen, recorderSession?.id, recorderSession?.status]);
+  }, [isInspectOpen, inspectRecorderSession?.id, inspectRecorderSession?.status]);
 
   useEffect(() => {
-    if (!isInspectingLiveField || !recorderSession?.id) {
+    if (!isInspectingLiveField || !inspectRecorderSession?.id) {
       return undefined;
     }
 
-    const baseUrl = getRecorderEngineBaseUrl(recorderSession);
+    const baseUrl = getRecorderEngineBaseUrl(inspectRecorderSession);
 
     if (!baseUrl) {
       return undefined;
@@ -1986,7 +2506,7 @@ export function AutomationPage() {
       void (async () => {
         const query = selectedInspectTabId ? `?page_id=${encodeURIComponent(selectedInspectTabId)}` : "";
         const result = await readRecorderJson<RecorderInspectResult>(
-          `${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(recorderSession.id)}/inspect/result${query}`
+          `${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(inspectRecorderSession.id)}/inspect/result${query}`
         ).catch((error) => {
           setInspectMessage(error instanceof Error ? error.message : "Unable to read inspect result.");
           return null;
@@ -2000,7 +2520,7 @@ export function AutomationPage() {
     }, 1200);
 
     return () => window.clearInterval(interval);
-  }, [isInspectingLiveField, recorderSession, selectedInspectTabId]);
+  }, [isInspectingLiveField, inspectRecorderSession, selectedInspectTabId]);
 
   return (
     <div className="page-content page-content--automation">
@@ -2047,7 +2567,7 @@ export function AutomationPage() {
         projects={projects}
       />
 
-      {message ? <div className="empty-state compact">{message}</div> : null}
+      <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
       {view === "cases" ? (
         <WorkspaceMasterDetail
@@ -2055,56 +2575,18 @@ export function AutomationPage() {
           isDetailOpen={isAutomationCaseWorkspaceOpen}
           browseView={(
           <Panel
-            title="Automation case tiles"
-            subtitle="Every case appears as a tile. Open a tile to review description, keyword steps, and run history in the same rhythm as Test Cases."
+            title="Automated manual cases"
+            subtitle="Each tile is the original manual case with executable keywords attached. Open it to review bindings and run history."
             actions={(
-              <button className="primary-button" onClick={() => setIsCreatingAutomationCase(true)} type="button">
+              <button className="primary-button" onClick={() => navigate("/test-cases")} type="button">
                 <AddIcon />
-                <span>New automation case</span>
+                <span>Choose manual case</span>
               </button>
             )}
           >
-            {isCreatingAutomationCase ? (
-              <form
-                className="automation-create-card"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  createAutomationCase.mutate();
-                }}
-              >
-                <label className="form-field">
-                  <span>Case title</span>
-                  <input autoFocus value={automationDraft.title} onChange={(event) => setAutomationDraft((current) => ({ ...current, title: event.target.value }))} />
-                </label>
-                <label className="form-field">
-                  <span>Description</span>
-                  <textarea rows={3} value={automationDraft.description} onChange={(event) => setAutomationDraft((current) => ({ ...current, description: event.target.value }))} />
-                </label>
-                <label className="form-field">
-                  <span>Start URL</span>
-                  <input placeholder="https://app.example.com/login" value={automationDraft.start_url} onChange={(event) => setAutomationDraft((current) => ({ ...current, start_url: event.target.value }))} />
-                </label>
-                <label className="form-field">
-                  <span>First keyword step</span>
-                  <textarea placeholder={'await web.fill("Login.email", "@t.userEmail");'} rows={3} value={automationDraft.keyword_step} onChange={(event) => setAutomationDraft((current) => ({ ...current, keyword_step: event.target.value }))} />
-                </label>
-                <label className="form-field">
-                  <span>Expected result</span>
-                  <input value={automationDraft.expected_result} onChange={(event) => setAutomationDraft((current) => ({ ...current, expected_result: event.target.value }))} />
-                </label>
-                <div className="testops-action-row">
-                  <button className="primary-button" disabled={createAutomationCase.isPending} type="submit">
-                    <AddIcon />
-                    <span>{createAutomationCase.isPending ? "Creating..." : "Create case"}</span>
-                  </button>
-                  <button className="ghost-button" onClick={() => setIsCreatingAutomationCase(false)} type="button">Cancel</button>
-                </div>
-              </form>
-            ) : null}
-
             {testCasesQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
             {!testCasesQuery.isLoading && !automatedCases.length ? (
-              <div className="empty-state compact">No cases yet. Create a new automation case or generate automation from a manual case.</div>
+              <div className="empty-state compact">No manual cases have automation attached yet. Choose a manual case, then build keywords or record its flow.</div>
             ) : null}
             {!testCasesQuery.isLoading && automatedCases.length ? (
               <TileBrowserPane className="automation-case-tile-browser">
@@ -2115,8 +2597,6 @@ export function AutomationPage() {
                     const passedRuns = history.filter((result) => result.status === "passed").length;
                     const passRate = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
                     const isActive = activeCase?.id === testCase.id;
-                    const linkedManualTitle = manualCaseLinks[testCase.id] ? testCases.find((item) => item.id === manualCaseLinks[testCase.id])?.title : "";
-
                     return (
                       <div
                         aria-pressed={isActive}
@@ -2143,7 +2623,7 @@ export function AutomationPage() {
                             <DisplayIdBadge value={automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id} />
                             <div className="catalog-inline-actions test-case-top-actions">
                               <StatusBadge value="automated" />
-                              <StatusBadge value={latest?.status || testCase.status || "ready"} />
+                              <StatusBadge value={testCase.automation_status || "ready"} />
                             </div>
                           </div>
                           <div className="tile-card-header">
@@ -2155,9 +2635,9 @@ export function AutomationPage() {
                               <strong>{testCase.title}</strong>
                             </div>
                           </div>
-                          <p className="tile-card-description">{linkedManualTitle ? `Linked manual case: ${linkedManualTitle}` : testCase.description || "No description yet for this automation case."}</p>
+                          <p className="tile-card-description">{testCase.description || "Automation is mapped to the original manual case definition."}</p>
                           <div className="tile-card-facts">
-                            <TileCardFact label="Automated" title="Automation state" tone="success"><SparkIcon /></TileCardFact>
+                            <TileCardFact label={testCase.automation_status === "incomplete" ? "Incomplete" : "Ready"} title="Automation state" tone={testCase.automation_status === "incomplete" ? "neutral" : "success"}><SparkIcon /></TileCardFact>
                             <TileCardFact label={`${history.length} runs`} title="Recent run history" tone={history.length ? "info" : "neutral"}><TileCardRunsIcon /></TileCardFact>
                             <TileCardFact label={`P${testCase.priority || 3}`} title="Priority"><TileCardStepsIcon /></TileCardFact>
                           </div>
@@ -2183,7 +2663,7 @@ export function AutomationPage() {
             actions={activeCase ? (
               <div className="testops-action-row">
                 <WorkspaceBackButton label="Back to automation case tiles" onClick={closeAutomationCaseWorkspace} />
-                <button className="primary-button" disabled={runCase.isPending || activeCase.automated !== "yes"} onClick={() => runCase.mutate({ testCase: activeCase })} type="button">
+                <button className="primary-button" disabled={runCase.isPending || activeCase.automated !== "yes" || activeCase.automation_status === "incomplete"} onClick={() => runCase.mutate({ testCase: activeCase })} type="button">
                   <PlayIcon />
                   <span>{runCase.isPending ? "Starting..." : "Run automated"}</span>
                 </button>
@@ -2204,13 +2684,13 @@ export function AutomationPage() {
                   countLabel={automationDisplayIdByCaseId[activeCase.id] || activeCase.display_id || "AT"}
                   isExpanded={expandedCaseSections.case}
                   onToggle={() => toggleCaseSection("case")}
-                  summary={linkedManualCase ? `Linked to ${linkedManualCase.title}` : "Description, parameters, priority, and manual case linkage."}
+                  summary="Automation is stored on this original manual case with its parameters, suites, and priority."
                   title="Test case"
                 >
                   <div className="automation-description-panel">
                     <div className="automation-case-editor-grid">
                       <label className="form-field">
-                        <span>Automation case name</span>
+                        <span>Manual case name</span>
                         <input value={caseDraft.title} onChange={(event) => setCaseDraft((current) => ({ ...current, title: event.target.value }))} />
                       </label>
                       <label className="form-field">
@@ -2223,21 +2703,10 @@ export function AutomationPage() {
                       </label>
                     </div>
                     <div className="automation-manual-link-panel">
-                      <label className="form-field">
-                        <span>Linked manual case</span>
-                        <select value={manualCaseLinks[activeCase.id] || ""} onChange={(event) => setManualCaseLink(activeCase.id, event.target.value)}>
-                          <option value="">No manual case linked</option>
-                          {manualCases.map((testCase) => (
-                            <option key={testCase.id} value={testCase.id}>{testCase.display_id || testCase.title} · {testCase.title}</option>
-                          ))}
-                        </select>
-                      </label>
-                      {linkedManualCase ? (
-                        <button className="automation-linked-manual-card automation-linked-manual-card--button" onClick={() => openLinkedManualCase(linkedManualCase.id)} type="button">
-                          <strong>{linkedManualCase.title}</strong>
-                          <span>{linkedManualCase.display_id || "Manual case"} · {linkedManualCase.status || "ready"} · Open manual case</span>
-                        </button>
-                      ) : null}
+                      <button className="automation-linked-manual-card automation-linked-manual-card--button" onClick={() => openLinkedManualCase(activeCase.id)} type="button">
+                        <strong>Original manual case</strong>
+                        <span>{activeCase.display_id || activeCase.id} · automation is attached directly to this case · Open manual authoring</span>
+                      </button>
                     </div>
                     <label className="form-field">
                       <span>Description</span>
@@ -2339,7 +2808,7 @@ export function AutomationPage() {
                       </button>
                       <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
                         <TrashIcon size={16} />
-                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete automation case"}</span>
+                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete test case"}</span>
                       </button>
                     </div>
                   </div>
@@ -2386,10 +2855,8 @@ export function AutomationPage() {
                               <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
                               <button className="automation-step-tool-button is-primary" disabled={updateAutomationStep.isPending} onClick={() => updateAutomationStep.mutate(step)} title="Save step" type="button">Save</button>
                               <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(buildAutomationCodeFromDraft(draft))} title="Copy keyword" type="button"><CopyIcon size={15} /></button>
-                              {linkedManualCase ? (
-                                <button className="automation-step-tool-button" onClick={() => openLinkedManualCase(linkedManualCase.id)} title="Open linked manual case" type="button"><OpenIcon size={15} /></button>
-                              ) : null}
-                              <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step.id)} title="Delete step" type="button"><TrashIcon size={15} /></button>
+                              <button className="automation-step-tool-button" onClick={() => openLinkedManualCase(activeCase.id)} title="Open manual case" type="button"><OpenIcon size={15} /></button>
+                              <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} title="Remove automation from step" type="button"><TrashIcon size={15} /></button>
                             </div>
                           </div>
                           {isExpanded ? (
@@ -2435,15 +2902,13 @@ export function AutomationPage() {
                                   <CopyIcon size={16} />
                                   <span>Copy keyword</span>
                                 </button>
-                                {linkedManualCase ? (
-                                  <button className="ghost-button compact" onClick={() => openLinkedManualCase(linkedManualCase.id)} type="button">
-                                    <OpenIcon size={16} />
-                                    <span>Open manual case</span>
-                                  </button>
-                                ) : null}
-                                <button className="ghost-button compact" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step.id)} type="button">
+                                <button className="ghost-button compact" onClick={() => openLinkedManualCase(activeCase.id)} type="button">
+                                  <OpenIcon size={16} />
+                                  <span>Open manual case</span>
+                                </button>
+                                <button className="ghost-button compact" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} type="button">
                                   <TrashIcon size={16} />
-                                  <span>{deleteAutomationStep.isPending ? "Deleting..." : "Delete"}</span>
+                                  <span>{deleteAutomationStep.isPending ? "Removing..." : "Remove automation"}</span>
                                 </button>
                               </div>
                               <div className="automation-step-options-panel" aria-label={`Step ${step.step_order} execution options`}>
@@ -2527,7 +2992,7 @@ export function AutomationPage() {
                               <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
                               <button className="automation-step-tool-button is-primary" disabled={updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} title="Save code" type="button">Save</button>
                               <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(codeDraft)} title="Copy code" type="button"><CopyIcon size={15} /></button>
-                              <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step.id)} title="Delete step" type="button"><TrashIcon size={15} /></button>
+                              <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} title="Remove automation from step" type="button"><TrashIcon size={15} /></button>
                             </div>
                           </div>
                           {isExpanded ? (
@@ -2555,9 +3020,9 @@ export function AutomationPage() {
                                   <CopyIcon size={16} />
                                   <span>Copy code</span>
                                 </button>
-                                <button className="ghost-button compact" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step.id)} type="button">
+                                <button className="ghost-button compact" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} type="button">
                                   <TrashIcon size={16} />
-                                  <span>{deleteAutomationStep.isPending ? "Deleting..." : "Delete"}</span>
+                                  <span>{deleteAutomationStep.isPending ? "Removing..." : "Remove automation"}</span>
                                 </button>
                               </div>
                               <div className="automation-step-options-panel" aria-label={`Step ${step.step_order} execution options`}>
@@ -2690,26 +3155,34 @@ export function AutomationPage() {
               <div className="testops-action-row">
                 <button className="ghost-button" onClick={() => {
                   setIsInspectOpen(true);
-                  setInspectMessage(recorderSession?.status === "running" ? "Loading open browser tabs..." : "");
+                  setInspectMessage(inspectRecorderSession?.status === "running" ? "Loading open browser tabs..." : "Connect a local browser to inspect a screen or highlight saved fields.");
                 }} type="button">
                   <MousePointerIcon />
-                  <span>Inspect / AI extract</span>
+                  <span>Inspect screen</span>
                 </button>
-                <button
-                  className="ghost-button"
-                  disabled={!repositoryContextQuery.data}
-                  onClick={() => {
-                    if (repositoryContextQuery.data) {
-                      void navigator.clipboard?.writeText(JSON.stringify(repositoryContextQuery.data, null, 2));
-                      setMessage("Structured UI repository context copied for automation agents.");
-                    }
-                  }}
-                  type="button"
-                >
-                  <CopyIcon size={16} />
-                  <span>Copy agent context</span>
+                <button className="ghost-button" onClick={() => {
+                  setIsAddingRepositoryScreen((current) => !current);
+                  setIsAddingRepositoryField(false);
+                }} type="button">
+                  <AddIcon />
+                  <span>Add screen</span>
                 </button>
-                <button className="ghost-button danger" disabled={!activePageObject || deleteRepositoryScreen.isPending} onClick={() => deleteRepositoryScreen.mutate()} type="button">
+                <label className={isParsingRepositoryImport ? "ghost-button repository-import-trigger is-disabled" : "ghost-button repository-import-trigger"}>
+                  <ImportIcon />
+                  <span>{isParsingRepositoryImport ? "Reading..." : "Import"}</span>
+                  <input
+                    accept=".csv,.zip,.js,.jsx,.ts,.tsx,.java,.cs,text/csv,application/zip"
+                    disabled={isParsingRepositoryImport}
+                    multiple
+                    onChange={(event) => void handleRepositoryImportFiles(event)}
+                    type="file"
+                  />
+                </label>
+                <button className="ghost-button" disabled={!appTypeId || exportRepositoryCsv.isPending} onClick={() => exportRepositoryCsv.mutate()} type="button">
+                  <ExportIcon />
+                  <span>{exportRepositoryCsv.isPending ? "Exporting..." : "Export CSV"}</span>
+                </button>
+                <button className="ghost-button danger" disabled={!activePageObject || deleteRepositoryScreen.isPending} onClick={() => deleteRepositoryScreen.mutate(false)} type="button">
                   <TrashIcon size={16} />
                   <span>{deleteRepositoryScreen.isPending ? "Checking..." : "Delete screen"}</span>
                 </button>
@@ -2717,64 +3190,201 @@ export function AutomationPage() {
             )}
           >
             {learningCacheQuery.isLoading ? <TileCardSkeletonGrid /> : null}
+            {repositoryImportPreview ? (
+              <div className="automation-create-card repository-import-review">
+                <div className="object-repository-inspector-section-head">
+                  <strong>Review repository import</strong>
+                  <span>Source files and ZIP archives are processed locally. Saving sends normalized screens and fields in small batches and merges existing members by name or locator.</span>
+                </div>
+                <div className="repository-import-metrics">
+                  <StatusBadge value={`${repositoryImportPreview.entries.filter((entry) => entry.record_type === "screen").length} screens`} />
+                  <StatusBadge value={`${repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length} fields`} />
+                  <StatusBadge value={`${repositoryImportPreview.fileNames.length} source files`} />
+                </div>
+                <div className="repository-import-preview-list">
+                  {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").slice(0, 8).map((entry) => (
+                    <article key={`${entry.screen_name}-${entry.object_name}-${entry.locator}`}>
+                      <strong>{entry.screen_name}.{entry.object_name}</strong>
+                      <code>{entry.locator}</code>
+                    </article>
+                  ))}
+                  {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length > 8 ? (
+                    <small>And {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length - 8} more fields.</small>
+                  ) : null}
+                </div>
+                {repositoryImportPreview.warnings.length ? (
+                  <div className="repository-import-warnings">
+                    {repositoryImportPreview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                  </div>
+                ) : null}
+                <div className="testops-action-row">
+                  <button className="primary-button" disabled={!repositoryImportPreview.entries.length || importRepositoryEntries.isPending} onClick={() => importRepositoryEntries.mutate()} type="button">
+                    <ImportIcon />
+                    <span>{importRepositoryEntries.isPending ? "Importing..." : "Import selected repository data"}</span>
+                  </button>
+                  <button className="ghost-button" disabled={importRepositoryEntries.isPending} onClick={() => setRepositoryImportPreview(null)} type="button">Cancel</button>
+                </div>
+              </div>
+            ) : null}
+            {isAddingRepositoryScreen ? (
+              <div className="automation-create-card repository-screen-create-card">
+                <div className="object-repository-inspector-section-head">
+                  <strong>Add repository screen</strong>
+                  <span>Define the page identity now, then inspect live or extract intended fields from DOM and screenshot evidence.</span>
+                </div>
+                <div className="record-grid testops-builder-form">
+                  <label className="form-field"><span>Screen name</span><input value={newRepositoryScreenDraft.screen_name} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Checkout Page" /></label>
+                  <label className="form-field"><span>Page URL</span><input value={newRepositoryScreenDraft.page_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, page_url: event.target.value }))} placeholder="https://app.example.com/checkout" /></label>
+                  <label className="form-field">
+                    <span>URL match rule</span>
+                    <div className="repository-url-rule">
+                      <select value={newRepositoryScreenDraft.url_pattern_type} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select>
+                      <input value={newRepositoryScreenDraft.url_pattern_value} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/checkout" />
+                    </div>
+                  </label>
+                  <label className="form-field"><span>Screenshot URL / data URL</span><input value={newRepositoryScreenDraft.screenshot_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screenshot_url: event.target.value }))} placeholder="Captured during inspect when blank" /></label>
+                  <label className="form-field repository-span-two"><span>Purpose and intended flow</span><textarea rows={3} value={newRepositoryScreenDraft.business_meaning} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Customer reviews cart, enters payment, and submits an order." /></label>
+                  <label className="form-field repository-span-two"><span>Description</span><textarea rows={2} value={newRepositoryScreenDraft.description} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Page context used when selecting stable fields." /></label>
+                  <label className="form-field repository-span-two"><span>DOM / accessibility structure</span><textarea rows={6} value={newRepositoryScreenDraft.dom_structure} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, dom_structure: event.target.value }))} placeholder="<main><input aria-label='Card number' />...</main>" /></label>
+                </div>
+                <div className="testops-action-row">
+                  <button className="primary-button" disabled={addRepositoryScreen.isPending} onClick={() => addRepositoryScreen.mutate()} type="button"><MousePointerIcon /><span>{addRepositoryScreen.isPending ? "Saving..." : "Save and inspect"}</span></button>
+                  <button className="ghost-button" onClick={() => setIsAddingRepositoryScreen(false)} type="button">Cancel</button>
+                </div>
+              </div>
+            ) : null}
             {!learningCacheQuery.isLoading && !groupedRepository.length ? (
               <div className="empty-state compact">No repository objects have been learned for this scope yet.</div>
             ) : null}
             <div className="pom-workspace">
               <aside className="pom-page-list" aria-label="Repository pages">
                 {pageObjectModels.map((page) => (
-                  <button className={activePageObject?.screenName === page.screenName ? "is-active" : ""} key={page.screenName} onClick={() => setSelectedScreenName(page.screenName)} type="button">
-                    <strong>{page.pageName}</strong>
-                    <span>{page.members.length} members · {page.url}</span>
-                  </button>
+                  <div className={activePageObject?.screenName === page.screenName ? "pom-page-item is-active" : "pom-page-item"} key={page.screenName}>
+                    {renamingScreenName === page.screenName ? (
+                      <form className="pom-page-rename-form" onSubmit={(event) => {
+                        event.preventDefault();
+                        renameRepositoryScreen.mutate();
+                      }}>
+                        <input aria-label={`Rename ${page.pageName}`} autoFocus onChange={(event) => setScreenRenameDraft(event.target.value)} value={screenRenameDraft} />
+                        <button className="primary-button compact" disabled={!screenRenameDraft.trim() || screenRenameDraft.trim() === activeScreenName || renameRepositoryScreen.isPending} type="submit">
+                          {renameRepositoryScreen.isPending ? "Saving..." : "Save"}
+                        </button>
+                        <button className="ghost-button compact" disabled={renameRepositoryScreen.isPending} onClick={() => setRenamingScreenName("")} type="button">Cancel</button>
+                      </form>
+                    ) : (
+                      <>
+                        <button className="pom-page-select" onClick={() => setSelectedScreenName(page.screenName)} type="button">
+                          <strong>{page.pageName}</strong>
+                        </button>
+                        <button aria-label={`Rename ${page.pageName}`} className="pom-page-rename" onClick={() => {
+                          setSelectedScreenName(page.screenName);
+                          setScreenRenameDraft(page.screenName);
+                          setRenamingScreenName(page.screenName);
+                        }} type="button">
+                          <PencilIcon size={15} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 ))}
               </aside>
 
               {activePageObject ? (
                 <section className="pom-class-panel" aria-label={`${activePageObject.pageName} repository page`}>
-                  <div className="pom-class-header">
-                    <div>
-                      <span>Screen · {normalizeMetadataValue(activeScreenMetadata.platform) || appTypes.find((item) => item.id === appTypeId)?.type || "web"}</span>
-                      <strong>{activePageObject.pageName}</strong>
-                      <small>{normalizeMetadataValue(activeScreenMetadata.url_pattern_type) || "contains"} "{normalizeMetadataValue(activeScreenMetadata.url_pattern_value) || activePageObject.url}"</small>
-                    </div>
-                    <StatusBadge value={`${activePageObject.members.length} members`} />
-                  </div>
                   <SubnavTabs
                     ariaLabel="Screen details"
                     className="object-repository-screen-tabs"
                     value={screenDetailTab}
                     onChange={setScreenDetailTab}
                     items={[
+                      { value: "overview", label: "Overview", meta: screenInfoDraft.description ? "Documented" : "Add context" },
                       { value: "fields", label: "Fields", meta: String(activePageObject.members.length) },
                       { value: "dom", label: "DOM Snapshot", meta: screenDomDraft ? "Captured" : "Pending" },
                       { value: "suggestions", label: "AI Suggestions", meta: "Locator health" },
-                      { value: "usage", label: "Usage", meta: `${selectedRepositoryUsage.length} cases` },
+                      { value: "usage", label: "Usage", meta: `${selectedScreenUsage.length} cases` },
                       { value: "validation", label: "Validation", meta: formatRepositoryDate(selectedRepositoryEntry?.metadata?.last_validated_at) }
                     ]}
                   />
-                  {screenDetailTab === "fields" ? (
-                    <div className="pom-member-table">
-                      <div className="pom-member-row is-head">
-                        <span>Field</span>
-                        <span>Type</span>
-                        <span>Primary locator</span>
+                  {screenDetailTab === "overview" ? (
+                    <div className="repository-screen-overview">
+                      <div className="record-grid testops-builder-form">
+                        <label className="form-field"><span>Screen name</span><input readOnly value={screenInfoDraft.screen_name || activeScreenName} /></label>
+                        <label className="form-field"><span>Page URL</span><input onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="https://app.example.com/login" value={screenUrlDraft} /></label>
+                        <label className="form-field repository-span-two">
+                          <span>URL match rule</span>
+                          <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
+                        </label>
+                        <label className="form-field repository-span-two"><span>Description</span><textarea rows={3} value={screenInfoDraft.description} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, description: event.target.value }))} placeholder="What this screen represents." /></label>
+                        <label className="form-field repository-span-two"><span>Intended flows</span><textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, continue as guest." /></label>
                       </div>
-                      {activePageObject.members.map((member) => (
-                        <button className={selectedRepositoryEntry?.id === member.entry.id ? "pom-member-row is-active" : "pom-member-row"} key={member.entry.id} onClick={() => setSelectedRepositoryId(member.entry.id)} type="button">
-                          <code>{member.memberName}</code>
-                          <span>{member.htmlTag} · {member.role}</span>
-                          <small>{member.entry.locator}</small>
+                      <div className="testops-action-row">
+                        <button className="primary-button" disabled={saveRepositoryScreenEvidence.isPending} onClick={() => saveRepositoryScreenEvidence.mutate()} type="button"><LayersIcon /><span>{saveRepositoryScreenEvidence.isPending ? "Saving..." : "Save screen"}</span></button>
+                        <button className="ghost-button" onClick={() => {
+                          setIsInspectOpen(true);
+                          setInspectMessage(inspectRecorderSession?.status === "running" ? "Select an open tab to inspect or highlight fields." : "Connect a browser to capture DOM and fields for this screen.");
+                        }} type="button"><MousePointerIcon /><span>Inspect screen</span></button>
+                        <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
+                          setIsInspectOpen(true);
+                          extractRepositoryFields.mutate();
+                        }} type="button"><SparkIcon /><span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span></button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {screenDetailTab === "fields" ? (
+                    <div className="repository-fields-panel">
+                      <div className="testops-action-row">
+                        <button className="ghost-button" onClick={() => {
+                          setIsAddingRepositoryField((current) => !current);
+                          setIsAddingRepositoryScreen(false);
+                        }} type="button">
+                          <AddIcon />
+                          <span>Add field</span>
                         </button>
-                      ))}
+                      </div>
+                      {isAddingRepositoryField ? (
+                        <div className="automation-create-card">
+                          <strong>Add repository field manually</strong>
+                          <div className="record-grid testops-builder-form">
+                            <label className="form-field"><span>Screen name</span><input readOnly value={activeScreenName} /></label>
+                            <label className="form-field"><span>Field name</span><input value={newRepositoryFieldDraft.object_name} onChange={(event) => setNewRepositoryFieldDraft((current) => ({ ...current, object_name: event.target.value }))} placeholder="Email input" /></label>
+                            <label className="form-field"><span>Element type / role</span><input value={newRepositoryFieldDraft.object_role} onChange={(event) => setNewRepositoryFieldDraft((current) => ({ ...current, object_role: event.target.value }))} placeholder="textbox" /></label>
+                            <label className="form-field"><span>Primary strategy</span><input value={newRepositoryFieldDraft.locator_kind} onChange={(event) => setNewRepositoryFieldDraft((current) => ({ ...current, locator_kind: event.target.value }))} placeholder="data-testid" /></label>
+                            <label className="form-field repository-span-two"><span>Primary locator</span><input value={newRepositoryFieldDraft.locator} onChange={(event) => setNewRepositoryFieldDraft((current) => ({ ...current, locator: event.target.value }))} placeholder="[data-testid='email']" /></label>
+                          </div>
+                          <div className="testops-action-row">
+                            <button className="primary-button" disabled={addRepositoryField.isPending} onClick={() => addRepositoryField.mutate()} type="button"><AddIcon /><span>{addRepositoryField.isPending ? "Adding..." : "Save field"}</span></button>
+                            <button className="ghost-button" onClick={() => setIsAddingRepositoryField(false)} type="button">Cancel</button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="pom-member-table">
+                        <div className="pom-member-row is-head">
+                          <span>Field</span>
+                          <span>Type</span>
+                          <span>Primary locator</span>
+                        </div>
+                        {activePageObject.members.map((member) => (
+                          <button className={`pom-member-row${selectedRepositoryEntry?.id === member.entry.id ? " is-active" : ""}${highlightedRepositoryId === member.entry.id ? " is-highlighted" : ""}`} key={member.entry.id} onClick={() => {
+                            setSelectedRepositoryId(member.entry.id);
+                            if (inspectRecorderSession?.status === "running") {
+                              void highlightRepositoryLocator(member.entry.locator, member.ref, member.entry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."));
+                            }
+                          }} type="button">
+                            <code>{member.memberName}</code>
+                            <span>{member.htmlTag} · {member.role}</span>
+                            <small>{member.entry.locator}</small>
+                          </button>
+                        ))}
+                        {!activePageObject.members.length ? <div className="empty-state compact">No saved fields yet. Add a field, inspect the screen, or select AI suggestions.</div> : null}
+                      </div>
                     </div>
                   ) : null}
                   {screenDetailTab === "dom" ? (
                     <div className="repository-evidence-block">
                       {screenScreenshotDraft && isLikelyImageUrl(screenScreenshotDraft) ? <img alt={`${activePageObject.pageName} full screen`} src={screenScreenshotDraft} /> : null}
                       <label>Full DOM / accessibility tree</label>
-                      <pre>{screenDomDraft || normalizeMetadataValue(activeScreenMetadata.accessibility_tree) || "No full-page DOM or accessibility snapshot captured."}</pre>
-                      <small>Fingerprint: {normalizeMetadataValue(activeScreenMetadata.screen_fingerprint) || "Not generated"}</small>
+                      <pre>{screenDomDraft || screenInfoDraft.accessibility_tree || "No full-page DOM or accessibility snapshot captured."}</pre>
+                      <small>Fingerprint: {screenInfoDraft.screen_fingerprint || "Not generated"}</small>
                     </div>
                   ) : null}
                   {screenDetailTab === "suggestions" ? (
@@ -2785,8 +3395,8 @@ export function AutomationPage() {
                   ) : null}
                   {screenDetailTab === "usage" ? (
                     <div className="repository-usage-list">
-                      {selectedRepositoryUsage.map((testCase) => <article key={testCase.id}><strong>{testCase.display_id || "Test"}</strong><span>{testCase.title}</span></article>)}
-                      {!selectedRepositoryUsage.length ? <div className="empty-state compact">The selected field is not referenced by a test step yet.</div> : null}
+                      {selectedScreenUsage.map((testCase) => <article key={testCase.id}><strong>{testCase.display_id || "Test"}</strong><span>{testCase.title}</span></article>)}
+                      {!selectedScreenUsage.length ? <div className="empty-state compact">No repository fields from this screen are referenced by test steps yet.</div> : null}
                     </div>
                   ) : null}
                   {screenDetailTab === "validation" ? (
@@ -2818,7 +3428,7 @@ export function AutomationPage() {
                   <LayersIcon />
                   <span>{validateRepositoryEntry.isPending ? "Validating..." : "Mark validated"}</span>
                 </button>
-                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate()} type="button">
+                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
                   <TrashIcon size={16} />
                   <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
                 </button>
@@ -2856,11 +3466,11 @@ export function AutomationPage() {
                     <div className="record-grid testops-builder-form">
                     <label className="form-field">
                       <span>Screen name</span>
-                      <input value={repositoryDraft.screen_name} onChange={(event) => setRepositoryDraft((current) => ({ ...current, screen_name: event.target.value }))} />
+                      <input readOnly value={screenInfoDraft.screen_name || activeScreenName} />
                     </label>
                     <label className="form-field">
-                      <span>URL pattern</span>
-                      <div className="repository-url-rule"><select value={repositoryDraft.url_pattern_type} onChange={(event) => setRepositoryDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={repositoryDraft.url_pattern_value} onChange={(event) => setRepositoryDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
+                      <span>Inherited screen URL rule</span>
+                      <input readOnly value={`${screenInfoDraft.url_pattern_type} ${screenInfoDraft.url_pattern_value}`} />
                     </label>
                     <label className="form-field">
                       <span>Field name</span>
@@ -2887,8 +3497,8 @@ export function AutomationPage() {
                       <input max="100" min="0" type="number" value={repositoryDraft.stability_score} onChange={(event) => setRepositoryDraft((current) => ({ ...current, stability_score: event.target.value }))} />
                     </label>
                     <label className="form-field">
-                      <span>Screen fingerprint</span>
-                      <input value={repositoryDraft.screen_fingerprint} onChange={(event) => setRepositoryDraft((current) => ({ ...current, screen_fingerprint: event.target.value }))} placeholder="Generated screen identity hash" />
+                      <span>Inherited screen fingerprint</span>
+                      <input readOnly value={screenInfoDraft.screen_fingerprint} placeholder="Capture screen evidence to generate identity" />
                     </label>
                     </div>
                   </div>
@@ -2898,7 +3508,7 @@ export function AutomationPage() {
                     <label className="form-field"><span>Element screenshot URL</span><input value={repositoryDraft.element_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, element_screenshot_url: event.target.value }))} /></label>
                     <label className="form-field"><span>Ancestor screenshot URL</span><input value={repositoryDraft.ancestor_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_screenshot_url: event.target.value }))} /></label>
                     <label className="form-field repository-span-two"><span>Parent / ancestor DOM snapshot</span><textarea rows={5} value={repositoryDraft.ancestor_dom || repositoryDraft.dom_structure} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_dom: event.target.value }))} /></label>
-                    <label className="form-field repository-span-two"><span>Accessibility tree</span><textarea rows={5} value={repositoryDraft.accessibility_tree} onChange={(event) => setRepositoryDraft((current) => ({ ...current, accessibility_tree: event.target.value }))} /></label>
+                    <label className="form-field repository-span-two"><span>Inherited screen accessibility tree</span><textarea readOnly rows={5} value={screenInfoDraft.accessibility_tree} /></label>
                     {repositoryDraft.element_screenshot_url && isLikelyImageUrl(repositoryDraft.element_screenshot_url) ? <div className="object-repository-snapshot"><img alt={`${repositoryDraft.object_name} element`} src={repositoryDraft.element_screenshot_url} /></div> : null}
                   </div>
                 ) : null}
@@ -2927,35 +3537,35 @@ export function AutomationPage() {
                 <div className="dialog-header">
                   <div>
                     <h2>Inspect screen into repository</h2>
-                    <p>Capture a screen identity and select controls to save ranked locators, visual evidence, DOM context, and agent meaning.</p>
+                    <p>Select fields in the browser, remove mistakes from the selection, then save the screen and fields together.</p>
                   </div>
                   <button className="ghost-button compact" onClick={() => setIsInspectOpen(false)} type="button">Close</button>
                 </div>
                 <div className="object-repository-live-inspect">
                   <div className="object-repository-inspector-steps" aria-label="Inspect capture steps">
-                    <span className={recorderSession?.status === "running" ? "is-complete" : "is-active"}><strong>1</strong> Browser</span>
-                    <span className={selectedInspectTabId ? "is-complete" : recorderSession?.status === "running" ? "is-active" : ""}><strong>2</strong> Select tab</span>
-                    <span className={isInspectingLiveField ? "is-active" : lastInspectResult ? "is-complete" : ""}><strong>3</strong> Pick field</span>
-                    <span className={lastInspectResult ? "is-complete" : ""}><strong>4</strong> Repository proof</span>
+                    <span className={inspectRecorderSession?.status === "running" ? "is-complete" : "is-active"}><strong>1</strong> Browser</span>
+                    <span className={selectedInspectTabId ? "is-complete" : inspectRecorderSession?.status === "running" ? "is-active" : ""}><strong>2</strong> Select tab</span>
+                    <span className={isInspectingLiveField ? "is-active" : stagedInspectFields.length ? "is-complete" : ""}><strong>3</strong> Select fields</span>
+                    <span className={stagedInspectFields.length ? "is-active" : ""}><strong>4</strong> Review and save</span>
                   </div>
                   <div className="object-repository-live-inspect-head">
                     <div>
                       <strong>Live browser inspect</strong>
-                      <span>{recorderSession?.status === "running" ? `Connected to session ${recorderSession.id.slice(0, 8)}. Tabs refresh automatically.` : activeManualCase ? "Launch the browser to begin capturing UI intelligence." : "Select or create a manual case before launching a capture browser."}</span>
+                      <span>{inspectRecorderSession?.status === "running" ? `Connected to dedicated inspect session ${inspectRecorderSession.id.slice(0, 8)}. Tabs refresh automatically.` : "Launch browser probes localhost:4311 and localhost:4301, reusing an existing inspection Chrome session when one is open."}</span>
                     </div>
                     <div className="testops-action-row">
                       <button
                         className="ghost-button"
-                        disabled={!activeManualCase || startRecorder.isPending}
+                        disabled={isLaunchingInspectBrowser}
                         onClick={() => void launchInspectBrowser().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to launch inspect browser."))}
                         type="button"
                       >
                         <MousePointerIcon />
-                        <span>{recorderSession?.status === "running" ? "Use browser" : startRecorder.isPending ? "Launching..." : "Launch browser"}</span>
+                        <span>{inspectRecorderSession?.status === "running" ? "Use browser" : isLaunchingInspectBrowser ? "Connecting..." : "Launch browser"}</span>
                       </button>
                       <button
                         className="ghost-button"
-                        disabled={!recorderSession?.id}
+                        disabled={!inspectRecorderSession?.id}
                         onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
                         type="button"
                       >
@@ -2964,20 +3574,20 @@ export function AutomationPage() {
                       </button>
                       <button
                         className="primary-button"
-                        disabled={!recorderSession?.id || isInspectingLiveField}
+                        disabled={!inspectRecorderSession?.id || isInspectingLiveField}
                         onClick={() => void startLiveInspect().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to start inspect mode."))}
                         type="button"
                       >
                         <SparkIcon />
-                        <span>{isInspectingLiveField ? "Waiting for click..." : "Start inspect"}</span>
+                        <span>{isInspectingLiveField ? "Select in browser..." : stagedInspectFields.length ? "Select another field" : "Select a field"}</span>
                       </button>
                     </div>
                   </div>
                   <div className="object-repository-capture-workspace">
                     <section className="object-repository-browser-preview">
                       <strong>Browser view</strong>
-                      {recorderLiveUrl ? (
-                        <iframe src={recorderLiveUrl} title="Inspect browser live view" />
+                      {inspectRecorderLiveUrl ? (
+                        <iframe src={inspectRecorderLiveUrl} title="Inspect browser live view" />
                       ) : (
                         <div className="empty-state compact">Browser preview appears after the recorder starts.</div>
                       )}
@@ -2996,25 +3606,31 @@ export function AutomationPage() {
                             <span>{tab.url || "about:blank"}</span>
                           </button>
                         )) : (
-                          <div className="empty-state compact">{recorderSession?.status === "running" ? "Waiting for an inspectable browser tab..." : "Launch the browser to load tabs."}</div>
+                          <div className="empty-state compact">{inspectRecorderSession?.status === "running" ? "Waiting for an inspectable browser tab..." : "Launch the browser to load tabs."}</div>
                         )}
                       </div>
                     </section>
                   </div>
                   {inspectMessage ? <div className="object-repository-inspect-message">{inspectMessage}</div> : null}
-                  {lastInspectResult ? (
-                    <div className="object-repository-inspect-capture">
-                      <div>
-                        <strong>{lastInspectResult.element.friendly_name}</strong>
-                        <span>{lastInspectResult.element.html_tag} · {lastInspectResult.element.locator}</span>
-                      </div>
-                      <div className="object-repository-capture-facts">
-                        <span>{getCapturedLocators(lastInspectResult).length} locator strategies</span>
-                        <span>{lastInspectResult.element_screenshot_url ? "Element evidence captured" : "Screen evidence captured"}</span>
-                        <span>{lastInspectResult.screen_fingerprint ? "Fingerprint ready" : "Fingerprint pending"}</span>
-                      </div>
+                  <section className="object-repository-selected-fields" aria-label="Fields selected for saving">
+                    <div className="object-repository-inspector-section-head">
+                      <strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong>
+                      <span>Blue highlights in the browser match this selection. Remove any unwanted fields before saving.</span>
                     </div>
-                  ) : null}
+                    <div className="object-repository-selected-grid">
+                      {stagedInspectFields.map((field) => (
+                        <article key={field.locator}>
+                          <div>
+                            <strong>{field.name}</strong>
+                            <small>{field.tag} · {field.locator}</small>
+                          </div>
+                          <StatusBadge value={field.source === "ai_extract" ? "AI selected" : "Selected"} />
+                          <button className="ghost-button compact danger" onClick={() => removeStagedInspectField(field.locator)} type="button"><TrashIcon size={14} /><span>Remove</span></button>
+                        </article>
+                      ))}
+                      {!stagedInspectFields.length ? <div className="empty-state compact">Nothing selected yet. Choose <strong>Select a field</strong> and click controls in the browser, or request AI suggestions.</div> : null}
+                    </div>
+                  </section>
                 </div>
                 <div className="object-repository-inspector-grid">
                   <div className="object-repository-inspector-inputs">
@@ -3023,8 +3639,8 @@ export function AutomationPage() {
                       <span>Review captured identity before returning to field curation.</span>
                     </div>
                     <label className="form-field">
-                      <span>Suggested screen name</span>
-                      <input value={repositoryDraft.screen_name} onChange={(event) => setRepositoryDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Login Page" />
+                      <span>Screen name</span>
+                      <input readOnly={Boolean(activeScreenName)} value={screenInfoDraft.screen_name} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Login Page" />
                     </label>
                     <label className="form-field">
                       <span>Screen URL path</span>
@@ -3032,61 +3648,91 @@ export function AutomationPage() {
                     </label>
                     <label className="form-field">
                       <span>URL match rule</span>
-                      <div className="repository-url-rule"><select value={repositoryDraft.url_pattern_type} onChange={(event) => setRepositoryDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={repositoryDraft.url_pattern_value} onChange={(event) => setRepositoryDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
+                      <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
                     </label>
                     <label className="form-field">
-                      <span>Screen fingerprint</span>
-                      <input value={repositoryDraft.screen_fingerprint} onChange={(event) => setRepositoryDraft((current) => ({ ...current, screen_fingerprint: event.target.value }))} placeholder="Captured after live field selection" />
+                      <span>Intended flow / business meaning</span>
+                      <textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, or continue as guest." />
                     </label>
                     <label className="form-field">
-                      <span>Screen DOM</span>
-                      <textarea rows={10} value={screenDomDraft} onChange={(event) => setScreenDomDraft(event.target.value)} placeholder="<input name='username' aria-label='Username' />" />
+                      <span>Description</span>
+                      <textarea rows={3} value={screenInfoDraft.description} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Purpose and boundaries of this screen." />
                     </label>
+                    <details className="object-repository-advanced-evidence">
+                      <summary>Advanced evidence and DOM</summary>
+                      <label className="form-field">
+                        <span>Screen fingerprint</span>
+                        <input value={screenInfoDraft.screen_fingerprint} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, screen_fingerprint: event.target.value }))} placeholder="Captured after live field selection" />
+                      </label>
+                      <label className="form-field">
+                        <span>Screen screenshot URL / data URL</span>
+                        <input value={screenScreenshotDraft} onChange={(event) => setScreenScreenshotDraft(event.target.value)} placeholder="Automatically captured during live inspect" />
+                      </label>
+                      <label className="form-field">
+                        <span>Screen DOM</span>
+                        <textarea rows={10} value={screenDomDraft} onChange={(event) => setScreenDomDraft(event.target.value)} placeholder="<input name='username' aria-label='Username' />" />
+                      </label>
+                    </details>
                   </div>
                   <div className="object-repository-inspector-preview">
                     <div className="object-repository-inspector-section-head">
-                      <strong>{inspectedFields.length ? `${inspectedFields.length} detected fields` : "Detected fields"}</strong>
-                      <span>Select a DOM suggestion to curate it, or live inspect for screenshots.</span>
+                      <strong>{inspectedFields.length ? `${inspectedFields.length} DOM suggestions` : "Suggested fields"}</strong>
+                      <span>Suggestions are not saved until selected and committed with the screen.</span>
                     </div>
-                    {inspectedFields.map((field) => (
-                      <button key={`${field.name}-${field.locator}`} onClick={() => {
-                        setRepositoryDraft((current) => ({
-                          ...current,
-                          screen_name: screenUrlDraft || selectedScreenName || current.screen_name,
-                          object_name: field.name,
-                          object_role: `${field.tag} / ${field.role}`,
-                          locator: field.locator,
-                          locator_kind: field.locatorKind,
-                          fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
-                          dom_structure: field.dom,
-                          description: current.description || `${field.name} detected from screen DOM.`,
-                          screenshot_url: screenScreenshotDraft || current.screenshot_url
-                        }));
-                      }} type="button">
-                        <span>{field.name}</span>
-                        <small>{field.tag} · {field.locator}</small>
-                      </button>
-                    ))}
-                    {!inspectedFields.length ? <div className="empty-state compact">Paste HTML DOM with inputs, buttons, selects, links, or textareas to extract fields.</div> : null}
+                    {inspectedFields.map((field) => {
+                      const isSelected = stagedInspectFields.some((selectedField) => selectedField.locator === field.locator);
+                      return (
+                      <article className={isSelected ? "object-repository-inspector-candidate is-selected" : "object-repository-inspector-candidate"} key={`${field.name}-${field.locator}`}>
+                        <button onClick={() => {
+                          setRepositoryDraft((current) => ({
+                            ...current,
+                            object_name: field.name,
+                            object_role: `${field.tag} / ${field.role}`,
+                            locator: field.locator,
+                            locator_kind: field.locatorKind,
+                            fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
+                            dom_structure: field.dom,
+                            description: current.description || `${field.name} detected from screen DOM.`,
+                            screenshot_url: screenScreenshotDraft || current.screenshot_url
+                          }));
+                          if (!isSelected) {
+                            stageInspectField({ ...field, source: "dom_candidate" });
+                          }
+                          if (inspectRecorderSession?.status === "running") {
+                            void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
+                          }
+                        }} type="button">
+                          <span>{field.name}</span>
+                          <small>{field.tag} · {field.locator}</small>
+                        </button>
+                        <button className="ghost-button compact" onClick={() => {
+                          if (isSelected) {
+                            removeStagedInspectField(field.locator);
+                            return;
+                          }
+                          stageInspectField({ ...field, source: "dom_candidate" });
+                          if (inspectRecorderSession?.status === "running") {
+                            void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
+                          }
+                        }} type="button">
+                          <span>{isSelected ? "Remove" : "Select"}</span>
+                        </button>
+                      </article>
+                      );
+                    })}
+                    {!inspectedFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
                   </div>
                 </div>
-                <div className="testops-action-row">
-                  <button className="ghost-button" disabled={!inspectedFields.length || createRepositoryField.isPending} onClick={() => inspectedFields.forEach((field) => createRepositoryField.mutate(field))} type="button">
+                <div className="testops-action-row object-repository-inspector-footer">
+                  <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => extractRepositoryFields.mutate()} type="button">
                     <SparkIcon />
-                    <span>{createRepositoryField.isPending ? "Extracting..." : "AI extract fields"}</span>
+                    <span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span>
                   </button>
-                  <button className="primary-button" onClick={() => {
-                    setRepositoryDraft((current) => ({
-                      ...current,
-                      screen_name: screenUrlDraft || current.screen_name,
-                      dom_structure: screenDomDraft || current.dom_structure,
-                      screenshot_url: screenScreenshotDraft || current.screenshot_url
-                    }));
-                    setIsInspectOpen(false);
-                  }} type="button">
-                    <MousePointerIcon />
-                    <span>Continue field curation</span>
+                  <button className="primary-button" disabled={saveInspectedScreenFields.isPending} onClick={() => saveInspectedScreenFields.mutate()} type="button">
+                    <LayersIcon />
+                    <span>{saveInspectedScreenFields.isPending ? "Saving..." : `Save screen and fields${stagedInspectFields.length ? ` (${stagedInspectFields.length})` : ""}`}</span>
                   </button>
+                  <button className="ghost-button" onClick={() => setIsInspectOpen(false)} type="button">Close</button>
                 </div>
               </div>
             </div>
@@ -3096,13 +3742,13 @@ export function AutomationPage() {
 
       {view === "local-playwright" ? (
         <div className="automation-workspace-grid automation-workspace-grid--capture">
-          <Panel title="Build repository with local Playwright" subtitle="Pick a manual case, open a local browser, and QAira will map captured actions back to keyword steps and repository objects.">
+          <Panel title="Build repository with local Playwright" subtitle="Pick the original test case, open a local browser, and QAira maps captured actions back to that case's keyword steps and repository objects.">
             <div className="record-grid testops-builder-form">
               <label className="form-field">
-                <span>Manual case link</span>
+                <span>Test case to automate</span>
                 <select value={activeManualCase?.id || ""} onChange={(event) => setSelectedManualCaseId(event.target.value)}>
-                  {manualCases.map((testCase) => (
-                    <option key={testCase.id} value={testCase.id}>{testCase.title}</option>
+                  {testCases.map((testCase) => (
+                    <option key={testCase.id} value={testCase.id}>{testCase.title}{testCase.automated === "yes" ? " (automated)" : ""}</option>
                   ))}
                 </select>
               </label>
@@ -3200,7 +3846,7 @@ export function AutomationPage() {
             <div className="dialog-header">
               <div>
                 <h2>{repositoryUsageBlock.title}</h2>
-                <p>Delete is blocked because this repository object is referenced by automation or manual test steps.</p>
+                <p>This repository object is referenced by the test cases below. Deleting it will keep the cases, mark automated ones incomplete, and prevent execution until their bindings are repaired.</p>
               </div>
               <button className="ghost-button compact" onClick={() => setRepositoryUsageBlock(null)} type="button">Close</button>
             </div>
@@ -3214,6 +3860,18 @@ export function AutomationPage() {
                   <OpenIcon size={16} />
                 </button>
               ))}
+            </div>
+            <div className="testops-action-row">
+              <button
+                className="primary-button danger"
+                disabled={deleteRepositoryEntry.isPending || deleteRepositoryScreen.isPending}
+                onClick={() => repositoryUsageBlock.kind === "field" ? deleteRepositoryEntry.mutate(true) : deleteRepositoryScreen.mutate(true)}
+                type="button"
+              >
+                <TrashIcon size={16} />
+                <span>Delete and mark incomplete</span>
+              </button>
+              <button className="ghost-button" onClick={() => setRepositoryUsageBlock(null)} type="button">Cancel</button>
             </div>
           </div>
         </div>

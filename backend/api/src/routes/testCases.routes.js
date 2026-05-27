@@ -9,6 +9,7 @@ const aiAutomationBuilderService = require("../services/aiAutomationBuilder.serv
 const automationGeneratorService = require("../services/automationGenerator.service");
 const batchProcessService = require("../services/batchProcess.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
+const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 
 const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   const ids = [...new Set((Array.isArray(requirementIds) ? requirementIds : []).filter(Boolean))];
@@ -43,6 +44,7 @@ module.exports = async function (fastify) {
       external_references: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
+      automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
       requirement_id: { required: false, type: "string" },
@@ -166,6 +168,70 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/automation/learning-cache/export.csv", async (req, reply) => {
+    await fastify.authenticate(req);
+    const { app_type_id } = req.query || {};
+
+    if (!app_type_id) {
+      throw new Error("App type scope is required");
+    }
+
+    const appType = await appTypeService.getAppType(app_type_id);
+    await projectService.getProject(appType.project_id, req.user.id);
+    const csv = await aiAutomationBuilderService.exportLearningCacheCsv({ app_type_id });
+
+    reply.header("Content-Disposition", "attachment; filename=\"object-repository.csv\"");
+    return reply.type("text/csv; charset=utf-8").send(csv);
+  });
+
+  fastify.post("/test-cases/automation/learning-cache/import", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      app_type_id: { required: true, type: "string" },
+      import_source: { required: false, type: "string" },
+      entries: { required: true, type: "array" }
+    }, req.body || {});
+
+    if (!req.body.entries.every((entry) => entry && typeof entry === "object" && !Array.isArray(entry))) {
+      throw new Error("entries must contain object repository entry objects");
+    }
+
+    const appType = await appTypeService.getAppType(req.body.app_type_id);
+    await projectService.getProject(appType.project_id, req.user.id);
+
+    return aiAutomationBuilderService.importLearningCacheEntries({
+      project_id: appType.project_id,
+      app_type_id: req.body.app_type_id,
+      import_source: req.body.import_source,
+      entries: req.body.entries
+    });
+  });
+
+  fastify.post("/test-cases/automation/learning-cache/extract-fields", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      app_type_id: { required: false, type: "string" },
+      screen_name: { required: true, type: "string", minLength: 1 },
+      page_url: { required: false, type: "string" },
+      dom_structure: { required: false, type: "string" },
+      screenshot_url: { required: false, type: "string" },
+      business_meaning: { required: false, type: "string" },
+      candidate_fields: { required: false, type: "array" },
+      integration_id: { required: false, type: "string" }
+    }, req.body || {});
+
+    if (req.body?.app_type_id) {
+      const appType = await appTypeService.getAppType(req.body.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("App type scope is required");
+    }
+
+    return aiAutomationBuilderService.extractRepositoryFields(req.body || {});
+  });
+
   fastify.get("/test-cases/automation/learning-cache/:id/usage", async (req) => {
     await fastify.authenticate(req);
     const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
@@ -281,7 +347,9 @@ module.exports = async function (fastify) {
       throw new Error("Object repository entry is not scoped to a project");
     }
 
-    return aiAutomationBuilderService.deleteLearningCacheEntry(req.params.id);
+    return aiAutomationBuilderService.deleteLearningCacheEntry(req.params.id, {
+      confirmed: req.query?.confirm === "true"
+    });
   });
 
   fastify.delete("/test-cases/automation/learning-cache/screens/:screenName", async (req) => {
@@ -297,7 +365,47 @@ module.exports = async function (fastify) {
 
     return aiAutomationBuilderService.deleteLearningCacheScreen({
       app_type_id,
+      screen_name: decodeURIComponent(req.params.screenName),
+      confirmed: req.query?.confirm === "true"
+    });
+  });
+
+  fastify.get("/test-cases/automation/learning-cache/screens/:screenName/usage", async (req) => {
+    await fastify.authenticate(req);
+    const { app_type_id } = req.query || {};
+
+    if (app_type_id) {
+      const appType = await appTypeService.getAppType(app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("App type scope is required");
+    }
+
+    return aiAutomationBuilderService.findLearningCacheScreenUsage({
+      app_type_id,
       screen_name: decodeURIComponent(req.params.screenName)
+    });
+  });
+
+  fastify.put("/test-cases/automation/learning-cache/screens/:screenName", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      app_type_id: { required: false, type: "string" },
+      new_name: { required: true, type: "string", minLength: 1 }
+    }, req.body || {});
+
+    if (req.body?.app_type_id) {
+      const appType = await appTypeService.getAppType(req.body.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("App type scope is required");
+    }
+
+    return aiAutomationBuilderService.renameLearningCacheScreen({
+      app_type_id: req.body?.app_type_id,
+      screen_name: decodeURIComponent(req.params.screenName),
+      new_name: req.body?.new_name
     });
   });
 
@@ -450,6 +558,7 @@ module.exports = async function (fastify) {
       recorder_target: { required: false, type: "string" },
       engine_base_url: { required: false, type: "string" },
       recorder_public_base_url: { required: false, type: "string" },
+      reuse_existing: { required: false, type: "boolean" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
@@ -470,6 +579,7 @@ module.exports = async function (fastify) {
       recorder_target: req.body?.recorder_target,
       engine_base_url: req.body?.engine_base_url,
       recorder_public_base_url: req.body?.recorder_public_base_url,
+      reuse_existing: req.body?.reuse_existing,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
@@ -679,6 +789,7 @@ module.exports = async function (fastify) {
       external_references: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
+      automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
       requirement_id: { required: false, type: "string" },

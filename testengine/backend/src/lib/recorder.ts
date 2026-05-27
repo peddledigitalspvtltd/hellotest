@@ -51,6 +51,7 @@ type RecorderNetworkEntry = {
 
 type RecorderSession = {
   id: string;
+  purpose: "automation-recording" | "repository-inspect" | null;
   status: "running" | "stopped" | "failed";
   started_at: string;
   stopped_at: string | null;
@@ -341,6 +342,7 @@ const resolveRequestPage = (request: Request) => {
 
 const serializeSession = (session: RecorderSession, options: { includeLiveViewPath?: boolean } = {}) => ({
   id: session.id,
+  purpose: session.purpose,
   status: session.status,
   started_at: session.started_at,
   stopped_at: session.stopped_at,
@@ -835,8 +837,9 @@ const installInspectMode = async (page: Page) => {
     const clearHighlight = () => {
       document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
         const target = node as HTMLElement;
-        target.style.outline = target.dataset.qairaPreviousOutline || "";
-        target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+        const isSelected = target.dataset.qairaRepositoryHighlight === "true";
+        target.style.outline = isSelected ? "3px solid #2f6df6" : target.dataset.qairaPreviousOutline || "";
+        target.style.boxShadow = isSelected ? "0 0 0 6px rgba(47, 109, 246, 0.2)" : target.dataset.qairaPreviousBoxShadow || "";
         delete target.dataset.qairaPreviousOutline;
         delete target.dataset.qairaPreviousBoxShadow;
         delete target.dataset.qairaInspectHighlight;
@@ -852,8 +855,18 @@ const installInspectMode = async (page: Page) => {
       element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.22)";
       element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
     };
+    let lockedElement: Element | null = null;
+    const candidateElement = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || target
+        : null;
+    const hoverHandler = (event: MouseEvent) => {
+      if (lockedElement) return;
+      const element = candidateElement(event.target);
+      if (element) highlight(element);
+    };
     const handler = (event: MouseEvent) => {
-      const element = event.target instanceof Element ? event.target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || event.target : null;
+      const element = candidateElement(event.target);
       if (!element) return;
       event.preventDefault();
       event.stopPropagation();
@@ -866,6 +879,7 @@ const installInspectMode = async (page: Page) => {
       const ancestorRect = ancestor?.getBoundingClientRect();
       const domStructure = element.outerHTML.slice(0, 12_000);
       const ancestorDom = ancestor?.outerHTML.slice(0, 30_000) || null;
+      lockedElement = element;
       highlight(element);
       inspectWindow.__qairaInspectResult = {
         friendly_name: friendlyName(element),
@@ -882,13 +896,97 @@ const installInspectMode = async (page: Page) => {
       };
     };
 
+    document.addEventListener("mousemove", hoverHandler, true);
     document.addEventListener("click", handler, true);
     inspectWindow.__qairaInspectCleanup = () => {
+      document.removeEventListener("mousemove", hoverHandler, true);
       document.removeEventListener("click", handler, true);
       clearHighlight();
     };
   });
 };
+
+const highlightRepositoryElement = async (page: Page, locator: string, label?: string | null, retainExisting = false) =>
+  page.evaluate(({ targetLocator, targetLabel, keepExisting }) => {
+    const clean = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
+    const clearHighlight = () => {
+      document.querySelectorAll("[data-qaira-repository-highlight='true']").forEach((node) => {
+        const element = node as HTMLElement;
+        element.style.outline = element.dataset.qairaRepositoryPreviousOutline || "";
+        element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || "";
+        delete element.dataset.qairaRepositoryPreviousOutline;
+        delete element.dataset.qairaRepositoryPreviousBoxShadow;
+        delete element.dataset.qairaRepositoryHighlight;
+      });
+      document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
+    };
+    const resolveTarget = () => {
+      const roleMatch = targetLocator.match(/^role=([^\[]+)\[name=["']?(.+?)["']?\]$/i);
+      if (roleMatch) {
+        const role = roleMatch[1].toLowerCase();
+        const name = clean(roleMatch[2]).toLowerCase();
+        return [...document.querySelectorAll(`[role="${role}"],${role === "button" ? "button," : ""}${role === "link" ? "a," : ""}input,select,textarea`)]
+          .find((element) => clean(element.getAttribute("aria-label") || element.textContent).toLowerCase() === name) || null;
+      }
+      const textMatch = targetLocator.match(/^text=(.+)$/i);
+      if (textMatch) {
+        const text = clean(textMatch[1]).toLowerCase();
+        return [...document.querySelectorAll("button,a,[role],input,select,textarea")]
+          .find((element) => clean(element.getAttribute("aria-label") || element.textContent).toLowerCase().includes(text)) || null;
+      }
+      if (/^xpath=/i.test(targetLocator)) {
+        return document.evaluate(targetLocator.replace(/^xpath=/i, ""), document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue as Element | null;
+      }
+      try {
+        return document.querySelector(targetLocator);
+      } catch {
+        return null;
+      }
+    };
+
+    if (!keepExisting) {
+      clearHighlight();
+    }
+    const element = resolveTarget();
+    if (!(element instanceof HTMLElement)) {
+      return { found: false, locator: targetLocator };
+    }
+
+    if (element.dataset.qairaRepositoryHighlight !== "true") {
+      element.dataset.qairaRepositoryPreviousOutline = element.dataset.qairaPreviousOutline || element.style.outline || "";
+      element.dataset.qairaRepositoryPreviousBoxShadow = element.dataset.qairaPreviousBoxShadow || element.style.boxShadow || "";
+    }
+    element.dataset.qairaRepositoryHighlight = "true";
+    element.style.outline = "3px solid #2f6df6";
+    element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.2)";
+    element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+
+    if (!keepExisting) {
+      const badge = document.createElement("div");
+      badge.id = "__qairaRepositoryHighlightLabel";
+      badge.textContent = targetLabel || targetLocator;
+      badge.style.cssText = "position:fixed;z-index:2147483647;padding:5px 9px;border-radius:6px;background:#2f6df6;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 6px 15px rgba(15,23,42,.2)";
+      const rect = element.getBoundingClientRect();
+      badge.style.left = `${Math.max(8, rect.left)}px`;
+      badge.style.top = `${Math.max(8, rect.top - 32)}px`;
+      document.body.appendChild(badge);
+    }
+
+    return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase() };
+  }, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting });
+
+const clearRepositoryHighlights = async (page: Page) =>
+  page.evaluate(() => {
+    document.querySelectorAll("[data-qaira-repository-highlight='true']").forEach((node) => {
+      const element = node as HTMLElement;
+      element.style.outline = element.dataset.qairaRepositoryPreviousOutline || "";
+      element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || "";
+      delete element.dataset.qairaRepositoryPreviousOutline;
+      delete element.dataset.qairaRepositoryPreviousBoxShadow;
+      delete element.dataset.qairaRepositoryHighlight;
+    });
+    document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
+  });
 
 const enrichRemoteClickAction = async (
   session: RecorderSession,
@@ -1510,6 +1608,45 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     }
   });
 
+  app.post("/api/v1/recorder/sessions/:id/highlight", async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = request.body as { page_id?: string | null; locator?: string | null; label?: string | null; retain_existing?: boolean; clear_existing?: boolean } | null;
+    const session = sessions.get(params.id);
+    const locator = normalizeText(body?.locator);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Recorder session is not running" };
+    }
+    if (!locator && body?.clear_existing !== true) {
+      reply.code(400);
+      return { message: "Locator is required for browser highlighting" };
+    }
+
+    try {
+      const page = await resolveRecorderPage(session, body?.page_id);
+      await page.bringToFront().catch(() => undefined);
+      if (body?.clear_existing === true) {
+        await clearRepositoryHighlights(page);
+        touchSession(session);
+        return { cleared: true };
+      }
+      const result = await highlightRepositoryElement(page, locator as string, normalizeText(body?.label), body?.retain_existing === true);
+      touchSession(session);
+      if (!result.found) {
+        reply.code(404);
+      }
+      return result.found ? result : { message: "Field locator was not found on the selected browser tab", ...result };
+    } catch (error) {
+      reply.code(409);
+      return { message: error instanceof Error ? error.message : "Unable to highlight repository field" };
+    }
+  });
+
   app.get("/api/v1/recorder/sessions/:id/inspect/result", async (request, reply) => {
     const params = request.params as { id: string };
     const query = request.query as { page_id?: string | null };
@@ -1936,10 +2073,49 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
   });
 
   app.post("/api/v1/recorder/sessions", async (request, reply) => {
-    const body = request.body as { start_url?: string | null; test_case?: unknown } | null;
+    const body = request.body as { start_url?: string | null; reuse_existing?: boolean; purpose?: "automation-recording" | "repository-inspect" | null; test_case?: unknown } | null;
+    const startUrl = normalizeUrl(body?.start_url);
+    const purpose = body?.purpose === "repository-inspect" ? "repository-inspect" : body?.purpose === "automation-recording" ? "automation-recording" : null;
+    const reusableSession = body?.reuse_existing === true
+      ? [...sessions.values()]
+        .filter((session) => session.status === "running" && (!purpose || session.purpose === purpose))
+        .sort((left, right) => Date.parse(right.last_activity_at) - Date.parse(left.last_activity_at))[0]
+      : null;
+
+    if (reusableSession) {
+      reusableSession.actions.length = 0;
+      reusableSession.network.length = 0;
+      reusableSession.error = null;
+      reusableSession.start_url = startUrl || reusableSession.start_url;
+      for (const key of inspectResults.keys()) {
+        if (key.startsWith(`${reusableSession.id}:`)) {
+          inspectResults.delete(key);
+        }
+      }
+      touchSession(reusableSession);
+
+      if (startUrl) {
+        const page = await resolveActivePage(reusableSession).catch(() => null);
+        const currentUrl = page?.url() || "";
+        const hasOpenDestination = Boolean(currentUrl && currentUrl !== "about:blank" && !currentUrl.startsWith("chrome://newtab"));
+        if (page && !hasOpenDestination) {
+          void page.goto(startUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 60_000
+          }).catch((error) => {
+            app.log.warn({ error, sessionId: reusableSession.id, startUrl }, "Reused recorder start URL navigation failed");
+          });
+        }
+      }
+
+      return {
+        ...serializeSession(reusableSession, { includeLiveViewPath: true }),
+        reused: true
+      };
+    }
+
     const id = randomUUID();
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), `qaira-recorder-${id}-`));
-    const startUrl = normalizeUrl(body?.start_url);
     const headless = resolveHeadlessMode();
 
     let context: BrowserContext | null = null;
@@ -1984,6 +2160,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
 
       const session: RecorderSession = {
         id,
+        purpose,
         status: "running",
         started_at: new Date().toISOString(),
         stopped_at: null,
@@ -2042,6 +2219,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       reply.code(202);
       return {
         id,
+        purpose,
         status: session.status,
         started_at: session.started_at,
         last_activity_at: session.last_activity_at,

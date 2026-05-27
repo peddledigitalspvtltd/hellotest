@@ -12,7 +12,12 @@ export function ToastMessage({
   const EXIT_MS = 220;
   const dismissTimeoutRef = useRef<number | null>(null);
   const closeTimeoutRef = useRef<number | null>(null);
+  const onDismissRef = useRef(onDismiss);
   const [isLeaving, setIsLeaving] = useState(false);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
   useEffect(() => {
     if (!message) {
@@ -26,7 +31,7 @@ export function ToastMessage({
     const exitTimer = window.setTimeout(() => setIsLeaving(true), Math.max(duration - EXIT_MS, 0));
     dismissTimeoutRef.current = window.setTimeout(() => {
       dismissTimeoutRef.current = null;
-      onDismiss();
+      onDismissRef.current();
     }, duration);
 
     return () => {
@@ -40,7 +45,7 @@ export function ToastMessage({
         closeTimeoutRef.current = null;
       }
     };
-  }, [message, onDismiss, tone]);
+  }, [message, tone]);
 
   if (!message) {
     return null;
@@ -59,7 +64,7 @@ export function ToastMessage({
     setIsLeaving(true);
     closeTimeoutRef.current = window.setTimeout(() => {
       closeTimeoutRef.current = null;
-      onDismiss();
+      onDismissRef.current();
     }, EXIT_MS);
   };
 

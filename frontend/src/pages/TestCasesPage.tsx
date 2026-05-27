@@ -231,7 +231,6 @@ const createDraftGroupId = () =>
 const TEST_CASE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.testCaseParameterDrafts.v1";
 const SUITE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.suiteParameterDrafts.v1";
 const RUN_PARAMETER_PREVIEW_STORAGE_KEY = "qaira.runParameterPreviewDrafts.v1";
-const AUTOMATION_MANUAL_LINKS_STORAGE_KEY = "qaira.automationManualLinks.v1";
 
 const normalizeScopedParameterValues = (
   values?: Record<string, unknown> | null,
@@ -649,6 +648,18 @@ function TestCaseRunIcon() {
   );
 }
 
+function TestCaseFlowMapIcon() {
+  return (
+    <TestCaseActionIcon>
+      <rect height="4" rx="1" width="7" x="8.5" y="3.5" />
+      <rect height="4" rx="1" width="7" x="3" y="16.5" />
+      <rect height="4" rx="1" width="7" x="14" y="16.5" />
+      <path d="M12 7.5v4.5" />
+      <path d="M6.5 16.5V12H17.5v4.5" />
+    </TestCaseActionIcon>
+  );
+}
+
 function TestCaseAcceptIcon() {
   return (
     <TestCaseActionIcon>
@@ -762,6 +773,7 @@ export function TestCasesPage() {
   const [expandedSections, setExpandedSections] = useState<Record<TestCaseEditorSectionKey, boolean>>(createDefaultTestCaseSections);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const lastCaseDraftSeedRef = useRef("");
   const lastTestCaseParameterSeedRef = useRef("");
   const generationJobAlertScopeRef = useRef("");
   const surfacedGenerationJobFailureIdsRef = useRef<Set<string>>(new Set());
@@ -801,13 +813,6 @@ export function TestCasesPage() {
   const [sharedGroupSearchTerm, setSharedGroupSearchTerm] = useState("");
   const [isSuiteLinkModalOpen, setIsSuiteLinkModalOpen] = useState(false);
   const [suiteLinkDraftIds, setSuiteLinkDraftIds] = useState<string[]>([]);
-  const [manualCaseAutomationLinks, setManualCaseAutomationLinks] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(window.localStorage.getItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY) || "{}") as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
   const [editingAutomationStepId, setEditingAutomationStepId] = useState("");
   const [rephrasingStepId, setRephrasingStepId] = useState("");
   const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string; objectRepository?: AutomationLearningCacheEntry[] } | null>(null);
@@ -970,40 +975,18 @@ export function TestCasesPage() {
       })
   });
   const analyzeAutomationGaps = useMutation({
-    mutationFn: async ({ testCaseId, linkedAutomationCaseId }: { testCaseId: string; linkedAutomationCaseId?: string }) => {
-      const linkedSteps = linkedAutomationCaseId
-        ? await api.testSteps.list({ test_case_id: linkedAutomationCaseId }).catch(() => [])
-        : [];
-      const linkedAutomationContext = linkedSteps.length
-        ? [
-            "Linked automation case code is supplied below. Map these executable snippets to the closest matching existing manual step by business intent and flow order.",
-            "Return QAira keyword calls when the supplied code represents web or mobile interactions. Preserve valid existing custom code when no keyword conversion is appropriate.",
-            JSON.stringify(linkedSteps.map((step) => ({
-              step_order: step.step_order,
-              action: step.action,
-              expected_result: step.expected_result,
-              step_type: step.step_type,
-              automation_code: step.automation_code,
-              api_request: step.api_request
-            })), null, 2)
-          ].join("\n")
-        : "";
-
-      return (
+    mutationFn: async ({ testCaseId }: { testCaseId: string }) =>
       api.testCases.buildAutomation(testCaseId, {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: [
           automationContext.trim(),
-          "Analyze existing automation code and manual steps. Fill missing automation between actions, generate any missing manual step text implied by the code, and map each automation snippet to the best QAira step across web, API, and mobile keywords.",
-          linkedAutomationContext
+          "Analyze the manual steps on this test case. Fill missing automation between actions, generate any missing manual step text implied by the flow, and attach each executable QAira keyword to its matching step on this same case across web, API, and mobile automation."
         ].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
       })
-      );
-    }
   });
   const buildBatchAutomation = useMutation({
     mutationFn: ({ testCaseIds }: { testCaseIds: string[] }) =>
@@ -1027,6 +1010,7 @@ export function TestCasesPage() {
         recorder_target: options.recorder_target,
         engine_base_url: options.engine_base_url,
         recorder_public_base_url: options.recorder_public_base_url,
+        reuse_existing: options.recorder_mode === "local" && options.recorder_target === "web",
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
@@ -1586,52 +1570,6 @@ export function TestCasesPage() {
     () => testCases.filter((item) => automationTargetCaseIds.includes(item.id)),
     [automationTargetCaseIds, testCases]
   );
-  const automatedCaseOptions = useMemo(
-    () => testCases.filter((item) => item.automated === "yes"),
-    [testCases]
-  );
-  const linkedAutomationCase = useMemo(() => {
-    if (!selectedTestCase) {
-      return null;
-    }
-
-    return automatedCaseOptions.find((item) => manualCaseAutomationLinks[item.id] === selectedTestCase.id) || null;
-  }, [automatedCaseOptions, manualCaseAutomationLinks, selectedTestCase]);
-  const setLinkedAutomationCase = (manualCaseId: string, automationCaseId: string) => {
-    setManualCaseAutomationLinks((current) => {
-      const next = { ...current };
-      Object.entries(next).forEach(([automationId, linkedManualId]) => {
-        if (linkedManualId === manualCaseId) {
-          delete next[automationId];
-        }
-      });
-      if (automationCaseId) {
-        next[automationCaseId] = manualCaseId;
-      }
-      window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
-  const unlinkDeletedAutomationReferences = async (deletedCaseIds: string[]) => {
-    if (!deletedCaseIds.length) {
-      return;
-    }
-
-    const deletedIdSet = new Set(deletedCaseIds);
-
-    setManualCaseAutomationLinks((current) => {
-      const next = { ...current };
-      Object.entries(current).forEach(([automationCaseId, manualCaseId]) => {
-        if (deletedIdSet.has(automationCaseId)) {
-          delete next[automationCaseId];
-        } else if (deletedIdSet.has(manualCaseId)) {
-          delete next[automationCaseId];
-        }
-      });
-      window.localStorage.setItem(AUTOMATION_MANUAL_LINKS_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
   const selectedCaseSuiteIds = useMemo(
     () =>
       Array.from(
@@ -1820,11 +1758,15 @@ export function TestCasesPage() {
 
   useEffect(() => {
     if (isCreating) {
+      lastCaseDraftSeedRef.current = "__draft__";
       return;
     }
 
     if (!selectedTestCaseId) {
-      setCaseDraft(emptyCaseDraft);
+      if (lastCaseDraftSeedRef.current !== "__none__") {
+        setCaseDraft(emptyCaseDraft);
+        lastCaseDraftSeedRef.current = "__none__";
+      }
       return;
     }
 
@@ -1833,6 +1775,12 @@ export function TestCasesPage() {
     }
 
     if (selectedTestCase) {
+      const nextSeedKey = `case:${selectedTestCase.id}`;
+
+      if (lastCaseDraftSeedRef.current === nextSeedKey) {
+        return;
+      }
+
       setCaseDraft({
         title: selectedTestCase.title,
         description: selectedTestCase.description || "",
@@ -1842,6 +1790,7 @@ export function TestCasesPage() {
         status: selectedTestCase.status || defaultTestCaseStatus,
         requirement_id: selectedTestCase.requirement_ids?.[0] || selectedTestCase.requirement_id || ""
       });
+      lastCaseDraftSeedRef.current = nextSeedKey;
       return;
     }
 
@@ -2499,8 +2448,33 @@ export function TestCasesPage() {
     }
   };
 
-  const handleSaveCaseDirect = async () => {
+  const persistSelectedSuiteParameterValues = async () => {
+    if (!selectedParameterSuite) {
+      return;
+    }
+
+    const normalizedCurrentValues = normalizeSuiteParameterValues(suiteParameterValues);
+    const normalizedSavedValues = normalizeSuiteParameterValues(selectedParameterSuite.parameter_values);
+
+    if (areSuiteParameterValuesEqual(normalizedCurrentValues, normalizedSavedValues)) {
+      clearStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey);
+      return;
+    }
+
+    await updateSuite.mutateAsync({
+      id: selectedParameterSuite.id,
+      input: {
+        parameter_values: normalizedCurrentValues
+      }
+    });
+    syncCachedSuiteParameterValues(selectedParameterSuite.id, normalizedCurrentValues);
+    clearStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey);
+  };
+
+  const handleSaveCaseDirect = async (announce = true) => {
     try {
+      await persistSelectedSuiteParameterValues();
+
       if (isCreating) {
         const response = await createTestCase.mutateAsync({
           app_type_id: appTypeId,
@@ -2525,8 +2499,14 @@ export function TestCasesPage() {
         setSelectedStepIds([]);
         setStepInsertIndex(null);
         setStepInsertGroupContext(null);
-        showSuccess("Test case created with its draft steps.");
+        if (announce) {
+          showSuccess("Test case created with its draft steps.");
+        }
       } else if (selectedTestCase) {
+        const existingAutomationStatus = selectedTestCase.automation_status
+          || (selectedTestCase.automated === "yes" ? "ready" : "not_automated");
+        const hasMappedAutomation = displaySteps.some((step) => stepHasAutomation(stepDrafts[step.id] || step));
+
         await updateTestCase.mutateAsync({
           id: selectedTestCase.id,
           input: {
@@ -2536,6 +2516,9 @@ export function TestCasesPage() {
             external_references: parseReferenceList(caseDraft.externalReferencesText),
             parameter_values: testCaseParameterValues,
             automated: caseDraft.automated,
+            automation_status: caseDraft.automated === "yes"
+              ? selectedTestCase.automated === "yes" ? existingAutomationStatus : hasMappedAutomation ? "ready" : "incomplete"
+              : "not_automated",
             priority: Number(caseDraft.priority),
             status: caseDraft.status,
             requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : []
@@ -2545,26 +2528,44 @@ export function TestCasesPage() {
         syncCachedTestCaseParameterValues(selectedTestCase.id, testCaseParameterValues);
         clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
         clearStepSelectionIfClipboardActive();
-        showSuccess("Test case updated.");
+        if (announce) {
+          showSuccess("Test case updated.");
+        }
       }
 
       await refreshCases();
+      return true;
     } catch (error) {
       showError(error, "Unable to save test case");
+      return false;
     }
   };
 
   const handleSaveCase = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await handleSaveCaseDirect();
+    await handleSaveCaseAndSteps();
   };
 
-  const handleSaveCaseAndSteps = async () => {
-    await handleSaveCaseDirect();
+  const handleSaveCaseAndSteps = async (stepOverrides: Record<string, StepDraft> = {}, successMessage?: string) => {
+    const didSaveCase = await handleSaveCaseDirect(false);
 
-    if (!isCreating && displaySteps.length) {
-      await handleSaveMultipleSteps(dirtyStepIds.length ? dirtyStepIds : displaySteps.map((step) => step.id), "All steps");
+    if (!didSaveCase) {
+      return false;
     }
+
+    if (!isCreating) {
+      const stepIdsToSave = Array.from(new Set([...dirtyStepIds, ...Object.keys(stepOverrides)]));
+
+      if (stepIdsToSave.length) {
+        const didSaveSteps = await handleSaveMultipleSteps(stepIdsToSave, "Test case", stepOverrides, false);
+        if (!didSaveSteps) {
+          return false;
+        }
+      }
+    }
+
+    showSuccess(successMessage || (isCreating ? "Test case created with its draft steps." : "Test case details, test data, preconditions, and steps saved."));
+    return true;
   };
 
   const handleDeleteCase = async () => {
@@ -2574,7 +2575,6 @@ export function TestCasesPage() {
 
     try {
       await deleteTestCase.mutateAsync(selectedTestCase.id);
-      await unlinkDeletedAutomationReferences([selectedTestCase.id]);
       clearStoredTestCaseParameterDraft(buildTestCaseParameterDraftScopeKey({ isCreating: false, testCaseId: selectedTestCase.id }));
       setSelectedActionTestCaseIds((current) => current.filter((id) => id !== selectedTestCase.id));
       syncTestCaseSearchParams(null);
@@ -2614,8 +2614,6 @@ export function TestCasesPage() {
         .filter((_, index) => results[index]?.status === "fulfilled")
         .map((testCase) => testCase.id);
       const failedResults = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-
-      await unlinkDeletedAutomationReferences(deletedIds);
 
       deletedIds.forEach((testCaseId) => {
         clearStoredTestCaseParameterDraft(buildTestCaseParameterDraftScopeKey({ isCreating: false, testCaseId }));
@@ -2938,7 +2936,9 @@ export function TestCasesPage() {
       setRecorderSession(response);
       setRecorderSessionCaseId(selectedTestCase.id);
       setRecorderStartOptions(options);
-      showSuccess(response.live_view_url ? "Recorder live view is ready in QAira." : "Recorder started in the Test Engine browser session.");
+      showSuccess(response.reused
+        ? "Reused the open local browser and started a fresh capture for this step."
+        : response.live_view_url ? "Recorder live view is ready in QAira." : "Recorder started in the Test Engine browser session.");
     } catch (error) {
       showError(error, "Unable to start recorder");
     }
@@ -3071,44 +3071,32 @@ export function TestCasesPage() {
   }, [isCreating, selectedTestCaseId]);
 
   const handleUpdateStep = async (step: TestStep, input: StepDraft) => {
-    try {
-      await updateStep.mutateAsync({
-        id: step.id,
-        input: {
-          action: input.action,
-          expected_result: input.expected_result,
-          step_type: normalizeStepType(input.step_type),
-          automation_code: normalizeAutomationCode(input.automation_code),
-          api_request: normalizeApiRequest(input.api_request) || {}
-        }
-      });
-      setStepDrafts((current) => ({
-        ...current,
-        [step.id]: {
-          action: input.action,
-          expected_result: input.expected_result,
-          step_type: normalizeStepType(input.step_type),
-          automation_code: normalizeAutomationCode(input.automation_code),
-          api_request: normalizeApiRequest(input.api_request)
-        }
-      }));
-      showSuccess("Step updated.");
-      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
-      if (step.reusable_group_id) {
-        await refreshSharedGroups();
-      }
-      clearStepSelectionIfClipboardActive();
-    } catch (error) {
-      showError(error, "Unable to update step");
-    }
+    const normalizedInput = {
+      action: input.action,
+      expected_result: input.expected_result,
+      step_type: normalizeStepType(input.step_type),
+      automation_code: normalizeAutomationCode(input.automation_code),
+      api_request: normalizeApiRequest(input.api_request)
+    };
+
+    setStepDrafts((current) => ({
+      ...current,
+      [step.id]: normalizedInput
+    }));
+    await handleSaveCaseAndSteps({ [step.id]: normalizedInput }, "Test case and step edits saved.");
   };
 
-  const handleSaveMultipleSteps = async (stepIds: string[], label: string) => {
+  const handleSaveMultipleSteps = async (
+    stepIds: string[],
+    label: string,
+    stepOverrides: Record<string, StepDraft> = {},
+    announce = true
+  ) => {
     const targets = stepIds.filter(Boolean);
 
     if (!targets.length) {
       showError(new Error("Select one or more steps to save."), "Unable to save steps");
-      return;
+      return false;
     }
 
     try {
@@ -3117,7 +3105,7 @@ export function TestCasesPage() {
         .filter((step): step is TestStep => Boolean(step));
 
       for (const step of resolvedSteps) {
-        const draft = stepDrafts[step.id] || {
+        const draft = stepOverrides[step.id] || stepDrafts[step.id] || {
           action: step.action || "",
           expected_result: step.expected_result || "",
           step_type: normalizeStepType(step.step_type),
@@ -3136,14 +3124,18 @@ export function TestCasesPage() {
         });
       }
 
-      showSuccess(`${label} saved.`);
+      if (announce) {
+        showSuccess(`${label} saved.`);
+      }
       await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
       if (resolvedSteps.some((step) => step.reusable_group_id)) {
         await refreshSharedGroups();
       }
       clearStepSelectionIfClipboardActive();
+      return true;
     } catch (error) {
       showError(error, "Unable to save steps");
+      return false;
     }
   };
 
@@ -4029,7 +4021,6 @@ export function TestCasesPage() {
 
     try {
       await deleteTestCase.mutateAsync(testCase.id);
-      await unlinkDeletedAutomationReferences([testCase.id]);
       setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCase.id));
 
       if (selectedTestCaseId === testCase.id) {
@@ -4935,54 +4926,22 @@ export function TestCasesPage() {
 
     try {
       const response = await analyzeAutomationGaps.mutateAsync({
-        testCaseId: selectedTestCase.id,
-        linkedAutomationCaseId: selectedTestCase.automated === "yes" ? undefined : linkedAutomationCase?.id
+        testCaseId: selectedTestCase.id
       });
       const mappedSteps = await api.testSteps.list({ test_case_id: selectedTestCase.id });
-      let synchronizedLinkedAutomation = false;
+      const mappedAutomation = mappedSteps.some((step) => stepHasAutomation(step));
 
-      if (selectedTestCase.automated !== "yes" && mappedSteps.some((step) => stepHasAutomation(step))) {
-        const automationSteps = mappedSteps.map((step) => ({
-          step_order: step.step_order,
-          action: step.action || undefined,
-          expected_result: step.expected_result || undefined,
-          step_type: step.step_type,
-          automation_code: step.automation_code || undefined,
-          api_request: step.api_request || undefined,
-          group_id: step.group_id || undefined,
-          group_name: step.group_name || undefined,
-          group_kind: step.group_kind || undefined,
-          reusable_group_id: step.reusable_group_id || undefined
-        }));
-
-        if (linkedAutomationCase) {
-          await api.testCases.update(linkedAutomationCase.id, {
-            automated: "yes",
-            steps: automationSteps
-          });
-          synchronizedLinkedAutomation = true;
-        } else {
-          const created = await api.testCases.create({
-            app_type_id: appTypeId || selectedTestCase.app_type_id || undefined,
-            title: `Automation - ${selectedTestCase.title}`,
-            description: selectedTestCase.description || undefined,
-            automated: "yes",
-            priority: selectedTestCase.priority || 3,
-            status: selectedTestCase.status || "active",
-            parameter_values: selectedTestCase.parameter_values || {},
-            steps: automationSteps
-          });
-          setLinkedAutomationCase(selectedTestCase.id, created.id);
-          synchronizedLinkedAutomation = true;
-        }
+      if (mappedAutomation) {
+        await api.testCases.update(selectedTestCase.id, {
+          automated: "yes",
+          automation_status: "ready"
+        });
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCase.id] });
-      await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
+      await refreshCases();
       showSuccess(
-        synchronizedLinkedAutomation
-          ? `AI mapped automation onto ${response.generated_step_count || 0} manual step${response.generated_step_count === 1 ? "" : "s"} and synchronized the linked automation case.`
+        mappedAutomation
+          ? `AI mapped automation onto ${response.generated_step_count || 0} manual step${response.generated_step_count === 1 ? "" : "s"} on this same test case.`
           : `AI mapped automation onto ${response.generated_step_count || 0} step${response.generated_step_count === 1 ? "" : "s"}.`
       );
     } catch (error) {
@@ -5020,9 +4979,9 @@ export function TestCasesPage() {
       {selectedTestCase ? (
         <button
           className="test-case-tile-action-button is-run test-case-header-run-button"
-          disabled={isSelectedCaseRemoteRunning || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
+          disabled={isSelectedCaseRemoteRunning || selectedTestCase.automated !== "yes" || selectedTestCase.automation_status === "incomplete" || !projectId || !appTypeId || !session?.user.id}
           onClick={() => void handleRunTestCase(selectedTestCase.id, "remote")}
-          title={selectedTestCase.automated === "yes" ? "Run this automated test case through the configured remote Test Engine" : "Automate this test case before starting a remote run"}
+          title={selectedTestCase.automation_status === "incomplete" ? "Repair missing object repository references before running this automation" : selectedTestCase.automated === "yes" ? "Run this automated test case through the configured remote Test Engine" : "Automate this test case before starting a remote run"}
           type="button"
         >
           <TestCaseRunIcon />
@@ -5034,11 +4993,34 @@ export function TestCasesPage() {
           className="test-case-tile-action-button is-run test-case-header-run-button"
           disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
           onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
-          title={selectedTestCase.automated === "yes" ? "Run the recorded test case locally on your machine" : "Record or automate this test case before starting a local run"}
+          title={selectedTestCase.automation_status === "incomplete" ? "Run locally to diagnose incomplete object repository bindings" : selectedTestCase.automated === "yes" ? "Run the recorded test case locally on your machine" : "Record or automate this test case before starting a local run"}
           type="button"
         >
           <TestCaseRunIcon />
           <span>{isSelectedCaseLocalRunning ? "Starting…" : "Run local Playwright"}</span>
+        </button>
+      ) : null}
+      {selectedTestCase ? (
+        <button
+          aria-label={isVisualBuilderActive ? "Return to step list" : "Open flow map"}
+          className="ghost-button test-case-workspace-icon-action"
+          onClick={() => setIsVisualBuilderActive((current) => !current)}
+          title={isVisualBuilderActive ? "Step list" : "Flow map"}
+          type="button"
+        >
+          {isVisualBuilderActive ? <TileCardStepsIcon /> : <TestCaseFlowMapIcon />}
+        </button>
+      ) : null}
+      {selectedTestCase ? (
+        <button
+          aria-label="Preview execution script"
+          className="ghost-button test-case-workspace-icon-action"
+          disabled={!mainSteps.length}
+          onClick={() => openCaseAutomationPreview()}
+          title="Execution script"
+          type="button"
+        >
+          <AutomationCodeIcon />
         </button>
       ) : null}
       {selectedTestCase ? (
@@ -5663,98 +5645,37 @@ export function TestCasesPage() {
         ...current,
         [stepId]: nextDraft
       }));
+      if (stepHasAutomation(nextDraft)) {
+        setCaseDraft((current) => ({ ...current, automated: "yes" }));
+      }
       setEditingAutomationStepId("");
       showSuccess("Step automation updated.");
       return;
     }
 
-    const upsertLinkedAutomationCase = async () => {
-      if (!selectedTestCase || selectedTestCase.automated === "yes") {
-        return;
-      }
-
-      const linkedCase = automatedCaseOptions.find((item) => manualCaseAutomationLinks[item.id] === selectedTestCase.id) || null;
-      const buildAutomationStepPayload = (step: TestStep) => {
-        const isTarget = step.id === stepId;
-        const action = isTarget
-          ? nextDraft.automation_code || step.action || ""
-          : step.automation_code || step.action || "";
-
-        return {
-          step_order: step.step_order,
-          action,
-          expected_result: isTarget ? targetStep.expected_result || "" : step.expected_result || "",
-          step_type: isTarget ? nextDraft.step_type : normalizeStepType(step.step_type),
-          automation_code: isTarget ? nextDraft.automation_code : normalizeAutomationCode(step.automation_code),
-          api_request: isTarget ? nextDraft.api_request : normalizeApiRequest(step.api_request)
-        };
-      };
-
-      if (!linkedCase) {
-        const created = await api.testCases.create({
-          app_type_id: appTypeId || selectedTestCase.app_type_id || undefined,
-          title: `Automation - ${selectedTestCase.title}`,
-          description: selectedTestCase.description || undefined,
-          automated: "yes",
-          priority: selectedTestCase.priority || 3,
-          status: selectedTestCase.status || "active",
-          parameter_values: selectedTestCase.parameter_values || {},
-          steps: displaySteps.map(buildAutomationStepPayload)
-        });
-        setLinkedAutomationCase(selectedTestCase.id, created.id);
-        await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
-        return;
-      }
-
-      await api.testCases.update(linkedCase.id, {
-        title: linkedCase.title || `Automation - ${selectedTestCase.title}`,
-        description: linkedCase.description || selectedTestCase.description || "",
-        automated: "yes",
-        parameter_values: linkedCase.parameter_values || selectedTestCase.parameter_values || {}
-      });
-
-      const linkedSteps = await api.testSteps.list({ test_case_id: linkedCase.id }).catch(() => []);
-      const linkedStep = linkedSteps.find((step) => Number(step.step_order) === Number(targetStep.step_order));
-      const payload = buildAutomationStepPayload(targetStep);
-
-      if (linkedStep) {
-        await api.testSteps.update(linkedStep.id, {
-          action: payload.action,
-          expected_result: payload.expected_result,
-          step_type: payload.step_type,
-          automation_code: payload.automation_code,
-          api_request: payload.api_request || {}
-        });
-      } else {
-        await api.testSteps.create({
-          test_case_id: linkedCase.id,
-          ...payload
-        });
-      }
-      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", linkedCase.id] });
-      await queryClient.invalidateQueries({ queryKey: ["test-cases"] });
-    };
-
     try {
-      await updateStep.mutateAsync({
-        id: stepId,
-        input: {
-          step_type: nextDraft.step_type,
-          automation_code: nextDraft.automation_code,
-          api_request: nextDraft.api_request || {}
-        }
-      });
-      await upsertLinkedAutomationCase();
+      const didSave = await handleSaveCaseAndSteps(
+        { [stepId]: nextDraft },
+        "Automation and all current test case edits saved."
+      );
+
+      if (!didSave) {
+        return;
+      }
+
+      if (selectedTestCase && stepHasAutomation(nextDraft)) {
+        await api.testCases.update(selectedTestCase.id, {
+          automated: "yes",
+          automation_status: "ready"
+        });
+        setCaseDraft((current) => ({ ...current, automated: "yes" }));
+      }
       setStepDrafts((current) => ({
         ...current,
         [stepId]: nextDraft
       }));
       setEditingAutomationStepId("");
-      showSuccess(selectedTestCase?.automated === "yes" ? "Step automation updated." : "Step automation saved and linked automation case updated.");
-      await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
-      if (targetStep.reusable_group_id) {
-        await refreshSharedGroups();
-      }
+      await refreshCases();
     } catch (error) {
       showError(error, "Unable to update step automation");
     }
@@ -6393,31 +6314,15 @@ export function TestCasesPage() {
 
                         {!isCreating && selectedTestCase ? (
                           <div className="detail-summary automation-link-summary">
-                            <strong>Linked automation case</strong>
+                            <strong>Automation mapping</strong>
                             <span>
-                              {linkedAutomationCase
-                                ? `${linkedAutomationCase.display_id || linkedAutomationCase.title} is linked and will receive automation updates from this manual case.`
-                                : "No automation case is linked yet. Saving step automation can create one automatically, or link an existing automated case here."}
+                              Automation keywords and object repository references are stored on this manual test case. No duplicate automation case is created.
                             </span>
-                            <div className="record-grid automation-link-grid">
-                              <FormField label="Automation case">
-                                <select
-                                  value={linkedAutomationCase?.id || ""}
-                                  onChange={(event) => setLinkedAutomationCase(selectedTestCase.id, event.target.value)}
-                                >
-                                  <option value="">No linked automation case</option>
-                                  {automatedCaseOptions.map((testCase) => (
-                                    <option key={testCase.id} value={testCase.id}>
-                                      {testCase.display_id || testCase.title} · {testCase.title}
-                                    </option>
-                                  ))}
-                                </select>
-                              </FormField>
-                            </div>
-                            {linkedAutomationCase ? (
-                              <button className="ghost-button compact" onClick={() => navigate(`/automation?case=${encodeURIComponent(linkedAutomationCase.id)}`)} type="button">
+                            <StatusBadge value={selectedTestCase.automation_status || (selectedTestCase.automated === "yes" ? "ready" : "not automated")} />
+                            {selectedTestCase.automated === "yes" ? (
+                              <button className="ghost-button compact" onClick={() => navigate(`/automation?case=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
                                 <OpenIcon size={16} />
-                                <span>Open automation case</span>
+                                <span>Open automation workspace</span>
                               </button>
                             ) : null}
                           </div>
@@ -6461,8 +6366,10 @@ export function TestCasesPage() {
                         ) : null}
 
                         <div className="action-row">
-                          <button className="primary-button" disabled={createTestCase.isPending || updateTestCase.isPending} type="submit">
-                            {isCreating ? (createTestCase.isPending ? "Creating…" : "Create test case") : (updateTestCase.isPending ? "Saving…" : "Save test case")}
+                          <button className="primary-button" disabled={createTestCase.isPending || updateTestCase.isPending || updateStep.isPending || updateSuite.isPending} type="submit">
+                            {isCreating
+                              ? (createTestCase.isPending || updateSuite.isPending ? "Creating…" : "Create test case")
+                              : (updateTestCase.isPending || updateStep.isPending || updateSuite.isPending ? "Saving…" : "Save test case")}
                           </button>
                           {isCreating ? (
                             <button
@@ -6537,27 +6444,6 @@ export function TestCasesPage() {
                   </EditorAccordionSection>
 
                   <EditorAccordionSection
-                    actions={(
-                      <>
-                        <button
-                          className="ghost-button"
-                          onClick={() => setIsVisualBuilderActive((current) => !current)}
-                          type="button"
-                        >
-                          <TileCardStepsIcon />
-                          <span>{isVisualBuilderActive ? "List view" : "Visual builder"}</span>
-                        </button>
-                        <button
-                          className="ghost-button"
-                          disabled={!mainSteps.length}
-                          onClick={openCaseAutomationPreview}
-                          type="button"
-                        >
-                          <AutomationCodeIcon />
-                          <span>Automation code</span>
-                        </button>
-                      </>
-                    )}
                     countLabel={stepCountLabel}
                     isExpanded={expandedSections.steps}
                     onToggle={() => setExpandedSections((current) => ({ ...current, steps: !current.steps }))}
@@ -6733,8 +6619,8 @@ export function TestCasesPage() {
 
                       {!isCreating ? (
                         <div className="action-row step-editor-save-row">
-                          <button className="primary-button" disabled={updateTestCase.isPending} onClick={() => void handleSaveCaseDirect()} type="button">
-                            {updateTestCase.isPending ? "Saving…" : "Save test case"}
+                          <button className="primary-button" disabled={updateTestCase.isPending || updateStep.isPending || updateSuite.isPending} onClick={() => void handleSaveCaseAndSteps()} type="button">
+                            {updateTestCase.isPending || updateStep.isPending || updateSuite.isPending ? "Saving…" : "Save test case"}
                           </button>
                         </div>
                       ) : null}
@@ -7031,7 +6917,7 @@ export function TestCasesPage() {
             <div className="detail-stack step-inspect-body">
               <div className="detail-summary">
                 <strong>Step-level capture</strong>
-                <span>Start an inspector session and perform only this step action. Captured automation and learned object repository evidence are mapped back to this step.</span>
+                <span>Start an inspector session and perform only this step action. Local inspection reuses the open QAira browser on port 4311 when available; captured automation and repository evidence remain mapped to this step.</span>
               </div>
               <RecorderStartControls
                 disabled={!selectedTestCase || !testEngineIntegration}
@@ -9159,12 +9045,11 @@ function EditableStepCard({
       disabled: !canMoveDown
     },
     {
-      label: "Save step",
-      description: "Persist the current edits on this step.",
+      label: isDirty ? "Save all changes" : "Save test case",
+      description: "Save case details, test data, preconditions, and all edited steps together.",
       icon: <StepSaveIcon />,
       onClick: () => onSave(draft),
-      tone: "primary",
-      disabled: !isDirty
+      tone: "primary"
     },
     {
       label: "Delete step",

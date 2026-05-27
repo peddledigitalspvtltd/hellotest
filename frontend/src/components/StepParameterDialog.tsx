@@ -1,20 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { FormField } from "./FormField";
 import type { StepParameterDefinition } from "../lib/stepParameters";
+import { evaluateTestDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 
 type StepParameterDialogInputState = {
   disabled?: boolean;
   hint?: string;
   placeholder?: string;
 };
-
-const PARAMETER_UTILITY_EXAMPLES = {
-  randomNumber: "{{randomNumber}}",
-  randomString: "{{randomString}}",
-  date: "{{date}}"
-} as const;
-
-const PARAMETER_UTILITY_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|date)(?::([^}]+))?\s*\}\}/g;
 
 function StepParameterUtilityIcon() {
   return (
@@ -30,54 +23,6 @@ function StepParameterUtilityIcon() {
       <circle cx="12" cy="12" r="4.25" />
     </svg>
   );
-}
-
-function generateRandomNumber(length = 6) {
-  const safeLength = Math.max(1, Math.min(12, Number.isFinite(length) ? Math.round(length) : 6));
-  return Array.from({ length: safeLength }, () => Math.floor(Math.random() * 10)).join("");
-}
-
-function generateRandomString(length = 8) {
-  const safeLength = Math.max(1, Math.min(32, Number.isFinite(length) ? Math.round(length) : 8));
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-  return Array.from({ length: safeLength }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
-}
-
-function formatGeneratedDate(format = "YYYY-MM-DD") {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const hours = String(now.getHours()).padStart(2, "0");
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const seconds = String(now.getSeconds()).padStart(2, "0");
-
-  return format
-    .replace(/YYYY/g, String(year))
-    .replace(/MM/g, month)
-    .replace(/DD/g, day)
-    .replace(/HH/g, hours)
-    .replace(/mm/g, minutes)
-    .replace(/ss/g, seconds);
-}
-
-function evaluateParameterUtilityTemplate(template: string) {
-  return String(template || "").replace(PARAMETER_UTILITY_TOKEN_PATTERN, (_, rawKind: string, rawOption: string | undefined) => {
-    const option = String(rawOption || "").trim();
-
-    if (rawKind === "randomNumber") {
-      const parsedLength = Number.parseInt(option || "6", 10);
-      return generateRandomNumber(Number.isFinite(parsedLength) ? parsedLength : 6);
-    }
-
-    if (rawKind === "randomString") {
-      const parsedLength = Number.parseInt(option || "8", 10);
-      return generateRandomString(Number.isFinite(parsedLength) ? parsedLength : 8);
-    }
-
-    return formatGeneratedDate(option || "YYYY-MM-DD");
-  });
 }
 
 export function StepParameterDialog({
@@ -148,12 +93,14 @@ export function StepParameterDialog({
 
   const applyUtilityTemplate = (parameterName: string) => {
     const template = utilityDrafts[parameterName] || "";
-    const evaluatedValue = evaluateParameterUtilityTemplate(template);
+    const sampleValue = evaluateTestDataTemplate(template);
 
-    onChange(parameterName, evaluatedValue);
+    onChange(parameterName, template);
     setUtilityFeedbackByParameter((current) => ({
       ...current,
-      [parameterName]: evaluatedValue ? "Generated and applied to the field." : "Applied an empty generated value."
+      [parameterName]: sampleValue
+        ? `Template saved. Example for a new run: ${sampleValue}`
+        : "Saved an empty generator template."
     }));
   };
 
@@ -223,14 +170,20 @@ export function StepParameterDialog({
                           {activeUtilityParameter === parameter.name ? (
                             <div className="step-parameter-utility-panel">
                               <div className="step-parameter-utility-actions">
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, PARAMETER_UTILITY_EXAMPLES.randomNumber)} type="button">
+                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.randomNumber)} type="button">
                                   Random number
                                 </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, PARAMETER_UTILITY_EXAMPLES.randomString)} type="button">
+                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.randomString)} type="button">
                                   Random string
                                 </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, PARAMETER_UTILITY_EXAMPLES.date)} type="button">
-                                  Date
+                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.yopmail)} type="button">
+                                  Yopmail email
+                                </button>
+                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.date)} type="button">
+                                  Today
+                                </button>
+                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.tomorrow)} type="button">
+                                  Tomorrow
                                 </button>
                               </div>
                               <textarea
@@ -252,10 +205,10 @@ export function StepParameterDialog({
                               />
                               <div className="step-parameter-utility-footer">
                                 <span>
-                                  Use plain text plus <code>{"{{randomNumber}}"}</code>, <code>{"{{randomString}}"}</code>, or <code>{"{{date}}"}</code>. Concatenation works automatically.
+                                  Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, or <code>{"{{randomString:8}}"}</code>.
                                 </span>
                                 <button className="primary-button" onClick={() => applyUtilityTemplate(parameter.name)} type="button">
-                                  Generate value
+                                  Save template
                                 </button>
                               </div>
                               {utilityFeedbackByParameter[parameter.name] ? (

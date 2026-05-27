@@ -17,6 +17,7 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { parseTestDataFile, toKeyValueRows } from "../lib/testDataImport";
+import { countGeneratedTestDataFields, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import { TEST_ENVIRONMENT_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { KeyValueEntry, TestConfiguration, TestDataSet, TestDataSetMode, TestDataSetRow, TestEnvironment } from "../types";
 
@@ -1065,6 +1066,39 @@ function DataSetForm({
 }) {
   const [importFeedback, setImportFeedback] = useState("");
   const [importFeedbackTone, setImportFeedbackTone] = useState<"success" | "error">("success");
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const generatedFieldCount = useMemo(() => countGeneratedTestDataFields(draft.rows), [draft.rows]);
+  const generatedPreviewRows = useMemo(() => materializeTestDataRows(draft.rows), [draft.rows, previewRevision]);
+
+  const appendGeneratedField = (requestedKey: string, template: string) => {
+    const existingKeys = new Set(
+      (draft.mode === "key_value" ? draft.rows.map((row) => String(row.key ?? "")) : draft.columns)
+        .map((key) => key.toLowerCase())
+    );
+    let key = requestedKey;
+    let suffix = 2;
+
+    while (existingKeys.has(key.toLowerCase())) {
+      key = `${requestedKey}_${suffix}`;
+      suffix += 1;
+    }
+
+    if (draft.mode === "key_value") {
+      onChange({
+        ...draft,
+        columns: ["key", "value"],
+        rows: [...draft.rows, { key, value: template }]
+      });
+      return;
+    }
+
+    const sourceRows = draft.rows.length ? draft.rows : [{}];
+    onChange({
+      ...draft,
+      columns: [...draft.columns, key],
+      rows: sourceRows.map((row) => ({ ...row, [key]: template }))
+    });
+  };
 
   const handleDataFileImport = async (file?: File | null) => {
     if (!file) {
@@ -1161,6 +1195,58 @@ function DataSetForm({
               : "Switch back to spreadsheet mode anytime. Existing key/value entries will stay convertible."}
           </span>
         </div>
+
+        <section className="test-data-generator-panel">
+          <div className="test-data-generator-header">
+            <div>
+              <strong>Dynamic values per run</strong>
+              <span>Keep templates in this data set. Each new run and rerun resolves fresh values and stores its resolved snapshot.</span>
+            </div>
+            {generatedFieldCount ? (
+              <span className="count-pill">{generatedFieldCount} generated field{generatedFieldCount === 1 ? "" : "s"}</span>
+            ) : null}
+          </div>
+          <div className="test-data-generator-actions">
+            <button className="ghost-button" onClick={() => appendGeneratedField("email", TEST_DATA_GENERATOR_TEMPLATES.yopmail)} type="button">
+              Add Yopmail email
+            </button>
+            <button className="ghost-button" onClick={() => appendGeneratedField("run_date", TEST_DATA_GENERATOR_TEMPLATES.date)} type="button">
+              Add today's date
+            </button>
+            <button className="ghost-button" onClick={() => appendGeneratedField("future_date", TEST_DATA_GENERATOR_TEMPLATES.tomorrow)} type="button">
+              Add tomorrow
+            </button>
+            <button className="ghost-button" onClick={() => appendGeneratedField("unique_id", TEST_DATA_GENERATOR_TEMPLATES.randomString)} type="button">
+              Add random text
+            </button>
+          </div>
+          <p className="test-data-generator-hint">
+            You can type templates in any value cell, for example <code>{"{{yopmail:signup}}"}</code>, <code>{"{{date:YYYY-MM-DD|+7d}}"}</code>, or <code>{"ORD-{{randomNumber:6}}"}</code>.
+          </p>
+          {generatedFieldCount ? (
+            <div className="test-data-generator-preview">
+              <div className="test-data-generator-preview-header">
+                <strong>Sample before run</strong>
+                <button className="ghost-button" onClick={() => setPreviewRevision((current) => current + 1)} type="button">
+                  Refresh sample
+                </button>
+              </div>
+              <div className="test-data-generator-preview-rows">
+                {generatedPreviewRows.slice(0, 3).map((row, index) => (
+                  <article key={`generated-preview-${index}`}>
+                    {Object.entries(row).map(([key, value]) => (
+                      <span key={key}>
+                        <strong>{key}</strong>
+                        <code>{value || "-"}</code>
+                      </span>
+                    ))}
+                  </article>
+                ))}
+              </div>
+              <small>This preview is illustrative. The exact generated values are frozen and visible in the created run.</small>
+            </div>
+          ) : null}
+        </section>
 
         {draft.mode === "key_value" ? (
           <KeyValueEditor

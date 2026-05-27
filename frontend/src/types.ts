@@ -355,6 +355,7 @@ export type TestCase = {
   external_references?: string[];
   parameter_values?: Record<string, string>;
   automated: "yes" | "no" | null;
+  automation_status?: "not_automated" | "ready" | "incomplete" | null;
   priority: number | null;
   status: string | null;
   requirement_id: string | null;
@@ -401,6 +402,33 @@ export type AutomationLearningCacheEntry = {
   updated_at?: string;
 };
 
+export type ObjectRepositoryImportEntry = {
+  screen_name: string;
+  record_type: "screen" | "field";
+  page_url?: string;
+  page_key?: string;
+  locator_intent?: string;
+  locator?: string;
+  locator_kind?: string;
+  confidence?: number;
+  source?: string;
+  object_name?: string;
+  object_role?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ObjectRepositoryImportResult = {
+  created: number;
+  updated: number;
+  failed: number;
+  errors: Array<{
+    index: number;
+    screen_name?: string | null;
+    object_name?: string | null;
+    message: string;
+  }>;
+};
+
 export type ObjectRepositoryContext = {
   repositoryType: "ui_intelligence_repository";
   generatedAt: string;
@@ -429,6 +457,7 @@ export type AutomationBuildResponse = {
   test_case_id: string;
   title: string;
   automated: "yes" | "no";
+  automation_status?: "not_automated" | "ready" | "incomplete";
   generated_step_count: number;
   created_step_count?: number;
   updated_step_count?: number;
@@ -448,12 +477,15 @@ export type AutomationBuildResponse = {
 
 export type RecorderSessionResponse = {
   id: string;
+  purpose?: "automation-recording" | "repository-inspect" | null;
   status: "running" | "stopped" | "failed";
+  reused?: boolean;
   started_at?: string;
   stopped_at?: string | null;
   last_activity_at?: string | null;
   start_url?: string | null;
   display_mode?: "browser-live-view" | "local-browser-with-live-view" | string | null;
+  live_view_path?: string | null;
   action_count?: number;
   network_count?: number;
   actions?: Array<{
@@ -482,7 +514,6 @@ export type RecorderSessionResponse = {
   transaction_id?: string;
   engine_base_url?: string;
   status_url?: string;
-  live_view_path?: string | null;
   live_view_url?: string | null;
   capture?: {
     actions?: boolean;
@@ -656,6 +687,9 @@ export type ExecutionDataSetSnapshot = {
   mode: TestDataSetMode;
   columns: string[];
   rows: TestDataSetRow[];
+  template_rows?: TestDataSetRow[];
+  generated_at?: string;
+  generated_field_count?: number;
 };
 
 export type ExecutionStatus = "queued" | "running" | "completed" | "failed" | "aborted";
@@ -737,7 +771,9 @@ export type ExecutionCaseSnapshot = {
   priority: number | null;
   status: string | null;
   parameter_values?: Record<string, string>;
+  parameter_template_values?: Record<string, string>;
   suite_parameter_values?: Record<string, string>;
+  suite_parameter_template_values?: Record<string, string>;
   sort_order: number;
   assigned_to?: string | null;
   assigned_user?: {

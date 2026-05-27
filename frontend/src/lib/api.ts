@@ -7,6 +7,8 @@ import type {
   AiTestCaseGenerationJob,
   AutomationBuildResponse,
   AutomationLearningCacheEntry,
+  ObjectRepositoryImportEntry,
+  ObjectRepositoryImportResult,
   ObjectRepositoryContext,
   AuthSetupPayload,
   ApiError,
@@ -212,6 +214,7 @@ type TestCaseImportBatchInput = {
 
 const MAX_IMPORT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_ROWS_PER_BATCH = 250;
+const MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH = 100;
 
 const splitRowsForImport = (rows: Array<Record<string, unknown>>) => {
   const chunks: Array<Array<Record<string, unknown>>> = [];
@@ -512,7 +515,7 @@ export const api = {
   testCases: {
     list: (query?: { suite_id?: string; requirement_id?: string; status?: string; app_type_id?: string }) =>
       request<TestCase[]>(`/test-cases${toQueryString(query)}`),
-    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewCaseAuthoring: (input: {
       app_type_id: string;
@@ -626,6 +629,63 @@ export const api = {
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
     repositoryContext: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<ObjectRepositoryContext>(`/test-cases/automation/repository-context${toQueryString(query)}`),
+    exportLearningCacheCsv: (query: { app_type_id: string }) =>
+      requestBlob(`/test-cases/automation/learning-cache/export.csv${toQueryString(query)}`),
+    importLearningCacheEntries: async (input: {
+      app_type_id: string;
+      import_source?: string;
+      entries: ObjectRepositoryImportEntry[];
+    }) => {
+      const result: ObjectRepositoryImportResult = { created: 0, updated: 0, failed: 0, errors: [] };
+
+      for (let offset = 0; offset < input.entries.length; offset += MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH) {
+        const response = await request<ObjectRepositoryImportResult>("/test-cases/automation/learning-cache/import", {
+          method: "POST",
+          body: JSON.stringify({
+            ...input,
+            entries: input.entries.slice(offset, offset + MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH)
+          })
+        });
+        result.created += response.created;
+        result.updated += response.updated;
+        result.failed += response.failed;
+        result.errors.push(...response.errors);
+      }
+
+      return result;
+    },
+    extractLearningCacheFields: (input: {
+      app_type_id?: string;
+      screen_name: string;
+      page_url?: string;
+      dom_structure?: string;
+      screenshot_url?: string;
+      business_meaning?: string;
+      candidate_fields?: unknown[];
+      integration_id?: string;
+    }) =>
+      request<{
+        screen_summary?: string | null;
+        intended_flows: string[];
+        fields: Array<{
+          name: string;
+          tag: string;
+          role: string;
+          locator: string;
+          locatorKind: string;
+          dom: string;
+          fallbackLocators: Array<{ locator: string; strategy: string; confidenceScore: number }>;
+          description?: string | null;
+          businessMeaning?: string | null;
+          usageKeywords?: string[];
+        }>;
+        ai_used: boolean;
+        fallback_used: boolean;
+        fallback_reason?: string | null;
+      }>("/test-cases/automation/learning-cache/extract-fields", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     createLearningCacheEntry: (input: Partial<{
       project_id: string;
       app_type_id: string;
@@ -696,10 +756,14 @@ export const api = {
       }),
     learningCacheUsage: (id: string) =>
       request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/${id}/usage`),
-    deleteLearningCacheEntry: (id: string) =>
-      request<{ deleted: boolean; blocked: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }> }>(`/test-cases/automation/learning-cache/${id}`, { method: "DELETE" }),
-    deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string }) =>
-      request<{ deleted: boolean; blocked: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }> }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}${toQueryString(query)}`, { method: "DELETE" }),
+    learningCacheScreenUsage: (screenName: string, query: { app_type_id?: string }) =>
+      request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}/usage${toQueryString(query)}`),
+    deleteLearningCacheEntry: (id: string, confirmed = false) =>
+      request<{ deleted: boolean; requires_confirmation: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>; invalidated_cases: Array<{ id: string; title: string }> }>(`/test-cases/automation/learning-cache/${id}${toQueryString(confirmed ? { confirm: "true" } : undefined)}`, { method: "DELETE" }),
+    deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string; confirm?: string }) =>
+      request<{ deleted: boolean; requires_confirmation: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>; invalidated_cases: Array<{ id: string; title: string }> }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}${toQueryString(query)}`, { method: "DELETE" }),
+    renameLearningCacheScreen: (screenName: string, input: { app_type_id?: string; new_name: string }) =>
+      request<{ renamed: boolean; screen_name: string; updated_fields: number; updated_step_references: number }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}`, { method: "PUT", body: JSON.stringify(input) }),
     buildAutomation: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",
@@ -715,7 +779,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
+    startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; reuse_existing?: boolean; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
       request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, {
         method: "POST",
         body: JSON.stringify(input || {})
@@ -725,7 +789,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; priority: number; status: string; requirement_id: string; requirement_ids: string[]; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; priority: number; status: string; requirement_id: string; requirement_ids: string[]; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }>) =>
       request<{ updated: boolean }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-cases/${id}`, { method: "DELETE" })
   },

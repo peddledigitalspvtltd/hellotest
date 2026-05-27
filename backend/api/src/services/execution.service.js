@@ -8,6 +8,7 @@ const apiRequestExecutionService = require("./apiRequestExecution.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const opsTelemetryService = require("./opsTelemetry.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { materializeDataSetSnapshot, materializeParameterValues } = require("../utils/testDataGenerators");
 
 const getSuiteIdsForExecution = db.prepare(`
   SELECT suite_id, suite_name
@@ -17,7 +18,7 @@ const getSuiteIdsForExecution = db.prepare(`
 `);
 
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, priority, status, parameter_values, suite_parameter_values, sort_order, assigned_to
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, sort_order, assigned_to
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
@@ -61,11 +62,13 @@ const insertExecutionCaseSnapshot = db.prepare(`
     priority,
     status,
     parameter_values,
+    parameter_template_values,
     suite_parameter_values,
+    suite_parameter_template_values,
     sort_order,
     assigned_to
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertExecutionStepSnapshot = db.prepare(`
@@ -277,15 +280,11 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
 
   if (dataSetSnapshot?.mode === "key_value") {
     (dataSetSnapshot.rows || []).forEach((row) => {
-      Object.entries(row || {}).forEach(([key, value]) => {
-        const normalizedKey = String(key || "").trim().toLowerCase();
-
-        if (!normalizedKey) {
-          return;
-        }
-
-        values[`t.${normalizedKey}`] = value === undefined || value === null ? "" : String(value);
-      });
+      const normalizedKey = String(row?.key || "").trim().replace(/^@+/, "").toLowerCase();
+      if (!normalizedKey) {
+        return;
+      }
+      values[`t.${normalizedKey.replace(/^t\./, "")}`] = row?.value === undefined || row?.value === null ? "" : String(row.value);
     });
   } else if (Array.isArray(dataSetSnapshot?.rows) && dataSetSnapshot.rows.length) {
     Object.entries(dataSetSnapshot.rows[0] || {}).forEach(([key, value]) => {
@@ -456,7 +455,9 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
     ...snapshot,
     external_references: normalizeStoredReferenceList(snapshot.external_references),
     parameter_values: normalizeParameterValues(snapshot.parameter_values),
+    parameter_template_values: normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values),
     suite_parameter_values: normalizeParameterValues(snapshot.suite_parameter_values),
+    suite_parameter_template_values: normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values),
     assigned_user: snapshot.assigned_to ? assignedUsersById[snapshot.assigned_to] || null : null
   }));
 }
@@ -551,6 +552,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const seenCaseIds = new Set();
   const caseSnapshots = [];
   const stepSnapshots = [];
+  const materializedSuiteParameters = new Map();
   const resolvedAssignedTo = normalizeText(options.assignedTo) || null;
   let sortOrder = 0;
 
@@ -564,6 +566,11 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
 
       seenCaseIds.add(suiteCase.test_case_id);
       sortOrder += 1;
+      const parameterTemplateValues = normalizeParameterValues(suiteCase.parameter_values);
+      const suiteParameterTemplateValues = normalizeParameterValues(suiteCase.suite_parameter_values);
+      const suiteParameterValues = materializedSuiteParameters.get(suiteRow.suite_id)
+        || materializeParameterValues(suiteParameterTemplateValues);
+      materializedSuiteParameters.set(suiteRow.suite_id, suiteParameterValues);
 
       caseSnapshots.push({
         execution_id: executionId,
@@ -575,8 +582,10 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         suite_name: suiteRow.suite_name,
         priority: suiteCase.priority,
         status: suiteCase.status,
-        parameter_values: normalizeParameterValues(suiteCase.parameter_values),
-        suite_parameter_values: normalizeParameterValues(suiteCase.suite_parameter_values),
+        parameter_values: materializeParameterValues(parameterTemplateValues),
+        parameter_template_values: parameterTemplateValues,
+        suite_parameter_values: suiteParameterValues,
+        suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
         assigned_to: resolvedAssignedTo
       });
@@ -615,6 +624,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
 
       seenCaseIds.add(directCase.test_case_id);
       sortOrder += 1;
+      const parameterTemplateValues = normalizeParameterValues(directCase.parameter_values);
 
       caseSnapshots.push({
         execution_id: executionId,
@@ -626,8 +636,10 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         suite_name: null,
         priority: directCase.priority,
         status: directCase.status,
-        parameter_values: normalizeParameterValues(directCase.parameter_values),
+        parameter_values: materializeParameterValues(parameterTemplateValues),
+        parameter_template_values: parameterTemplateValues,
         suite_parameter_values: {},
+        suite_parameter_template_values: {},
         sort_order: sortOrder,
         assigned_to: resolvedAssignedTo
       });
@@ -835,7 +847,7 @@ exports.createExecution = async ({
     projectId: project_id,
     appTypeId: app_type_id || null,
     lookup: selectTestDataSet,
-    snapshotBuilder: (resource) => ({
+    snapshotBuilder: (resource) => materializeDataSetSnapshot({
       id: resource.id,
       name: resource.name,
       description: resource.description,
@@ -958,7 +970,9 @@ exports.createExecution = async ({
         caseSnapshot.priority,
         caseSnapshot.status,
         caseSnapshot.parameter_values || {},
+        caseSnapshot.parameter_template_values || caseSnapshot.parameter_values || {},
         caseSnapshot.suite_parameter_values || {},
+        caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values || {},
         caseSnapshot.sort_order,
         caseSnapshot.assigned_to || null
       );
@@ -1131,6 +1145,8 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     normalizeText(name) ||
     `${sourceExecution.name || "Execution Run"}${failed_only ? " Failed Rerun" : " Rerun"}`;
   const rerunAssignedTo = resolveExecutionAssignee(created_by, sourceExecution.assigned_to);
+  const rerunDataSetSnapshot = materializeDataSetSnapshot(sourceExecution.test_data_set?.snapshot || null);
+  const rerunSuiteParameters = new Map();
 
   await validateExecutionAssignee(sourceExecution.project_id, rerunAssignedTo);
 
@@ -1170,7 +1186,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       sourceExecution.test_configuration?.snapshot || null,
       sourceExecution.test_data_set?.id || null,
       sourceExecution.test_data_set?.name || null,
-      sourceExecution.test_data_set?.snapshot || null,
+      rerunDataSetSnapshot,
       rerunAssignedTo,
       created_by
     );
@@ -1180,6 +1196,12 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     }
 
     for (const [index, snapshot] of filteredCaseSnapshots.entries()) {
+      const parameterTemplateValues = normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values);
+      const suiteParameterTemplateValues = normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values);
+      const suiteKey = snapshot.suite_id || `case:${snapshot.test_case_id}`;
+      const suiteParameterValues = rerunSuiteParameters.get(suiteKey)
+        || materializeParameterValues(suiteParameterTemplateValues);
+      rerunSuiteParameters.set(suiteKey, suiteParameterValues);
       await insertExecutionCaseSnapshot.run(
         nextExecutionId,
         snapshot.test_case_id,
@@ -1190,8 +1212,10 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         snapshot.suite_name,
         snapshot.priority,
         snapshot.status,
-        snapshot.parameter_values || {},
-        snapshot.suite_parameter_values || {},
+        materializeParameterValues(parameterTemplateValues),
+        parameterTemplateValues,
+        suiteParameterValues,
+        suiteParameterTemplateValues,
         index + 1,
         rerunAssignedTo
       );
@@ -1394,7 +1418,9 @@ exports.startLocalExecution = async (id, options = {}) => {
     await assignExecutionCaseOwnershipIfMissing.run(initiatedBy, id);
   }
 
-  const dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution);
+  const dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution, {
+    allowIncompleteAutomation: true
+  });
 
   if (!dispatchPlan.eligible_automated_case_count) {
     throw new Error("Local run requires a recorded automated web test case.");

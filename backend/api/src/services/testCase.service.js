@@ -17,6 +17,7 @@ const { normalizeReferenceList, normalizeStoredReferenceList } = require("../uti
 const DEFAULT_PRIORITY = 3;
 const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
 const DEFAULT_AUTOMATED = DOMAIN_METADATA.test_cases.default_automated || "no";
+const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const IMPORT_SOURCE_LABELS = {
   csv: "CSV",
   junit_xml: "JUnit XML",
@@ -77,6 +78,7 @@ const insertTestCaseRecord = db.prepare(`
     external_references,
     parameter_values,
     automated,
+    automation_status,
     priority,
     status,
     requirement_id,
@@ -88,12 +90,12 @@ const insertTestCaseRecord = db.prepare(`
     updated_by,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, parameter_values = ?, automated = ?, priority = ?, status = ?, requirement_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, parameter_values = ?, automated = ?, automation_status = ?, priority = ?, status = ?, requirement_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -305,6 +307,24 @@ const normalizeAutomated = (value, fallback = DEFAULT_AUTOMATED) => {
   }
 
   return normalized;
+};
+
+const normalizeAutomationStatus = (value, automated, fallback = null, hasAutomation = false) => {
+  if (automated !== "yes") {
+    return "not_automated";
+  }
+
+  const normalized = normalizeText(value);
+
+  if (normalized && AUTOMATION_STATUS_VALUES.includes(normalized)) {
+    return normalized;
+  }
+
+  if (fallback && AUTOMATION_STATUS_VALUES.includes(fallback)) {
+    return fallback;
+  }
+
+  return hasAutomation ? "ready" : "incomplete";
 };
 
 const normalizeGroupKind = (value) => {
@@ -703,6 +723,7 @@ const createPersistablePayload = async ({
   description,
   external_references,
   automated,
+  automation_status,
   priority,
   status,
   requirement_id,
@@ -738,6 +759,9 @@ const createPersistablePayload = async ({
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
   await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
 
+  const normalizedSteps = normalizeSteps(steps);
+  const normalizedAutomated = normalizeAutomated(automated);
+
   return {
     app_type_id: resolvedAppTypeId,
     suite_ids: resolvedSuiteIds,
@@ -746,11 +770,17 @@ const createPersistablePayload = async ({
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
     parameter_values: normalizeParameterValues(parameter_values),
-    automated: normalizeAutomated(automated),
+    automated: normalizedAutomated,
+    automation_status: normalizeAutomationStatus(
+      automation_status,
+      normalizedAutomated,
+      null,
+      normalizedSteps.some((step) => Boolean(step.automation_code || step.api_request))
+    ),
     priority: normalizePriority(priority),
     status: normalizeStatus(status),
     display_id,
-    steps: normalizeSteps(steps),
+    steps: normalizedSteps,
     ai_generation_source: resolvedAiGenerationSource,
     ai_generation_review_status: resolvedAiGenerationReviewStatus,
     ai_generation_job_id: normalizeText(ai_generation_job_id),
@@ -773,6 +803,7 @@ const createOne = db.transaction(async (payload) => {
     payload.external_references,
     payload.parameter_values,
     payload.automated,
+    payload.automation_status,
     payload.priority,
     payload.status,
     payload.requirement_ids[0] || null,
@@ -1224,6 +1255,12 @@ exports.updateTestCase = async (id, data) => {
     steps: data.steps !== undefined ? normalizeSteps(data.steps) : null,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
+  payload.automation_status = normalizeAutomationStatus(
+    data.automation_status,
+    payload.automated,
+    data.automated === undefined ? existing.automation_status : null,
+    Boolean(payload.steps?.some((step) => step.automation_code || step.api_request))
+  );
 
   const executeUpdate = db.transaction(async () => {
     await updateTestCaseRecord.run(
@@ -1234,6 +1271,7 @@ exports.updateTestCase = async (id, data) => {
       payload.external_references,
       payload.parameter_values,
       payload.automated,
+      payload.automation_status,
       payload.priority,
       payload.status,
       payload.requirement_ids[0] || null,

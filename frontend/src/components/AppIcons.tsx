@@ -314,6 +314,15 @@ export function CopyIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function PencilIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <path d="m15.5 5.5 3 3" />
+      <path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17z" />
+    </IconFrame>
+  );
+}
+
 export function TrashIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

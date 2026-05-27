@@ -116,9 +116,11 @@ const buildInitialContext = (envelope) => {
     });
     if (envelope.data_set?.mode === "key_value") {
         (envelope.data_set.rows || []).forEach((row) => {
-            Object.entries(row).forEach(([key, value]) => {
-                context.values[`t.${normalizeKey(key).replace(/^t\./, "")}`] = stringifyValue(value);
-            });
+            const normalizedKey = normalizeKey(row.key);
+            if (!normalizedKey) {
+                return;
+            }
+            context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = stringifyValue(row.value);
         });
     }
     else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {

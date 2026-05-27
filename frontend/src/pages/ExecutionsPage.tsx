@@ -1309,10 +1309,10 @@ export function ExecutionsPage() {
     mutationFn: (input: string | { id: string; options?: Parameters<typeof api.executions.start>[1] }) =>
       typeof input === "string" ? api.executions.start(input) : api.executions.start(input.id, input.options)
   });
-  const convertNetworkToApiCase = useMutation({
+  const attachNetworkAutomationToCase = useMutation({
     mutationFn: ({ testCaseId, network }: { testCaseId: string; network: NonNullable<ExecutionStepWebDetail["network"]> }) =>
       api.testCases.buildAutomation(testCaseId, {
-        additional_context: "Create a companion API test case from the selected web execution network calls. Do not change the existing web test steps.",
+        additional_context: "Map meaningful business API requests from the selected web execution network calls onto API automation steps in this same original test case. Preserve existing manual and web steps. Create additional API step rows on this case only when required. Never create a companion or duplicate test case.",
         captured_actions: [],
         captured_network: network
       })
@@ -2938,18 +2938,19 @@ export function ExecutionsPage() {
     ? resolveStepParameterText(selectedExecutionCase.description, executionStepParameterValues) || selectedExecutionCase.description || ""
     : "";
 
-  const handleConvertStepNetworkToApiCase = async (network: NonNullable<ExecutionStepWebDetail["network"]>) => {
+  const handleAttachStepNetworkAutomation = async (network: NonNullable<ExecutionStepWebDetail["network"]>) => {
     if (!selectedExecutionCase?.id || !network.length) {
       return;
     }
 
     try {
-      const response = await convertNetworkToApiCase.mutateAsync({ testCaseId: selectedExecutionCase.id, network });
-      const apiCase = response.api_test_case;
-      showSuccess(apiCase ? `API test case created: ${apiCase.title}` : "Captured network calls were sent for API test creation.");
+      const response = await attachNetworkAutomationToCase.mutateAsync({ testCaseId: selectedExecutionCase.id, network });
+      showSuccess(response.generated_step_count
+        ? `Mapped ${response.generated_step_count} API automation step${response.generated_step_count === 1 ? "" : "s"} onto "${selectedExecutionCase.title}".`
+        : "Captured network calls did not add executable API steps to this test case.");
       await queryClient.invalidateQueries({ queryKey: ["global-test-cases"] });
     } catch (error) {
-      showError(error, "Unable to create API test from network calls");
+      showError(error, "Unable to map API automation from network calls");
     }
   };
   const selectedExecutionCaseReferenceText = formatReferenceList(
@@ -4821,7 +4822,7 @@ export function ExecutionsPage() {
   onNoteBlur={(value) => void handleSaveStepNote(step.id, value)}
   onPass={() => void handleRecordStep(step.id, "passed")}
                                             onPreviewCode={() => openExecutionStepAutomationPreview(step)}
-                                            onConvertNetworkToApiCase={(network) => void handleConvertStepNetworkToApiCase(network)}
+                                            onAttachNetworkAutomation={(network) => void handleAttachStepNetworkAutomation(network)}
   onRunStep={() => void handleRunExecutionApiStep(step)}
                                             onToggle={() =>
                                               setExpandedExecutionStepIds((current) =>
@@ -4872,7 +4873,7 @@ export function ExecutionsPage() {
   onNoteBlur={(value) => void handleSaveStepNote(step.id, value)}
   onPass={() => void handleRecordStep(step.id, "passed")}
   onPreviewCode={() => openExecutionStepAutomationPreview(step)}
-  onConvertNetworkToApiCase={(network) => void handleConvertStepNetworkToApiCase(network)}
+  onAttachNetworkAutomation={(network) => void handleAttachStepNetworkAutomation(network)}
   onRunStep={() => void handleRunExecutionApiStep(step)}
                                   onToggle={() =>
                                     setExpandedExecutionStepIds((current) =>
@@ -6771,7 +6772,7 @@ function ExecutionStepCard({
   onFail,
   onDeleteEvidence,
   onInspectApi,
-  onConvertNetworkToApiCase,
+  onAttachNetworkAutomation,
   onRunStep,
   onNoteBlur,
   onUploadEvidence,
@@ -6799,7 +6800,7 @@ function ExecutionStepCard({
   onFail: () => void;
   onDeleteEvidence: () => void;
   onInspectApi: () => void;
-  onConvertNetworkToApiCase: (network: NonNullable<ExecutionStepWebDetail["network"]>) => void;
+  onAttachNetworkAutomation: (network: NonNullable<ExecutionStepWebDetail["network"]>) => void;
   onRunStep: () => void;
   onNoteBlur: (value: string) => void;
   onUploadEvidence: (file: File) => void;
@@ -6970,9 +6971,9 @@ function ExecutionStepCard({
                       <span>{entry.url || "Unknown URL"}</span>
                     </div>
                   ))}
-                  <button className="ghost-button compact" onClick={() => onConvertNetworkToApiCase(webDetail.network || [])} type="button">
+                  <button className="ghost-button compact" onClick={() => onAttachNetworkAutomation(webDetail.network || [])} type="button">
                     <StepTypeIcon size={14} type="api" />
-                    <span>Convert network to API test</span>
+                    <span>Add API steps to this case</span>
                   </button>
                 </div>
               ) : null}
