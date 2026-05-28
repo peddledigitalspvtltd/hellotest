@@ -9,10 +9,13 @@ import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import {
+  AUTOMATION_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
+  TESTOPS_SECTION_ITEMS,
   WORKSPACE_LIBRARY_PATHS,
-  WORKSPACE_PAGE_LABELS
+  WORKSPACE_PAGE_LABELS,
+  WORKSPACE_SECTION_LABEL_KEYS
 } from "../lib/workspaceSections";
 
 const THEME_KEY = "app_theme";
@@ -47,6 +50,8 @@ const navigation = [
         label: "Automation",
         shortLabel: "Auto",
         icon: AutomationIcon,
+        subItems: AUTOMATION_SECTION_ITEMS,
+        matchPaths: AUTOMATION_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
       },
       {
@@ -65,6 +70,8 @@ const navigation = [
         label: "TestOps",
         shortLabel: "Ops",
         icon: ActivityIcon,
+        subItems: TESTOPS_SECTION_ITEMS,
+        matchPaths: TESTOPS_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
       },
       {
@@ -311,6 +318,11 @@ export function AppShell() {
     }
   };
 
+  const resolveSubItemLabel = (subItem: { to: string; label: string }) => {
+    const labelKey = WORKSPACE_SECTION_LABEL_KEYS[subItem.to];
+    return labelKey ? t(labelKey, subItem.label) : subItem.label;
+  };
+
   return (
     <div className="app-shell app-layout app-layout--workspace-wide">
       {error && (
@@ -472,23 +484,7 @@ export function AppShell() {
                                   <SubItemIcon />
                                 </span>
                                 <span className="nav-sublink-label">
-                                  {subItem.to === "/requirements"
-                                    ? t("workspace.requirements", subItem.label)
-                                    : subItem.to === "/test-cases"
-                                      ? t("workspace.testCases", subItem.label)
-                                      : subItem.to === "/shared-steps"
-                                        ? t("workspace.sharedSteps", subItem.label)
-                                        : subItem.to === "/design"
-                                          ? t("workspace.testSuites", subItem.label)
-                                          : subItem.to === "/executions"
-                                            ? t("workspace.executions", subItem.label)
-                                            : subItem.to === "/test-environments"
-                                              ? t("workspace.environments", subItem.label)
-                                              : subItem.to === "/test-data"
-                                                ? t("workspace.testData", subItem.label)
-                                                : subItem.to === "/test-configurations"
-                                                  ? t("workspace.configurations", subItem.label)
-                                                  : subItem.label}
+                                  {resolveSubItemLabel(subItem)}
                                 </span>
                               </NavLink>
                             );
@@ -674,6 +670,18 @@ function getWorkspaceSubItemIcon(icon?: string) {
       return LayersIcon;
     case "executions":
       return RunIcon;
+    case "automation":
+      return AutomationIcon;
+    case "repository":
+      return LayersIcon;
+    case "playwright":
+      return PlayIcon;
+    case "ops":
+      return ActivityIcon;
+    case "telemetry":
+      return SlidersIcon;
+    case "traces":
+      return SharedStepsIcon;
     case "environments":
       return ServerIcon;
     case "data":

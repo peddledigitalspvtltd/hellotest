@@ -94,6 +94,9 @@ type PageLocatorFacade = {
 
 type PageFacade = {
   goto: (url: string) => Promise<void>;
+  reload: () => Promise<void>;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
   click: (target: string) => Promise<void>;
   fill: (target: string, value: string) => Promise<void>;
   press: (target: string, key: string) => Promise<void>;
@@ -157,6 +160,26 @@ type WebGotoOptions = {
   waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit";
 };
 
+type WebLoadState = "load" | "domcontentloaded" | "networkidle" | "commit";
+
+type WebTabTarget =
+  | string
+  | number
+  | {
+      index?: number;
+      title?: string;
+      url?: string;
+      latest?: boolean;
+      current?: boolean;
+    };
+
+type WebTabInfo = {
+  index: number;
+  title: string;
+  url: string;
+  active: boolean;
+};
+
 type WebScrollOptions = {
   direction?: "up" | "down" | "left" | "right";
   amount?: number;
@@ -169,7 +192,16 @@ type WebSession = {
   start: () => Promise<void>;
   stop: (finalStatus?: EngineStepOutcomeStatus) => Promise<WebSessionArtifacts>;
   goto: (target: string, options?: WebGotoOptions) => Promise<void>;
+  reload: (options?: WebGotoOptions) => Promise<void>;
+  goBack: (options?: WebGotoOptions) => Promise<void>;
+  goForward: (options?: WebGotoOptions) => Promise<void>;
+  waitForLoadState: (state?: WebLoadState, options?: { timeoutMs?: number }) => Promise<void>;
+  openTab: (target?: string | null, options?: WebGotoOptions) => Promise<void>;
+  closeTab: (target?: WebTabTarget | null) => Promise<void>;
+  switchTab: (target?: WebTabTarget | null) => Promise<void>;
+  tabs: () => Promise<WebTabInfo[]>;
   click: (target: string, options?: WebElementOptions) => Promise<void>;
+  hover: (target: string, options?: WebElementOptions) => Promise<void>;
   dblclick: (target: string, options?: WebElementOptions) => Promise<void>;
   rightClick: (target: string, options?: WebElementOptions) => Promise<void>;
   fill: (target: string, value: string, options?: WebFillOptions) => Promise<void>;
@@ -261,6 +293,14 @@ const normalizeElementOptions = (options?: WebElementOptions | null, fallbackTim
   force: options?.force === true,
   trial: options?.trial === true
 });
+
+const normalizeLoadState = (value?: string | null): WebLoadState => {
+  if (value === "networkidle" || value === "load" || value === "domcontentloaded" || value === "commit") {
+    return value;
+  }
+
+  return "domcontentloaded";
+};
 
 const resolveScrollDelta = (deltaX?: number, deltaY?: number, options?: WebScrollOptions | null) => {
   const amount = Math.max(1, Math.abs(Number(options?.amount || 0)) || Math.max(Math.abs(Number(deltaY || 0)), Math.abs(Number(deltaX || 0)), 600));
@@ -730,6 +770,7 @@ class PlaywrightWebSession implements WebSession {
   private browser: Browser | null = null;
   private browserContext: BrowserContext | null = null;
   private browserPage: Page | null = null;
+  private observedPages = new WeakSet<Page>();
   private ownsBrowser = true;
   private ownsContext = true;
   private consoleEntries: WebConsoleEntry[] = [];
@@ -747,6 +788,56 @@ class PlaywrightWebSession implements WebSession {
     }
 
     return this.browserPage;
+  }
+
+  private get contextOrThrow() {
+    if (!this.browserContext) {
+      throw new Error("Playwright browser context has not been initialized");
+    }
+
+    return this.browserContext;
+  }
+
+  private usePage(page: Page) {
+    this.browserPage = page;
+    this.registerPageTelemetry(page);
+  }
+
+  private registerPageTelemetry(page: Page) {
+    if (this.observedPages.has(page)) {
+      return;
+    }
+
+    this.observedPages.add(page);
+    page.on("console", (message) => {
+      const location = message.location();
+      this.consoleEntries.push({
+        type: message.type(),
+        text: message.text(),
+        timestamp: new Date().toISOString(),
+        location: location.url ? `${location.url}:${location.lineNumber}:${location.columnNumber}` : null
+      });
+    });
+    page.on("response", (response) => {
+      const request = response.request();
+      this.networkEntries.push({
+        method: request.method(),
+        url: response.url(),
+        status: response.status(),
+        resource_type: request.resourceType(),
+        timestamp: new Date().toISOString()
+      });
+    });
+    page.on("requestfailed", (request) => {
+      this.networkEntries.push({
+        method: request.method(),
+        url: request.url(),
+        status: null,
+        resource_type: request.resourceType(),
+        error: request.failure()?.errorText || "request failed",
+        timestamp: new Date().toISOString()
+      });
+    });
   }
 
   async start() {
@@ -808,35 +899,9 @@ class PlaywrightWebSession implements WebSession {
         }
       }
     });
-    this.browserPage.on("console", (message) => {
-      const location = message.location();
-      this.consoleEntries.push({
-        type: message.type(),
-        text: message.text(),
-        timestamp: new Date().toISOString(),
-        location: location.url ? `${location.url}:${location.lineNumber}:${location.columnNumber}` : null
-      });
-    });
-    this.browserPage.on("response", (response) => {
-      const request = response.request();
-      this.networkEntries.push({
-        method: request.method(),
-        url: response.url(),
-        status: response.status(),
-        resource_type: request.resourceType(),
-        timestamp: new Date().toISOString()
-      });
-    });
-    this.browserPage.on("requestfailed", (request) => {
-      this.networkEntries.push({
-        method: request.method(),
-        url: request.url(),
-        status: null,
-        resource_type: request.resourceType(),
-        error: request.failure()?.errorText || "request failed",
-        timestamp: new Date().toISOString()
-      });
-    });
+    if (this.browserPage) {
+      this.usePage(this.browserPage);
+    }
   }
 
   async stop(finalStatus?: EngineStepOutcomeStatus) {
@@ -949,9 +1014,176 @@ class PlaywrightWebSession implements WebSession {
     });
   }
 
+  async reload(options?: WebGotoOptions) {
+    await this.pageOrThrow.reload({
+      waitUntil: normalizeLoadState(options?.waitUntil),
+      timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+    });
+  }
+
+  async goBack(options?: WebGotoOptions) {
+    await this.pageOrThrow.goBack({
+      waitUntil: normalizeLoadState(options?.waitUntil),
+      timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+    });
+  }
+
+  async goForward(options?: WebGotoOptions) {
+    await this.pageOrThrow.goForward({
+      waitUntil: normalizeLoadState(options?.waitUntil),
+      timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+    });
+  }
+
+  async waitForLoadState(state?: WebLoadState, options?: { timeoutMs?: number }) {
+    const loadState = normalizeLoadState(state);
+    if (loadState === "commit") {
+      await this.pageOrThrow.waitForLoadState("domcontentloaded", { timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
+      return;
+    }
+
+    await this.pageOrThrow.waitForLoadState(loadState, { timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
+  }
+
+  private async resolvePageTarget(target?: WebTabTarget | null) {
+    const pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+
+    if (!pages.length) {
+      throw new Error("No browser tabs are available");
+    }
+
+    if (target === undefined || target === null) {
+      return this.pageOrThrow;
+    }
+
+    if (typeof target === "number") {
+      const page = pages[target];
+      if (!page) {
+        throw new Error(`No browser tab exists at index ${target}`);
+      }
+      return page;
+    }
+
+    if (typeof target === "object") {
+      if (target.current) {
+        return this.pageOrThrow;
+      }
+      if (target.latest) {
+        return pages[pages.length - 1];
+      }
+      if (typeof target.index === "number") {
+        const page = pages[target.index];
+        if (!page) {
+          throw new Error(`No browser tab exists at index ${target.index}`);
+        }
+        return page;
+      }
+      if (target.url) {
+        const page = pages.find((candidate) => candidate.url().includes(target.url || ""));
+        if (page) {
+          return page;
+        }
+      }
+      if (target.title) {
+        for (const page of pages) {
+          const title = await page.title().catch(() => "");
+          if (title.includes(target.title || "")) {
+            return page;
+          }
+        }
+      }
+    }
+
+    const raw = stripWrappingQuotes(String(target)).trim();
+    const normalized = raw.toLowerCase();
+
+    if (!raw || normalized === "current" || normalized === "active") {
+      return this.pageOrThrow;
+    }
+    if (normalized === "latest" || normalized === "last") {
+      return pages[pages.length - 1];
+    }
+    if (normalized === "first") {
+      return pages[0];
+    }
+    if (/^\d+$/.test(raw)) {
+      const page = pages[Number.parseInt(raw, 10)];
+      if (page) {
+        return page;
+      }
+    }
+
+    for (const page of pages) {
+      const title = await page.title().catch(() => "");
+      if (page.url().includes(raw) || title.includes(raw)) {
+        return page;
+      }
+    }
+
+    throw new Error(`Unable to find browser tab "${raw}"`);
+  }
+
+  async openTab(target?: string | null, options?: WebGotoOptions) {
+    const page = await this.contextOrThrow.newPage();
+    this.usePage(page);
+    await page.bringToFront().catch(() => undefined);
+
+    const normalizedTarget = normalizeText(target || null);
+    if (normalizedTarget) {
+      await this.goto(normalizedTarget, options);
+    }
+  }
+
+  async closeTab(target?: WebTabTarget | null) {
+    const context = this.contextOrThrow;
+    const page = await this.resolvePageTarget(target);
+    const wasActive = page === this.browserPage;
+    await page.close({ runBeforeUnload: true }).catch(() => undefined);
+
+    if (wasActive) {
+      const remainingPages = context.pages().filter((candidate) => !candidate.isClosed());
+      const nextPage = remainingPages[remainingPages.length - 1] || await context.newPage();
+      this.usePage(nextPage);
+      await nextPage.bringToFront().catch(() => undefined);
+    }
+  }
+
+  async switchTab(target?: WebTabTarget | null) {
+    const page = await this.resolvePageTarget(target ?? "latest");
+    this.usePage(page);
+    await page.bringToFront().catch(() => undefined);
+  }
+
+  async tabs() {
+    const activePage = this.browserPage;
+    const pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+    const tabInfos: WebTabInfo[] = [];
+
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index];
+      tabInfos.push({
+        index,
+        title: await page.title().catch(() => ""),
+        url: page.url(),
+        active: page === activePage
+      });
+    }
+
+    return tabInfos;
+  }
+
   async click(target: string, options?: WebElementOptions) {
     const prepared = await this.prepareLocator(target, options);
     await prepared.locator.click({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
+  }
+
+  async hover(target: string, options?: WebElementOptions) {
+    const prepared = await this.prepareLocator(target, options);
+    await prepared.locator.hover({
       force: prepared.options.force,
       trial: prepared.options.trial,
       timeout: prepared.options.timeoutMs
@@ -1123,15 +1355,15 @@ class PlaywrightWebSession implements WebSession {
   bindings() {
     const pageFacade: PageFacade = {
       goto: (url: string) => this.goto(url),
+      reload: () => this.reload(),
+      goBack: () => this.goBack(),
+      goForward: () => this.goForward(),
       click: (target: string) => this.click(target),
       fill: (target: string, value: string) => this.fill(target, value),
       press: (target: string, key: string) => this.press(target, key),
       waitForTimeout: (ms: number) => this.waitForTimeout(ms),
       waitForURL: (expected: string) => this.waitForUrl(expected),
-      waitForLoadState: async (state?: string) => {
-        const supportedState = state === "networkidle" || state === "load" || state === "domcontentloaded" ? state : "load";
-        await this.pageOrThrow.waitForLoadState(supportedState, { timeout: this.timeouts.assertion });
-      },
+      waitForLoadState: async (state?: string) => this.waitForLoadState(normalizeLoadState(state), { timeoutMs: this.timeouts.assertion }),
       waitForSelector: async (target: string, options) => {
         const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value), target);
         await locator.waitFor(options);
@@ -1323,9 +1555,159 @@ class SeleniumWebSession implements WebSession {
     });
   }
 
+  async reload(_options?: WebGotoOptions) {
+    await this.driverOrThrow.navigate().refresh();
+    await this.waitForLoadState();
+  }
+
+  async goBack(_options?: WebGotoOptions) {
+    await this.driverOrThrow.navigate().back();
+    await this.waitForLoadState();
+  }
+
+  async goForward(_options?: WebGotoOptions) {
+    await this.driverOrThrow.navigate().forward();
+    await this.waitForLoadState();
+  }
+
+  async waitForLoadState(_state?: WebLoadState, options?: { timeoutMs?: number }) {
+    await this.driverOrThrow.wait(async () => {
+      const readyState = await this.driverOrThrow.executeScript("return document.readyState;");
+      return readyState === "interactive" || readyState === "complete";
+    }, clampTimeout(options?.timeoutMs, this.timeouts.assertion));
+  }
+
+  private async resolveWindowTarget(target?: WebTabTarget | null) {
+    const driver = this.driverOrThrow;
+    const handles = await driver.getAllWindowHandles();
+
+    if (!handles.length) {
+      throw new Error("No browser tabs are available");
+    }
+
+    if (target === undefined || target === null) {
+      return driver.getWindowHandle();
+    }
+
+    if (typeof target === "number") {
+      const handle = handles[target];
+      if (!handle) {
+        throw new Error(`No browser tab exists at index ${target}`);
+      }
+      return handle;
+    }
+
+    if (typeof target === "object") {
+      if (target.current) {
+        return driver.getWindowHandle();
+      }
+      if (target.latest) {
+        return handles[handles.length - 1];
+      }
+      if (typeof target.index === "number") {
+        const handle = handles[target.index];
+        if (!handle) {
+          throw new Error(`No browser tab exists at index ${target.index}`);
+        }
+        return handle;
+      }
+    }
+
+    const raw = stripWrappingQuotes(String(target)).trim();
+    const normalized = raw.toLowerCase();
+    if (!raw || normalized === "current" || normalized === "active") {
+      return driver.getWindowHandle();
+    }
+    if (normalized === "latest" || normalized === "last") {
+      return handles[handles.length - 1];
+    }
+    if (normalized === "first") {
+      return handles[0];
+    }
+    if (/^\d+$/.test(raw)) {
+      const handle = handles[Number.parseInt(raw, 10)];
+      if (handle) {
+        return handle;
+      }
+    }
+
+    const current = await driver.getWindowHandle().catch(() => "");
+    for (const handle of handles) {
+      await driver.switchTo().window(handle);
+      const [title, url] = await Promise.all([
+        driver.getTitle().catch(() => ""),
+        driver.getCurrentUrl().catch(() => "")
+      ]);
+      if (url.includes(raw) || title.includes(raw)) {
+        return handle;
+      }
+    }
+
+    if (current) {
+      await driver.switchTo().window(current).catch(() => undefined);
+    }
+
+    throw new Error(`Unable to find browser tab "${raw}"`);
+  }
+
+  async openTab(target?: string | null, options?: WebGotoOptions) {
+    await this.driverOrThrow.switchTo().newWindow("tab");
+    const normalizedTarget = normalizeText(target || null);
+
+    if (normalizedTarget) {
+      await this.goto(normalizedTarget, options);
+    }
+  }
+
+  async closeTab(target?: WebTabTarget | null) {
+    const driver = this.driverOrThrow;
+    const handle = await this.resolveWindowTarget(target);
+    await driver.switchTo().window(handle);
+    await driver.close();
+
+    const remainingHandles = await driver.getAllWindowHandles();
+    if (remainingHandles.length) {
+      await driver.switchTo().window(remainingHandles[remainingHandles.length - 1]);
+    }
+  }
+
+  async switchTab(target?: WebTabTarget | null) {
+    const handle = await this.resolveWindowTarget(target ?? "latest");
+    await this.driverOrThrow.switchTo().window(handle);
+  }
+
+  async tabs() {
+    const driver = this.driverOrThrow;
+    const handles = await driver.getAllWindowHandles();
+    const activeHandle = await driver.getWindowHandle().catch(() => "");
+    const tabInfos: WebTabInfo[] = [];
+
+    for (let index = 0; index < handles.length; index += 1) {
+      const handle = handles[index];
+      await driver.switchTo().window(handle);
+      tabInfos.push({
+        index,
+        title: await driver.getTitle().catch(() => ""),
+        url: await driver.getCurrentUrl().catch(() => ""),
+        active: handle === activeHandle
+      });
+    }
+
+    if (activeHandle) {
+      await driver.switchTo().window(activeHandle).catch(() => undefined);
+    }
+
+    return tabInfos;
+  }
+
   async click(target: string, _options?: WebElementOptions) {
     const element = await this.resolveElement(target);
     await element.click();
+  }
+
+  async hover(target: string, _options?: WebElementOptions) {
+    const element = await this.resolveElement(target);
+    await this.driverOrThrow.actions().move({ origin: element }).perform();
   }
 
   async dblclick(target: string, _options?: WebElementOptions) {
@@ -1499,14 +1881,15 @@ class SeleniumWebSession implements WebSession {
   bindings() {
     const pageFacade: PageFacade = {
       goto: (url: string) => this.goto(url),
+      reload: () => this.reload(),
+      goBack: () => this.goBack(),
+      goForward: () => this.goForward(),
       click: (target: string) => this.click(target),
       fill: (target: string, value: string) => this.fill(target, value),
       press: (target: string, key: string) => this.press(target, key),
       waitForTimeout: (ms: number) => this.waitForTimeout(ms),
       waitForURL: (expected: string) => this.waitForUrl(expected),
-      waitForLoadState: async () => {
-        await this.waitForTimeout(250);
-      },
+      waitForLoadState: async (state?: string) => this.waitForLoadState(normalizeLoadState(state)),
       waitForSelector: async (target: string) => {
         const locator = createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
         await locator.waitFor();
@@ -1624,8 +2007,31 @@ const buildBindings = (
   const providerBindings = session.bindings();
   const resolveTarget = (target: string) =>
     interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
+  const resolveTabTarget = (target?: WebTabTarget | null, asNavigationTarget = false): WebTabTarget | undefined => {
+    if (target === undefined || target === null) {
+      return undefined;
+    }
+
+    if (typeof target === "string") {
+      const interpolated = interpolateText(target, context);
+      return asNavigationTarget ? resolveNavigationTarget(interpolated, envelope) : interpolated;
+    }
+
+    if (typeof target === "number") {
+      return target;
+    }
+
+    return {
+      ...target,
+      title: target.title ? interpolateText(target.title, context) : undefined,
+      url: target.url ? interpolateText(target.url, context) : undefined
+    };
+  };
   const page: PageFacade = {
     goto: async (target: string) => providerBindings.page.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
+    reload: () => providerBindings.page.reload(),
+    goBack: () => providerBindings.page.goBack(),
+    goForward: () => providerBindings.page.goForward(),
     click: async (target: string) => providerBindings.page.click(resolveTarget(target)),
     fill: async (target: string, value: string) => providerBindings.page.fill(resolveTarget(target), interpolateText(value, context)),
     press: async (target: string, key: string) => {
@@ -1663,10 +2069,20 @@ const buildBindings = (
       return resolvedInstruction;
     },
     goto: async (target: string, options?: WebGotoOptions) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
+    reload: async (options?: WebGotoOptions) => session.reload(options),
+    goBack: async (options?: WebGotoOptions) => session.goBack(options),
+    goForward: async (options?: WebGotoOptions) => session.goForward(options),
+    waitForLoadState: async (state?: WebLoadState, options?: { timeoutMs?: number }) => session.waitForLoadState(state, options),
+    openTab: async (target?: string | null, options?: WebGotoOptions) => session.openTab(resolveTabTarget(target, true) as string | undefined, options),
+    switchTab: async (target?: WebTabTarget | null) => session.switchTab(resolveTabTarget(target)),
+    closeTab: async (target?: WebTabTarget | null) => session.closeTab(resolveTabTarget(target)),
+    tabs: async () => session.tabs(),
     click: async (target: string, options?: WebElementOptions) => session.click(resolveTarget(target), options),
+    hover: async (target: string, options?: WebElementOptions) => session.hover(resolveTarget(target), options),
     dblclick: async (target: string, options?: WebElementOptions) => session.dblclick(resolveTarget(target), options),
     rightClick: async (target: string, options?: WebElementOptions) => session.rightClick(resolveTarget(target), options),
     fill: async (target: string, value: string, options?: WebFillOptions) => session.fill(resolveTarget(target), interpolateText(value, context), options),
+    clear: async (target: string, options?: WebElementOptions) => session.fill(resolveTarget(target), "", { ...(options || {}), clear: true }),
     select: async (target: string, value: string, options?: WebElementOptions) => session.select(resolveTarget(target), interpolateText(value, context), options),
     check: async (target: string, options?: WebElementOptions) => session.check(resolveTarget(target), options),
     uncheck: async (target: string, options?: WebElementOptions) => session.uncheck(resolveTarget(target), options),
@@ -1705,7 +2121,7 @@ const buildBindings = (
 
 const stripTrailingTestWrapper = (source: string) => {
   const trimmed = source.trim();
-  const testCall = trimmed.match(/(?:^|\n)\s*(?:test|it)\s*\(\s*["'`][\s\S]*?["'`]\s*,\s*async\s*\(\s*\{?\s*page\s*\}?\s*\)\s*=>\s*\{/);
+  const testCall = trimmed.match(/(?:^|\n)\s*(?:test|it)\s*\(\s*["'`][\s\S]*?["'`]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{/);
 
   if (!testCall || testCall.index === undefined) {
     return source;
@@ -1731,27 +2147,77 @@ const stripTrailingTestWrapper = (source: string) => {
   return source;
 };
 
+const stripMarkdownFence = (source: string) => {
+  const trimmed = source.trim();
+  const fenceMatch = trimmed.match(/^```(?:[A-Za-z0-9_-]+)?\s*([\s\S]*?)\s*```$/);
+  return fenceMatch ? fenceMatch[1].trim() : source;
+};
+
 const normalizeAutomationSource = (source: string) => {
-  const withoutImports = source
+  const withoutFences = stripMarkdownFence(source);
+  const withoutImports = withoutFences
     .split(/\r?\n/)
     .filter((line) => {
       const trimmed = line.trim();
       return !/^import\s+/.test(trimmed)
         && !/^const\s+\{?\s*(test|expect)\b.*require\(/.test(trimmed)
+        && !/^const\s+.*require\(["']@playwright\/test["']\)/.test(trimmed)
         && !/^test\.describe\s*\(/.test(trimmed)
-        && trimmed !== "});";
+        && !/^test\.(?:use|beforeEach|afterEach|beforeAll|afterAll)\s*\(/.test(trimmed)
     })
     .join("\n");
 
   return stripTrailingTestWrapper(withoutImports);
 };
 
-const executeAutomationCode = async (
-  source: string,
-  bindings: WebExecutionBindings
-) => {
-  const executableSource = normalizeAutomationSource(source);
-  const fn = new AsyncFunction(
+const toAutomationFunctionExpression = (source: string) => {
+  let trimmed = source.trim().replace(/;+\s*$/, "");
+  trimmed = trimmed
+    .replace(/^export\s+default\s+/, "")
+    .replace(/^module\.exports\s*=\s*/, "")
+    .replace(/^exports\.default\s*=\s*/, "");
+
+  if (/^async\s+[A-Za-z_$][\w$]*\s*\(/.test(trimmed) && !/^async\s+function\b/.test(trimmed) && !/=>/.test(trimmed)) {
+    trimmed = `async function ${trimmed.slice("async ".length)}`;
+  }
+
+  const usesAwait = /\bawait\b/.test(trimmed);
+
+  if (usesAwait && /^function\b/.test(trimmed)) {
+    trimmed = `async ${trimmed}`;
+  } else if (usesAwait && /^\([^)]*\)\s*=>/.test(trimmed)) {
+    trimmed = `async ${trimmed}`;
+  } else if (usesAwait && /^[A-Za-z_$][\w$]*\s*=>/.test(trimmed)) {
+    trimmed = `async ${trimmed}`;
+  }
+
+  return trimmed;
+};
+
+const looksLikeAutomationFunction = (source: string) => {
+  const trimmed = toAutomationFunctionExpression(source);
+  return /^(?:async\s+)?function\b/.test(trimmed)
+    || /^(?:async\s*)?\([^)]*\)\s*=>/.test(trimmed)
+    || /^async\s+[A-Za-z_$][\w$]*\s*=>/.test(trimmed)
+    || /^[A-Za-z_$][\w$]*\s*=>/.test(trimmed);
+};
+
+const buildAutomationInvocationSource = (source: string) => {
+  const expression = toAutomationFunctionExpression(source);
+  return [
+    `const automation = (${expression});`,
+    `if (typeof automation !== "function") { throw new Error("Automation wrapper did not evaluate to a function."); }`,
+    `const qairaBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings };`,
+    `return await (automation.length > 1`,
+    `  ? automation(page, web, expect, params, capture, playwrightPage, driver, bindings)`,
+    `  : automation(qairaBindings));`
+  ].join("\n");
+};
+
+const compileAutomationFunction = (source: string, forceInvocation = false) => {
+  const shouldInvoke = forceInvocation || looksLikeAutomationFunction(source);
+  const body = shouldInvoke ? buildAutomationInvocationSource(source) : `${source}\nreturn undefined;`;
+  return new AsyncFunction(
     "page",
     "web",
     "expect",
@@ -1759,10 +2225,38 @@ const executeAutomationCode = async (
     "capture",
     "playwrightPage",
     "driver",
-    `${executableSource}\nreturn undefined;`
+    "bindings",
+    body
   );
+};
+
+const executeAutomationCode = async (
+  source: string,
+  bindings: WebExecutionBindings
+) => {
+  const executableSource = normalizeAutomationSource(source);
+  let fn: (...values: unknown[]) => Promise<unknown>;
 
   try {
+    fn = compileAutomationFunction(executableSource);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+    fn = compileAutomationFunction(executableSource, true);
+  }
+
+  try {
+    const qairaBindings = {
+      page: bindings.page,
+      web: bindings.web,
+      expect: bindings.expect,
+      params: bindings.params,
+      capture: bindings.capture,
+      playwrightPage: bindings.playwrightPage,
+      driver: bindings.driver
+    };
+
     return await fn(
       bindings.page,
       bindings.web,
@@ -1770,7 +2264,8 @@ const executeAutomationCode = async (
       bindings.params,
       bindings.capture,
       bindings.playwrightPage,
-      bindings.driver
+      bindings.driver,
+      qairaBindings
     );
   } catch (error) {
     const stack = error instanceof Error ? error.stack || "" : "";

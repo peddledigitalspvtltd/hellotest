@@ -226,6 +226,92 @@ function normalizeText(value) {
   return normalized || null;
 }
 
+function normalizeLocalEngineBaseUrl(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new URL(normalized);
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Local execution engine URL must use http or https.");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isPrivate =
+    hostname === "localhost"
+    || hostname === "host.docker.internal"
+    || hostname === "testengine"
+    || hostname === "127.0.0.1"
+    || hostname === "::1"
+    || /^10\./.test(hostname)
+    || /^192\.168\./.test(hostname)
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+  if (!isPrivate) {
+    throw new Error("Local execution engine URL must point to localhost, the local Docker service, or a private network address.");
+  }
+
+  return parsed.toString().replace(/\/+$/, "");
+}
+
+async function canReachLocalEngine(baseUrl) {
+  if (typeof fetch !== "function") {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 900);
+
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      method: "GET",
+      signal: controller.signal
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveLocalEngineBaseUrl(preferredUrl) {
+  const candidates = [
+    preferredUrl,
+    process.env.QAIRA_LOCAL_RUN_ENGINE_URL,
+    "http://localhost:4311",
+    "http://127.0.0.1:4311",
+    "http://host.docker.internal:4311",
+    "http://localhost:4301",
+    "http://127.0.0.1:4301",
+    "http://testengine:4301"
+  ];
+  const normalizedCandidates = [];
+
+  candidates.forEach((candidate) => {
+    const normalized = normalizeLocalEngineBaseUrl(candidate);
+
+    if (normalized && !normalizedCandidates.includes(normalized)) {
+      normalizedCandidates.push(normalized);
+    }
+  });
+
+  if (!normalizedCandidates.length) {
+    throw new Error("Local execution engine URL is not configured.");
+  }
+
+  for (const candidate of normalizedCandidates) {
+    if (await canReachLocalEngine(candidate)) {
+      return candidate;
+    }
+  }
+
+  return normalizedCandidates[0];
+}
+
 function normalizeParameterValues(values = {}) {
   const parsed = parseJsonValue(values, {});
 
@@ -1270,37 +1356,6 @@ exports.startExecution = async (id, options = {}) => {
   let testEngineIntegration = null;
   let shouldMarkAsCi = false;
 
-  const normalizeLocalEngineBaseUrl = (value) => {
-    const normalized = typeof value === "string" ? value.trim() : "";
-
-    if (!normalized) {
-      return null;
-    }
-
-    const parsed = new URL(normalized);
-
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      throw new Error("Local execution engine URL must use http or https.");
-    }
-
-    const hostname = parsed.hostname.toLowerCase();
-    const isPrivate =
-      hostname === "localhost"
-      || hostname === "host.docker.internal"
-      || hostname === "testengine"
-      || hostname === "127.0.0.1"
-      || hostname === "::1"
-      || /^10\./.test(hostname)
-      || /^192\.168\./.test(hostname)
-      || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
-
-    if (!isPrivate) {
-      throw new Error("Local execution engine URL must point to localhost, the local Docker service, or a private network address.");
-    }
-
-    return parsed.toString().replace(/\/+$/, "");
-  };
-
   if (!skipTestEngineDispatch) {
     dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution);
 
@@ -1426,7 +1481,7 @@ exports.startLocalExecution = async (id, options = {}) => {
     throw new Error("Local run requires a recorded automated web test case.");
   }
 
-  const localEngineBaseUrl = options.engine_base_url || process.env.QAIRA_LOCAL_RUN_ENGINE_URL || "http://host.docker.internal:4311";
+  const localEngineBaseUrl = await resolveLocalEngineBaseUrl(options.engine_base_url);
   const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id)
     || {
       id: null,

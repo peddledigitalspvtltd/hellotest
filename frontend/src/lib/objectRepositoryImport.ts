@@ -5,6 +5,7 @@ import type { ObjectRepositoryImportEntry } from "../types";
 export type ObjectRepositoryImportPreview = {
   entries: ObjectRepositoryImportEntry[];
   fileNames: string[];
+  inputKinds: Array<"csv" | "source" | "zip">;
   warnings: string[];
 };
 
@@ -246,6 +247,7 @@ const uniqueEntries = (entries: ObjectRepositoryImportEntry[]) => {
 export async function parseObjectRepositoryFiles(files: File[]): Promise<ObjectRepositoryImportPreview> {
   const entries: ObjectRepositoryImportEntry[] = [];
   const fileNames: string[] = [];
+  const inputKinds = new Set<ObjectRepositoryImportPreview["inputKinds"][number]>();
   const warnings: string[] = [];
 
   for (const file of files) {
@@ -253,14 +255,17 @@ export async function parseObjectRepositoryFiles(files: File[]): Promise<ObjectR
     if (/\.csv$/i.test(name)) {
       entries.push(...parseObjectRepositoryCsv(await file.text()));
       fileNames.push(name);
+      inputKinds.add("csv");
       continue;
     }
     if (SOURCE_FILE_PATTERN.test(name)) {
       entries.push(...parseObjectRepositorySource(name, await file.text()));
       fileNames.push(name);
+      inputKinds.add("source");
       continue;
     }
     if (/\.zip$/i.test(name)) {
+      inputKinds.add("zip");
       let unpacked: Record<string, Uint8Array>;
       try {
         unpacked = unzipSync(new Uint8Array(await file.arrayBuffer()));
@@ -288,5 +293,5 @@ export async function parseObjectRepositoryFiles(files: File[]): Promise<ObjectR
     warnings.push(`${name}: unsupported file type. Use CSV, ZIP, .js, .ts, .java, or .cs.`);
   }
 
-  return { entries: uniqueEntries(entries), fileNames, warnings };
+  return { entries: uniqueEntries(entries), fileNames, inputKinds: Array.from(inputKinds), warnings };
 }

@@ -4331,7 +4331,7 @@ export function TestCasesPage() {
           assigned_to: selectedExecutionAssigneeId || undefined,
           name: `${testCase.title} Local Run`,
           created_by: session.user.id,
-          engine_base_url: "http://host.docker.internal:4311"
+          engine_base_url: "http://localhost:4311"
         });
 
         await Promise.all([

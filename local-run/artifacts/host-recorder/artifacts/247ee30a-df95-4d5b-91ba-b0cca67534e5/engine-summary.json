@@ -1,0 +1,15 @@
+{
+  "execution": {
+    "started_at": "2026-05-27T20:50:57.927Z",
+    "ended_at": "2026-05-27T20:51:02.008Z",
+    "status": "failed",
+    "summary": "Successful user signup, onboarding, and dashboard access failed on step 1."
+  },
+  "steps": [],
+  "captured_values": {
+    "t.pwd": "ymCc1534",
+    "t.code": "1234",
+    "t.name": "pGzDMgcK",
+    "t.email": "qaira-20260527205057-px5n71@yopmail.com"
+  }
+}

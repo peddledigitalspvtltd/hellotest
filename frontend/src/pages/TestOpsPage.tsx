@@ -7,14 +7,15 @@ import { ProgressMeter } from "../components/ProgressMeter";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { StatusBadge } from "../components/StatusBadge";
-import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
+import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { TESTOPS_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
 
 type TestOpsView = "automation-builder" | "batch-process" | "ops-telemetry" | "traces";
@@ -154,6 +155,10 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
   const isAdmin = session?.user.role === "admin";
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -477,17 +482,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         ]}
       />
 
-      <SubnavTabs
-        ariaLabel="TestOps views"
-        items={[
-          { value: "batch-process", label: "Batch Process", meta: `${batchTransactions.length}`, icon: <ActivityIcon /> },
-          { value: "ops-telemetry", label: "OPS Telemetry", meta: opsBoardUrl ? "iframe" : "setup", icon: <ActivityIcon /> },
-          { value: "traces", label: "Traces", meta: "iframe", icon: <ActivityIcon /> }
-        ]}
-        onChange={setView}
-        value={view}
-      />
-
       <WorkspaceScopeBar
         appTypeId={appTypeId}
         appTypes={appTypes}
@@ -506,6 +500,19 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         }}
         projectId={projectId}
         projects={projects}
+      />
+
+      <WorkspaceSectionTabs
+        ariaLabel="TestOps sections"
+        items={TESTOPS_SECTION_ITEMS.map((item) => ({
+          ...item,
+          meta:
+            item.to === "/testops"
+              ? `${batchTransactions.length} records`
+              : item.to === "/ops-telemetry"
+                ? opsBoardUrl ? "ready" : "setup"
+                : "Jaeger"
+        }))}
       />
 
       {builderMessage && view !== "automation-builder" ? <div className="empty-state compact">{builderMessage}</div> : null}

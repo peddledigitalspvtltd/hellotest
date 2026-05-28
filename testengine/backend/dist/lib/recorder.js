@@ -602,6 +602,7 @@ const installInspectMode = async (page) => {
         const inspectWindow = window;
         inspectWindow.__qairaInspectCleanup?.();
         inspectWindow.__qairaInspectResult = null;
+        inspectWindow.__qairaInspectSelections = [];
         const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
         const cssEscape = (value) => {
             if (window.CSS && typeof window.CSS.escape === "function")
@@ -654,35 +655,69 @@ const installInspectMode = async (page) => {
             ].filter((candidate) => Boolean(candidate))
                 .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
         };
-        const clearHighlight = () => {
+        const restoreInspectStyle = (target) => {
+            const isRepositoryHighlighted = target.dataset.qairaRepositoryHighlight === "true";
+            const isInspectSelected = target.dataset.qairaInspectSelection === "true";
+            if (isRepositoryHighlighted || isInspectSelected) {
+                target.style.outline = "3px solid #2f6df6";
+                target.style.boxShadow = `0 0 0 6px ${isInspectSelected ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.2)"}`;
+            }
+            else {
+                target.style.outline = target.dataset.qairaInspectPreviousOutline || target.dataset.qairaPreviousOutline || "";
+                target.style.boxShadow = target.dataset.qairaInspectPreviousBoxShadow || target.dataset.qairaPreviousBoxShadow || "";
+            }
+            delete target.dataset.qairaInspectPreviousOutline;
+            delete target.dataset.qairaInspectPreviousBoxShadow;
+            delete target.dataset.qairaPreviousOutline;
+            delete target.dataset.qairaPreviousBoxShadow;
+        };
+        const clearHoverHighlight = () => {
             document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
                 const target = node;
-                const isSelected = target.dataset.qairaRepositoryHighlight === "true";
-                target.style.outline = isSelected ? "3px solid #2f6df6" : target.dataset.qairaPreviousOutline || "";
-                target.style.boxShadow = isSelected ? "0 0 0 6px rgba(47, 109, 246, 0.2)" : target.dataset.qairaPreviousBoxShadow || "";
-                delete target.dataset.qairaPreviousOutline;
-                delete target.dataset.qairaPreviousBoxShadow;
                 delete target.dataset.qairaInspectHighlight;
+                restoreInspectStyle(target);
             });
         };
-        const highlight = (element) => {
+        const clearSelectionHighlight = () => {
+            document.querySelectorAll("[data-qaira-inspect-selection='true']").forEach((node) => {
+                const target = node;
+                delete target.dataset.qairaInspectSelection;
+                restoreInspectStyle(target);
+            });
+        };
+        clearSelectionHighlight();
+        const highlight = (element, persistent = false) => {
             if (!(element instanceof HTMLElement))
                 return;
-            clearHighlight();
-            element.dataset.qairaPreviousOutline = element.style.outline || "";
-            element.dataset.qairaPreviousBoxShadow = element.style.boxShadow || "";
-            element.dataset.qairaInspectHighlight = "true";
+            clearHoverHighlight();
+            if (element.dataset.qairaRepositoryHighlight !== "true" && element.dataset.qairaInspectSelection !== "true") {
+                element.dataset.qairaInspectPreviousOutline = element.style.outline || "";
+                element.dataset.qairaInspectPreviousBoxShadow = element.style.boxShadow || "";
+            }
+            if (persistent) {
+                element.dataset.qairaInspectSelection = "true";
+            }
+            else {
+                element.dataset.qairaInspectHighlight = "true";
+            }
             element.style.outline = "3px solid #2f6df6";
-            element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.22)";
+            element.style.boxShadow = `0 0 0 6px ${persistent ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.22)"}`;
             element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
         };
-        let lockedElement = null;
+        const queueSelection = (selection, locator) => {
+            const current = Array.isArray(inspectWindow.__qairaInspectSelections)
+                ? inspectWindow.__qairaInspectSelections
+                : [];
+            inspectWindow.__qairaInspectSelections = [
+                ...current.filter((item) => !item || typeof item !== "object" || item.locator !== locator),
+                selection
+            ].slice(-80);
+            inspectWindow.__qairaInspectResult = selection;
+        };
         const candidateElement = (target) => target instanceof Element
             ? target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || target
             : null;
         const hoverHandler = (event) => {
-            if (lockedElement)
-                return;
             const element = candidateElement(event.target);
             if (element)
                 highlight(element);
@@ -702,9 +737,7 @@ const installInspectMode = async (page) => {
             const ancestorRect = ancestor?.getBoundingClientRect();
             const domStructure = element.outerHTML.slice(0, 12_000);
             const ancestorDom = ancestor?.outerHTML.slice(0, 30_000) || null;
-            lockedElement = element;
-            highlight(element);
-            inspectWindow.__qairaInspectResult = {
+            const selection = {
                 friendly_name: friendlyName(element),
                 html_tag: tag,
                 role,
@@ -717,13 +750,15 @@ const installInspectMode = async (page) => {
                 rect: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
                 ancestor_rect: ancestorRect ? { x: ancestorRect.x + window.scrollX, y: ancestorRect.y + window.scrollY, width: ancestorRect.width, height: ancestorRect.height } : null
             };
+            queueSelection(selection, locator);
+            highlight(element, true);
         };
         document.addEventListener("mousemove", hoverHandler, true);
         document.addEventListener("click", handler, true);
         inspectWindow.__qairaInspectCleanup = () => {
             document.removeEventListener("mousemove", hoverHandler, true);
             document.removeEventListener("click", handler, true);
-            clearHighlight();
+            clearHoverHighlight();
         };
     });
 };
@@ -792,15 +827,25 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
     return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase() };
 }, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting });
 const clearRepositoryHighlights = async (page) => page.evaluate(() => {
-    document.querySelectorAll("[data-qaira-repository-highlight='true']").forEach((node) => {
+    document.querySelectorAll("[data-qaira-repository-highlight='true'],[data-qaira-inspect-selection='true'],[data-qaira-inspect-highlight='true']").forEach((node) => {
         const element = node;
-        element.style.outline = element.dataset.qairaRepositoryPreviousOutline || "";
-        element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || "";
+        element.style.outline = element.dataset.qairaRepositoryPreviousOutline || element.dataset.qairaInspectPreviousOutline || element.dataset.qairaPreviousOutline || "";
+        element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || element.dataset.qairaInspectPreviousBoxShadow || element.dataset.qairaPreviousBoxShadow || "";
         delete element.dataset.qairaRepositoryPreviousOutline;
         delete element.dataset.qairaRepositoryPreviousBoxShadow;
         delete element.dataset.qairaRepositoryHighlight;
+        delete element.dataset.qairaInspectPreviousOutline;
+        delete element.dataset.qairaInspectPreviousBoxShadow;
+        delete element.dataset.qairaPreviousOutline;
+        delete element.dataset.qairaPreviousBoxShadow;
+        delete element.dataset.qairaInspectSelection;
+        delete element.dataset.qairaInspectHighlight;
     });
     document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
+});
+const stopInspectMode = async (page) => page.evaluate(() => {
+    const inspectWindow = window;
+    inspectWindow.__qairaInspectCleanup?.();
 });
 const enrichRemoteClickAction = async (session, page, actionIndex, x, y, logger) => {
     try {
@@ -1373,6 +1418,31 @@ export const registerRecorderRoutes = async (app) => {
             };
         }
     });
+    app.post("/api/v1/recorder/sessions/:id/inspect/stop", async (request, reply) => {
+        const params = request.params;
+        const body = request.body;
+        const session = sessions.get(params.id);
+        if (!session) {
+            reply.code(404);
+            return { message: "Recorder session not found" };
+        }
+        if (session.status !== "running") {
+            reply.code(409);
+            return { message: "Recorder session is not running" };
+        }
+        try {
+            const page = await resolveRecorderPage(session, body?.page_id);
+            await stopInspectMode(page);
+            touchSession(session);
+            return { ok: true, page: await serializeRecorderPage(page) };
+        }
+        catch (error) {
+            reply.code(409);
+            return {
+                message: error instanceof Error ? error.message : "Unable to stop inspect mode"
+            };
+        }
+    });
     app.post("/api/v1/recorder/sessions/:id/highlight", async (request, reply) => {
         const params = request.params;
         const body = request.body;
@@ -1422,15 +1492,22 @@ export const registerRecorderRoutes = async (app) => {
             const page = await resolveRecorderPage(session, query.page_id);
             const pageId = getRecorderPageId(page);
             const cacheKey = `${session.id}:${pageId || ""}`;
-            const cached = inspectResults.get(cacheKey);
-            if (cached) {
-                return cached;
-            }
-            const element = await page.evaluate(() => {
+            const elements = await page.evaluate(() => {
                 const inspectWindow = window;
-                return inspectWindow.__qairaInspectResult || null;
-            }).catch(() => null);
-            if (!element) {
+                const queued = Array.isArray(inspectWindow.__qairaInspectSelections)
+                    ? inspectWindow.__qairaInspectSelections
+                    : [];
+                const latest = inspectWindow.__qairaInspectResult;
+                const selections = queued.length ? queued : latest ? [latest] : [];
+                inspectWindow.__qairaInspectSelections = [];
+                inspectWindow.__qairaInspectResult = null;
+                return selections;
+            }).catch(() => []);
+            const validElements = elements.filter((element) => element
+                && typeof element === "object"
+                && typeof element.locator === "string"
+                && Boolean(element.locator));
+            if (!validElements.length) {
                 reply.code(204);
                 return "";
             }
@@ -1441,13 +1518,19 @@ export const registerRecorderRoutes = async (app) => {
                     if (!source)
                         return "";
                     const cloned = source.cloneNode(true);
-                    cloned.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+                    cloned.querySelectorAll("[data-qaira-inspect-highlight='true'],[data-qaira-inspect-selection='true'],[data-qaira-repository-highlight='true']").forEach((node) => {
                         const target = node;
-                        target.style.outline = target.dataset.qairaPreviousOutline || "";
-                        target.style.boxShadow = target.dataset.qairaPreviousBoxShadow || "";
+                        target.style.outline = target.dataset.qairaRepositoryPreviousOutline || target.dataset.qairaInspectPreviousOutline || target.dataset.qairaPreviousOutline || "";
+                        target.style.boxShadow = target.dataset.qairaRepositoryPreviousBoxShadow || target.dataset.qairaInspectPreviousBoxShadow || target.dataset.qairaPreviousBoxShadow || "";
+                        delete target.dataset.qairaRepositoryPreviousOutline;
+                        delete target.dataset.qairaRepositoryPreviousBoxShadow;
+                        delete target.dataset.qairaRepositoryHighlight;
+                        delete target.dataset.qairaInspectPreviousOutline;
+                        delete target.dataset.qairaInspectPreviousBoxShadow;
                         delete target.dataset.qairaPreviousOutline;
                         delete target.dataset.qairaPreviousBoxShadow;
                         delete target.dataset.qairaInspectHighlight;
+                        delete target.dataset.qairaInspectSelection;
                     });
                     return cloned.outerHTML.slice(0, 100_000);
                 }).catch(() => ""),
@@ -1474,10 +1557,18 @@ export const registerRecorderRoutes = async (app) => {
                     timeout: 5_000
                 }).catch(() => null);
             };
-            const [elementScreenshot, ancestorScreenshot] = await Promise.all([
-                screenshotClip(element.rect),
-                screenshotClip(element.ancestor_rect)
-            ]);
+            const selections = await Promise.all(validElements.map(async (element) => {
+                const [elementScreenshot, ancestorScreenshot] = await Promise.all([
+                    screenshotClip(element.rect),
+                    screenshotClip(element.ancestor_rect)
+                ]);
+                return {
+                    element,
+                    element_screenshot_url: elementScreenshot ? `data:image/jpeg;base64,${elementScreenshot.toString("base64")}` : null,
+                    ancestor_screenshot_url: ancestorScreenshot ? `data:image/jpeg;base64,${ancestorScreenshot.toString("base64")}` : null
+                };
+            }));
+            const primarySelection = selections.at(-1);
             const result = {
                 captured_at: new Date().toISOString(),
                 page_id: pageId,
@@ -1487,9 +1578,10 @@ export const registerRecorderRoutes = async (app) => {
                 accessibility_tree: accessibilityTree || null,
                 screen_fingerprint: createHash("sha256").update(`${page.url()}\n${screenDom}`).digest("hex"),
                 screen_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null,
-                element_screenshot_url: elementScreenshot ? `data:image/jpeg;base64,${elementScreenshot.toString("base64")}` : null,
-                ancestor_screenshot_url: ancestorScreenshot ? `data:image/jpeg;base64,${ancestorScreenshot.toString("base64")}` : null,
-                element
+                element_screenshot_url: primarySelection.element_screenshot_url,
+                ancestor_screenshot_url: primarySelection.ancestor_screenshot_url,
+                element: primarySelection.element,
+                selections
             };
             inspectResults.set(cacheKey, result);
             touchSession(session);

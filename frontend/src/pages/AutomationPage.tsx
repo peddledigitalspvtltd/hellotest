@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
@@ -11,6 +11,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { ToastMessage } from "../components/ToastMessage";
+import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import {
   TileCardCaseIcon,
   TileCardFact,
@@ -27,6 +28,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import { AUTOMATION_SECTION_ITEMS } from "../lib/workspaceSections";
 import {
   collectStepParameters,
   combineStepParameterValues,
@@ -39,8 +41,8 @@ import type { AutomationLearningCacheEntry, ExecutionResult, Integration, Record
 type AutomationView = "cases" | "repository" | "local-playwright";
 type AutomationCaseSectionKey = "case" | "steps" | "history";
 type AutomationStepView = "keyword" | "code";
-type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions" | "usage" | "validation";
-type RepositoryFieldTab = "locators" | "evidence" | "meaning" | "validation";
+type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions";
+type RepositoryFieldTab = "locators" | "evidence" | "meaning";
 const normalizeAutomationParameterValues = (values?: Record<string, unknown> | null, scope: StepParameterScope = "t") =>
   normalizeStepParameterValues((values || {}) as Record<string, string>, scope);
 
@@ -94,21 +96,30 @@ type RecorderInspectResult = {
   screen_screenshot_url: string | null;
   element_screenshot_url?: string | null;
   ancestor_screenshot_url?: string | null;
-  element: {
-    friendly_name: string;
-    html_tag: string;
-    role: string;
+  element: RecorderInspectElement;
+  selections?: RecorderInspectSelection[];
+};
+
+type RecorderInspectElement = {
+  friendly_name: string;
+  html_tag: string;
+  role: string;
+  locator: string;
+  locator_kind: string;
+  dom_structure: string;
+  ancestor_dom?: string | null;
+  locator_candidates?: Array<{
     locator: string;
-    locator_kind: string;
-    dom_structure: string;
-    ancestor_dom?: string | null;
-    locator_candidates?: Array<{
-      locator: string;
-      strategy: string;
-      confidenceScore: number;
-    }>;
-    text: string | null;
-  };
+    strategy: string;
+    confidenceScore: number;
+  }>;
+  text: string | null;
+};
+
+type RecorderInspectSelection = {
+  element: RecorderInspectElement;
+  element_screenshot_url?: string | null;
+  ancestor_screenshot_url?: string | null;
 };
 
 const formatRunDate = new Intl.DateTimeFormat(undefined, {
@@ -232,8 +243,8 @@ function inferUrlPattern(url: string | null) {
   }
 }
 
-function getCapturedLocators(result: RecorderInspectResult): RepositoryLocator[] {
-  const captured = result.element.locator_candidates || [];
+function getCapturedLocatorsForElement(element: RecorderInspectElement): RepositoryLocator[] {
+  const captured = element.locator_candidates || [];
   if (captured.length) {
     return captured.map((candidate, index) => ({
       locator: candidate.locator,
@@ -246,12 +257,16 @@ function getCapturedLocators(result: RecorderInspectResult): RepositoryLocator[]
   }
 
   return [{
-    locator: result.element.locator,
-    strategy: inferLocatorStrategy(result.element.locator, result.element.locator_kind),
-    confidenceScore: result.element.locator.includes("data-testid") ? 0.95 : 0.75,
+    locator: element.locator,
+    strategy: inferLocatorStrategy(element.locator, element.locator_kind),
+    confidenceScore: element.locator.includes("data-testid") ? 0.95 : 0.75,
     isPrimary: true,
     lastValidatedStatus: "pending"
   }];
+}
+
+function getCapturedLocators(result: RecorderInspectResult): RepositoryLocator[] {
+  return getCapturedLocatorsForElement(result.element);
 }
 
 function getScreenName(entry: AutomationLearningCacheEntry) {
@@ -266,6 +281,20 @@ function getObjectRole(entry: AutomationLearningCacheEntry) {
   const value = normalizeMetadataValue(entry.metadata?.object_role) || entry.locator_kind || entry.source || "field";
   const parts = value.split(/\s*\/\s*/).filter(Boolean);
   return parts[parts.length - 1] || value;
+}
+
+function splitRepositoryRole(value: string, fallbackTag = "element", fallbackRole = "field") {
+  const parts = value.split(/\s*\/\s*/).map((part) => part.trim()).filter(Boolean);
+  return {
+    tag: parts[0] || fallbackTag,
+    role: parts[parts.length - 1] || fallbackRole
+  };
+}
+
+function getRepositoryImportKindLabel(kind: ObjectRepositoryImportPreview["inputKinds"][number]) {
+  if (kind === "csv") return "CSV export";
+  if (kind === "zip") return "ZIP archive";
+  return "Page object source";
 }
 
 function extractQuotedTargets(code?: string | null) {
@@ -676,6 +705,44 @@ type RepositoryExtractedField = ReturnType<typeof extractRepositoryFieldsFromDom
   ancestorDom?: string | null;
 };
 
+function getInspectSelections(result: RecorderInspectResult): RecorderInspectSelection[] {
+  return result.selections?.length
+    ? result.selections
+    : [{
+        element: result.element,
+        element_screenshot_url: result.element_screenshot_url,
+        ancestor_screenshot_url: result.ancestor_screenshot_url
+      }];
+}
+
+function buildRepositoryFieldFromInspectSelection(result: RecorderInspectResult, selection: RecorderInspectSelection): RepositoryExtractedField {
+  const candidates = getCapturedLocatorsForElement(selection.element);
+  const primaryLocator = candidates[0] || {
+    locator: selection.element.locator,
+    strategy: inferLocatorStrategy(selection.element.locator, selection.element.locator_kind),
+    confidenceScore: 0.75,
+    isPrimary: true,
+    lastValidatedStatus: "pending"
+  };
+
+  return {
+    name: selection.element.friendly_name,
+    tag: selection.element.html_tag,
+    role: selection.element.role,
+    locator: primaryLocator.locator,
+    locatorKind: primaryLocator.strategy,
+    dom: selection.element.dom_structure,
+    fallbackLocators: candidates.slice(1),
+    source: "live_inspect",
+    pageUrl: result.page_url,
+    targetCriteria: selection.element.text,
+    elementScreenshotUrl: selection.element_screenshot_url || result.element_screenshot_url,
+    ancestorScreenshotUrl: selection.ancestor_screenshot_url || result.ancestor_screenshot_url,
+    ancestorDom: selection.element.ancestor_dom,
+    description: `${selection.element.friendly_name} captured during live inspection.`
+  };
+}
+
 function parseAutomationStepDraft(step: TestStep): AutomationStepDraft {
   const code = step.automation_code || "";
   const match = code.match(/web\.(\w+)\(([\s\S]*)\)/);
@@ -709,14 +776,14 @@ function buildAutomationCodeFromDraft(draft: AutomationStepDraft) {
   return `await ${draft.keyword}("${objectRef}");`;
 }
 
-export function AutomationPage() {
+export function AutomationPage({ initialView = "cases" }: { initialView?: AutomationView } = {}) {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
-  const [view, setView] = useState<AutomationView>("cases");
+  const [view, setView] = useState<AutomationView>(initialView);
   const [selectedAutomatedCaseId, setSelectedAutomatedCaseId] = useState("");
   const [selectedManualCaseId, setSelectedManualCaseId] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
@@ -765,6 +832,7 @@ export function AutomationPage() {
   const [selectedScreenName, setSelectedScreenName] = useState("");
   const [screenRenameDraft, setScreenRenameDraft] = useState("");
   const [renamingScreenName, setRenamingScreenName] = useState("");
+  const [isRepositoryImportModalOpen, setIsRepositoryImportModalOpen] = useState(false);
   const [repositoryImportPreview, setRepositoryImportPreview] = useState<ObjectRepositoryImportPreview | null>(null);
   const [isParsingRepositoryImport, setIsParsingRepositoryImport] = useState(false);
   const [isAddingRepositoryScreen, setIsAddingRepositoryScreen] = useState(false);
@@ -793,7 +861,9 @@ export function AutomationPage() {
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
   const [isInspectingLiveField, setIsInspectingLiveField] = useState(false);
   const [inspectMessage, setInspectMessage] = useState("");
+  const [browserInspectFields, setBrowserInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [stagedInspectFields, setStagedInspectFields] = useState<RepositoryExtractedField[]>([]);
+  const stagedInspectFieldsRef = useRef<RepositoryExtractedField[]>([]);
   const [repositoryUsageBlock, setRepositoryUsageBlock] = useState<{
     title: string;
     usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>;
@@ -974,20 +1044,15 @@ export function AutomationPage() {
   const selectedRepositoryEntry = activeScreenEntries.find((entry) => entry.id === selectedRepositoryId && !isNonElementRepositoryEntry(entry))
     || activeScreenEntries.find((entry) => !isNonElementRepositoryEntry(entry))
     || null;
-  const selectedScreenUsageQuery = useQuery({
-    queryKey: ["automation-learning-cache-screen-usage", activeScreenName, appTypeId],
-    queryFn: () => api.testCases.learningCacheScreenUsage(activeScreenName, { app_type_id: appTypeId || undefined }),
-    enabled: Boolean(activeScreenName && view === "repository")
-  });
   const pageObjectModels = useMemo(() => {
     return groupedRepository.map(([screenName, entries]) => {
       const members = entries.filter((entry) => !isNonElementRepositoryEntry(entry)).map((entry) => ({
         entry,
         pageName: screenName,
-        memberName: getRepositoryMemberName(entry),
-        htmlTag: getRepositoryHtmlTag(entry),
-        role: getObjectRole(entry),
-        ref: `${screenName}.${getRepositoryMemberName(entry)}`
+        memberName: entry.id === selectedRepositoryId && repositoryDraft.object_name.trim() ? repositoryDraft.object_name.trim() : getRepositoryMemberName(entry),
+        htmlTag: entry.id === selectedRepositoryId && repositoryDraft.object_role.trim() ? splitRepositoryRole(repositoryDraft.object_role, getRepositoryHtmlTag(entry), getObjectRole(entry)).tag : getRepositoryHtmlTag(entry),
+        role: entry.id === selectedRepositoryId && repositoryDraft.object_role.trim() ? splitRepositoryRole(repositoryDraft.object_role, getRepositoryHtmlTag(entry), getObjectRole(entry)).role : getObjectRole(entry),
+        ref: `${screenName}.${entry.id === selectedRepositoryId && repositoryDraft.object_name.trim() ? repositoryDraft.object_name.trim() : getRepositoryMemberName(entry)}`
       }));
 
       return {
@@ -997,17 +1062,39 @@ export function AutomationPage() {
         members
       };
     });
-  }, [groupedRepository]);
+  }, [groupedRepository, repositoryDraft.object_name, repositoryDraft.object_role, selectedRepositoryId]);
   const activePageObject = pageObjectModels.find((page) => page.screenName === selectedScreenName) || pageObjectModels[0] || null;
   const allObjectMembers = useMemo(() => pageObjectModels.flatMap((page) => page.members), [pageObjectModels]);
   const inspectedFields = useMemo(() => extractRepositoryFieldsFromDom(screenDomDraft), [screenDomDraft]);
   const recorderLiveUrl = recorderSession?.live_view_url || "";
   const inspectRecorderLiveUrl = inspectRecorderSession?.live_view_url || "";
-  const selectedScreenUsage = selectedScreenUsageQuery.data || [];
   const selectedLocators = selectedRepositoryEntry ? getRepositoryLocators(selectedRepositoryEntry) : [];
-  const selectedValidationHistory = Array.isArray(selectedRepositoryEntry?.metadata?.validation_history)
-    ? selectedRepositoryEntry.metadata.validation_history.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    : [];
+
+  const openRepositoryInspect = (page: typeof activePageObject = activePageObject) => {
+    const targetPage = page || activePageObject;
+    if (targetPage?.screenName) {
+      setSelectedScreenName(targetPage.screenName);
+      setScreenInfoDraft((current) => ({
+        ...current,
+        screen_name: targetPage.screenName
+      }));
+    }
+    if (targetPage?.url && targetPage.url !== "No URL captured") {
+      setScreenUrlDraft(targetPage.url);
+    }
+    setIsInspectOpen(true);
+    setInspectMessage(inspectRecorderSession?.status === "running"
+      ? `Inspecting ${targetPage?.pageName || "the selected screen"}. Select an open tab, then capture or highlight fields.`
+      : `Connect a local browser to inspect ${targetPage?.pageName || "the selected screen"} and capture fields.`);
+  };
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
+
+  useEffect(() => {
+    stagedInspectFieldsRef.current = stagedInspectFields;
+  }, [stagedInspectFields]);
 
   useEffect(() => {
     if (appTypesQuery.isPending) {
@@ -1032,7 +1119,7 @@ export function AutomationPage() {
 
   useEffect(() => {
     const requestedCaseId = searchParams.get("case") || "";
-    if (!requestedCaseId || selectedCaseId === requestedCaseId || testCasesQuery.isLoading || testCasesQuery.isFetching) {
+    if (initialView !== "cases" || !requestedCaseId || selectedCaseId === requestedCaseId || testCasesQuery.isLoading || testCasesQuery.isFetching) {
       return;
     }
 
@@ -1043,7 +1130,7 @@ export function AutomationPage() {
       setSelectedAutomatedCaseId(requestedCase.id);
       setExpandedCaseSections((current) => ({ ...current, case: true, steps: true }));
     }
-  }, [automatedCases, searchParams, selectedCaseId, testCasesQuery.isFetching, testCasesQuery.isLoading]);
+  }, [automatedCases, initialView, searchParams, selectedCaseId, testCasesQuery.isFetching, testCasesQuery.isLoading]);
 
   useEffect(() => {
     if (activeAutomatedCase && selectedAutomatedCaseId !== activeAutomatedCase.id) {
@@ -1374,6 +1461,7 @@ export function AutomationPage() {
       if (!preview.entries.length) {
         throw new Error("No importable screens or fields were detected in the selected files.");
       }
+      setIsRepositoryImportModalOpen(true);
       showInfo(`Prepared ${screens} screen${screens === 1 ? "" : "s"} and ${fields} field${fields === 1 ? "" : "s"} for review before import.`);
     } catch (error) {
       setRepositoryImportPreview(null);
@@ -1433,6 +1521,7 @@ export function AutomationPage() {
         return;
       }
       setRepositoryImportPreview(null);
+      setIsRepositoryImportModalOpen(false);
       showSuccess(`Imported ${response.created} new and updated ${response.updated} existing repository entr${response.created + response.updated === 1 ? "y" : "ies"}.`);
     },
     onError: (error) => showError(error, "Unable to import object repository entries.")
@@ -1714,7 +1803,7 @@ export function AutomationPage() {
           ),
           ...parseAutomationHookLines(postHookText, "post")
         ],
-        engine_base_url: "http://host.docker.internal:4311"
+        engine_base_url: "http://localhost:4311"
       });
     },
     onSuccess: (response) => {
@@ -1730,10 +1819,15 @@ export function AutomationPage() {
     setStagedInspectFields((current) => {
       const existingIndex = current.findIndex((item) => item.locator === field.locator);
       if (existingIndex < 0) {
-        return [...current, field];
+        const next = [...current, field];
+        stagedInspectFieldsRef.current = next;
+        return next;
       }
-      return current.map((item, index) => index === existingIndex ? { ...item, ...field } : item);
+      const next = current.map((item, index) => index === existingIndex ? { ...item, ...field } : item);
+      stagedInspectFieldsRef.current = next;
+      return next;
     });
+    setBrowserInspectFields((current) => current.filter((item) => item.locator !== field.locator));
     setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}. Remove unwanted fields or save the selected set.`);
   };
 
@@ -1841,8 +1935,15 @@ export function AutomationPage() {
         }
       });
     },
-    onSuccess: () => {
-      showSuccess("Object repository field saved for execution-time locator resolution.");
+    onSuccess: (updatedEntry) => {
+      queryClient.setQueriesData<AutomationLearningCacheEntry[]>({ queryKey: ["automation-learning-cache"] }, (current) =>
+        current ? current.map((entry) => entry.id === updatedEntry.id ? updatedEntry : entry) : current
+      );
+      setSelectedRepositoryId(updatedEntry.id);
+      const updatedReferences = Number((updatedEntry as AutomationLearningCacheEntry & { updated_step_references?: number }).updated_step_references || 0);
+      showSuccess(updatedReferences
+        ? `Object repository field saved and ${updatedReferences} automation reference${updatedReferences === 1 ? "" : "s"} updated.`
+        : "Object repository field saved for execution-time locator resolution.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
@@ -2176,35 +2277,6 @@ export function AutomationPage() {
     onError: (error) => showError(error, "Unable to improve repository field.")
   });
 
-  const validateRepositoryEntry = useMutation({
-    mutationFn: () => {
-      if (!selectedRepositoryEntry) {
-        throw new Error("Select an object repository field first.");
-      }
-      const validatedAt = new Date().toISOString();
-      const priorHistory = Array.isArray(selectedRepositoryEntry.metadata?.validation_history)
-        ? selectedRepositoryEntry.metadata.validation_history
-        : [];
-      return api.testCases.updateLearningCacheEntry(selectedRepositoryEntry.id, {
-        last_validated_at: validatedAt,
-        validation_history: [
-          { status: "passed", validatedAt, locator: selectedRepositoryEntry.locator, source: "manual_validation" },
-          ...priorHistory
-        ].slice(0, 25),
-        metadata: {
-          ...(selectedRepositoryEntry.metadata || {}),
-          last_validated_status: "passed"
-        }
-      });
-    },
-    onSuccess: () => {
-      showSuccess("Locator marked as validated and recorded in field history.");
-      void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
-      void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
-    },
-    onError: (error) => showError(error, "Unable to validate repository field.")
-  });
-
   const startRecorder = useMutation({
     mutationFn: (options: RecorderStartOptions) => {
       if (!activeManualCase) {
@@ -2333,23 +2405,14 @@ export function AutomationPage() {
   const persistLiveInspectResult = async (result: RecorderInspectResult) => {
     const screenName = selectedScreenName || screenInfoDraft.screen_name.trim() || inferScreenName(result.page_title, result.page_url) || "Screen";
     const urlPattern = inferUrlPattern(result.page_url);
-    const candidates = getCapturedLocators(result);
-    const field: RepositoryExtractedField = {
-      name: result.element.friendly_name,
-      tag: result.element.html_tag,
-      role: result.element.role,
-      locator: candidates[0].locator,
-      locatorKind: candidates[0].strategy,
-      dom: result.element.dom_structure,
-      fallbackLocators: candidates.slice(1),
-      source: "live_inspect",
-      pageUrl: result.page_url,
-      targetCriteria: result.element.text,
-      elementScreenshotUrl: result.element_screenshot_url,
-      ancestorScreenshotUrl: result.ancestor_screenshot_url,
-      ancestorDom: result.element.ancestor_dom,
-      description: `${result.element.friendly_name} captured during live inspection.`
-    };
+    const selections = getInspectSelections(result);
+    const fields = selections.map((selection) => buildRepositoryFieldFromInspectSelection(result, selection));
+    const latestSelection = selections[selections.length - 1] || selections[0];
+    const latestField = fields[fields.length - 1] || fields[0];
+    const latestCandidates = latestSelection ? getCapturedLocatorsForElement(latestSelection.element) : getCapturedLocators(result);
+    if (!latestSelection || !latestField) {
+      return;
+    }
 
     setScreenUrlDraft(result.page_url || screenUrlDraft);
     setScreenDomDraft(result.screen_dom || screenDomDraft);
@@ -2364,27 +2427,43 @@ export function AutomationPage() {
     }));
     setRepositoryDraft((current) => ({
       ...current,
-      object_name: field.name,
-      object_role: `${field.tag} / ${field.role}`,
-      locator: field.locator,
-      locator_kind: field.locatorKind,
-      target_criteria: result.element.text || current.target_criteria,
-      dom_structure: field.dom,
-      screenshot_url: result.element_screenshot_url || current.screenshot_url,
-      fallback_locators: formatLocatorDraft(candidates),
-      ancestor_dom: result.element.ancestor_dom || current.ancestor_dom,
-      ancestor_screenshot_url: result.ancestor_screenshot_url || current.ancestor_screenshot_url,
-      element_screenshot_url: result.element_screenshot_url || current.element_screenshot_url,
-      stability_score: String(Math.round(candidates[0].confidenceScore * 100)),
-      description: current.description || `${field.name} captured from ${screenName}.`,
+      object_name: latestField.name,
+      object_role: `${latestField.tag} / ${latestField.role}`,
+      locator: latestField.locator,
+      locator_kind: latestField.locatorKind,
+      target_criteria: latestSelection.element.text || current.target_criteria,
+      dom_structure: latestField.dom,
+      screenshot_url: latestField.elementScreenshotUrl || current.screenshot_url,
+      fallback_locators: formatLocatorDraft(latestCandidates),
+      ancestor_dom: latestSelection.element.ancestor_dom || current.ancestor_dom,
+      ancestor_screenshot_url: latestField.ancestorScreenshotUrl || current.ancestor_screenshot_url,
+      element_screenshot_url: latestField.elementScreenshotUrl || current.element_screenshot_url,
+      stability_score: String(Math.round((latestCandidates[0]?.confidenceScore || 0.75) * 100)),
+      description: current.description || `${latestField.name} captured from ${screenName}.`,
       fallback_strategy: current.fallback_strategy || "Use the captured screen screenshot and nearby DOM only after locator retries fail."
     }));
 
     setSelectedScreenName(screenName);
-    stageInspectField(field);
-    await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => {
-      setInspectMessage(error instanceof Error ? error.message : "Selected the field, but could not keep it highlighted in the browser.");
+    setBrowserInspectFields((current) => {
+      const selectedLocators = new Set(stagedInspectFieldsRef.current.map((field) => field.locator));
+      const merged = [...current];
+      fields.forEach((field) => {
+        if (selectedLocators.has(field.locator)) {
+          return;
+        }
+        const existingIndex = merged.findIndex((item) => item.locator === field.locator);
+        if (existingIndex >= 0) {
+          merged[existingIndex] = { ...merged[existingIndex], ...field };
+        } else {
+          merged.push(field);
+        }
+      });
+      return merged;
     });
+    for (const field of fields) {
+      await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
+    }
+    setInspectMessage(`${fields.length} highlighted field${fields.length === 1 ? "" : "s"} captured. Review them under DOM suggestions, then select the fields to save.`);
   };
 
   const startLiveInspect = async () => {
@@ -2409,6 +2488,30 @@ export function AutomationPage() {
     setSelectedInspectTabId(pageId || "");
     setIsInspectingLiveField(true);
     setInspectMessage("Inspect is armed. Click any field in the selected browser tab; QAira will capture DOM and screenshot automatically.");
+  };
+
+  const stopLiveInspect = async () => {
+    const targetSession = inspectRecorderSession;
+    const baseUrl = getRecorderEngineBaseUrl(targetSession);
+    const pageId = selectedInspectTabId || inspectTabs.find((tab) => tab.active)?.id || inspectTabs[0]?.id || "";
+    setIsInspectingLiveField(false);
+    if (!targetSession?.id || !baseUrl || !pageId) {
+      setInspectMessage("Inspect selection paused.");
+      return;
+    }
+    const pendingResult = await readRecorderJson<RecorderInspectResult>(
+      `${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(targetSession.id)}/inspect/result?page_id=${encodeURIComponent(pageId)}`
+    ).catch(() => null);
+    if (pendingResult) {
+      await persistLiveInspectResult(pendingResult);
+    }
+    await readRecorderJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(targetSession.id)}/inspect/stop`, {
+      method: "POST",
+      body: JSON.stringify({ page_id: pageId })
+    }).catch(() => null);
+    setInspectMessage(browserInspectFields.length
+      ? "Inspect paused. Review highlighted fields under DOM suggestions."
+      : "Inspect paused. Start again when you want to capture more fields.");
   };
 
   const highlightRepositoryLocator = async (
@@ -2440,7 +2543,10 @@ export function AutomationPage() {
     }
   };
 
-  const syncStagedHighlights = async (fields: RepositoryExtractedField[]) => {
+  const syncInspectHighlights = async (
+    selectedFields: RepositoryExtractedField[],
+    candidateFields: RepositoryExtractedField[] = browserInspectFields
+  ) => {
     if (!inspectRecorderSession?.id) {
       return;
     }
@@ -2453,7 +2559,10 @@ export function AutomationPage() {
       method: "POST",
       body: JSON.stringify({ page_id: pageId, clear_existing: true })
     }).catch(() => null);
-    for (const field of fields) {
+    const highlights = [...candidateFields, ...selectedFields].filter((field, index, allFields) =>
+      allFields.findIndex((item) => item.locator === field.locator) === index
+    );
+    for (const field of highlights) {
       await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
     }
   };
@@ -2461,10 +2570,37 @@ export function AutomationPage() {
   const removeStagedInspectField = (locator: string) => {
     const next = stagedInspectFields.filter((field) => field.locator !== locator);
     setStagedInspectFields(next);
+    stagedInspectFieldsRef.current = next;
     setInspectMessage(next.length
       ? `${next.length} selected field${next.length === 1 ? "" : "s"} remain. Save when the selection is correct.`
       : "No fields selected. Inspect or choose suggested fields before saving.");
-    void syncStagedHighlights(next);
+    void syncInspectHighlights(next);
+  };
+
+  const selectAllBrowserInspectFields = () => {
+    if (!browserInspectFields.length) {
+      return;
+    }
+    const selectedLocatorSet = new Set(stagedInspectFields.map((field) => field.locator));
+    const fieldsToSelect = browserInspectFields.filter((field) => !selectedLocatorSet.has(field.locator));
+    const nextSelected = [
+      ...stagedInspectFields,
+      ...fieldsToSelect
+    ].filter((field, index, fields) => fields.findIndex((item) => item.locator === field.locator) === index);
+    setStagedInspectFields(nextSelected);
+    stagedInspectFieldsRef.current = nextSelected;
+    setBrowserInspectFields([]);
+    setInspectMessage(`${fieldsToSelect.length} highlighted field${fieldsToSelect.length === 1 ? "" : "s"} moved to Selected fields.`);
+    void syncInspectHighlights(nextSelected, []);
+  };
+
+  const dismissBrowserInspectField = (locator: string) => {
+    const nextCandidates = browserInspectFields.filter((field) => field.locator !== locator);
+    setBrowserInspectFields(nextCandidates);
+    setInspectMessage(nextCandidates.length
+      ? `${nextCandidates.length} highlighted candidate${nextCandidates.length === 1 ? "" : "s"} remain.`
+      : "No highlighted candidates remain. Capture more fields or use DOM suggestions.");
+    void syncInspectHighlights(stagedInspectFields, nextCandidates);
   };
 
   useEffect(() => {
@@ -2510,12 +2646,11 @@ export function AutomationPage() {
         ).catch((error) => {
           setInspectMessage(error instanceof Error ? error.message : "Unable to read inspect result.");
           return null;
-        });
-
-        if (result) {
-          setIsInspectingLiveField(false);
-          await persistLiveInspectResult(result);
-        }
+          });
+  
+          if (result) {
+            await persistLiveInspectResult(result);
+          }
       })();
     }, 1200);
 
@@ -2535,16 +2670,7 @@ export function AutomationPage() {
         ]}
       />
 
-      <SubnavTabs
-        ariaLabel="Automation views"
-        items={[
-          { value: "cases", label: "Automation Cases", meta: `${automatedCases.length}`, icon: <SparkIcon /> },
-          { value: "repository", label: "Object Repository", meta: `${groupedRepository.length} screens`, icon: <LayersIcon /> },
-          { value: "local-playwright", label: "Local Playwright", meta: recorderSession ? "recording" : "capture", icon: <MousePointerIcon /> }
-        ]}
-        onChange={setView}
-        value={view}
-      />
+      <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
       <WorkspaceScopeBar
         appTypeId={appTypeId}
@@ -2567,7 +2693,18 @@ export function AutomationPage() {
         projects={projects}
       />
 
-      <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
+      <WorkspaceSectionTabs
+        ariaLabel="Automation sections"
+        items={AUTOMATION_SECTION_ITEMS.map((item) => ({
+          ...item,
+          meta:
+            item.to === "/automation"
+              ? `${automatedCases.length} cases`
+              : item.to === "/object-repository"
+                ? `${groupedRepository.length} screens`
+                : recorderSession ? "recording" : "capture"
+        }))}
+      />
 
       {view === "cases" ? (
         <WorkspaceMasterDetail
@@ -3153,13 +3290,10 @@ export function AutomationPage() {
             subtitle="Screen-level fields grouped by page, with friendly member names, HTML tag details, locator, DOM, image, and fallback intelligence."
             actions={(
               <div className="testops-action-row">
-                <button className="ghost-button" onClick={() => {
-                  setIsInspectOpen(true);
-                  setInspectMessage(inspectRecorderSession?.status === "running" ? "Loading open browser tabs..." : "Connect a local browser to inspect a screen or highlight saved fields.");
-                }} type="button">
-                  <MousePointerIcon />
-                  <span>Inspect screen</span>
-                </button>
+	                <button className="ghost-button" onClick={() => openRepositoryInspect(activePageObject)} type="button">
+	                  <MousePointerIcon />
+	                  <span>Inspect screen</span>
+	                </button>
                 <button className="ghost-button" onClick={() => {
                   setIsAddingRepositoryScreen((current) => !current);
                   setIsAddingRepositoryField(false);
@@ -3167,17 +3301,10 @@ export function AutomationPage() {
                   <AddIcon />
                   <span>Add screen</span>
                 </button>
-                <label className={isParsingRepositoryImport ? "ghost-button repository-import-trigger is-disabled" : "ghost-button repository-import-trigger"}>
-                  <ImportIcon />
-                  <span>{isParsingRepositoryImport ? "Reading..." : "Import"}</span>
-                  <input
-                    accept=".csv,.zip,.js,.jsx,.ts,.tsx,.java,.cs,text/csv,application/zip"
-                    disabled={isParsingRepositoryImport}
-                    multiple
-                    onChange={(event) => void handleRepositoryImportFiles(event)}
-                    type="file"
-                  />
-                </label>
+	                <button className="ghost-button" onClick={() => setIsRepositoryImportModalOpen(true)} type="button">
+	                  <ImportIcon />
+	                  <span>{isParsingRepositoryImport ? "Reading..." : "Import"}</span>
+	                </button>
                 <button className="ghost-button" disabled={!appTypeId || exportRepositoryCsv.isPending} onClick={() => exportRepositoryCsv.mutate()} type="button">
                   <ExportIcon />
                   <span>{exportRepositoryCsv.isPending ? "Exporting..." : "Export CSV"}</span>
@@ -3190,42 +3317,6 @@ export function AutomationPage() {
             )}
           >
             {learningCacheQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-            {repositoryImportPreview ? (
-              <div className="automation-create-card repository-import-review">
-                <div className="object-repository-inspector-section-head">
-                  <strong>Review repository import</strong>
-                  <span>Source files and ZIP archives are processed locally. Saving sends normalized screens and fields in small batches and merges existing members by name or locator.</span>
-                </div>
-                <div className="repository-import-metrics">
-                  <StatusBadge value={`${repositoryImportPreview.entries.filter((entry) => entry.record_type === "screen").length} screens`} />
-                  <StatusBadge value={`${repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length} fields`} />
-                  <StatusBadge value={`${repositoryImportPreview.fileNames.length} source files`} />
-                </div>
-                <div className="repository-import-preview-list">
-                  {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").slice(0, 8).map((entry) => (
-                    <article key={`${entry.screen_name}-${entry.object_name}-${entry.locator}`}>
-                      <strong>{entry.screen_name}.{entry.object_name}</strong>
-                      <code>{entry.locator}</code>
-                    </article>
-                  ))}
-                  {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length > 8 ? (
-                    <small>And {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length - 8} more fields.</small>
-                  ) : null}
-                </div>
-                {repositoryImportPreview.warnings.length ? (
-                  <div className="repository-import-warnings">
-                    {repositoryImportPreview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
-                  </div>
-                ) : null}
-                <div className="testops-action-row">
-                  <button className="primary-button" disabled={!repositoryImportPreview.entries.length || importRepositoryEntries.isPending} onClick={() => importRepositoryEntries.mutate()} type="button">
-                    <ImportIcon />
-                    <span>{importRepositoryEntries.isPending ? "Importing..." : "Import selected repository data"}</span>
-                  </button>
-                  <button className="ghost-button" disabled={importRepositoryEntries.isPending} onClick={() => setRepositoryImportPreview(null)} type="button">Cancel</button>
-                </div>
-              </div>
-            ) : null}
             {isAddingRepositoryScreen ? (
               <div className="automation-create-card repository-screen-create-card">
                 <div className="object-repository-inspector-section-head">
@@ -3296,14 +3387,12 @@ export function AutomationPage() {
                     className="object-repository-screen-tabs"
                     value={screenDetailTab}
                     onChange={setScreenDetailTab}
-                    items={[
-                      { value: "overview", label: "Overview", meta: screenInfoDraft.description ? "Documented" : "Add context" },
-                      { value: "fields", label: "Fields", meta: String(activePageObject.members.length) },
-                      { value: "dom", label: "DOM Snapshot", meta: screenDomDraft ? "Captured" : "Pending" },
-                      { value: "suggestions", label: "AI Suggestions", meta: "Locator health" },
-                      { value: "usage", label: "Usage", meta: `${selectedScreenUsage.length} cases` },
-                      { value: "validation", label: "Validation", meta: formatRepositoryDate(selectedRepositoryEntry?.metadata?.last_validated_at) }
-                    ]}
+	                    items={[
+	                      { value: "overview", label: "Overview", meta: screenInfoDraft.description ? "Documented" : "Add context" },
+	                      { value: "fields", label: "Fields", meta: String(activePageObject.members.length) },
+	                      { value: "dom", label: "DOM Snapshot", meta: screenDomDraft ? "Captured" : "Pending" },
+	                      { value: "suggestions", label: "AI Suggestions", meta: "Locator health" }
+	                    ]}
                   />
                   {screenDetailTab === "overview" ? (
                     <div className="repository-screen-overview">
@@ -3319,14 +3408,11 @@ export function AutomationPage() {
                       </div>
                       <div className="testops-action-row">
                         <button className="primary-button" disabled={saveRepositoryScreenEvidence.isPending} onClick={() => saveRepositoryScreenEvidence.mutate()} type="button"><LayersIcon /><span>{saveRepositoryScreenEvidence.isPending ? "Saving..." : "Save screen"}</span></button>
-                        <button className="ghost-button" onClick={() => {
-                          setIsInspectOpen(true);
-                          setInspectMessage(inspectRecorderSession?.status === "running" ? "Select an open tab to inspect or highlight fields." : "Connect a browser to capture DOM and fields for this screen.");
-                        }} type="button"><MousePointerIcon /><span>Inspect screen</span></button>
-                        <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
-                          setIsInspectOpen(true);
-                          extractRepositoryFields.mutate();
-                        }} type="button"><SparkIcon /><span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span></button>
+	                        <button className="ghost-button" onClick={() => openRepositoryInspect(activePageObject)} type="button"><MousePointerIcon /><span>Inspect screen</span></button>
+	                        <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
+	                          openRepositoryInspect(activePageObject);
+	                          extractRepositoryFields.mutate();
+	                        }} type="button"><SparkIcon /><span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span></button>
                       </div>
                     </div>
                   ) : null}
@@ -3364,12 +3450,10 @@ export function AutomationPage() {
                           <span>Primary locator</span>
                         </div>
                         {activePageObject.members.map((member) => (
-                          <button className={`pom-member-row${selectedRepositoryEntry?.id === member.entry.id ? " is-active" : ""}${highlightedRepositoryId === member.entry.id ? " is-highlighted" : ""}`} key={member.entry.id} onClick={() => {
-                            setSelectedRepositoryId(member.entry.id);
-                            if (inspectRecorderSession?.status === "running") {
-                              void highlightRepositoryLocator(member.entry.locator, member.ref, member.entry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."));
-                            }
-                          }} type="button">
+	                          <button className={`pom-member-row${selectedRepositoryEntry?.id === member.entry.id ? " is-active" : ""}${highlightedRepositoryId === member.entry.id ? " is-highlighted" : ""}`} key={member.entry.id} onClick={() => {
+	                            setSelectedRepositoryId(member.entry.id);
+	                            setFieldDetailTab("locators");
+	                          }} type="button">
                             <code>{member.memberName}</code>
                             <span>{member.htmlTag} · {member.role}</span>
                             <small>{member.entry.locator}</small>
@@ -3393,18 +3477,6 @@ export function AutomationPage() {
                       {selectedRepositoryEntry ? <p>Selected field stability: {Math.round(normalizeMetadataNumber(selectedRepositoryEntry.metadata?.stability_score, selectedRepositoryEntry.confidence) * 100)}%. Use AI improve to propose a healed locator from captured evidence.</p> : null}
                     </div>
                   ) : null}
-                  {screenDetailTab === "usage" ? (
-                    <div className="repository-usage-list">
-                      {selectedScreenUsage.map((testCase) => <article key={testCase.id}><strong>{testCase.display_id || "Test"}</strong><span>{testCase.title}</span></article>)}
-                      {!selectedScreenUsage.length ? <div className="empty-state compact">No repository fields from this screen are referenced by test steps yet.</div> : null}
-                    </div>
-                  ) : null}
-                  {screenDetailTab === "validation" ? (
-                    <div className="repository-validation-list">
-                      {selectedValidationHistory.map((event, index) => <article key={`${normalizeMetadataValue(event.validatedAt)}-${index}`}><StatusBadge value={normalizeMetadataValue(event.status) || "unknown"} /><span>{formatRepositoryDate(event.validatedAt)}</span><code>{normalizeMetadataValue(event.locator)}</code></article>)}
-                      {!selectedValidationHistory.length ? <div className="empty-state compact">No validation history captured for the selected field.</div> : null}
-                    </div>
-                  ) : null}
                 </section>
               ) : null}
             </div>
@@ -3414,22 +3486,22 @@ export function AutomationPage() {
             className="automation-detail-panel"
             title="Member inspector"
             subtitle="Curate the selected repository member. Keywords should bind to this member name, not raw locators."
-            actions={selectedRepositoryEntry ? (
-              <div className="testops-action-row">
-                <button className="ghost-button" disabled={improveRepositoryEntry.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
-                  <SparkIcon />
-                  <span>{improveRepositoryEntry.isPending ? "Improving..." : "AI improve"}</span>
+	            actions={selectedRepositoryEntry ? (
+	              <div className="testops-action-row">
+	                <button className="ghost-button" onClick={() => void highlightRepositoryLocator(selectedRepositoryEntry.locator, `${activeScreenName}.${getRepositoryMemberName(selectedRepositoryEntry)}`, selectedRepositoryEntry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."))} type="button">
+	                  <MousePointerIcon />
+	                  <span>Highlight</span>
+	                </button>
+	                <button className="ghost-button" disabled={improveRepositoryEntry.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
+	                  <SparkIcon />
+	                  <span>{improveRepositoryEntry.isPending ? "Improving..." : "AI improve"}</span>
                 </button>
                 <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
-                  <PlayIcon />
-                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
-                </button>
-                <button className="ghost-button" disabled={validateRepositoryEntry.isPending} onClick={() => validateRepositoryEntry.mutate()} type="button">
-                  <LayersIcon />
-                  <span>{validateRepositoryEntry.isPending ? "Validating..." : "Mark validated"}</span>
-                </button>
-                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
-                  <TrashIcon size={16} />
+	                  <PlayIcon />
+	                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
+	                </button>
+	                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
+	                  <TrashIcon size={16} />
                   <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
                 </button>
               </div>
@@ -3445,11 +3517,10 @@ export function AutomationPage() {
                   value={fieldDetailTab}
                   onChange={setFieldDetailTab}
                   items={[
-                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
-                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
-                    { value: "meaning", label: "AI Meaning", meta: "Agent context" },
-                    { value: "validation", label: "History", meta: formatRepositoryDate(selectedRepositoryEntry.metadata?.last_validated_at) }
-                  ]}
+	                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
+	                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
+	                    { value: "meaning", label: "AI Meaning", meta: "Agent context" }
+	                  ]}
                 />
                 {fieldDetailTab === "locators" ? (
                   <div className="repository-locator-detail">
@@ -3520,18 +3591,106 @@ export function AutomationPage() {
                     <label className="form-field repository-span-two"><span>Healing guidance</span><textarea rows={3} value={repositoryDraft.fallback_strategy} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_strategy: event.target.value }))} /></label>
                   </div>
                 ) : null}
-                {fieldDetailTab === "validation" ? (
-                  <div className="repository-validation-list">
-                    <p>Last validated: {formatRepositoryDate(selectedRepositoryEntry.metadata?.last_validated_at)}</p>
-                    {selectedValidationHistory.map((event, index) => <article key={`${normalizeMetadataValue(event.validatedAt)}-${index}`}><StatusBadge value={normalizeMetadataValue(event.status) || "unknown"} /><span>{formatRepositoryDate(event.validatedAt)}</span><code>{normalizeMetadataValue(event.locator)}</code></article>)}
-                    {!selectedValidationHistory.length ? <div className="empty-state compact">Validate this locator to establish its first history record.</div> : null}
-                  </div>
-                ) : null}
               </div>
-            )}
-          </Panel>
+	            )}
+	          </Panel>
 
-          {isInspectOpen ? (
+	          {isRepositoryImportModalOpen ? (
+	            <div className="modal-backdrop" onClick={() => !importRepositoryEntries.isPending && setIsRepositoryImportModalOpen(false)} role="presentation">
+	              <div
+	                aria-labelledby="object-repository-import-title"
+	                aria-modal="true"
+	                className="modal-card import-modal-card"
+	                onClick={(event) => event.stopPropagation()}
+	                role="dialog"
+	              >
+	                <div className="import-modal-header">
+	                  <div className="import-modal-title">
+	                    <p className="eyebrow">Object Repository Import</p>
+	                    <h3 id="object-repository-import-title">Import screens and fields</h3>
+	                    <p>
+	                      Upload a QAira OR CSV, individual page object files, or a ZIP archive. CSV rows import as saved screens and fields; source files are parsed locally for Playwright, Selenium Java, C#, JavaScript, and TypeScript locators.
+	                    </p>
+	                  </div>
+	                  <button
+	                    aria-label="Close object repository import dialog"
+	                    className="ghost-button"
+	                    disabled={importRepositoryEntries.isPending}
+	                    onClick={() => setIsRepositoryImportModalOpen(false)}
+	                    type="button"
+	                  >
+	                    Close
+	                  </button>
+	                </div>
+	                <div className="import-modal-body">
+	                  <label className={isParsingRepositoryImport ? "repository-import-dropzone is-disabled" : "repository-import-dropzone"}>
+	                    <ImportIcon />
+	                    <strong>{isParsingRepositoryImport ? "Reading files..." : "Choose CSV, source files, or ZIP"}</strong>
+	                    <span>Supported: .csv, .zip, .js, .jsx, .ts, .tsx, .java, .cs</span>
+	                    <input
+	                      accept=".csv,.zip,.js,.jsx,.ts,.tsx,.java,.cs,text/csv,application/zip"
+	                      disabled={isParsingRepositoryImport || importRepositoryEntries.isPending}
+	                      multiple
+	                      onChange={(event) => void handleRepositoryImportFiles(event)}
+	                      type="file"
+	                    />
+	                  </label>
+	                  <div className="metric-strip compact">
+	                    <div className="mini-card">
+	                      <strong>{repositoryImportPreview?.entries.filter((entry) => entry.record_type === "screen").length || 0}</strong>
+	                      <span>Screens</span>
+	                    </div>
+	                    <div className="mini-card">
+	                      <strong>{repositoryImportPreview?.entries.filter((entry) => entry.record_type === "field").length || 0}</strong>
+	                      <span>Fields</span>
+	                    </div>
+	                    <div className="mini-card">
+	                      <strong>{repositoryImportPreview?.fileNames.length || 0}</strong>
+	                      <span>Files read</span>
+	                    </div>
+	                  </div>
+	                  <div className="detail-summary">
+	                    <strong>{repositoryImportPreview?.fileNames[0] || "No import loaded yet"}</strong>
+	                    <span>{repositoryImportPreview?.fileNames.length ? `${repositoryImportPreview.fileNames.length} source item${repositoryImportPreview.fileNames.length === 1 ? "" : "s"} parsed for the selected application scope.` : "Choose input above to preview normalized repository records before saving."}</span>
+	                  </div>
+	                  {repositoryImportPreview?.inputKinds.length ? (
+	                    <div className="repository-import-metrics">
+	                      {repositoryImportPreview.inputKinds.map((kind) => <StatusBadge key={kind} value={getRepositoryImportKindLabel(kind)} />)}
+	                    </div>
+	                  ) : null}
+	                  {repositoryImportPreview?.warnings.length ? (
+	                    <div className="empty-state compact">
+	                      {repositoryImportPreview.warnings.slice(0, 8).map((warning) => <div key={warning}>{warning}</div>)}
+	                    </div>
+	                  ) : null}
+	                  {repositoryImportPreview?.entries.length ? (
+	                    <div className="repository-import-preview-list">
+	                      {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").slice(0, 8).map((entry) => (
+	                        <article key={`${entry.screen_name}-${entry.object_name}-${entry.locator}`}>
+	                          <strong>{entry.screen_name}.{entry.object_name}</strong>
+	                          <code>{entry.locator}</code>
+	                        </article>
+	                      ))}
+	                      {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length > 8 ? (
+	                        <small>And {repositoryImportPreview.entries.filter((entry) => entry.record_type === "field").length - 8} more fields.</small>
+	                      ) : null}
+	                    </div>
+	                  ) : null}
+	                </div>
+	                <div className="action-row import-modal-actions">
+	                  <button className="primary-button" disabled={!repositoryImportPreview?.entries.length || importRepositoryEntries.isPending} onClick={() => importRepositoryEntries.mutate()} type="button">
+	                    <ImportIcon />
+	                    <span>{importRepositoryEntries.isPending ? "Importing..." : `Import ${repositoryImportPreview?.entries.length || ""} OR records`}</span>
+	                  </button>
+	                  <button className="ghost-button" disabled={!repositoryImportPreview || importRepositoryEntries.isPending} onClick={() => setRepositoryImportPreview(null)} type="button">
+	                    Clear preview
+	                  </button>
+	                </div>
+	              </div>
+	            </div>
+	          ) : null}
+
+	          {isInspectOpen ? (
             <div className="modal-backdrop" role="presentation">
               <div className="dialog object-repository-inspector" role="dialog" aria-modal="true" aria-label="Object repository inspector">
                 <div className="dialog-header">
@@ -3545,7 +3704,7 @@ export function AutomationPage() {
                   <div className="object-repository-inspector-steps" aria-label="Inspect capture steps">
                     <span className={inspectRecorderSession?.status === "running" ? "is-complete" : "is-active"}><strong>1</strong> Browser</span>
                     <span className={selectedInspectTabId ? "is-complete" : inspectRecorderSession?.status === "running" ? "is-active" : ""}><strong>2</strong> Select tab</span>
-                    <span className={isInspectingLiveField ? "is-active" : stagedInspectFields.length ? "is-complete" : ""}><strong>3</strong> Select fields</span>
+                      <span className={isInspectingLiveField ? "is-active" : stagedInspectFields.length || browserInspectFields.length ? "is-complete" : ""}><strong>3</strong> Select fields</span>
                     <span className={stagedInspectFields.length ? "is-active" : ""}><strong>4</strong> Review and save</span>
                   </div>
                   <div className="object-repository-live-inspect-head">
@@ -3572,15 +3731,15 @@ export function AutomationPage() {
                         <LayersIcon />
                         <span>Refresh tabs</span>
                       </button>
-                      <button
-                        className="primary-button"
-                        disabled={!inspectRecorderSession?.id || isInspectingLiveField}
-                        onClick={() => void startLiveInspect().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to start inspect mode."))}
-                        type="button"
-                      >
-                        <SparkIcon />
-                        <span>{isInspectingLiveField ? "Select in browser..." : stagedInspectFields.length ? "Select another field" : "Select a field"}</span>
-                      </button>
+                        <button
+                          className="primary-button"
+                          disabled={!inspectRecorderSession?.id}
+                          onClick={() => void (isInspectingLiveField ? stopLiveInspect() : startLiveInspect()).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to update inspect mode."))}
+                          type="button"
+                        >
+                          <SparkIcon />
+                          <span>{isInspectingLiveField ? "Stop selecting" : stagedInspectFields.length || browserInspectFields.length ? "Select more fields" : "Select fields"}</span>
+                        </button>
                     </div>
                   </div>
                   <div className="object-repository-capture-workspace">
@@ -3620,15 +3779,18 @@ export function AutomationPage() {
                     <div className="object-repository-selected-grid">
                       {stagedInspectFields.map((field) => (
                         <article key={field.locator}>
-                          <div>
-                            <strong>{field.name}</strong>
-                            <small>{field.tag} · {field.locator}</small>
-                          </div>
-                          <StatusBadge value={field.source === "ai_extract" ? "AI selected" : "Selected"} />
-                          <button className="ghost-button compact danger" onClick={() => removeStagedInspectField(field.locator)} type="button"><TrashIcon size={14} /><span>Remove</span></button>
-                        </article>
+                            <div>
+                              <strong>{field.name}</strong>
+                              <small>{field.tag} · {field.locator}</small>
+                            </div>
+                            <StatusBadge value={field.source === "ai_extract" ? "AI selected" : "Selected"} />
+                            <div className="object-repository-field-actions">
+                              <button className="ghost-button compact" onClick={() => void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight selected field."))} type="button"><MousePointerIcon size={14} /><span>Highlight</span></button>
+                              <button className="ghost-button compact danger" onClick={() => removeStagedInspectField(field.locator)} type="button"><TrashIcon size={14} /><span>Remove</span></button>
+                            </div>
+                          </article>
                       ))}
-                      {!stagedInspectFields.length ? <div className="empty-state compact">Nothing selected yet. Choose <strong>Select a field</strong> and click controls in the browser, or request AI suggestions.</div> : null}
+                      {!stagedInspectFields.length ? <div className="empty-state compact">Nothing selected yet. Choose <strong>Select fields</strong> and click controls in the browser, or request AI suggestions.</div> : null}
                     </div>
                   </section>
                 </div>
@@ -3636,7 +3798,7 @@ export function AutomationPage() {
                   <div className="object-repository-inspector-inputs">
                     <div className="object-repository-inspector-section-head">
                       <strong>Screen evidence</strong>
-                      <span>Review captured identity before returning to field curation.</span>
+                      <span>Review captured identity and selected fields before saving them to the repository.</span>
                     </div>
                     <label className="form-field">
                       <span>Screen name</span>
@@ -3674,54 +3836,96 @@ export function AutomationPage() {
                       </label>
                     </details>
                   </div>
-                  <div className="object-repository-inspector-preview">
-                    <div className="object-repository-inspector-section-head">
-                      <strong>{inspectedFields.length ? `${inspectedFields.length} DOM suggestions` : "Suggested fields"}</strong>
-                      <span>Suggestions are not saved until selected and committed with the screen.</span>
+                    <div className="object-repository-inspector-preview">
+                      <div className="object-repository-inspector-section-head">
+                        <strong>{inspectedFields.length ? `${inspectedFields.length} DOM suggestions` : "Suggested fields"}</strong>
+                        <span>Suggestions are not saved until selected and committed with the screen.</span>
+                      </div>
+                      {browserInspectFields.length ? (
+                        <section className="object-repository-browser-candidates" aria-label="Fields highlighted in the browser">
+                          <div className="object-repository-browser-candidates-head">
+                            <div>
+                              <strong>Highlighted in browser <span className="selection-count">{browserInspectFields.length}</span></strong>
+                              <small>These are the controls you clicked in inspect mode. Select the ones to save.</small>
+                            </div>
+                            <button className="ghost-button compact" onClick={selectAllBrowserInspectFields} type="button">Select all highlighted</button>
+                          </div>
+                          {browserInspectFields.map((field) => (
+                            <article className="object-repository-inspector-candidate is-browser-candidate" key={`browser-${field.locator}`}>
+                              <button onClick={() => {
+                                setRepositoryDraft((current) => ({
+                                  ...current,
+                                  object_name: field.name,
+                                  object_role: `${field.tag} / ${field.role}`,
+                                  locator: field.locator,
+                                  locator_kind: field.locatorKind,
+                                  fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
+                                  dom_structure: field.dom,
+                                  description: current.description || `${field.name} captured from live inspect.`,
+                                  screenshot_url: field.elementScreenshotUrl || current.screenshot_url
+                                }));
+                                void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight captured field."));
+                              }} type="button">
+                                <span>{field.name}</span>
+                                <small>{field.tag} · {field.locator}</small>
+                              </button>
+                              <div className="object-repository-candidate-actions">
+                                <button className="ghost-button compact" onClick={() => {
+                                  stageInspectField(field);
+                                  void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
+                                }} type="button">Select</button>
+                                <button className="ghost-button compact" onClick={() => void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight captured field."))} type="button">Highlight</button>
+                                <button className="ghost-button compact danger" onClick={() => dismissBrowserInspectField(field.locator)} type="button">Dismiss</button>
+                              </div>
+                            </article>
+                          ))}
+                        </section>
+                      ) : null}
+                      {inspectedFields.map((field) => {
+                        const isSelected = stagedInspectFields.some((selectedField) => selectedField.locator === field.locator);
+                        return (
+                          <article className={isSelected ? "object-repository-inspector-candidate is-selected" : "object-repository-inspector-candidate"} key={`${field.name}-${field.locator}`}>
+                            <button onClick={() => {
+                              setRepositoryDraft((current) => ({
+                                ...current,
+                                object_name: field.name,
+                                object_role: `${field.tag} / ${field.role}`,
+                                locator: field.locator,
+                                locator_kind: field.locatorKind,
+                                fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
+                                dom_structure: field.dom,
+                                description: current.description || `${field.name} detected from screen DOM.`,
+                                screenshot_url: screenScreenshotDraft || current.screenshot_url
+                              }));
+                              if (inspectRecorderSession?.status === "running") {
+                                void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
+                              }
+                            }} type="button">
+                              <span>{field.name}</span>
+                              <small>{field.tag} · {field.locator}</small>
+                            </button>
+                            <div className="object-repository-candidate-actions">
+                              <button className="ghost-button compact" onClick={() => void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."))} type="button">
+                                <span>Highlight</span>
+                              </button>
+                              <button className={`ghost-button compact${isSelected ? " danger" : ""}`} onClick={() => {
+                                if (isSelected) {
+                                  removeStagedInspectField(field.locator);
+                                  return;
+                                }
+                                stageInspectField({ ...field, source: "dom_candidate" });
+                                if (inspectRecorderSession?.status === "running") {
+                                  void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
+                                }
+                              }} type="button">
+                                <span>{isSelected ? "Remove" : "Select"}</span>
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                      {!inspectedFields.length && !browserInspectFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
                     </div>
-                    {inspectedFields.map((field) => {
-                      const isSelected = stagedInspectFields.some((selectedField) => selectedField.locator === field.locator);
-                      return (
-                      <article className={isSelected ? "object-repository-inspector-candidate is-selected" : "object-repository-inspector-candidate"} key={`${field.name}-${field.locator}`}>
-                        <button onClick={() => {
-                          setRepositoryDraft((current) => ({
-                            ...current,
-                            object_name: field.name,
-                            object_role: `${field.tag} / ${field.role}`,
-                            locator: field.locator,
-                            locator_kind: field.locatorKind,
-                            fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
-                            dom_structure: field.dom,
-                            description: current.description || `${field.name} detected from screen DOM.`,
-                            screenshot_url: screenScreenshotDraft || current.screenshot_url
-                          }));
-                          if (!isSelected) {
-                            stageInspectField({ ...field, source: "dom_candidate" });
-                          }
-                          if (inspectRecorderSession?.status === "running") {
-                            void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
-                          }
-                        }} type="button">
-                          <span>{field.name}</span>
-                          <small>{field.tag} · {field.locator}</small>
-                        </button>
-                        <button className="ghost-button compact" onClick={() => {
-                          if (isSelected) {
-                            removeStagedInspectField(field.locator);
-                            return;
-                          }
-                          stageInspectField({ ...field, source: "dom_candidate" });
-                          if (inspectRecorderSession?.status === "running") {
-                            void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
-                          }
-                        }} type="button">
-                          <span>{isSelected ? "Remove" : "Select"}</span>
-                        </button>
-                      </article>
-                      );
-                    })}
-                    {!inspectedFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
-                  </div>
                 </div>
                 <div className="testops-action-row object-repository-inspector-footer">
                   <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => extractRepositoryFields.mutate()} type="button">

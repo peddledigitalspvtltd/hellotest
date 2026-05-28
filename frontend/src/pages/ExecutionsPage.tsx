@@ -38,7 +38,7 @@ import { api } from "../lib/api";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { buildBrowserUrl } from "../lib/integrationUrls";
-import { buildCaseAutomationCode, buildGroupAutomationCode, resolveStepAutomationCode } from "../lib/stepAutomation";
+import { buildGroupAutomationCode, resolveStepAutomationCode } from "../lib/stepAutomation";
 import {
   deriveCaseStatusFromSteps,
   parseExecutionLogs,
@@ -1141,10 +1141,11 @@ export function ExecutionsPage() {
   const [isSuiteTreeMinimized, setIsSuiteTreeMinimized] = useState(false);
   const [isExecutionHealthExpanded, setIsExecutionHealthExpanded] = useState(true);
   const [isExecutionSupportExpanded, setIsExecutionSupportExpanded] = useState(true);
-  const [isExecutionInputParamsExpanded, setIsExecutionInputParamsExpanded] = useState(true);
-  const [isExecutionOutputParamsExpanded, setIsExecutionOutputParamsExpanded] = useState(true);
+  const [isExecutionInputParamsExpanded, setIsExecutionInputParamsExpanded] = useState(false);
+  const [isExecutionOutputParamsExpanded, setIsExecutionOutputParamsExpanded] = useState(false);
   const [isExecutionReferencesExpanded, setIsExecutionReferencesExpanded] = useState(false);
   const [isExecutionAiAnalysisExpanded, setIsExecutionAiAnalysisExpanded] = useState(false);
+  const [executionStepViewMode, setExecutionStepViewMode] = useState<"manual" | "automation">("manual");
   const [executionStatusFilter, setExecutionStatusFilter] = useState<ExecutionStatus | "all">("all");
   const [executionIssueFilter, setExecutionIssueFilter] = useState<ExecutionIssueFilter>("all");
   const [executionEvidenceFilter, setExecutionEvidenceFilter] = useState<ExecutionEvidenceFilter>("all");
@@ -1986,6 +1987,10 @@ export function ExecutionsPage() {
   );
 
   useEffect(() => {
+    setExecutionStepViewMode("manual");
+  }, [selectedExecutionId, selectedTestCaseId]);
+
+  useEffect(() => {
     const requestedTestCaseId = searchParams.get("testCase");
 
     if (requestedTestCaseId && executionCaseOrder.some((testCase) => testCase.id === requestedTestCaseId)) {
@@ -2077,6 +2082,17 @@ export function ExecutionsPage() {
   const stepApiDetails = selectedCaseLogs.stepApiDetails || {};
   const stepWebDetails = selectedCaseLogs.stepWebDetails || {};
   const stepAutomationDetails = selectedCaseLogs.stepAutomationDetails || {};
+  const hasSelectedStepAutomationCode = useMemo(
+    () =>
+      selectedSteps.some((step) =>
+        (
+          stepAutomationDetails[step.id]?.code
+          || step.automation_code
+          || (step.step_type === "api" && step.api_request ? resolveStepAutomationCode(step) : "")
+        ).trim()
+      ),
+    [selectedSteps, stepAutomationDetails]
+  );
   const stepCaptures = useMemo(
     () => mergeExecutionStepCaptures(selectedCaseLogs.stepCaptures || {}, stepApiDetails),
     [selectedCaseLogs.stepCaptures, stepApiDetails]
@@ -2598,7 +2614,7 @@ export function ExecutionsPage() {
     }
   };
 
-  const handleStartSelectedExecution = async (mode: "remote" | "local" = "remote") => {
+  const handleStartSelectedExecution = async (mode: "manual" | "remote" | "local" = "manual") => {
     if (!selectedExecution) {
       return;
     }
@@ -2608,7 +2624,9 @@ export function ExecutionsPage() {
         id: selectedExecution.id,
         options: mode === "local"
           ? { execution_mode: "local", engine_base_url: "http://host.docker.internal:4301" }
-          : { execution_mode: "remote" }
+          : mode === "remote"
+            ? { execution_mode: "remote" }
+            : undefined
       });
       await refreshExecutionScope();
       showSuccess(summarizeExecutionStart(response));
@@ -2964,18 +2982,6 @@ export function ExecutionsPage() {
     setCaseReferenceDraft(selectedExecutionCaseReferenceText);
     setCaseDefectDraft(selectedExecutionCaseDefectText);
   }, [selectedExecutionCaseDefectText, selectedExecutionCaseReferenceText, selectedExecution?.id, selectedExecutionCase?.id]);
-
-  const openExecutionCaseAutomationPreview = () => {
-    if (!selectedSteps.length) {
-      return;
-    }
-
-    setCodePreviewState({
-      title: `${selectedExecutionCase?.title || "Selected case"} automation`,
-      subtitle: "Run snapshots are read-only here. Update the source test case or shared group to change this code.",
-      code: buildCaseAutomationCode(selectedExecutionCase?.title || "Selected case", selectedSteps)
-    });
-  };
 
   const openExecutionGroupAutomationPreview = (groupName: string, steps: TestStep[]) => {
     setCodePreviewState({
@@ -4536,9 +4542,17 @@ export function ExecutionsPage() {
                           <button className="ghost-button" onClick={() => setIsExecutionContextModalOpen(true)} type="button">
                             View context snapshot
                           </button>
-                          <button className="ghost-button" disabled={!selectedSteps.length} onClick={openExecutionCaseAutomationPreview} type="button">
+                          <button
+                            className="ghost-button"
+                            disabled={!hasSelectedStepAutomationCode}
+                            onClick={() => {
+                              setActiveTab("overview");
+                              setExecutionStepViewMode("automation");
+                            }}
+                            type="button"
+                          >
                             <AutomationCodeIcon />
-                            <span>Automation code</span>
+                            <span>Coded steps</span>
                           </button>
                           {isExecutionLiveViewEligible ? (
                             <a
@@ -4654,50 +4668,46 @@ export function ExecutionsPage() {
                           />
                         </div>
 
-                        {selectedSteps.some((step) => resolveStepAutomationCode(step).trim() || stepAutomationDetails[step.id]?.code) ? (
-                          <div className="execution-step-card-block execution-console-code-pane">
-                            <div className="execution-step-card-block-head">
-                              <span>Automation code pane</span>
-                              <span>{selectedSteps.length} manual step{selectedSteps.length === 1 ? "" : "s"} mapped to runtime code</span>
-                            </div>
-                            <div className="execution-console-code-list">
-                              {selectedSteps.map((step) => {
-                                const detail = stepAutomationDetails[step.id] || null;
-                                const code = detail?.code || resolveStepAutomationCode(step);
-                                if (!code.trim()) {
-                                  return null;
-                                }
-
-                                return (
-                                  <div className="execution-console-code-item" key={step.id}>
-                                    <div className="execution-console-code-item-head">
-                                      <strong>Step {step.step_order}</strong>
-                                      <StatusBadge value={detail?.status || stepStatuses[step.id] || "queued"} />
-                                    </div>
-                                    <pre className="execution-automation-code-block">
-                                      {code.split(/\r?\n/).map((line, index) => {
-                                        const lineNumber = index + 1;
-                                        const isHotLine = lineNumber === detail?.error_line || lineNumber === detail?.active_line;
-                                        return (
-                                          <span className={isHotLine ? "is-hot-line" : ""} key={`${step.id}:${lineNumber}`}>
-                                            <strong>{lineNumber}</strong>
-                                            <code>{line || " "}</code>
-                                          </span>
-                                        );
-                                      })}
-                                    </pre>
-                                    {detail?.error_message ? <div className="inline-message error-message"><span>{detail.error_message}</span></div> : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
-
                         {!selectedSteps.length ? <div className="empty-state compact">No snapshot steps are available for this case.</div> : null}
 
                         {selectedSteps.length ? (
-                          <div className="execution-steps-toolbar">
+                          <div className="execution-step-view-shell">
+                            <div className="execution-step-view-header">
+                              <div>
+                                <strong>Case steps</strong>
+                                <span>
+                                  Switch between manual execution controls and the coded runtime view with logs, status, and line-level failures.
+                                </span>
+                              </div>
+                              <div className="execution-step-view-toggle" role="tablist" aria-label="Step view">
+                                <button
+                                  aria-selected={executionStepViewMode === "manual"}
+                                  className={executionStepViewMode === "manual" ? "is-active" : ""}
+                                  onClick={() => setExecutionStepViewMode("manual")}
+                                  role="tab"
+                                  type="button"
+                                >
+                                  <ExecutionStepsIcon />
+                                  <span>Manual steps</span>
+                                </button>
+                                <button
+                                  aria-selected={executionStepViewMode === "automation"}
+                                  className={executionStepViewMode === "automation" ? "is-active" : ""}
+                                  disabled={!hasSelectedStepAutomationCode}
+                                  onClick={() => setExecutionStepViewMode("automation")}
+                                  role="tab"
+                                  title={hasSelectedStepAutomationCode ? "View coded steps and runtime logs" : "No automation code is available for this case yet"}
+                                  type="button"
+                                >
+                                  <AutomationCodeIcon />
+                                  <span>Coded steps</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {executionStepViewMode === "manual" ? (
+                              <>
+                                <div className="execution-steps-toolbar">
                             <div className="execution-steps-bulk-buttons">
                               <label className="execution-select-all">
                                 <input
@@ -4773,10 +4783,9 @@ export function ExecutionsPage() {
                               ) : null}
                             </div>
                           </div>
-                        ) : null}
 
-                        <div className="execution-step-card-list" role="list" aria-label="Test steps for this case">
-                          {executionStepBlocks.map((block) => {
+                                <div className="execution-step-card-list" role="list" aria-label="Test steps for this case">
+                                  {executionStepBlocks.map((block) => {
                             if (block.groupId) {
                               const isExpanded = expandedExecutionStepGroupIds.includes(block.groupId);
 
@@ -4894,8 +4903,41 @@ export function ExecutionsPage() {
                                 />
                               );
                             });
-                          })}
-                        </div>
+                                  })}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="execution-console-code-list execution-console-code-list--embedded" role="list" aria-label="Coded steps for this case">
+                                {selectedSteps.map((step) => {
+                                  const detail = stepAutomationDetails[step.id] || null;
+                                  const code = detail?.code
+                                    || step.automation_code
+                                    || (step.step_type === "api" && step.api_request ? resolveStepAutomationCode(step) : "");
+
+                                  if (!code.trim()) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <ExecutionAutomationStepCard
+                                      apiDetail={stepApiDetails[step.id] || null}
+                                      automationDetail={detail}
+                                      code={code}
+                                      key={step.id}
+                                      note={stepNotes[step.id] || ""}
+                                      status={detail?.status || stepStatuses[step.id] || "queued"}
+                                      step={step}
+                                      webDetail={stepWebDetails[step.id] || null}
+                                    />
+                                  );
+                                })}
+                                {!hasSelectedStepAutomationCode ? (
+                                  <div className="empty-state compact">No automation code is available for this case yet.</div>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
 
                         {!isExecutionStarted && !isExecutionLocked ? <div className="empty-state compact">Start the execution to enable step actions.</div> : null}
                         {isExecutionLocked ? <div className="empty-state compact">This execution is locked because it is {executionStatusLabel(currentExecutionStatus).toLowerCase()}.</div> : null}
@@ -7096,6 +7138,109 @@ function ExecutionStepCard({
             )}
             {isRunningApi ? <span className="execution-step-card-footer-note">Step execution in progress…</span> : null}
           </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ExecutionAutomationStepCard({
+  step,
+  status,
+  code,
+  automationDetail,
+  webDetail,
+  apiDetail,
+  note
+}: {
+  step: TestStep;
+  status: ExecutionStepAutomationDetail["status"] | ExecutionStepStatus | "queued";
+  code: string;
+  automationDetail: ExecutionStepAutomationDetail | null;
+  webDetail: ExecutionStepWebDetail | null;
+  apiDetail: ExecutionStepApiDetail | null;
+  note: string;
+}) {
+  const consoleCount = webDetail?.console?.length || 0;
+  const networkCount = webDetail?.network?.length || 0;
+  const captureCount = Object.keys(webDetail?.captures || apiDetail?.captures || {}).length;
+  const activeLine = automationDetail?.error_line || automationDetail?.active_line || null;
+  const latestConsole = webDetail?.console?.slice(-1)[0]?.text || "";
+  const latestNetwork = webDetail?.network?.slice(-1)[0];
+  const httpStatus = apiDetail?.response?.status;
+
+  return (
+    <article className="execution-console-code-item execution-console-code-card" role="listitem">
+      <div className="execution-console-code-item-head">
+        <div className="execution-console-code-title">
+          <strong>Step {step.step_order}</strong>
+          <span>{step.action || "No action captured"}</span>
+        </div>
+        <StatusBadge value={status || "queued"} />
+      </div>
+
+      <div className="execution-console-code-runtime" aria-label={`Runtime details for step ${step.step_order}`}>
+        <span>
+          <strong>Engine</strong>
+          <span>{automationDetail?.engine || webDetail?.provider || step.step_type || "step"}</span>
+        </span>
+        {webDetail?.duration_ms !== undefined ? (
+          <span>
+            <strong>Duration</strong>
+            <span>{formatDuration(webDetail.duration_ms, DEFAULT_DURATION_LABEL)}</span>
+          </span>
+        ) : null}
+        {httpStatus ? (
+          <span>
+            <strong>HTTP</strong>
+            <span>{httpStatus}</span>
+          </span>
+        ) : null}
+        {consoleCount ? (
+          <span>
+            <strong>Console</strong>
+            <span>{consoleCount}</span>
+          </span>
+        ) : null}
+        {networkCount ? (
+          <span>
+            <strong>Network</strong>
+            <span>{networkCount}</span>
+          </span>
+        ) : null}
+        {captureCount ? (
+          <span>
+            <strong>Captures</strong>
+            <span>{captureCount}</span>
+          </span>
+        ) : null}
+      </div>
+
+      <pre className="execution-automation-code-block">
+        {code.split(/\r?\n/).map((line, index) => {
+          const lineNumber = index + 1;
+          const isHotLine = lineNumber === activeLine;
+          return (
+            <span className={isHotLine ? "is-hot-line" : ""} key={`${step.id}:${lineNumber}`}>
+              <strong>{lineNumber}</strong>
+              <code>{line || " "}</code>
+            </span>
+          );
+        })}
+      </pre>
+
+      {automationDetail?.error_message ? (
+        <div className="inline-message error-message">
+          <span>{automationDetail.error_message}</span>
+        </div>
+      ) : null}
+
+      {latestConsole || latestNetwork || webDetail?.url || note ? (
+        <div className="execution-console-code-trace">
+          {webDetail?.url ? <span><strong>URL</strong>{webDetail.url}</span> : null}
+          {latestConsole ? <span><strong>Console</strong>{latestConsole}</span> : null}
+          {latestNetwork ? <span><strong>Network</strong>{latestNetwork.method || "GET"} {latestNetwork.status || "pending"} · {latestNetwork.url}</span> : null}
+          {note ? <span><strong>Manual note</strong>{note}</span> : null}
         </div>
       ) : null}
     </article>

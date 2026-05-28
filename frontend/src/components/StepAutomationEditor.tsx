@@ -60,9 +60,22 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "aiStep", label: "AI Step", locatorLabel: "Optional target", dataLabel: "Instruction", dataRequired: true },
   { id: "codedJS", label: "CodedJS", locatorLabel: "Optional target", dataLabel: "Edit generated code below" },
   { id: "goto", label: "Open URL", locatorLabel: "URL or path", dataLabel: "Optional note", locatorRequired: true },
+  { id: "openTab", label: "Open tab", locatorLabel: "URL or path", dataLabel: "Optional note" },
+  { id: "switchTab", label: "Switch tab", locatorLabel: "Index, title, URL, or latest", dataLabel: "Optional note" },
+  { id: "closeTab", label: "Close tab", locatorLabel: "Index, title, URL, latest, or current", dataLabel: "Optional note" },
+  { id: "reload", label: "Reload page", locatorLabel: "Optional note", dataLabel: "Wait until" },
+  { id: "goBack", label: "Go back", locatorLabel: "Optional note", dataLabel: "Wait until" },
+  { id: "goForward", label: "Go forward", locatorLabel: "Optional note", dataLabel: "Wait until" },
+  { id: "waitForLoadState", label: "Wait load state", locatorLabel: "Optional note", dataLabel: "load, domcontentloaded, or networkidle" },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "hover", label: "Hover", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "dblclick", label: "Double click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "rightClick", label: "Right click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "fill", label: "Fill", locatorLabel: "Locator", dataLabel: "Text or token", locatorRequired: true, dataRequired: true },
   { id: "clear", label: "Clear", locatorLabel: "Input locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "select", label: "Select option", locatorLabel: "Select locator", dataLabel: "Option value", locatorRequired: true, dataRequired: true },
+  { id: "check", label: "Check", locatorLabel: "Checkbox locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "uncheck", label: "Uncheck", locatorLabel: "Checkbox locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "press", label: "Press Key", locatorLabel: "Locator optional", dataLabel: "Key", dataRequired: true },
   { id: "scroll", label: "Scroll", locatorLabel: "Direction", dataLabel: "Pixels", dataRequired: true },
   { id: "wait", label: "Wait", locatorLabel: "Optional note", dataLabel: "Milliseconds", dataRequired: true },
@@ -112,18 +125,45 @@ const WEB_TYPE_DEFAULTS = {
 function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string) {
   const target = locator.trim();
   const value = data.trim();
+  const loadState = /^(load|domcontentloaded|networkidle)$/i.test(value) ? value.toLowerCase() : "domcontentloaded";
 
   switch (option.id) {
     case "aiStep":
       return `await web.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ target: target || undefined })});`;
     case "goto":
       return `await web.goto(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
+    case "openTab":
+      return `await web.openTab(${target ? quoteCodeString(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
+    case "switchTab":
+      return `await web.switchTab(${quoteCodeString(target || "latest")});`;
+    case "closeTab":
+      return target ? `await web.closeTab(${quoteCodeString(target)});` : "await web.closeTab();";
+    case "reload":
+      return `await web.reload(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+    case "goBack":
+      return `await web.goBack(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+    case "goForward":
+      return `await web.goForward(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+    case "waitForLoadState":
+      return `await web.waitForLoadState(${quoteCodeString(loadState)}, ${formatOptionsObject({ timeoutMs: 30000 })});`;
     case "click":
       return `await web.click(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "hover":
+      return `await web.hover(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "dblclick":
+      return `await web.dblclick(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "rightClick":
+      return `await web.rightClick(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
     case "fill":
       return `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_TYPE_DEFAULTS)});`;
     case "clear":
-      return `await web.fill(${quoteCodeString(target)}, "", ${formatOptionsObject({ ...WEB_TYPE_DEFAULTS, clear: true })});`;
+      return `await web.clear(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "select":
+      return `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "check":
+      return `await web.check(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+    case "uncheck":
+      return `await web.uncheck(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
     case "press":
       return target
         ? `await web.press(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`
@@ -1693,11 +1733,21 @@ export function StepAutomationDialog({
   const selectedAndroidKeyword = ANDROID_KEYWORD_OPTIONS.find((option) => option.id === androidKeywordId) || ANDROID_KEYWORD_OPTIONS[0];
   const repositoryFieldOptions = useMemo(
     () => objectRepository
-      .filter((entry) => entry.locator)
+      .filter((entry) => {
+        const metadata = entry.metadata || {};
+        return Boolean(entry.locator)
+          && entry.locator !== "__screen__"
+          && entry.locator_intent !== "__screen__"
+          && metadata.record_kind !== "screen"
+          && metadata.object_name !== "__screen__";
+      })
       .map((entry) => {
         const metadata = entry.metadata || {};
         const screenName = String(metadata.screen_name || entry.page_key || "Screen").trim();
-        const objectName = String(metadata.object_name || entry.locator_intent || entry.locator || "Field").trim();
+        const rawObjectName = String(metadata.object_name || entry.locator_intent || entry.locator || "Field").trim();
+        const objectName = rawObjectName.startsWith(`${screenName}.`)
+          ? rawObjectName.slice(screenName.length + 1).trim() || rawObjectName
+          : rawObjectName;
         const htmlTag = String(metadata.object_role || entry.locator_kind || "locator").trim();
         const reference = `${screenName}.${objectName}`;
 

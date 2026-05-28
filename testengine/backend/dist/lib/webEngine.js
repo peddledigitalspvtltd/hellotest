@@ -45,6 +45,12 @@ const normalizeElementOptions = (options, fallbackTimeout = 10_000) => ({
     force: options?.force === true,
     trial: options?.trial === true
 });
+const normalizeLoadState = (value) => {
+    if (value === "networkidle" || value === "load" || value === "domcontentloaded" || value === "commit") {
+        return value;
+    }
+    return "domcontentloaded";
+};
 const resolveScrollDelta = (deltaX, deltaY, options) => {
     const amount = Math.max(1, Math.abs(Number(options?.amount || 0)) || Math.max(Math.abs(Number(deltaY || 0)), Math.abs(Number(deltaX || 0)), 600));
     if (options?.direction === "up") {
@@ -424,6 +430,7 @@ class PlaywrightWebSession {
     browser = null;
     browserContext = null;
     browserPage = null;
+    observedPages = new WeakSet();
     ownsBrowser = true;
     ownsContext = true;
     consoleEntries = [];
@@ -439,6 +446,51 @@ class PlaywrightWebSession {
             throw new Error("Playwright page has not been initialized");
         }
         return this.browserPage;
+    }
+    get contextOrThrow() {
+        if (!this.browserContext) {
+            throw new Error("Playwright browser context has not been initialized");
+        }
+        return this.browserContext;
+    }
+    usePage(page) {
+        this.browserPage = page;
+        this.registerPageTelemetry(page);
+    }
+    registerPageTelemetry(page) {
+        if (this.observedPages.has(page)) {
+            return;
+        }
+        this.observedPages.add(page);
+        page.on("console", (message) => {
+            const location = message.location();
+            this.consoleEntries.push({
+                type: message.type(),
+                text: message.text(),
+                timestamp: new Date().toISOString(),
+                location: location.url ? `${location.url}:${location.lineNumber}:${location.columnNumber}` : null
+            });
+        });
+        page.on("response", (response) => {
+            const request = response.request();
+            this.networkEntries.push({
+                method: request.method(),
+                url: response.url(),
+                status: response.status(),
+                resource_type: request.resourceType(),
+                timestamp: new Date().toISOString()
+            });
+        });
+        page.on("requestfailed", (request) => {
+            this.networkEntries.push({
+                method: request.method(),
+                url: request.url(),
+                status: null,
+                resource_type: request.resourceType(),
+                error: request.failure()?.errorText || "request failed",
+                timestamp: new Date().toISOString()
+            });
+        });
     }
     async start() {
         if (this.browserPage) {
@@ -498,35 +550,9 @@ class PlaywrightWebSession {
                 }
             }
         });
-        this.browserPage.on("console", (message) => {
-            const location = message.location();
-            this.consoleEntries.push({
-                type: message.type(),
-                text: message.text(),
-                timestamp: new Date().toISOString(),
-                location: location.url ? `${location.url}:${location.lineNumber}:${location.columnNumber}` : null
-            });
-        });
-        this.browserPage.on("response", (response) => {
-            const request = response.request();
-            this.networkEntries.push({
-                method: request.method(),
-                url: response.url(),
-                status: response.status(),
-                resource_type: request.resourceType(),
-                timestamp: new Date().toISOString()
-            });
-        });
-        this.browserPage.on("requestfailed", (request) => {
-            this.networkEntries.push({
-                method: request.method(),
-                url: request.url(),
-                status: null,
-                resource_type: request.resourceType(),
-                error: request.failure()?.errorText || "request failed",
-                timestamp: new Date().toISOString()
-            });
-        });
+        if (this.browserPage) {
+            this.usePage(this.browserPage);
+        }
     }
     async stop(finalStatus) {
         const video = this.browserPage?.video() || null;
@@ -621,9 +647,153 @@ class PlaywrightWebSession {
             timeout: clampTimeout(options?.timeoutMs, Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), this.timeouts.navigation))
         });
     }
+    async reload(options) {
+        await this.pageOrThrow.reload({
+            waitUntil: normalizeLoadState(options?.waitUntil),
+            timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+        });
+    }
+    async goBack(options) {
+        await this.pageOrThrow.goBack({
+            waitUntil: normalizeLoadState(options?.waitUntil),
+            timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+        });
+    }
+    async goForward(options) {
+        await this.pageOrThrow.goForward({
+            waitUntil: normalizeLoadState(options?.waitUntil),
+            timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
+        });
+    }
+    async waitForLoadState(state, options) {
+        const loadState = normalizeLoadState(state);
+        if (loadState === "commit") {
+            await this.pageOrThrow.waitForLoadState("domcontentloaded", { timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
+            return;
+        }
+        await this.pageOrThrow.waitForLoadState(loadState, { timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
+    }
+    async resolvePageTarget(target) {
+        const pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+        if (!pages.length) {
+            throw new Error("No browser tabs are available");
+        }
+        if (target === undefined || target === null) {
+            return this.pageOrThrow;
+        }
+        if (typeof target === "number") {
+            const page = pages[target];
+            if (!page) {
+                throw new Error(`No browser tab exists at index ${target}`);
+            }
+            return page;
+        }
+        if (typeof target === "object") {
+            if (target.current) {
+                return this.pageOrThrow;
+            }
+            if (target.latest) {
+                return pages[pages.length - 1];
+            }
+            if (typeof target.index === "number") {
+                const page = pages[target.index];
+                if (!page) {
+                    throw new Error(`No browser tab exists at index ${target.index}`);
+                }
+                return page;
+            }
+            if (target.url) {
+                const page = pages.find((candidate) => candidate.url().includes(target.url || ""));
+                if (page) {
+                    return page;
+                }
+            }
+            if (target.title) {
+                for (const page of pages) {
+                    const title = await page.title().catch(() => "");
+                    if (title.includes(target.title || "")) {
+                        return page;
+                    }
+                }
+            }
+        }
+        const raw = stripWrappingQuotes(String(target)).trim();
+        const normalized = raw.toLowerCase();
+        if (!raw || normalized === "current" || normalized === "active") {
+            return this.pageOrThrow;
+        }
+        if (normalized === "latest" || normalized === "last") {
+            return pages[pages.length - 1];
+        }
+        if (normalized === "first") {
+            return pages[0];
+        }
+        if (/^\d+$/.test(raw)) {
+            const page = pages[Number.parseInt(raw, 10)];
+            if (page) {
+                return page;
+            }
+        }
+        for (const page of pages) {
+            const title = await page.title().catch(() => "");
+            if (page.url().includes(raw) || title.includes(raw)) {
+                return page;
+            }
+        }
+        throw new Error(`Unable to find browser tab "${raw}"`);
+    }
+    async openTab(target, options) {
+        const page = await this.contextOrThrow.newPage();
+        this.usePage(page);
+        await page.bringToFront().catch(() => undefined);
+        const normalizedTarget = normalizeText(target || null);
+        if (normalizedTarget) {
+            await this.goto(normalizedTarget, options);
+        }
+    }
+    async closeTab(target) {
+        const context = this.contextOrThrow;
+        const page = await this.resolvePageTarget(target);
+        const wasActive = page === this.browserPage;
+        await page.close({ runBeforeUnload: true }).catch(() => undefined);
+        if (wasActive) {
+            const remainingPages = context.pages().filter((candidate) => !candidate.isClosed());
+            const nextPage = remainingPages[remainingPages.length - 1] || await context.newPage();
+            this.usePage(nextPage);
+            await nextPage.bringToFront().catch(() => undefined);
+        }
+    }
+    async switchTab(target) {
+        const page = await this.resolvePageTarget(target ?? "latest");
+        this.usePage(page);
+        await page.bringToFront().catch(() => undefined);
+    }
+    async tabs() {
+        const activePage = this.browserPage;
+        const pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+        const tabInfos = [];
+        for (let index = 0; index < pages.length; index += 1) {
+            const page = pages[index];
+            tabInfos.push({
+                index,
+                title: await page.title().catch(() => ""),
+                url: page.url(),
+                active: page === activePage
+            });
+        }
+        return tabInfos;
+    }
     async click(target, options) {
         const prepared = await this.prepareLocator(target, options);
         await prepared.locator.click({
+            force: prepared.options.force,
+            trial: prepared.options.trial,
+            timeout: prepared.options.timeoutMs
+        });
+    }
+    async hover(target, options) {
+        const prepared = await this.prepareLocator(target, options);
+        await prepared.locator.hover({
             force: prepared.options.force,
             trial: prepared.options.trial,
             timeout: prepared.options.timeoutMs
@@ -772,15 +942,15 @@ class PlaywrightWebSession {
     bindings() {
         const pageFacade = {
             goto: (url) => this.goto(url),
+            reload: () => this.reload(),
+            goBack: () => this.goBack(),
+            goForward: () => this.goForward(),
             click: (target) => this.click(target),
             fill: (target, value) => this.fill(target, value),
             press: (target, key) => this.press(target, key),
             waitForTimeout: (ms) => this.waitForTimeout(ms),
             waitForURL: (expected) => this.waitForUrl(expected),
-            waitForLoadState: async (state) => {
-                const supportedState = state === "networkidle" || state === "load" || state === "domcontentloaded" ? state : "load";
-                await this.pageOrThrow.waitForLoadState(supportedState, { timeout: this.timeouts.assertion });
-            },
+            waitForLoadState: async (state) => this.waitForLoadState(normalizeLoadState(state), { timeoutMs: this.timeouts.assertion }),
             waitForSelector: async (target, options) => {
                 const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value), target);
                 await locator.waitFor(options);
@@ -949,9 +1119,136 @@ class SeleniumWebSession {
             timestamp: new Date().toISOString()
         });
     }
+    async reload(_options) {
+        await this.driverOrThrow.navigate().refresh();
+        await this.waitForLoadState();
+    }
+    async goBack(_options) {
+        await this.driverOrThrow.navigate().back();
+        await this.waitForLoadState();
+    }
+    async goForward(_options) {
+        await this.driverOrThrow.navigate().forward();
+        await this.waitForLoadState();
+    }
+    async waitForLoadState(_state, options) {
+        await this.driverOrThrow.wait(async () => {
+            const readyState = await this.driverOrThrow.executeScript("return document.readyState;");
+            return readyState === "interactive" || readyState === "complete";
+        }, clampTimeout(options?.timeoutMs, this.timeouts.assertion));
+    }
+    async resolveWindowTarget(target) {
+        const driver = this.driverOrThrow;
+        const handles = await driver.getAllWindowHandles();
+        if (!handles.length) {
+            throw new Error("No browser tabs are available");
+        }
+        if (target === undefined || target === null) {
+            return driver.getWindowHandle();
+        }
+        if (typeof target === "number") {
+            const handle = handles[target];
+            if (!handle) {
+                throw new Error(`No browser tab exists at index ${target}`);
+            }
+            return handle;
+        }
+        if (typeof target === "object") {
+            if (target.current) {
+                return driver.getWindowHandle();
+            }
+            if (target.latest) {
+                return handles[handles.length - 1];
+            }
+            if (typeof target.index === "number") {
+                const handle = handles[target.index];
+                if (!handle) {
+                    throw new Error(`No browser tab exists at index ${target.index}`);
+                }
+                return handle;
+            }
+        }
+        const raw = stripWrappingQuotes(String(target)).trim();
+        const normalized = raw.toLowerCase();
+        if (!raw || normalized === "current" || normalized === "active") {
+            return driver.getWindowHandle();
+        }
+        if (normalized === "latest" || normalized === "last") {
+            return handles[handles.length - 1];
+        }
+        if (normalized === "first") {
+            return handles[0];
+        }
+        if (/^\d+$/.test(raw)) {
+            const handle = handles[Number.parseInt(raw, 10)];
+            if (handle) {
+                return handle;
+            }
+        }
+        const current = await driver.getWindowHandle().catch(() => "");
+        for (const handle of handles) {
+            await driver.switchTo().window(handle);
+            const [title, url] = await Promise.all([
+                driver.getTitle().catch(() => ""),
+                driver.getCurrentUrl().catch(() => "")
+            ]);
+            if (url.includes(raw) || title.includes(raw)) {
+                return handle;
+            }
+        }
+        if (current) {
+            await driver.switchTo().window(current).catch(() => undefined);
+        }
+        throw new Error(`Unable to find browser tab "${raw}"`);
+    }
+    async openTab(target, options) {
+        await this.driverOrThrow.switchTo().newWindow("tab");
+        const normalizedTarget = normalizeText(target || null);
+        if (normalizedTarget) {
+            await this.goto(normalizedTarget, options);
+        }
+    }
+    async closeTab(target) {
+        const driver = this.driverOrThrow;
+        const handle = await this.resolveWindowTarget(target);
+        await driver.switchTo().window(handle);
+        await driver.close();
+        const remainingHandles = await driver.getAllWindowHandles();
+        if (remainingHandles.length) {
+            await driver.switchTo().window(remainingHandles[remainingHandles.length - 1]);
+        }
+    }
+    async switchTab(target) {
+        const handle = await this.resolveWindowTarget(target ?? "latest");
+        await this.driverOrThrow.switchTo().window(handle);
+    }
+    async tabs() {
+        const driver = this.driverOrThrow;
+        const handles = await driver.getAllWindowHandles();
+        const activeHandle = await driver.getWindowHandle().catch(() => "");
+        const tabInfos = [];
+        for (let index = 0; index < handles.length; index += 1) {
+            const handle = handles[index];
+            await driver.switchTo().window(handle);
+            tabInfos.push({
+                index,
+                title: await driver.getTitle().catch(() => ""),
+                url: await driver.getCurrentUrl().catch(() => ""),
+                active: handle === activeHandle
+            });
+        }
+        if (activeHandle) {
+            await driver.switchTo().window(activeHandle).catch(() => undefined);
+        }
+        return tabInfos;
+    }
     async click(target, _options) {
         const element = await this.resolveElement(target);
         await element.click();
+    }
+    async hover(target, _options) {
+        const element = await this.resolveElement(target);
+        await this.driverOrThrow.actions().move({ origin: element }).perform();
     }
     async dblclick(target, _options) {
         const element = await this.resolveElement(target);
@@ -1090,14 +1387,15 @@ class SeleniumWebSession {
     bindings() {
         const pageFacade = {
             goto: (url) => this.goto(url),
+            reload: () => this.reload(),
+            goBack: () => this.goBack(),
+            goForward: () => this.goForward(),
             click: (target) => this.click(target),
             fill: (target, value) => this.fill(target, value),
             press: (target, key) => this.press(target, key),
             waitForTimeout: (ms) => this.waitForTimeout(ms),
             waitForURL: (expected) => this.waitForUrl(expected),
-            waitForLoadState: async () => {
-                await this.waitForTimeout(250);
-            },
+            waitForLoadState: async (state) => this.waitForLoadState(normalizeLoadState(state)),
             waitForSelector: async (target) => {
                 const locator = createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
                 await locator.waitFor();
@@ -1185,8 +1483,28 @@ const buildBindings = (session, context, captures, envelope) => {
     const expect = buildExpectApi();
     const providerBindings = session.bindings();
     const resolveTarget = (target) => interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
+    const resolveTabTarget = (target, asNavigationTarget = false) => {
+        if (target === undefined || target === null) {
+            return undefined;
+        }
+        if (typeof target === "string") {
+            const interpolated = interpolateText(target, context);
+            return asNavigationTarget ? resolveNavigationTarget(interpolated, envelope) : interpolated;
+        }
+        if (typeof target === "number") {
+            return target;
+        }
+        return {
+            ...target,
+            title: target.title ? interpolateText(target.title, context) : undefined,
+            url: target.url ? interpolateText(target.url, context) : undefined
+        };
+    };
     const page = {
         goto: async (target) => providerBindings.page.goto(resolveNavigationTarget(interpolateText(target, context), envelope)),
+        reload: () => providerBindings.page.reload(),
+        goBack: () => providerBindings.page.goBack(),
+        goForward: () => providerBindings.page.goForward(),
         click: async (target) => providerBindings.page.click(resolveTarget(target)),
         fill: async (target, value) => providerBindings.page.fill(resolveTarget(target), interpolateText(value, context)),
         press: async (target, key) => {
@@ -1222,10 +1540,20 @@ const buildBindings = (session, context, captures, envelope) => {
             return resolvedInstruction;
         },
         goto: async (target, options) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
+        reload: async (options) => session.reload(options),
+        goBack: async (options) => session.goBack(options),
+        goForward: async (options) => session.goForward(options),
+        waitForLoadState: async (state, options) => session.waitForLoadState(state, options),
+        openTab: async (target, options) => session.openTab(resolveTabTarget(target, true), options),
+        switchTab: async (target) => session.switchTab(resolveTabTarget(target)),
+        closeTab: async (target) => session.closeTab(resolveTabTarget(target)),
+        tabs: async () => session.tabs(),
         click: async (target, options) => session.click(resolveTarget(target), options),
+        hover: async (target, options) => session.hover(resolveTarget(target), options),
         dblclick: async (target, options) => session.dblclick(resolveTarget(target), options),
         rightClick: async (target, options) => session.rightClick(resolveTarget(target), options),
         fill: async (target, value, options) => session.fill(resolveTarget(target), interpolateText(value, context), options),
+        clear: async (target, options) => session.fill(resolveTarget(target), "", { ...(options || {}), clear: true }),
         select: async (target, value, options) => session.select(resolveTarget(target), interpolateText(value, context), options),
         check: async (target, options) => session.check(resolveTarget(target), options),
         uncheck: async (target, options) => session.uncheck(resolveTarget(target), options),
@@ -1261,7 +1589,7 @@ const buildBindings = (session, context, captures, envelope) => {
 };
 const stripTrailingTestWrapper = (source) => {
     const trimmed = source.trim();
-    const testCall = trimmed.match(/(?:^|\n)\s*(?:test|it)\s*\(\s*["'`][\s\S]*?["'`]\s*,\s*async\s*\(\s*\{?\s*page\s*\}?\s*\)\s*=>\s*\{/);
+    const testCall = trimmed.match(/(?:^|\n)\s*(?:test|it)\s*\(\s*["'`][\s\S]*?["'`]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{/);
     if (!testCall || testCall.index === undefined) {
         return source;
     }
@@ -1281,24 +1609,93 @@ const stripTrailingTestWrapper = (source) => {
     }
     return source;
 };
+const stripMarkdownFence = (source) => {
+    const trimmed = source.trim();
+    const fenceMatch = trimmed.match(/^```(?:[A-Za-z0-9_-]+)?\s*([\s\S]*?)\s*```$/);
+    return fenceMatch ? fenceMatch[1].trim() : source;
+};
 const normalizeAutomationSource = (source) => {
-    const withoutImports = source
+    const withoutFences = stripMarkdownFence(source);
+    const withoutImports = withoutFences
         .split(/\r?\n/)
         .filter((line) => {
         const trimmed = line.trim();
         return !/^import\s+/.test(trimmed)
             && !/^const\s+\{?\s*(test|expect)\b.*require\(/.test(trimmed)
+            && !/^const\s+.*require\(["']@playwright\/test["']\)/.test(trimmed)
             && !/^test\.describe\s*\(/.test(trimmed)
-            && trimmed !== "});";
+            && !/^test\.(?:use|beforeEach|afterEach|beforeAll|afterAll)\s*\(/.test(trimmed);
     })
         .join("\n");
     return stripTrailingTestWrapper(withoutImports);
 };
+const toAutomationFunctionExpression = (source) => {
+    let trimmed = source.trim().replace(/;+\s*$/, "");
+    trimmed = trimmed
+        .replace(/^export\s+default\s+/, "")
+        .replace(/^module\.exports\s*=\s*/, "")
+        .replace(/^exports\.default\s*=\s*/, "");
+    if (/^async\s+[A-Za-z_$][\w$]*\s*\(/.test(trimmed) && !/^async\s+function\b/.test(trimmed) && !/=>/.test(trimmed)) {
+        trimmed = `async function ${trimmed.slice("async ".length)}`;
+    }
+    const usesAwait = /\bawait\b/.test(trimmed);
+    if (usesAwait && /^function\b/.test(trimmed)) {
+        trimmed = `async ${trimmed}`;
+    }
+    else if (usesAwait && /^\([^)]*\)\s*=>/.test(trimmed)) {
+        trimmed = `async ${trimmed}`;
+    }
+    else if (usesAwait && /^[A-Za-z_$][\w$]*\s*=>/.test(trimmed)) {
+        trimmed = `async ${trimmed}`;
+    }
+    return trimmed;
+};
+const looksLikeAutomationFunction = (source) => {
+    const trimmed = toAutomationFunctionExpression(source);
+    return /^(?:async\s+)?function\b/.test(trimmed)
+        || /^(?:async\s*)?\([^)]*\)\s*=>/.test(trimmed)
+        || /^async\s+[A-Za-z_$][\w$]*\s*=>/.test(trimmed)
+        || /^[A-Za-z_$][\w$]*\s*=>/.test(trimmed);
+};
+const buildAutomationInvocationSource = (source) => {
+    const expression = toAutomationFunctionExpression(source);
+    return [
+        `const automation = (${expression});`,
+        `if (typeof automation !== "function") { throw new Error("Automation wrapper did not evaluate to a function."); }`,
+        `const qairaBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings };`,
+        `return await (automation.length > 1`,
+        `  ? automation(page, web, expect, params, capture, playwrightPage, driver, bindings)`,
+        `  : automation(qairaBindings));`
+    ].join("\n");
+};
+const compileAutomationFunction = (source, forceInvocation = false) => {
+    const shouldInvoke = forceInvocation || looksLikeAutomationFunction(source);
+    const body = shouldInvoke ? buildAutomationInvocationSource(source) : `${source}\nreturn undefined;`;
+    return new AsyncFunction("page", "web", "expect", "params", "capture", "playwrightPage", "driver", "bindings", body);
+};
 const executeAutomationCode = async (source, bindings) => {
     const executableSource = normalizeAutomationSource(source);
-    const fn = new AsyncFunction("page", "web", "expect", "params", "capture", "playwrightPage", "driver", `${executableSource}\nreturn undefined;`);
+    let fn;
     try {
-        return await fn(bindings.page, bindings.web, bindings.expect, bindings.params, bindings.capture, bindings.playwrightPage, bindings.driver);
+        fn = compileAutomationFunction(executableSource);
+    }
+    catch (error) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
+        }
+        fn = compileAutomationFunction(executableSource, true);
+    }
+    try {
+        const qairaBindings = {
+            page: bindings.page,
+            web: bindings.web,
+            expect: bindings.expect,
+            params: bindings.params,
+            capture: bindings.capture,
+            playwrightPage: bindings.playwrightPage,
+            driver: bindings.driver
+        };
+        return await fn(bindings.page, bindings.web, bindings.expect, bindings.params, bindings.capture, bindings.playwrightPage, bindings.driver, qairaBindings);
     }
     catch (error) {
         const stack = error instanceof Error ? error.stack || "" : "";
