@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
 import { ToastMessage } from "../components/ToastMessage";
 import { api } from "../lib/api";
+import { getPostAuthRoute } from "../lib/routeHistory";
 import type { AuthSetupPayload } from "../types";
 
 declare global {
@@ -246,8 +247,8 @@ function getCurrentCopy(
       description: emailReady
         ? `Create an account for secure access to the workspace. We'll send a 6-digit verification code from ${senderEmail} before the account goes live.`
         : "Create an account for secure access to the workspace. An admin needs to finish the Email Sender integration before signup can be completed.",
-      submitLabel: "Send verification code",
-      loadingLabel: "Sending code…"
+      submitLabel: "Sign Up",
+      loadingLabel: "Starting signup…"
     };
   }
 
@@ -292,7 +293,7 @@ function getCurrentCopy(
   };
 }
 
-export function AuthPage() {
+export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<FormMode, "login" | "signup"> }) {
   const navigate = useNavigate();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
@@ -304,7 +305,7 @@ export function AuthPage() {
     requestPasswordResetCode,
     verifyPasswordResetCode
   } = useAuth();
-  const [mode, setMode] = useState<FormMode>("login");
+  const [mode, setMode] = useState<FormMode>(initialMode);
   const [formValues, setFormValues] = useState<FormValues>(INITIAL_FORM_VALUES);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
@@ -406,7 +407,7 @@ export function AuthPage() {
 
               try {
                 await loginWithGoogle({ idToken: credential });
-                navigate("/", { replace: true });
+                navigate(getPostAuthRoute(), { replace: true });
               } catch (nextError) {
                 setError(
                   nextError instanceof Error
@@ -581,7 +582,7 @@ export function AuthPage() {
           email: normalizedValues.email,
           password: normalizedValues.password
         });
-        navigate("/", { replace: true });
+        navigate(getPostAuthRoute(), { replace: true });
       } else if (mode === "signup") {
         await requestSignupCode({
           email: normalizedValues.email,

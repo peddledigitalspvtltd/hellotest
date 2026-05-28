@@ -2,13 +2,22 @@ import {
   Navigate,
   RouterProvider,
   createBrowserRouter,
-  useLocation
+  useLocation,
+  useNavigate
 } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AppShell } from "./components/AppShell";
 import { LocalizationProvider, useLocalization } from "./context/LocalizationContext";
+import {
+  getRouteFromLocation,
+  isBrowserReload,
+  readCurrentWorkspaceRoute,
+  readPostAuthRoute,
+  rememberAuthRedirectRoute,
+  rememberCurrentWorkspaceRoute
+} from "./lib/routeHistory";
 import { AuthPage } from "./pages/AuthPage";
 import { DesignPage } from "./pages/DesignPage";
 import { ExecutionsPage } from "./pages/ExecutionsPage";
@@ -55,7 +64,8 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/test-data": { key: "page.testData", fallback: "Test Data" },
   "/test-configurations": { key: "page.testConfigurations", fallback: "Test Configurations" },
   "/knowledge-repo": { fallback: "AI Knowledge" },
-  "/auth": { fallback: "Sign In" }
+  "/auth": { fallback: "Sign In" },
+  "/signup": { fallback: "Sign Up" }
 };
 
 function ThemeBootstrap() {
@@ -85,26 +95,57 @@ function PageTitleUpdater() {
   return null;
 }
 
+function RouteContinuityManager() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const checkedInitialRouteRef = useRef(false);
+
+  useEffect(() => {
+    const route = getRouteFromLocation(location);
+    const isRootRoute = location.pathname === "/" && !location.search && !location.hash;
+
+    if (!checkedInitialRouteRef.current) {
+      checkedInitialRouteRef.current = true;
+
+      if (isRootRoute && isBrowserReload()) {
+        const previousRoute = readCurrentWorkspaceRoute();
+
+        if (previousRoute && previousRoute !== "/") {
+          navigate(previousRoute, { replace: true });
+          return;
+        }
+      }
+    }
+
+    rememberCurrentWorkspaceRoute(route);
+  }, [location, navigate]);
+
+  return null;
+}
+
 function ProtectedLayout() {
   const { session, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return <div className="splash-screen">Loading workspace…</div>;
   }
 
   if (!session) {
+    rememberAuthRedirectRoute(getRouteFromLocation(location));
     return <Navigate to="/auth" replace />;
   }
 
   return (
     <>
+      <RouteContinuityManager />
       <PageTitleUpdater />
       <AppShell />
     </>
   );
 }
 
-function AuthRoute() {
+function AuthRoute({ initialMode = "login" }: { initialMode?: "login" | "signup" }) {
   const { session, isLoading } = useAuth();
 
   if (isLoading) {
@@ -112,13 +153,13 @@ function AuthRoute() {
   }
 
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={readPostAuthRoute()} replace />;
   }
 
   return (
     <>
       <PageTitleUpdater />
-      <AuthPage />
+      <AuthPage initialMode={initialMode} />
     </>
   );
 }
@@ -127,6 +168,10 @@ const router = createBrowserRouter([
   {
     path: "/auth",
     element: <AuthRoute />
+  },
+  {
+    path: "/signup",
+    element: <AuthRoute initialMode="signup" />
   },
   {
     path: "/",

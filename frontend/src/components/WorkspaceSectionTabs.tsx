@@ -33,7 +33,7 @@ export function WorkspaceSectionTabs({
         }))}
         onChange={(value) => {
           if (value !== location.pathname) {
-            navigate(value);
+            navigate(value, { replace: true });
           }
         }}
         value={activeItem.to}

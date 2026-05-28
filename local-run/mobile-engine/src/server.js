@@ -147,16 +147,65 @@ function parsePoint(value) {
   return { x, y };
 }
 
+function normalizeRepositoryKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/page\b/g, "")
+    .replace(/[^a-z0-9.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildRepositoryResolver(entries = []) {
+  const normalizedEntries = (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => ({
+      locator: normalizeText(entry.locator),
+      candidates: [
+        entry.locator,
+        entry.locator_intent,
+        entry.object_name,
+        entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+        entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+        entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
+        entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
+        ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
+      ].map(normalizeRepositoryKey).filter(Boolean)
+    }))
+    .filter((entry) => entry.locator);
+
+  return (selector) => {
+    const raw = String(selector || "");
+    const key = normalizeRepositoryKey(raw);
+    const match = normalizedEntries.find((entry) => entry.candidates.includes(key));
+    return match?.locator || raw;
+  };
+}
+
+function createDriverFacade(driver, resolveSelector) {
+  return new Proxy(driver, {
+    get(target, prop) {
+      if (prop === "$") {
+        return (selector) => target.$(resolveSelector(selector));
+      }
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+
 async function tapPoint(driver, point) {
   await driver.action("pointer").move(point).down().up().perform();
 }
 
-async function resolveElementCenter(driver, selector) {
-  if (String(selector).startsWith("point:")) {
-    return parsePoint(selector);
+async function resolveElementCenter(driver, selector, resolveSelector = (value) => value) {
+  const resolvedSelector = resolveSelector(selector);
+
+  if (String(resolvedSelector).startsWith("point:")) {
+    return parsePoint(resolvedSelector);
   }
 
-  const element = await driver.$(String(selector));
+  const element = await driver.$(String(resolvedSelector));
   const location = await element.getLocation();
   const size = await element.getSize();
   return {
@@ -166,19 +215,22 @@ async function resolveElementCenter(driver, selector) {
   };
 }
 
-async function executeCodedAndroidScript(driver, source) {
-  const android = buildAndroidApi(driver);
-  const fn = new AsyncFunction("android", "driver", "params", "capture", source);
+async function executeCodedAndroidScript(driver, source, resolveSelector = (value) => value) {
+  const driverFacade = createDriverFacade(driver, resolveSelector);
+  const android = buildAndroidApi(driverFacade, resolveSelector);
+  const $ = (selector) => driverFacade.$(selector);
+  const fn = new AsyncFunction("android", "driver", "browser", "$", "params", "capture", source);
   const captures = {};
   const capture = (key, value) => {
     captures[String(key || "").replace(/^@?[trs]\./, "") || `capture_${Object.keys(captures).length + 1}`] = String(value ?? "");
   };
-  await fn(android, driver, {}, capture);
+  await fn(android, driverFacade, driverFacade, $, {}, capture);
   return captures;
 }
 
-async function executeKeyword(driver, command) {
+async function executeKeyword(driver, command, resolveSelector = (value) => value) {
   const [selector, value, extra] = command.args;
+  const resolvedSelector = selector !== undefined && selector !== null ? resolveSelector(selector) : selector;
   switch (command.keyword) {
     case "step":
       if (typeof value === "function") {
@@ -188,30 +240,30 @@ async function executeKeyword(driver, command) {
     case "aiStep":
       return { status: "passed", note: `AI step noted: ${selector || value || "instruction"}` };
     case "tap":
-      if (String(selector).startsWith("point:")) {
-        await tapPoint(driver, parsePoint(selector));
+      if (String(resolvedSelector).startsWith("point:")) {
+        await tapPoint(driver, parsePoint(resolvedSelector));
       } else {
-        await driver.$(String(selector)).click();
+        await driver.$(String(resolvedSelector)).click();
       }
       return { status: "passed", note: `Tapped ${selector}` };
     case "tapPoint":
-      await tapPoint(driver, parsePoint(selector));
+      await tapPoint(driver, parsePoint(resolvedSelector));
       return { status: "passed", note: `Tapped point ${selector}` };
     case "doubleTap":
-      if (String(selector).startsWith("point:")) {
-        const point = parsePoint(selector);
+      if (String(resolvedSelector).startsWith("point:")) {
+        const point = parsePoint(resolvedSelector);
         await tapPoint(driver, point);
         await driver.pause(80);
         await tapPoint(driver, point);
       } else {
-        const element = await driver.$(String(selector));
+        const element = await driver.$(String(resolvedSelector));
         await element.click();
         await driver.pause(80);
         await element.click();
       }
       return { status: "passed", note: `Double tapped ${selector}` };
     case "longPress": {
-      const resolved = await resolveElementCenter(driver, selector);
+      const resolved = await resolveElementCenter(driver, selector, resolveSelector);
       await driver.action("pointer").move({ x: resolved.x, y: resolved.y }).down().pause(Number(value) || 800).up().perform();
       return { status: "passed", note: `Long pressed ${selector}` };
     }
@@ -219,45 +271,45 @@ async function executeKeyword(driver, command) {
       if (String(selector) === "focused") {
         await driver.keys(String(value || ""));
       } else {
-        await driver.$(String(selector)).setValue(String(value || ""));
+        await driver.$(String(resolvedSelector)).setValue(String(value || ""));
       }
       return { status: "passed", note: `Typed into ${selector}` };
     case "clear":
-      await driver.$(String(selector)).clearValue();
+      await driver.$(String(resolvedSelector)).clearValue();
       return { status: "passed", note: `Cleared ${selector}` };
     case "hideKeyboard":
       await driver.hideKeyboard().catch(() => undefined);
       return { status: "passed", note: "Keyboard hidden" };
     case "waitForDisplayed":
-      await driver.$(String(selector)).waitForDisplayed({ timeout: Number(value) || 10000 });
+      await driver.$(String(resolvedSelector)).waitForDisplayed({ timeout: Number(value) || 10000 });
       return { status: "passed", note: `${selector} displayed` };
     case "waitForExist":
-      await driver.$(String(selector)).waitForExist({ timeout: Number(value) || 10000 });
+      await driver.$(String(resolvedSelector)).waitForExist({ timeout: Number(value) || 10000 });
       return { status: "passed", note: `${selector} exists` };
     case "expectText": {
-      const text = await driver.$(String(selector)).getText();
+      const text = await driver.$(String(resolvedSelector)).getText();
       if (!String(text).includes(String(value || ""))) {
         throw new Error(`Expected ${selector} text to contain ${value}, received ${text}`);
       }
       return { status: "passed", note: `${selector} text matched` };
     }
     case "expectDisplayed": {
-      const displayed = await driver.$(String(selector)).isDisplayed();
+      const displayed = await driver.$(String(resolvedSelector)).isDisplayed();
       if (!displayed) throw new Error(`Expected ${selector} to be displayed`);
       return { status: "passed", note: `${selector} is displayed` };
     }
     case "expectNotDisplayed": {
-      const element = await driver.$(String(selector));
+      const element = await driver.$(String(resolvedSelector));
       await element.waitForDisplayed({ timeout: Number(value) || 10000, reverse: true });
       return { status: "passed", note: `${selector} is not displayed` };
     }
     case "expectEnabled": {
-      const enabled = await driver.$(String(selector)).isEnabled();
+      const enabled = await driver.$(String(resolvedSelector)).isEnabled();
       if (!enabled) throw new Error(`Expected ${selector} to be enabled`);
       return { status: "passed", note: `${selector} is enabled` };
     }
     case "expectValue": {
-      const element = await driver.$(String(selector));
+      const element = await driver.$(String(resolvedSelector));
       const actual = await element.getAttribute("value").catch(() => null) || await element.getText().catch(() => "");
       if (!String(actual).includes(String(value || ""))) {
         throw new Error(`Expected ${selector} value to contain ${value}, received ${actual}`);
@@ -279,7 +331,7 @@ async function executeKeyword(driver, command) {
       const direction = /^(up|left)$/i.test(String(value || "")) ? "up" : "down";
       const maxScrolls = Number(extra?.maxScrolls || extra) || 6;
       for (let index = 0; index < maxScrolls; index += 1) {
-        const element = await driver.$(String(selector));
+        const element = await driver.$(String(resolvedSelector));
         if (await element.isDisplayed().catch(() => false)) {
           return { status: "passed", note: `${selector} scrolled into view` };
         }
@@ -321,8 +373,8 @@ async function executeKeyword(driver, command) {
   }
 }
 
-function buildAndroidApi(driver) {
-  const run = (keyword, args) => executeKeyword(driver, { keyword, args });
+function buildAndroidApi(driver, resolveSelector = (value) => value) {
+  const run = (keyword, args) => executeKeyword(driver, { keyword, args }, resolveSelector);
   return {
     step: async (_name, fn) => (typeof fn === "function" ? fn() : undefined),
     aiStep: (instruction, options) => run("aiStep", [instruction, options]),
@@ -370,6 +422,7 @@ app.get("/api/v1/capabilities", async () => ({
 app.post("/api/v1/mobile/execute", async (request) => {
   const payload = request.body || {};
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
+  const resolveSelector = buildRepositoryResolver(payload.object_repository || payload.objectRepository || []);
   const results = [];
 
   await withDriver(payload, async (driver) => {
@@ -388,10 +441,10 @@ app.post("/api/v1/mobile/execute", async (request) => {
       try {
         if (commands.length) {
           for (const command of commands) {
-            await executeKeyword(driver, command);
+            await executeKeyword(driver, command, resolveSelector);
           }
         } else {
-          await executeCodedAndroidScript(driver, source);
+          await executeCodedAndroidScript(driver, source, resolveSelector);
         }
         results.push({ step_id: step.id, status: "passed", note: "Android step completed." });
       } catch (error) {

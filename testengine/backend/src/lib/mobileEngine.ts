@@ -34,6 +34,7 @@ export async function executeAndroidSteps(envelope: EngineRunEnvelope, steps: En
       platform_version: envelope.mobile_engine?.platform_version || undefined,
       app: envelope.mobile_engine?.app || undefined,
       config: envelope.mobile_engine || {},
+      object_repository: envelope.object_repository || [],
       steps
     })
   });

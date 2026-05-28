@@ -224,22 +224,11 @@ function buildGeneratedUiCode(step: StepAutomationLike, stepType: TestStepType) 
 
   if (scope === "web") {
     return [
-      `const elementOptions = {`,
-      `  timeoutMs: 10000,`,
-      `  scroll: "nearest",`,
-      `  waitFor: "visible",`,
-      `  force: false`,
-      `};`,
-      `const typeOptions = {`,
-      `  ...elementOptions,`,
-      `  clear: true,`,
-      `  type: "char-by-char",`,
-      `  delayMs: 35`,
-      `};`,
+      `// Playwright-style QAira runtime: page, expect, web, params, and capture are provided by the engine.`,
       `await web.step(${quoteJsString(title)}, async () => {`,
-      `  // TODO: replace the object name with a repository object or stable locator.`,
-      `  // Example: await web.click("Login.Submit", elementOptions);`,
-      `  // Example: await web.fill("Login.Email", "@t.email", typeOptions);`,
+      `  // TODO: replace the locator with an Object Repository field or stable Playwright locator.`,
+      `  // Example: await page.locator("Login.Email").fill("@t.email");`,
+      `  // Example: await expect(page.locator("Login.Submit")).toBeVisible();`,
       normalizeText(step.action) ? `  // Action: ${normalizeText(step.action)}` : "",
       expected ? `  // Expected: ${expected}` : "",
       "});"
@@ -247,8 +236,11 @@ function buildGeneratedUiCode(step: StepAutomationLike, stepType: TestStepType) 
   }
 
   return [
+    `// Appium/WebdriverIO runtime: driver is the active ${scope === "ios" ? "iOS" : "Android"} session.`,
     `await ${scope}.step(${quoteJsString(title)}, async () => {`,
-    `  // TODO: implement step automation.`,
+    `  // TODO: replace the selector with an accessibility id, UiAutomator selector, XPath, or stable native locator.`,
+    `  // Example: const element = await driver.$("~Login");`,
+    `  // Example: await element.click();`,
     normalizeText(step.action) ? `  // Action: ${normalizeText(step.action)}` : "",
     expected ? `  // Expected: ${expected}` : "",
     "});"
@@ -314,6 +306,9 @@ export type AutomationKeywordMapping = {
 };
 
 const CODE_CALL_PATTERN = /\b(web|android|ios)\.([A-Za-z][A-Za-z0-9_]*)\(([^)]*)\)/g;
+const PAGE_LOCATOR_DECLARATION_PATTERN = /const\s+([A-Za-z_$][\w$]*)\s*=\s*page\.(locator|getByLabel|getByPlaceholder|getByText)\(([^)]*)\);([\s\S]*?)(?=\n\s*\}|$)/g;
+const PAGE_EXPECT_PATTERN = /\bexpect\(\s*page\.(locator|getByLabel|getByPlaceholder|getByText)\(([^)]*)\)\s*\)\.(toBeVisible|toContainText|toHaveText|toHaveValue)\(([^)]*)\)/g;
+const DRIVER_ELEMENT_DECLARATION_PATTERN = /const\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+driver\.\$\(([^)]*)\);([\s\S]*?)(?=\n\s*\}|$)/g;
 
 function splitCallArguments(source: string) {
   const values: string[] = [];
@@ -379,26 +374,82 @@ export function buildAutomationKeywordMappings(code: string, repository: Automat
   const mappings: AutomationKeywordMapping[] = [];
   const normalizedCode = normalizeAutomationCode(code);
   let match: RegExpExecArray | null;
+  const pushMapping = (input: { index: number; keyword: string; target: string; value?: string }) => {
+    const entry = resolveObjectForLocator(input.target, repository);
+    const objectName = readRepositoryText(entry, "object_name") || entry?.locator_intent || "";
+    const displayTarget = objectName || input.target || "(no target)";
+
+    mappings.push({
+      id: `${input.index}:${input.keyword}:${input.target}:${input.value || ""}`,
+      keyword: input.keyword,
+      target: input.target,
+      displayTarget,
+      value: input.value || "",
+      objectName: objectName || undefined,
+      screenName: readRepositoryText(entry, "screen_name") || entry?.page_key || undefined,
+      locatorKind: entry?.locator_kind || entry?.source || null
+    });
+  };
 
   while ((match = CODE_CALL_PATTERN.exec(normalizedCode))) {
     const [, scope, method, argsSource] = match;
     const args = splitCallArguments(argsSource || "").map(unquoteCallArgument);
     const target = args[0] || "";
     const value = args[1] || "";
-    const entry = resolveObjectForLocator(target, repository);
-    const objectName = readRepositoryText(entry, "object_name") || entry?.locator_intent || "";
-    const displayTarget = objectName || target || "(no target)";
-
-    mappings.push({
-      id: `${match.index}:${scope}.${method}:${target}:${value}`,
+    pushMapping({
+      index: match.index,
       keyword: `${scope}.${method}`,
       target,
-      displayTarget,
-      value,
-      objectName: objectName || undefined,
-      screenName: readRepositoryText(entry, "screen_name") || entry?.page_key || undefined,
-      locatorKind: entry?.locator_kind || entry?.source || null
+      value
     });
+  }
+
+  while ((match = PAGE_LOCATOR_DECLARATION_PATTERN.exec(normalizedCode))) {
+    const [, variableName, locatorMethod, targetSource, blockSource] = match;
+    const target = unquoteCallArgument(splitCallArguments(targetSource || "")[0] || "");
+    const callPattern = new RegExp(`\\b${variableName}\\.(click|fill|press|hover|dblclick|selectOption|check|uncheck|textContent|inputValue)\\(([^)]*)\\)`, "g");
+    let callMatch: RegExpExecArray | null;
+
+    while ((callMatch = callPattern.exec(blockSource || ""))) {
+      const [, method, argsSource] = callMatch;
+      const args = splitCallArguments(argsSource || "").map(unquoteCallArgument);
+      pushMapping({
+        index: match.index + callMatch.index,
+        keyword: `playwright.${locatorMethod}.${method}`,
+        target,
+        value: args[0] || ""
+      });
+    }
+  }
+
+  while ((match = PAGE_EXPECT_PATTERN.exec(normalizedCode))) {
+    const [, locatorMethod, targetSource, method, argsSource] = match;
+    const target = unquoteCallArgument(splitCallArguments(targetSource || "")[0] || "");
+    const args = splitCallArguments(argsSource || "").map(unquoteCallArgument);
+    pushMapping({
+      index: match.index,
+      keyword: `playwright.expect.${method}`,
+      target,
+      value: args[0] || ""
+    });
+  }
+
+  while ((match = DRIVER_ELEMENT_DECLARATION_PATTERN.exec(normalizedCode))) {
+    const [, variableName, targetSource, blockSource] = match;
+    const target = unquoteCallArgument(splitCallArguments(targetSource || "")[0] || "");
+    const callPattern = new RegExp(`\\b${variableName}\\.(click|setValue|clearValue|waitForDisplayed|waitForExist|getText|getAttribute|isEnabled|isDisplayed)\\(([^)]*)\\)`, "g");
+    let callMatch: RegExpExecArray | null;
+
+    while ((callMatch = callPattern.exec(blockSource || ""))) {
+      const [, method, argsSource] = callMatch;
+      const args = splitCallArguments(argsSource || "").map(unquoteCallArgument);
+      pushMapping({
+        index: match.index + callMatch.index,
+        keyword: `webdriverio.${method}`,
+        target,
+        value: args[0] || ""
+      });
+    }
   }
 
   return mappings;

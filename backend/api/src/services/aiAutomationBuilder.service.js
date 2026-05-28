@@ -566,23 +566,75 @@ const toObjectSegment = (value, fallback = "Object") => {
 };
 
 const inferScreenName = (action) => {
-  const title = normalizeText(action?.page_title);
-  if (title && !/^about:blank$/i.test(title)) {
-    return toObjectSegment(title, "Screen").slice(0, 48);
+  return inferScreenNameFromUrl(action?.url)
+    || inferScreenNameFromTitle(action?.page_title)
+    || "Screen";
+};
+
+const inferScreenNameFromTitle = (title) => {
+  const normalized = normalizeText(title);
+  if (!normalized || /^about:blank$/i.test(normalized)) {
+    return null;
   }
 
-  const url = normalizeText(action?.url);
-  if (!url) {
-    return "Screen";
+  return toObjectSegment(normalized, "Screen").slice(0, 48);
+};
+
+const GENERIC_SCREEN_PATH_SEGMENTS = new Set([
+  "app",
+  "apps",
+  "page",
+  "pages",
+  "index",
+  "home",
+  "main",
+  "default",
+  "dashboard"
+]);
+
+const normalizeUrlPathSegment = (value) => {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+};
+
+const inferScreenNameFromUrl = (url) => {
+  const normalized = normalizeText(url);
+
+  if (!normalized || /^about:blank$/i.test(normalized)) {
+    return null;
   }
 
   try {
-    const parsed = new URL(url, "http://qaira.local");
-    const segments = parsed.pathname.split("/").map((part) => normalizeText(part)).filter(Boolean);
-    return toObjectSegment(segments.at(-1) || parsed.hostname || "Screen", "Screen").slice(0, 48);
+    const parsed = new URL(normalized, "http://qaira.local");
+    const segments = parsed.pathname
+      .split("/")
+      .map(normalizeUrlPathSegment)
+      .map((part) => normalizeText(part))
+      .filter(Boolean)
+      .filter((part) => !GENERIC_SCREEN_PATH_SEGMENTS.has(part.toLowerCase()))
+      .filter((part) => !/^[a-f0-9-]{12,}$/i.test(part));
+    const tail = segments.slice(-2);
+    const candidate = toObjectSegment(tail.join(" "), "");
+
+    if (candidate) {
+      return candidate.slice(0, 48);
+    }
   } catch {
-    return toObjectSegment(url.split(/[/?#]/).filter(Boolean).at(-1), "Screen").slice(0, 48);
+    const segments = normalized
+      .split(/[/?#]/)
+      .map(normalizeText)
+      .filter(Boolean);
+    const candidate = toObjectSegment(segments.at(-1), "");
+
+    if (candidate) {
+      return candidate.slice(0, 48);
+    }
   }
+
+  return null;
 };
 
 const inferObjectRole = (action) => {
@@ -629,6 +681,50 @@ const inferObjectLabel = (action) => {
   return normalizeText(locator.replace(/[#.[\]'":=]/g, " ").slice(0, 60));
 };
 
+const NON_REPOSITORY_RECORDING_LOCATORS = new Set(["location", "browser.tab", "keyboard", "viewport"]);
+
+const isRecorderRepositoryLocator = (locator) => {
+  const normalized = normalizeText(locator);
+  return Boolean(normalized && !NON_REPOSITORY_RECORDING_LOCATORS.has(normalized));
+};
+
+const normalizeRepositoryNameKey = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const uniqueRepositoryName = (base, usedNames, fallbackBase = "Field") => {
+  const normalizedBase = toObjectSegment(base, "") || fallbackBase;
+  let candidate = normalizedBase;
+  let suffix = 2;
+
+  if (fallbackBase === "Screen" && !toObjectSegment(base, "")) {
+    candidate = "Screen 1";
+  }
+
+  while (usedNames.has(normalizeRepositoryNameKey(candidate))) {
+    candidate = `${normalizedBase} ${suffix}`;
+    suffix += 1;
+  }
+
+  usedNames.add(normalizeRepositoryNameKey(candidate));
+  return candidate.slice(0, 64);
+};
+
+const recorderPageIdentity = (action) => {
+  const pageKey = normalizeUrlKey(action?.url);
+
+  if (pageKey && pageKey !== "unknown-page") {
+    return pageKey;
+  }
+
+  return normalizeText(action?.page_id) || normalizeText(action?.page_title) || "unknown-page";
+};
+
+const repositoryActionKey = (action) => `${recorderPageIdentity(action)}|${normalizeText(action?.locator) || ""}`;
+
 const inferKeywordForAction = (action) => {
   const type = String(action?.type || "").toLowerCase();
 
@@ -657,9 +753,21 @@ const inferKeywordForAction = (action) => {
   return "web.click";
 };
 
+const inferRecorderKeywordForPlatform = (action, platform) => {
+  if (normalizeText(platform) === "android") {
+    const type = String(action?.type || "").toLowerCase();
+    if (type === "tap") return "android.tap";
+    if (type === "type") return "android.type";
+    if (type === "pressback") return "android.pressBack";
+    return "android.step";
+  }
+
+  return inferKeywordForAction(action);
+};
+
 const buildObjectRepositoryEntry = (action) => {
   const locator = normalizeText(action?.locator);
-  if (!locator || ["location", "browser.tab", "keyboard", "viewport"].includes(locator)) {
+  if (!isRecorderRepositoryLocator(locator)) {
     return null;
   }
 
@@ -676,6 +784,364 @@ const buildObjectRepositoryEntry = (action) => {
     object_label: label,
     keyword: inferKeywordForAction(action),
     parameter_hint: role === "field" ? inferRecorderFillValue(action) : null
+  };
+};
+
+const platformSource = (platform, fallback) =>
+  normalizeText(platform) === "android" ? `android_${fallback}` : fallback;
+
+const loadRepositoryRowsForNaming = async (testCase) => {
+  if (testCase.app_type_id) {
+    return (await listAllLearningCacheRows({ appTypeId: testCase.app_type_id }))
+      .map(normalizeLearningCacheRow)
+      .filter(Boolean);
+  }
+
+  return (await listLearningCacheRows({
+    projectId: testCase.project_id || null,
+    appTypeId: testCase.app_type_id || null,
+    limit: 200
+  })).map(normalizeLearningCacheRow).filter(Boolean);
+};
+
+const buildRecorderRepositoryNamingPrompt = ({ pages, fields, testCase }) => [
+  "Suggest short, stable QAira Object Repository names for recorded UI actions.",
+  "",
+  "Return strict JSON only with this shape:",
+  "{",
+  '  "screens": [{ "page_key": "string", "name": "Short Screen Name" }],',
+  '  "fields": [{ "field_key": "string", "name": "Short Field Name" }]',
+  "}",
+  "",
+  "Rules:",
+  "- Names must be human friendly, concise, title case, and reusable as Screen.Field references.",
+  "- Do not include punctuation other than spaces.",
+  "- Prefer domain words from URL, title, label, placeholder, visible text, role, or action type.",
+  "- Do not invent hidden controls.",
+  "",
+  `Case: ${testCase.title}`,
+  `Description: ${testCase.description || "No description provided."}`,
+  "",
+  "Screens needing names:",
+  JSON.stringify(pages, null, 2),
+  "",
+  "Fields needing names:",
+  JSON.stringify(fields, null, 2)
+].join("\n");
+
+const buildAiRecorderRepositoryNameSuggestions = async ({
+  testCase,
+  actions,
+  integrationId,
+  transactionId
+}) => {
+  const pages = [];
+  const fields = [];
+  const seenPages = new Set();
+  const seenFields = new Set();
+
+  actions.forEach((action) => {
+    const pageKey = recorderPageIdentity(action);
+    const naturalScreenName = inferScreenNameFromUrl(action.url) || inferScreenNameFromTitle(action.page_title);
+
+    if (!naturalScreenName && !seenPages.has(pageKey)) {
+      pages.push({
+        page_key: pageKey,
+        url: action.url || null,
+        title: action.page_title || null,
+        action_type: action.type || null,
+        text: action.text || null
+      });
+      seenPages.add(pageKey);
+    }
+
+    if (!isRecorderRepositoryLocator(action.locator)) {
+      return;
+    }
+
+    const fieldKey = repositoryActionKey(action);
+    const deterministicLabel = inferObjectLabel(action);
+
+    if (!deterministicLabel && !seenFields.has(fieldKey)) {
+      fields.push({
+        field_key: fieldKey,
+        page_key: pageKey,
+        action_type: action.type || null,
+        locator: action.locator || null,
+        text: action.text || null,
+        value_hint: action.value ? "captured" : null
+      });
+      seenFields.add(fieldKey);
+    }
+  });
+
+  if (!pages.length && !fields.length) {
+    return { screens: new Map(), fields: new Map(), ai_used: false, fallback_reason: null };
+  }
+
+  let integration = null;
+  try {
+    integration = await resolveLlmIntegration(integrationId);
+  } catch (error) {
+    return {
+      screens: new Map(),
+      fields: new Map(),
+      ai_used: false,
+      fallback_reason: error instanceof Error ? error.message : "Unable to resolve LLM integration"
+    };
+  }
+
+  if (!integration) {
+    return {
+      screens: new Map(),
+      fields: new Map(),
+      ai_used: false,
+      fallback_reason: "No active LLM integration is configured"
+    };
+  }
+
+  try {
+    const content = await requestChatCompletion({
+      integration,
+      prompt: buildRecorderRepositoryNamingPrompt({ pages, fields, testCase })
+    });
+    const payload = extractJsonPayload(content);
+    const screenSuggestions = new Map();
+    const fieldSuggestions = new Map();
+
+    (Array.isArray(payload?.screens) ? payload.screens : []).forEach((item) => {
+      const pageKey = normalizeText(item?.page_key || item?.pageKey);
+      const name = toObjectSegment(item?.name || item?.screen_name, "");
+      if (pageKey && name) {
+        screenSuggestions.set(pageKey, name);
+      }
+    });
+    (Array.isArray(payload?.fields) ? payload.fields : []).forEach((item) => {
+      const fieldKey = normalizeText(item?.field_key || item?.fieldKey);
+      const name = toObjectSegment(item?.name || item?.object_name, "");
+      if (fieldKey && name) {
+        fieldSuggestions.set(fieldKey, name);
+      }
+    });
+
+    return {
+      screens: screenSuggestions,
+      fields: fieldSuggestions,
+      ai_used: screenSuggestions.size > 0 || fieldSuggestions.size > 0,
+      fallback_reason: null
+    };
+  } catch (error) {
+    await appendEvent(transactionId, {
+      level: "warning",
+      phase: "recorder.repository.naming.fallback",
+      message: "AI repository naming was unavailable, so QAira used deterministic screen and field names from the recording.",
+      details: {
+        error: error instanceof Error ? error.message : "AI repository naming failed"
+      }
+    }).catch(() => null);
+
+    return {
+      screens: new Map(),
+      fields: new Map(),
+      ai_used: false,
+      fallback_reason: error instanceof Error ? error.message : "AI repository naming failed"
+    };
+  }
+};
+
+const buildExistingRepositoryNameIndex = (rows = []) => {
+  const screenNames = new Set();
+  const fieldNamesByScreen = new Map();
+  const screenByPageIdentity = new Map();
+  const fieldByLocator = new Map();
+
+  rows.forEach((row) => {
+    const metadata = normalizeObject(row.metadata);
+    const screenName = normalizeText(metadata.screen_name || row.page_key || row.page_url);
+
+    if (!screenName) {
+      return;
+    }
+
+    screenNames.add(normalizeRepositoryNameKey(screenName));
+    [row.page_key, normalizeUrlKey(row.page_url), row.page_url].map(normalizeText).filter(Boolean).forEach((key) => {
+      screenByPageIdentity.set(key, screenName);
+    });
+
+    const fieldNames = fieldNamesByScreen.get(screenName) || new Set();
+    const objectName = getRepositoryObjectName(row, screenName);
+
+    if (objectName && !isRepositoryScreenRecord(row)) {
+      fieldNames.add(normalizeRepositoryNameKey(objectName));
+      if (row.locator) {
+        fieldByLocator.set(`${screenName}|${row.locator}`, {
+          screen_name: screenName,
+          field_name: objectName,
+          reference: `${screenName}.${objectName}`,
+          locator: row.locator,
+          locator_kind: row.locator_kind || inferLocatorStrategy(row.locator, "css")
+        });
+      }
+    }
+
+    fieldNamesByScreen.set(screenName, fieldNames);
+  });
+
+  return {
+    screenNames,
+    fieldNamesByScreen,
+    screenByPageIdentity,
+    fieldByLocator
+  };
+};
+
+const buildRecorderRepositoryModel = async ({
+  testCase,
+  capturedActions = [],
+  integrationId,
+  transactionId,
+  platform = "web"
+} = {}) => {
+  const actions = normalizeCapturedActions(capturedActions).filter((action) => isRecorderRepositoryLocator(action.locator));
+  const existingRows = await loadRepositoryRowsForNaming(testCase);
+  const index = buildExistingRepositoryNameIndex(existingRows);
+  const aiSuggestions = await buildAiRecorderRepositoryNameSuggestions({
+    testCase,
+    actions,
+    integrationId,
+    transactionId
+  });
+  const screenByPageKey = new Map();
+  const screens = new Map();
+  const fields = new Map();
+  const byActionIndex = new Map();
+  let fallbackScreenCount = 1;
+
+  const resolveScreen = (action) => {
+    const pageKey = recorderPageIdentity(action);
+    const existingScreen = index.screenByPageIdentity.get(pageKey)
+      || index.screenByPageIdentity.get(normalizeUrlKey(action.url))
+      || index.screenByPageIdentity.get(action.url);
+
+    if (existingScreen) {
+      screenByPageKey.set(pageKey, existingScreen);
+    }
+
+    const cached = screenByPageKey.get(pageKey);
+    if (cached) {
+      return cached;
+    }
+
+    const baseName =
+      inferScreenNameFromUrl(action.url)
+      || inferScreenNameFromTitle(action.page_title)
+      || aiSuggestions.screens.get(pageKey)
+      || `Screen ${fallbackScreenCount++}`;
+    const screenName = uniqueRepositoryName(baseName, index.screenNames, "Screen");
+
+    screenByPageKey.set(pageKey, screenName);
+    return screenName;
+  };
+
+  actions.forEach((action) => {
+    const locator = normalizeText(action.locator);
+    const screenName = resolveScreen(action);
+    const pageKey = recorderPageIdentity(action);
+    const fieldKey = repositoryActionKey(action);
+    const existingField = index.fieldByLocator.get(`${screenName}|${locator}`);
+
+    if (!screens.has(screenName)) {
+      screens.set(screenName, {
+        screen_name: screenName,
+        page_key: screenName,
+        page_identity: pageKey,
+        page_url: normalizeText(action.url),
+        page_title: normalizeText(action.page_title),
+        platform,
+        url_pattern_type: normalizeText(action.url) ? "endsWith" : "contains",
+        url_pattern_value: normalizeText(action.url) ? normalizeUrlKey(action.url) : pageKey
+      });
+    }
+
+    if (existingField) {
+      const field = {
+        ...existingField,
+        object_role: inferObjectRole(action),
+        object_label: inferObjectLabel(action),
+        action,
+        keyword: inferRecorderKeywordForPlatform(action, platform),
+        parameter_hint: inferObjectRole(action) === "field" ? inferRecorderFillValue(action) : null,
+        page_url: normalizeText(action.url),
+        page_key: screenName,
+        page_identity: pageKey,
+        page_title: normalizeText(action.page_title),
+        platform,
+        source_action_indexes: [Number(action.index)].filter(Number.isFinite)
+      };
+      fields.set(`${screenName}|${locator}`, field);
+      byActionIndex.set(Number(action.index), field);
+      return;
+    }
+
+    if (fields.has(`${screenName}|${locator}`)) {
+      const field = fields.get(`${screenName}|${locator}`);
+      const actionIndex = Number(action.index);
+      if (Number.isFinite(actionIndex) && !field.source_action_indexes.includes(actionIndex)) {
+        field.source_action_indexes.push(actionIndex);
+      }
+      byActionIndex.set(Number(action.index), field);
+      return;
+    }
+
+    const role = inferObjectRole(action);
+    const baseFieldName =
+      aiSuggestions.fields.get(fieldKey)
+      || inferObjectLabel(action)
+      || `${toObjectSegment(role, "Field")} ${fields.size + 1}`;
+    const usedFieldNames = index.fieldNamesByScreen.get(screenName) || new Set();
+    const fieldName = uniqueRepositoryName(baseFieldName, usedFieldNames, "Field");
+    index.fieldNamesByScreen.set(screenName, usedFieldNames);
+
+    const field = {
+      screen_name: screenName,
+      field_name: fieldName,
+      reference: `${screenName}.${fieldName}`,
+      locator,
+      locator_kind: inferLocatorStrategy(locator, "recorder"),
+      object_role: role,
+      object_label: inferObjectLabel(action),
+      keyword: inferRecorderKeywordForPlatform(action, platform),
+      parameter_hint: role === "field" ? inferRecorderFillValue(action) : null,
+      page_url: normalizeText(action.url),
+      page_key: screenName,
+      page_identity: pageKey,
+      page_title: normalizeText(action.page_title),
+      platform,
+      source_action_indexes: [Number(action.index)].filter(Number.isFinite),
+      action
+    };
+
+    fields.set(`${screenName}|${locator}`, field);
+    byActionIndex.set(Number(action.index), field);
+  });
+
+  if (aiSuggestions.ai_used) {
+    await appendEvent(transactionId, {
+      phase: "recorder.repository.naming.ai",
+      message: "AI supplied friendly fallback names for recorded repository screens or fields.",
+      details: {
+        screen_suggestions: aiSuggestions.screens.size,
+        field_suggestions: aiSuggestions.fields.size
+      }
+    }).catch(() => null);
+  }
+
+  return {
+    screens,
+    fields,
+    byActionIndex,
+    ai_used: aiSuggestions.ai_used,
+    ai_fallback_reason: aiSuggestions.fallback_reason
   };
 };
 
@@ -763,10 +1229,18 @@ const stripRecorderLocatorPrefix = (locator) => {
   return match ? normalizeText(match[2]) : normalized;
 };
 
-const resolveRecorderTarget = (action) => {
+const getRecorderRepositoryMember = (action, repositoryModel) =>
+  repositoryModel?.byActionIndex?.get(Number(action?.index)) || null;
+
+const resolveRecorderTarget = (action, repositoryModel) => {
+  const repositoryMember = getRecorderRepositoryMember(action, repositoryModel);
+  if (repositoryMember?.reference) {
+    return repositoryMember.reference;
+  }
+
   const locator = stripRecorderLocatorPrefix(action.locator);
 
-  if (locator && !["browser.tab", "location", "keyboard", "viewport"].includes(locator)) {
+  if (locator && !NON_REPOSITORY_RECORDING_LOCATORS.has(locator)) {
     return locator;
   }
 
@@ -774,6 +1248,19 @@ const resolveRecorderTarget = (action) => {
 };
 
 const quoteCodeString = (value) => JSON.stringify(String(value || ""));
+const playwrightLocatorCode = (target) => `page.locator(${quoteCodeString(target)})`;
+const playwrightLocatorBlock = (target, lines = []) => [
+  "{",
+  `  const target = ${playwrightLocatorCode(target)};`,
+  ...lines.map((line) => `  ${line}`),
+  "}"
+].join("\n");
+const webdriverElementBlock = (selector, lines = []) => [
+  "{",
+  `  const element = await driver.$(${quoteCodeString(selector)});`,
+  ...lines.map((line) => `  ${line}`),
+  "}"
+].join("\n");
 
 const keywordOptionsCode = (options = {}) => {
   const entries = Object.entries(options).filter(([, value]) => value !== undefined && value !== null && value !== "");
@@ -822,17 +1309,22 @@ const inferRecorderFillValue = (action) => {
   return value || "@t.value";
 };
 
-const describeRecorderTarget = (action, fallback) =>
-  normalizeText(action.text)
+const describeRecorderTarget = (action, fallback, repositoryModel) =>
+  getRecorderRepositoryMember(action, repositoryModel)?.field_name
+  || normalizeText(action.text)
   || stripRecorderLocatorPrefix(action.locator)
   || fallback;
 
-const buildRecorderStepCandidate = (action, order) => {
+const keywordComment = (keyword, args = []) =>
+  `// Keyword: ${keyword}(${args.map((arg) => quoteCodeString(arg)).join(", ")})`;
+
+const buildRecorderStepCandidate = (action, order, repositoryModel) => {
   const type = String(action.type || "").toLowerCase();
-  const target = resolveRecorderTarget(action);
-  const targetLabel = describeRecorderTarget(action, "recorded target");
+  const target = resolveRecorderTarget(action, repositoryModel);
+  const targetLabel = describeRecorderTarget(action, "recorded target", repositoryModel);
   const url = normalizeText(action.url);
   const key = normalizeText(action.text || action.value);
+  const keyword = inferKeywordForAction(action);
 
   if (type === "navigation") {
     if (!url || url === "about:blank") {
@@ -845,7 +1337,13 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `Open ${url}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.goto(${quoteCodeString(url)});`
+      keyword,
+      keyword_arguments: [url],
+      automation_code: [
+        keywordComment(keyword, [url]),
+        `await page.goto(${quoteCodeString(url)});`,
+        `await page.waitForLoadState("domcontentloaded");`
+      ].join("\n")
     };
   }
 
@@ -857,7 +1355,15 @@ const buildRecorderStepCandidate = (action, order) => {
         action: type === "submit" ? `Submit ${targetLabel}` : `Click ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-      automation_code: `await web.click(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+        keyword,
+        keyword_arguments: [target],
+        automation_code: [
+          keywordComment(keyword, [target]),
+          playwrightLocatorBlock(target, [
+            `await target.waitFor({ state: "visible", timeout: 10000 });`,
+            `await target.click();`
+          ])
+        ].join("\n")
       };
     }
 
@@ -871,9 +1377,14 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `Click recorded screen position${position}`,
       expected_result: "Review the locator before running this step.",
       step_type: "web",
+      keyword,
+      keyword_arguments: ["body"],
       automation_code: [
+        keywordComment(keyword, ["body"]),
         `// TODO: Replace this fallback with a stable locator for the recorded click${position}.`,
-        `await web.click("body", ${WEB_ELEMENT_OPTIONS_CODE});`
+        playwrightLocatorBlock("body", [
+          `await target.click();`
+        ])
       ].join("\n")
     };
   }
@@ -884,7 +1395,6 @@ const buildRecorderStepCandidate = (action, order) => {
     }
 
     const verb = type === "dblclick" ? "Double click" : "Right click";
-    const method = type === "dblclick" ? "dblclick" : "rightClick";
 
     return {
       source_action_index: action.index,
@@ -892,7 +1402,15 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `${verb} ${targetLabel}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.${method}(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+      keyword,
+      keyword_arguments: [target],
+      automation_code: [
+        keywordComment(keyword, [target]),
+        playwrightLocatorBlock(target, [
+          `await target.waitFor({ state: "visible", timeout: 10000 });`,
+          type === "dblclick" ? `await target.dblclick();` : `await target.click({ button: "right" });`
+        ])
+      ].join("\n")
     };
   }
 
@@ -906,7 +1424,15 @@ const buildRecorderStepCandidate = (action, order) => {
         action: `Fill ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-      automation_code: `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${WEB_TYPE_OPTIONS_CODE});`
+        keyword,
+        keyword_arguments: [target, value],
+        automation_code: [
+          keywordComment(keyword, [target, value]),
+          playwrightLocatorBlock(target, [
+            `await target.waitFor({ state: "visible", timeout: 10000 });`,
+            `await target.fill(${quoteCodeString(value)});`
+          ])
+        ].join("\n")
       };
     }
 
@@ -916,9 +1442,14 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Fill recorded field",
       expected_result: "Review the locator before running this step.",
       step_type: "web",
+      keyword,
+      keyword_arguments: ["body", value],
       automation_code: [
+        keywordComment(keyword, ["body", value]),
         "// TODO: Replace this fallback with a stable locator for the recorded field.",
-        `await web.fill("body", ${quoteCodeString(value)}, ${WEB_TYPE_OPTIONS_CODE});`
+        playwrightLocatorBlock("body", [
+          `await target.fill(${quoteCodeString(value)});`
+        ])
       ].join("\n")
     };
   }
@@ -930,10 +1461,18 @@ const buildRecorderStepCandidate = (action, order) => {
       return {
         source_action_index: action.index,
         step_order: order,
-        action: `Select ${describeRecorderTarget(action, value)} in ${targetLabel}`,
+        action: `Select ${describeRecorderTarget(action, value, repositoryModel)} in ${targetLabel}`,
         expected_result: "",
         step_type: "web",
-      automation_code: `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+        keyword,
+        keyword_arguments: [target, value],
+        automation_code: [
+          keywordComment(keyword, [target, value]),
+          playwrightLocatorBlock(target, [
+            `await target.waitFor({ state: "visible", timeout: 10000 });`,
+            `await target.selectOption(${quoteCodeString(value)});`
+          ])
+        ].join("\n")
       };
     }
 
@@ -943,9 +1482,14 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Select recorded dropdown value",
       expected_result: "Review the locator before running this step.",
       step_type: "web",
+      keyword,
+      keyword_arguments: ["select", value],
       automation_code: [
+        keywordComment(keyword, ["select", value]),
         "// TODO: Replace this fallback with a stable locator for the recorded dropdown.",
-        `await web.select("select", ${quoteCodeString(value)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+        playwrightLocatorBlock("select", [
+          `await target.selectOption(${quoteCodeString(value)});`
+        ])
       ].join("\n")
     };
   }
@@ -961,7 +1505,15 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `${type === "check" ? "Check" : "Uncheck"} ${targetLabel}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.${type}(${quoteCodeString(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+      keyword,
+      keyword_arguments: [target],
+      automation_code: [
+        keywordComment(keyword, [target]),
+        playwrightLocatorBlock(target, [
+          `await target.waitFor({ state: "visible", timeout: 10000 });`,
+          `await target.${type}();`
+        ])
+      ].join("\n")
     };
   }
 
@@ -974,7 +1526,12 @@ const buildRecorderStepCandidate = (action, order) => {
       action: `Press ${normalizedKey}`,
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press(null, ${quoteCodeString(normalizedKey)}, ${WEB_ELEMENT_OPTIONS_CODE});`
+      keyword,
+      keyword_arguments: [normalizedKey],
+      automation_code: [
+        keywordComment(keyword, [normalizedKey]),
+        `await page.keyboard.press(${quoteCodeString(normalizedKey)});`
+      ].join("\n")
     };
   }
 
@@ -985,7 +1542,12 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Press Tab",
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.press(null, "Tab", ${WEB_ELEMENT_OPTIONS_CODE});`
+      keyword,
+      keyword_arguments: ["Tab"],
+      automation_code: [
+        keywordComment(keyword, ["Tab"]),
+        `await page.keyboard.press("Tab");`
+      ].join("\n")
     };
   }
 
@@ -1006,7 +1568,12 @@ const buildRecorderStepCandidate = (action, order) => {
       action: "Scroll page",
       expected_result: "",
       step_type: "web",
-      automation_code: `await web.scroll(${Number.isFinite(deltaX) ? deltaX : 0}, ${Number.isFinite(deltaY) ? deltaY : 600}, ${keywordOptionsCode({ direction: Number(deltaY) < 0 ? "up" : "down", amount: Math.abs(Number(deltaY) || 600) })});`
+      keyword: "web.scroll",
+      keyword_arguments: [String(Number.isFinite(deltaX) ? deltaX : 0), String(Number.isFinite(deltaY) ? deltaY : 600)],
+      automation_code: [
+        keywordComment("web.scroll", [String(Number.isFinite(deltaX) ? deltaX : 0), String(Number.isFinite(deltaY) ? deltaY : 600)]),
+        `await page.mouse.wheel(${Number.isFinite(deltaX) ? deltaX : 0}, ${Number.isFinite(deltaY) ? deltaY : 600});`
+      ].join("\n")
     };
   }
 
@@ -1060,7 +1627,7 @@ const isRecorderActionSuperseded = (action, actions, index) => {
   return false;
 };
 
-const buildRecorderStepCandidates = (actions = []) => {
+const buildRecorderStepCandidates = (actions = [], repositoryModel = null) => {
   const allowedTypes = new Set(["navigation", "click", "dblclick", "rightclick", "fill", "change", "select", "check", "uncheck", "submit", "press", "tab", "scroll"]);
   const candidates = [];
 
@@ -1071,7 +1638,7 @@ const buildRecorderStepCandidates = (actions = []) => {
       return;
     }
 
-    const candidate = buildRecorderStepCandidate(action, candidates.length + 1);
+    const candidate = buildRecorderStepCandidate(action, candidates.length + 1, repositoryModel);
 
     if (candidate) {
       candidates.push(candidate);
@@ -1372,16 +1939,18 @@ const buildPrompt = ({
     "Build automation for this QAira manual web test case.",
     "",
     "Runtime contract:",
-    "- Use QAira keyword/facade calls only: web.aiStep, web.goto, web.click, web.dblclick, web.rightClick, web.fill, web.select, web.check, web.uncheck, web.press, web.scroll, web.wait, web.expectVisible, web.expectText, web.expectUrl, capture.",
+    "- Prefer Playwright-style executable JavaScript using the QAira runtime references: page, expect, playwrightPage, web, params, and capture.",
+    "- Use page.goto, page.locator(...).click/fill/selectOption/check/uncheck/press, page.getByRole/getByLabel/getByText, expect(page.locator(...)).toBeVisible/toContainText, expect(page).toHaveURL, page.keyboard.press, page.mouse.wheel, and capture.",
+    "- Use web.openTab, web.switchTab, and web.closeTab for tab management so QAira keeps the active Page aligned across later steps.",
     "- Each step automation_code must be executable JavaScript statements, not a full Playwright test file.",
-    "- Include tweakable element-level option objects directly in keyword calls where relevant: timeoutMs, scroll, waitFor, force, clear, type, delayMs, direction, amount, match.",
-    "- For text entry, prefer char-by-char typing by default: web.fill(target, value, { timeoutMs: 10000, scroll: \"nearest\", waitFor: \"visible\", clear: true, type: \"char-by-char\", delayMs: 35 }).",
-    "- For scrolls, use web.scroll(0, 600, { direction: \"down\", amount: 600 }) or direction \"up\" when reversing.",
-    "- Prefer semantic locators: getByRole-style text, labels, placeholders, data-testid, id/name, then CSS. In QAira keyword code pass the best target string to web.click/web.fill/etc.",
+    "- Wait explicitly before actions when needed, for example await page.locator(\"Login.Email\").waitFor({ state: \"visible\", timeout: 10000 });",
+    "- For text entry, use await page.locator(target).fill(value).",
+    "- For scrolls, use page.mouse.wheel(0, 600) or a negative Y value when reversing.",
+    "- Prefer semantic locators and OR references: page.getByRole('button', { name: 'Sign Up' }), page.getByLabel('Email'), page.getByPlaceholder('Email'), data-testid, id/name, then CSS. When using Object Repository names, pass the Screen.Field text to page.locator(...).",
     "- Use @t.variable_name tokens when the manual case implies reusable data.",
     "- For API requests inferred from captured network, create api_request objects only for meaningful business API calls and ignore analytics, fonts, images, telemetry, auth refresh noise, and static assets.",
     "- Preserve the manual step sequence. Do not add hidden side-effect steps.",
-    "- When existing automation code is supplied, map it to the manual step with the closest intent and flow position; express supported UI actions as QAira keyword calls instead of opaque code.",
+    "- When existing automation code is supplied, map it to the manual step with the closest intent and flow position; express supported UI actions as Playwright-style page/expect code instead of opaque code.",
     "- Reuse learning cache locators when they match the step intent and page.",
     "",
     "Return strict JSON with this shape:",
@@ -1393,7 +1962,7 @@ const buildPrompt = ({
     '      "step_id": "string",',
     '      "step_order": 1,',
     '      "step_type": "web or api",',
-    '      "automation_code": "await web.click(...);",',
+    '      "automation_code": "await page.locator(...).click();",',
     '      "api_request": null',
     "    }",
     "  ],",
@@ -1653,27 +2222,37 @@ const buildDeterministicWebCode = (step, cacheRows, startUrl) => {
   const urlMatch = action.match(/https?:\/\/\S+|\/[A-Za-z0-9_./?=&%-]+/);
 
   if (/\b(open|navigate|go to|launch)\b/i.test(action)) {
-    lines.push(`await web.goto(${JSON.stringify(urlMatch?.[0] || startUrl || "/")}, ${keywordOptionsCode({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`);
+    lines.push(`await page.goto(${JSON.stringify(urlMatch?.[0] || startUrl || "/")});`);
+    lines.push(`await page.waitForLoadState("domcontentloaded");`);
   } else if (/\b(click|tap|select|choose)\b/i.test(action)) {
-    lines.push(`await web.click(${JSON.stringify(target)}, ${WEB_ELEMENT_OPTIONS_CODE});`);
+    lines.push(playwrightLocatorBlock(target, [
+      `await target.waitFor({ state: "visible", timeout: 10000 });`,
+      `await target.click();`
+    ]));
   } else if (/\b(enter|type|fill|input)\b/i.test(action)) {
     const value = inferQuotedText(action) || "@t.value";
-    lines.push(`await web.fill(${JSON.stringify(target)}, ${JSON.stringify(value)}, ${WEB_TYPE_OPTIONS_CODE});`);
+    lines.push(playwrightLocatorBlock(target, [
+      `await target.waitFor({ state: "visible", timeout: 10000 });`,
+      `await target.fill(${JSON.stringify(value)});`
+    ]));
   } else if (/\b(wait)\b/i.test(action)) {
-    lines.push("await web.wait(1000);");
+    lines.push("await page.waitForTimeout(1000);");
   } else if (/\b(press)\b/i.test(action)) {
-    lines.push(`await web.press(${JSON.stringify(target)}, "Enter", ${WEB_ELEMENT_OPTIONS_CODE});`);
+    lines.push(playwrightLocatorBlock(target, [
+      `await target.waitFor({ state: "visible", timeout: 10000 });`,
+      `await target.press("Enter");`
+    ]));
   } else {
-    lines.push(`await web.expectVisible(${JSON.stringify(target)}, ${keywordOptionsCode({ timeoutMs: 10000, state: "visible" })});`);
+    lines.push(`await expect(${playwrightLocatorCode(target)}).toBeVisible();`);
   }
 
   if (expected) {
     const expectedQuoted = inferQuotedText(expected) || expected.replace(/^verify\s+(?:that\s+)?/i, "").slice(0, 120);
 
     if (/\b(url|redirect)\b/i.test(expected)) {
-      lines.push(`await web.expectUrl(${JSON.stringify(expectedQuoted)}, ${keywordOptionsCode({ timeoutMs: 10000, match: "contains" })});`);
+      lines.push(`await expect(page).toHaveURL(${JSON.stringify(expectedQuoted)});`);
     } else {
-      lines.push(`await web.expectText("body", ${JSON.stringify(expectedQuoted)}, ${keywordOptionsCode({ timeoutMs: 10000, match: "contains" })});`);
+      lines.push(`await expect(page.locator("body")).toContainText(${JSON.stringify(expectedQuoted)});`);
     }
   }
 
@@ -1796,8 +2375,97 @@ const createArtifactContent = ({ testCase, updates }) => {
   return lines.join("\n");
 };
 
-const persistLearning = async ({ testCase, learnedLocators, capturedActions, capturedNetwork, transactionId }) => {
+const persistLearning = async ({
+  testCase,
+  learnedLocators = [],
+  capturedActions = [],
+  capturedNetwork = [],
+  transactionId,
+  repositoryModel = null,
+  integrationId = null
+}) => {
   let persisted = 0;
+  const recorderRepositoryModel = repositoryModel
+    || (capturedActions?.length
+      ? await buildRecorderRepositoryModel({
+        testCase,
+        capturedActions,
+        integrationId,
+        transactionId
+      })
+      : null);
+
+  if (recorderRepositoryModel) {
+    for (const screen of recorderRepositoryModel.screens.values()) {
+      await upsertLearningCache.run(
+        uuid(),
+        testCase.project_id || null,
+        testCase.app_type_id || null,
+        testCase.id,
+        screen.page_url || null,
+        screen.screen_name,
+        "__screen__",
+        "__screen__",
+        "screen",
+        1,
+        platformSource(screen.platform, "recorder_screen"),
+        {
+          record_kind: "screen",
+          screen_name: screen.screen_name,
+          object_name: "__screen__",
+          object_role: "screen",
+          platform: screen.platform || "web",
+          page_identity: screen.page_identity || null,
+          page_title: screen.page_title || null,
+          url_pattern_type: screen.url_pattern_type || "contains",
+          url_pattern_value: screen.url_pattern_value || screen.page_identity || screen.page_url || null,
+          learned_from: "recorder",
+          test_case_title: testCase.title,
+          last_recorded_at: new Date().toISOString()
+        }
+      );
+      persisted += 1;
+    }
+
+    for (const field of recorderRepositoryModel.fields.values()) {
+      await upsertLearningCache.run(
+        uuid(),
+        testCase.project_id || null,
+        testCase.app_type_id || null,
+        testCase.id,
+        field.page_url || null,
+        field.screen_name,
+        field.field_name,
+        field.locator,
+        field.locator_kind || inferLocatorStrategy(field.locator, "recorder"),
+        0.88,
+        platformSource(field.platform, "object_repository_recorder"),
+        {
+          record_kind: "field",
+          screen_name: field.screen_name,
+          object_name: field.field_name,
+          object_role: field.object_role || "field",
+          object_label: field.object_label || null,
+          keyword: field.keyword || null,
+          parameter_hint: field.parameter_hint || null,
+          page_identity: field.page_identity || null,
+          page_title: field.page_title || null,
+          source_action_indexes: field.source_action_indexes || [],
+          value_captured: Boolean(field.action?.value),
+          platform: field.platform || "web",
+          usage_keywords: [field.keyword].filter(Boolean),
+          target_criteria: [
+            field.object_label ? `Recorded label: ${field.object_label}` : null,
+            field.keyword ? `Recorded keyword: ${field.keyword}` : null,
+            field.locator ? `Primary locator: ${field.locator}` : null
+          ].filter(Boolean),
+          test_case_title: testCase.title,
+          last_recorded_at: new Date().toISOString()
+        }
+      );
+      persisted += 1;
+    }
+  }
 
   for (const locator of learnedLocators) {
     await upsertLearningCache.run(
@@ -1815,34 +2483,6 @@ const persistLearning = async ({ testCase, learnedLocators, capturedActions, cap
       {
         ...locator.metadata,
         test_case_title: testCase.title
-      }
-    );
-    persisted += 1;
-  }
-
-  for (const action of capturedActions) {
-    if (!action.locator) {
-      continue;
-    }
-
-    const objectRepositoryEntry = buildObjectRepositoryEntry(action);
-
-    await upsertLearningCache.run(
-      uuid(),
-      testCase.project_id || null,
-      testCase.app_type_id || null,
-      testCase.id,
-      action.url || null,
-      normalizeUrlKey(action.url),
-      objectRepositoryEntry?.object_name || action.text || action.type || "recorded action",
-      action.locator,
-      "recorder",
-      objectRepositoryEntry ? 0.82 : 0.72,
-      objectRepositoryEntry ? "object_repository" : "recorder",
-      {
-        action_type: action.type,
-        value_captured: Boolean(action.value),
-        ...(objectRepositoryEntry || {})
       }
     );
     persisted += 1;
@@ -2019,7 +2659,8 @@ const buildCaseCore = async ({
     learnedLocators: build.learned_locators,
     capturedActions,
     capturedNetwork,
-    transactionId: transaction_id
+    transactionId: transaction_id,
+    integrationId: integration_id
   });
   const artifactContent = createArtifactContent({
     testCase,
@@ -2107,6 +2748,7 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
         mapping_confidence: Number(mapping.confidence || 0) || null,
         source_action_index: mapping.candidates[0]?.source_action_index || null,
         source_action_indexes: mapping.candidates.map((candidate) => candidate.source_action_index).filter(Boolean),
+        keywords: [...new Set(mapping.candidates.map((candidate) => candidate.keyword).filter(Boolean))],
         has_code: true,
         has_api_request: false
       });
@@ -2138,6 +2780,7 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
       operation: "created",
       source_action_index: candidate.source_action_index,
       source_action_indexes: [candidate.source_action_index].filter(Boolean),
+      keywords: [candidate.keyword].filter(Boolean),
       mapping_source: "created",
       has_code: true,
       has_api_request: false
@@ -2148,24 +2791,77 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
   return applied;
 };
 
-const buildMobileAutomationCode = (action) => {
+const inferAndroidKeywordForAction = (action) => {
+  const type = String(action?.type || "").toLowerCase();
+  if (type === "tap") return "android.tap";
+  if (type === "type") return "android.type";
+  if (type === "pressback") return "android.pressBack";
+  return "android.step";
+};
+
+const resolveMobileRecorderTarget = (action, repositoryModel) => {
+  const member = getRecorderRepositoryMember(action, repositoryModel);
+  if (member?.reference && !String(member.locator || "").startsWith("point:")) {
+    return member.reference;
+  }
+
+  return action.locator || `point:${action.x || 0},${action.y || 0}`;
+};
+
+const buildMobileAutomationCode = (action, repositoryModel) => {
+  const keyword = inferAndroidKeywordForAction(action);
+
   if (action.type === "tap") {
-    return `await android.tap("${action.locator || `point:${action.x || 0},${action.y || 0}`}");`;
+    const target = resolveMobileRecorderTarget(action, repositoryModel);
+    if (String(target).startsWith("point:")) {
+      const [x, y] = String(target).replace(/^point:/, "").split(",").map((item) => Number(item.trim()) || 0);
+      return [
+        keywordComment(keyword, [target]),
+        `await driver.action("pointer").move({ x: ${x}, y: ${y} }).down().up().perform();`
+      ].join("\n");
+    }
+
+    return [
+      keywordComment(keyword, [target]),
+      webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.click();`
+      ])
+    ].join("\n");
   }
 
   if (action.type === "type") {
-    return `await android.type("focused", ${JSON.stringify(action.value || "")});`;
+    const target = action.locator ? resolveMobileRecorderTarget(action, repositoryModel) : "focused";
+    if (target === "focused") {
+      return [
+        keywordComment(keyword, [target, action.value || ""]),
+        `await driver.keys(${JSON.stringify(action.value || "")});`
+      ].join("\n");
+    }
+
+    return [
+      keywordComment(keyword, [target, action.value || ""]),
+      webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.clearValue();`,
+        `await element.setValue(${JSON.stringify(action.value || "")});`
+      ])
+    ].join("\n");
   }
 
   if (action.type === "pressBack") {
-    return "await android.pressBack();";
+    return [
+      keywordComment(keyword, []),
+      "await driver.back();"
+    ].join("\n");
   }
 
   return "";
 };
 
-const buildMobileStepCandidate = (action) => {
-  const automationCode = buildMobileAutomationCode(action);
+const buildMobileStepCandidate = (action, repositoryModel) => {
+  const automationCode = buildMobileAutomationCode(action, repositoryModel);
+  const keyword = inferAndroidKeywordForAction(action);
 
   if (!automationCode) {
     return null;
@@ -2175,6 +2871,7 @@ const buildMobileStepCandidate = (action) => {
     return {
       action: `Tap Android screen at ${action.locator || `${action.x || 0},${action.y || 0}`}`,
       expected_result: "The Android app accepts the tap and continues the flow.",
+      keyword,
       automation_code: automationCode
     };
   }
@@ -2183,6 +2880,7 @@ const buildMobileStepCandidate = (action) => {
     return {
       action: "Type text into the focused Android field",
       expected_result: "The value is entered in the Android app.",
+      keyword,
       automation_code: automationCode
     };
   }
@@ -2190,12 +2888,13 @@ const buildMobileStepCandidate = (action) => {
   return {
     action: "Press Android back",
     expected_result: "The Android app navigates back.",
+    keyword,
     automation_code: automationCode
   };
 };
 
-const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, targetStepId }) => {
-  const candidates = capturedActions.map(buildMobileStepCandidate).filter(Boolean);
+const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, targetStepId, repositoryModel }) => {
+  const candidates = capturedActions.map((action) => buildMobileStepCandidate(action, repositoryModel)).filter(Boolean);
   const caseSteps = await selectStepsForCase.all(testCase.id);
   const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
   const applied = [];
@@ -2218,6 +2917,7 @@ const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, 
       expected_result: existing.expected_result || candidates[0].expected_result,
       automation_code: automationCode,
       operation: "updated",
+      keywords: [...new Set(candidates.map((candidate) => candidate.keyword).filter(Boolean))],
       has_code: true,
       has_api_request: false
     }];
@@ -2241,6 +2941,7 @@ const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, 
         expected_result: existing.expected_result || candidate.expected_result,
         automation_code: candidate.automation_code,
         operation: "updated",
+        keywords: [candidate.keyword].filter(Boolean),
         has_code: true,
         has_api_request: false
       });
@@ -2265,6 +2966,7 @@ const applyMobileRecorderSteps = async ({ testCase, capturedActions, createdBy, 
       expected_result: candidate.expected_result,
       automation_code: candidate.automation_code,
       operation: "created",
+      keywords: [candidate.keyword].filter(Boolean),
       has_code: true,
       has_api_request: false
     });
@@ -2285,7 +2987,14 @@ const finalizeRecorderBuild = async ({
   additionalContext,
   targetStepId
 }) => {
-  const stepCandidates = buildRecorderStepCandidates(capturedActions);
+  const repositoryModel = await buildRecorderRepositoryModel({
+    testCase,
+    capturedActions,
+    integrationId,
+    transactionId,
+    platform: "web"
+  });
+  const stepCandidates = buildRecorderStepCandidates(capturedActions, repositoryModel);
   const caseSteps = await selectStepsForCase.all(testCase.id);
   const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
   let recorderMappings = [];
@@ -2370,7 +3079,9 @@ const finalizeRecorderBuild = async ({
     learnedLocators: [],
     capturedActions,
     capturedNetwork,
-    transactionId
+    transactionId,
+    repositoryModel,
+    integrationId
   });
   if (appliedSteps.length) {
     await markTestCaseAutomationReady.run(normalizeText(createdBy), testCase.id);
@@ -3886,11 +4597,28 @@ exports.finishRecorderSession = async ({
   }).catch(() => null);
 
   if (target === "mobile") {
+    const repositoryModel = await buildRecorderRepositoryModel({
+      testCase,
+      capturedActions,
+      integrationId: integration_id,
+      transactionId,
+      platform: "android"
+    });
     const stepUpdates = await applyMobileRecorderSteps({
       testCase,
       capturedActions,
       createdBy: created_by,
-      targetStepId
+      targetStepId,
+      repositoryModel
+    });
+    const learnedCount = await persistLearning({
+      testCase,
+      learnedLocators: [],
+      capturedActions,
+      capturedNetwork,
+      transactionId,
+      repositoryModel,
+      integrationId: integration_id
     });
     if (stepUpdates.length) {
       await markTestCaseAutomationReady.run(normalizeText(created_by), testCase.id);
@@ -3903,6 +4631,7 @@ exports.finishRecorderSession = async ({
         progress_percent: 100,
         recorder_session_id: session.id,
         action_count: capturedActions.length,
+        learned_locator_count: learnedCount,
         updated_step_count: stepUpdates.filter((step) => step.operation === "updated").length,
         created_step_count: stepUpdates.filter((step) => step.operation === "created").length
       },
@@ -3917,6 +4646,7 @@ exports.finishRecorderSession = async ({
       details: {
         recorder_session_id: session.id,
         action_count: capturedActions.length,
+        learned_locator_count: learnedCount,
         step_count: stepUpdates.length
       }
     });
@@ -3924,6 +4654,7 @@ exports.finishRecorderSession = async ({
       generated_step_count: stepUpdates.length,
       created_step_count: stepUpdates.filter((step) => step.operation === "created").length,
       updated_step_count: stepUpdates.filter((step) => step.operation === "updated").length,
+      learned_locator_count: learnedCount,
       message: stepUpdates.length
         ? "Mobile recorder stopped and Android keyword steps were saved."
         : "Mobile recorder stopped. No Android actions were captured.",

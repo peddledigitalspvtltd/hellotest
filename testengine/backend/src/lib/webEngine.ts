@@ -78,9 +78,14 @@ type StepExecutionOptions = {
 };
 
 type PageLocatorFacade = {
-  click: () => Promise<void>;
-  fill: (value: string) => Promise<void>;
-  press: (key: string) => Promise<void>;
+  click: (options?: WebElementOptions) => Promise<void>;
+  fill: (value: string, options?: WebFillOptions) => Promise<void>;
+  press: (key: string, options?: WebElementOptions) => Promise<void>;
+  hover: (options?: WebElementOptions) => Promise<void>;
+  dblclick: (options?: WebElementOptions) => Promise<void>;
+  selectOption: (value: string | string[], options?: WebElementOptions) => Promise<void>;
+  check: (options?: WebElementOptions) => Promise<void>;
+  uncheck: (options?: WebElementOptions) => Promise<void>;
   textContent: () => Promise<string>;
   innerText: () => Promise<string>;
   inputValue: () => Promise<string>;
@@ -103,6 +108,9 @@ type PageFacade = {
   waitForTimeout: (ms: number) => Promise<void>;
   waitForURL: (expected: string) => Promise<void>;
   waitForLoadState: (state?: string) => Promise<void>;
+  mouse: {
+    wheel: (deltaX: number, deltaY: number) => Promise<void>;
+  };
   waitForSelector: (target: string, options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeout?: number }) => Promise<PageLocatorFacade>;
   url: () => Promise<string>;
   textContent: (target: string) => Promise<string>;
@@ -147,6 +155,7 @@ type WebElementOptions = {
   waitFor?: "attached" | "visible" | "hidden" | "detached";
   force?: boolean;
   trial?: boolean;
+  button?: "left" | "right" | "middle";
 };
 
 type WebFillOptions = WebElementOptions & {
@@ -239,6 +248,7 @@ type ParsedAction =
 type ParsedExpectation =
   | { kind: "url"; expected: string }
   | { kind: "visible"; target: string }
+  | { kind: "visible_many"; targets: string[] }
   | { kind: "text"; target: string | null; expected: string };
 
 const DEFAULT_SELENIUM_GRID_URL = String(process.env.SELENIUM_GRID_URL || "http://127.0.0.1:4444/wd/hub").trim();
@@ -291,7 +301,8 @@ const normalizeElementOptions = (options?: WebElementOptions | null, fallbackTim
   scroll: options?.scroll ?? "nearest",
   waitFor: options?.waitFor || "visible",
   force: options?.force === true,
-  trial: options?.trial === true
+  trial: options?.trial === true,
+  button: (options?.button === "right" || options?.button === "middle" ? options.button : "left") as "left" | "right" | "middle"
 });
 
 const normalizeLoadState = (value?: string | null): WebLoadState => {
@@ -438,7 +449,13 @@ const extractUrlCandidate = (value: string) => {
     return urlMatch[0];
   }
 
-  const pathMatch = value.match(/(?:open|navigate|go|visit)\s+(?:to\s+)?(\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)/i);
+  const quotedPathMatch = value.match(/["'`](https?:\/\/[^"'`\s]+|\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)["'`]/i);
+
+  if (quotedPathMatch?.[1]) {
+    return quotedPathMatch[1];
+  }
+
+  const pathMatch = value.match(/(?:open|navigate|goto|go|visit)\s+(?:to\s+)?(\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)/i);
   return pathMatch?.[1] || null;
 };
 
@@ -574,10 +591,10 @@ const parseActionText = (step: EngineRunStep, context: RuntimeExecutionContext):
   const normalized = action.toLowerCase();
   const urlCandidate = extractUrlCandidate(action);
 
-  if (/^(open|navigate|go|visit)\b/.test(normalized) || urlCandidate) {
+  if (/^(open|navigate|goto|go|visit)\b/.test(normalized) || urlCandidate) {
     return {
       kind: "goto",
-      target: urlCandidate || action.replace(/^(open|navigate|go|visit)\s+(to\s+)?/i, "").trim()
+      target: urlCandidate || action.replace(/^(open|navigate|goto|go|visit)\s+(to\s+)?/i, "").trim()
     };
   }
 
@@ -637,6 +654,50 @@ const parseActionText = (step: EngineRunStep, context: RuntimeExecutionContext):
   return null;
 };
 
+const normalizeExpectedVisibleTarget = (value: string) =>
+  stripWrappingQuotes(value)
+    .replace(/\b(fields?|buttons?|links?|controls?)\b/gi, "")
+    .replace(/^(?:a|an|the)\s+/i, "")
+    .replace(/[.。]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const splitExpectedTargetList = (value: string) =>
+  value
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map(normalizeExpectedVisibleTarget)
+    .filter((item) => item.length > 0 && !/\b(page|screen|loads?|loaded|with|visible|displayed|shown)\b/i.test(item));
+
+const extractExpectedVisibleTargets = (expected: string) => {
+  if (!/\b(visible|displayed|shown|loads?|loaded|available|appears?)\b/i.test(expected)) {
+    return [];
+  }
+
+  const targets = new Set<string>();
+
+  for (const match of expected.matchAll(/["'`](.+?)["'`]\s*(?:button|link|field|control)?/gi)) {
+    const target = normalizeExpectedVisibleTarget(match[1]);
+    if (target) {
+      targets.add(target);
+    }
+  }
+
+  const fieldListMatch =
+    expected.match(/\b(?:with|showing|contains?|has)\s+(.+?)\s+fields?\b/i)
+    || expected.match(/([A-Za-z0-9_,\s'"`-]+?)\s+fields?\b/i);
+
+  if (fieldListMatch?.[1]) {
+    splitExpectedTargetList(fieldListMatch[1]).forEach((target) => targets.add(target));
+  }
+
+  const buttonListMatch = expected.match(/\b(?:and|with|has|contains?)\s+(.+?)\s+buttons?\b/i);
+  if (buttonListMatch?.[1]) {
+    splitExpectedTargetList(buttonListMatch[1]).forEach((target) => targets.add(target));
+  }
+
+  return [...targets];
+};
+
 const parseExpectedResult = (step: EngineRunStep, context: RuntimeExecutionContext): ParsedExpectation | null => {
   const expected = interpolateText(step.expected_result || "", context).trim();
 
@@ -644,11 +705,27 @@ const parseExpectedResult = (step: EngineRunStep, context: RuntimeExecutionConte
     return null;
   }
 
+  const visibleTargets = extractExpectedVisibleTargets(expected);
+  if (visibleTargets.length > 1) {
+    return {
+      kind: "visible_many",
+      targets: visibleTargets
+    };
+  }
+
+  if (visibleTargets.length === 1) {
+    return {
+      kind: "visible",
+      target: visibleTargets[0]
+    };
+  }
+
   const urlCandidate = extractUrlCandidate(expected);
-  if (urlCandidate || /\burl\b|\bpage\b/.test(expected.toLowerCase())) {
+  const explicitUrlExpectation = expected.match(/\burl\s+(?:is|should be|contains|includes|ends with|starts with)\s+(.+)$/i);
+  if (urlCandidate || explicitUrlExpectation?.[1]) {
     return {
       kind: "url",
-      expected: stripWrappingQuotes(urlCandidate || expected)
+      expected: stripWrappingQuotes(urlCandidate || explicitUrlExpectation?.[1] || expected)
     };
   }
 
@@ -656,7 +733,7 @@ const parseExpectedResult = (step: EngineRunStep, context: RuntimeExecutionConte
   if (visibleMatch) {
     return {
       kind: "visible",
-      target: stripWrappingQuotes(visibleMatch[1])
+      target: normalizeExpectedVisibleTarget(visibleMatch[1])
     };
   }
 
@@ -717,18 +794,92 @@ const resolveObjectRepositoryLocator = (envelope: EngineRunEnvelope, target: str
   return normalizeText(match?.locator || null) || target;
 };
 
-const createPlaywrightLocatorFacade = (resolver: (target: string) => Promise<Locator>, target: string): PageLocatorFacade => ({
-  click: async () => {
+const createPlaywrightLocatorFacade = (resolver: (target: string) => Promise<Locator>, target: string): PageLocatorFacade => {
+  const prepare = async (options?: WebElementOptions | null, fallbackTimeout = 10_000) => {
+    const normalized = normalizeElementOptions(options, fallbackTimeout);
     const locator = await resolver(target);
-    await locator.click();
+
+    if (normalized.waitFor !== "hidden" && normalized.waitFor !== "detached") {
+      await locator.waitFor({ state: normalized.waitFor, timeout: normalized.timeoutMs });
+    }
+
+    if (normalized.scroll && normalized.scroll !== "none") {
+      await locator.scrollIntoViewIfNeeded({ timeout: normalized.timeoutMs }).catch(() => undefined);
+    }
+
+    return { locator, options: normalized };
+  };
+
+  return {
+  click: async (options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.click({
+      button: prepared.options.button,
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
   },
-  fill: async (value: string) => {
-    const locator = await resolver(target);
-    await locator.fill(value);
+  fill: async (value: string, options?: WebFillOptions) => {
+    const prepared = await prepare(options);
+    const targetLocator = prepared.locator.locator("input, textarea, select, [contenteditable=true], [role=textbox]").first();
+    const targetCount = await targetLocator.count().catch(() => 0);
+    const locator = targetCount > 0 ? targetLocator : prepared.locator;
+    const fillOptions = {
+      clear: options?.clear !== false,
+      type: options?.type || "fill",
+      delayMs: Math.max(0, Number(options?.delayMs || 0))
+    };
+
+    if (fillOptions.type === "char-by-char") {
+      if (fillOptions.clear) {
+        await locator.fill("", { timeout: prepared.options.timeoutMs });
+      }
+      await locator.pressSequentially(value, { delay: fillOptions.delayMs, timeout: prepared.options.timeoutMs });
+      return;
+    }
+
+    await locator.fill(value, { timeout: prepared.options.timeoutMs });
   },
-  press: async (key: string) => {
-    const locator = await resolver(target);
-    await locator.press(key);
+  press: async (key: string, options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.press(key, { timeout: prepared.options.timeoutMs });
+  },
+  hover: async (options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.hover({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
+  },
+  dblclick: async (options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.dblclick({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
+  },
+  selectOption: async (value: string | string[], options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.selectOption(value, { timeout: prepared.options.timeoutMs });
+  },
+  check: async (options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.check({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
+  },
+  uncheck: async (options?: WebElementOptions) => {
+    const prepared = await prepare(options);
+    await prepared.locator.uncheck({
+      force: prepared.options.force,
+      trial: prepared.options.trial,
+      timeout: prepared.options.timeoutMs
+    });
   },
   textContent: async () => {
     const locator = await resolver(target);
@@ -763,7 +914,8 @@ const createPlaywrightLocatorFacade = (resolver: (target: string) => Promise<Loc
     const locator = await resolver(target);
     return locator.count();
   }
-});
+  };
+};
 
 class PlaywrightWebSession implements WebSession {
   readonly provider: EngineWebEngineProvider = "playwright";
@@ -1175,6 +1327,7 @@ class PlaywrightWebSession implements WebSession {
   async click(target: string, options?: WebElementOptions) {
     const prepared = await this.prepareLocator(target, options);
     await prepared.locator.click({
+      button: prepared.options.button,
       force: prepared.options.force,
       trial: prepared.options.trial,
       timeout: prepared.options.timeoutMs
@@ -1364,6 +1517,9 @@ class PlaywrightWebSession implements WebSession {
       waitForTimeout: (ms: number) => this.waitForTimeout(ms),
       waitForURL: (expected: string) => this.waitForUrl(expected),
       waitForLoadState: async (state?: string) => this.waitForLoadState(normalizeLoadState(state), { timeoutMs: this.timeouts.assertion }),
+      mouse: {
+        wheel: (deltaX: number, deltaY: number) => this.scroll(deltaX, deltaY)
+      },
       waitForSelector: async (target: string, options) => {
         const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value), target);
         await locator.waitFor(options);
@@ -1395,18 +1551,43 @@ class PlaywrightWebSession implements WebSession {
 }
 
 const createSeleniumLocatorFacade = (resolveElement: (target: string) => Promise<WebElement>, target: string): PageLocatorFacade => ({
-  click: async () => {
+  click: async (_options?: WebElementOptions) => {
     const element = await resolveElement(target);
     await element.click();
   },
-  fill: async (value: string) => {
+  fill: async (value: string, _options?: WebFillOptions) => {
     const element = await resolveElement(target);
     await element.clear();
     await element.sendKeys(value);
   },
-  press: async (key: string) => {
+  press: async (key: string, _options?: WebElementOptions) => {
     const element = await resolveElement(target);
     await element.sendKeys(key);
+  },
+  hover: async (_options?: WebElementOptions) => {
+    const element = await resolveElement(target);
+    await element.getRect();
+  },
+  dblclick: async (_options?: WebElementOptions) => {
+    const element = await resolveElement(target);
+    await element.click();
+    await element.click();
+  },
+  selectOption: async (value: string | string[], _options?: WebElementOptions) => {
+    const element = await resolveElement(target);
+    await element.sendKeys(Array.isArray(value) ? value[0] || "" : value);
+  },
+  check: async (_options?: WebElementOptions) => {
+    const element = await resolveElement(target);
+    if (!await element.isSelected().catch(() => false)) {
+      await element.click();
+    }
+  },
+  uncheck: async (_options?: WebElementOptions) => {
+    const element = await resolveElement(target);
+    if (await element.isSelected().catch(() => false)) {
+      await element.click();
+    }
   },
   textContent: async () => {
     const element = await resolveElement(target);
@@ -1890,6 +2071,9 @@ class SeleniumWebSession implements WebSession {
       waitForTimeout: (ms: number) => this.waitForTimeout(ms),
       waitForURL: (expected: string) => this.waitForUrl(expected),
       waitForLoadState: async (state?: string) => this.waitForLoadState(normalizeLoadState(state)),
+      mouse: {
+        wheel: (deltaX: number, deltaY: number) => this.scroll(deltaX, deltaY)
+      },
       waitForSelector: async (target: string) => {
         const locator = createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
         await locator.waitFor();
@@ -1982,6 +2166,13 @@ const applyGeneratedExpectation = async (
     return;
   }
 
+  if (expectation.kind === "visible_many") {
+    for (const target of expectation.targets) {
+      await session.expectVisible(target);
+    }
+    return;
+  }
+
   await session.expectText(expectation.target, expectation.expected);
 };
 
@@ -2041,6 +2232,9 @@ const buildBindings = (
     waitForTimeout: (ms: number) => providerBindings.page.waitForTimeout(ms),
     waitForURL: async (expected: string) => providerBindings.page.waitForURL(interpolateText(expected, context)),
     waitForLoadState: (state?: string) => providerBindings.page.waitForLoadState(state),
+    mouse: {
+      wheel: (deltaX: number, deltaY: number) => providerBindings.page.mouse.wheel(deltaX, deltaY)
+    },
     waitForSelector: async (target: string, options) => providerBindings.page.waitForSelector(resolveTarget(target), options),
     url: () => providerBindings.page.url(),
     textContent: async (target: string) => providerBindings.page.textContent(resolveTarget(target)),
@@ -2170,6 +2364,21 @@ const normalizeAutomationSource = (source: string) => {
   return stripTrailingTestWrapper(withoutImports);
 };
 
+const looksLikeExecutableAutomationSource = (source: string) => {
+  const trimmed = normalizeAutomationSource(source).trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  return /^\s*(?:await|async|function|const|let|var|import|export)\b/m.test(trimmed)
+    || /^\s*(?:if|for|while|switch|catch)\s*\(/m.test(trimmed)
+    || /^\s*(?:try|throw|return)\b.*[;{}]/m.test(trimmed)
+    || /\b(?:web|page|expect|capture|playwrightPage|driver|bindings)\s*[.(]/.test(trimmed)
+    || /=>/.test(trimmed)
+    || /[{};]/.test(trimmed);
+};
+
 const toAutomationFunctionExpression = (source: string) => {
   let trimmed = source.trim().replace(/;+\s*$/, "");
   trimmed = trimmed
@@ -2285,11 +2494,12 @@ const executeStepAttempt = async (
   const bindings = buildBindings(session, options.context, captures, options.envelope);
   const source = normalizeText(options.step.automation_code || null);
 
-  if (source) {
+  if (source && looksLikeExecutableAutomationSource(source)) {
     await executeAutomationCode(source, bindings);
   } else {
-    await applyGeneratedAction(session, options.step, options.context, options.envelope);
-    await applyGeneratedExpectation(session, options.step, options.context);
+    const generatedStep = source ? { ...options.step, action: source } : options.step;
+    await applyGeneratedAction(session, generatedStep, options.context, options.envelope);
+    await applyGeneratedExpectation(session, generatedStep, options.context);
   }
 };
 

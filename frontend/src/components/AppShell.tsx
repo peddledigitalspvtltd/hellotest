@@ -451,6 +451,7 @@ export function AppShell() {
                       <NavLink
                         aria-current={isActive ? "page" : undefined}
                         to={item.to}
+                        replace={isActive && location.pathname !== item.to}
                         className={isActive ? "nav-link is-active" : "nav-link"}
                         end={item.to === "/"}
                         title={shouldCollapseSidebar ? resolveNavLabel(item) : undefined}
@@ -478,6 +479,7 @@ export function AppShell() {
                                 aria-current={isSubItemActive ? "page" : undefined}
                                 className={isSubItemActive ? "nav-sublink is-active" : "nav-sublink"}
                                 key={subItem.to}
+                                replace={isActive && location.pathname !== subItem.to}
                                 to={subItem.to}
                               >
                                 <span className="nav-sublink-icon" aria-hidden="true">

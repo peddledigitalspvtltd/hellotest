@@ -137,73 +137,144 @@ const WEB_TYPE_DEFAULTS = {
   delayMs: 35
 };
 
+function playwrightLocatorExpression(target: string) {
+  return `page.locator(${quoteCodeString(target)})`;
+}
+
+function webdriverElementBlock(selector: string, lines: string[]) {
+  return [
+    "{",
+    `  const element = await driver.$(${quoteCodeString(selector)});`,
+    ...lines.map((line) => `  ${line}`),
+    "}"
+  ].join("\n");
+}
+
 function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string) {
   const target = locator.trim();
   const value = data.trim();
   const loadState = /^(load|domcontentloaded|networkidle)$/i.test(value) ? value.toLowerCase() : "domcontentloaded";
+  const locatorExpression = playwrightLocatorExpression(target);
+  const targetBlock = (lines: string[]) => [
+    "{",
+    `  const target = ${locatorExpression};`,
+    ...lines.map((line) => `  ${line}`),
+    "}"
+  ].join("\n");
 
   switch (option.id) {
     case "aiStep":
       return `await web.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ target: target || undefined })});`;
     case "goto":
-      return `await web.goto(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
+      return [
+        `await page.goto(${quoteCodeString(target)});`,
+        `await page.waitForLoadState("domcontentloaded");`
+      ].join("\n");
     case "openTab":
+      // The QAira helper mirrors Playwright context.newPage() and keeps later page.* calls on the active tab.
       return `await web.openTab(${target ? quoteCodeString(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "switchTab":
+      // The QAira helper mirrors choosing a Page from browserContext.pages() and makes it active.
       return `await web.switchTab(${quoteCodeString(target || "latest")});`;
     case "closeTab":
+      // The QAira helper mirrors Page.close() and moves the runtime to the next available tab.
       return target ? `await web.closeTab(${quoteCodeString(target)});` : "await web.closeTab();";
     case "reload":
-      return `await web.reload(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+      return [
+        `await page.reload();`,
+        `await page.waitForLoadState(${quoteCodeString(loadState)});`
+      ].join("\n");
     case "goBack":
-      return `await web.goBack(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+      return [
+        `await page.goBack();`,
+        `await page.waitForLoadState(${quoteCodeString(loadState)});`
+      ].join("\n");
     case "goForward":
-      return `await web.goForward(${formatOptionsObject({ timeoutMs: 30000, waitUntil: loadState })});`;
+      return [
+        `await page.goForward();`,
+        `await page.waitForLoadState(${quoteCodeString(loadState)});`
+      ].join("\n");
     case "waitForLoadState":
-      return `await web.waitForLoadState(${quoteCodeString(loadState)}, ${formatOptionsObject({ timeoutMs: 30000 })});`;
+      return `await page.waitForLoadState(${quoteCodeString(loadState)});`;
     case "click":
-      return `await web.click(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.click();`
+      ]);
     case "hover":
-      return `await web.hover(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.hover();`
+      ]);
     case "dblclick":
-      return `await web.dblclick(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.dblclick();`
+      ]);
     case "rightClick":
-      return `await web.rightClick(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.click({ button: "right" });`
+      ]);
     case "fill":
-      return `await web.fill(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_TYPE_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.fill(${quoteCodeString(value)});`
+      ]);
     case "clear":
-      return `await web.clear(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.fill("");`
+      ]);
     case "select":
-      return `await web.select(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.selectOption(${quoteCodeString(value)});`
+      ]);
     case "check":
-      return `await web.check(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.check();`
+      ]);
     case "uncheck":
-      return `await web.uncheck(${quoteCodeString(target)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `await target.uncheck();`
+      ]);
     case "press":
       return target
-        ? `await web.press(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject(WEB_ELEMENT_DEFAULTS)});`
+        ? targetBlock([
+            `await target.waitFor({ state: "visible", timeout: 10000 });`,
+            `await target.press(${quoteCodeString(value)});`
+          ])
         : `await page.press("body", ${quoteCodeString(value)});`;
     case "scroll": {
       const direction = /^(up|left)$/i.test(target) ? target.toLowerCase() : "down";
       const amount = Math.max(1, Number.parseInt(value, 10) || 600);
       const deltaX = direction === "left" ? -amount : direction === "right" ? amount : 0;
       const deltaY = direction === "up" ? -amount : direction === "down" ? amount : 0;
-      return `await web.scroll(${deltaX}, ${deltaY}, ${formatOptionsObject({ direction, amount })});`;
+      return `await page.mouse.wheel(${deltaX}, ${deltaY});`;
     }
     case "wait":
-      return `await web.wait(${Math.max(0, Number.parseInt(value, 10) || 1000)});`;
+      return `await page.waitForTimeout(${Math.max(0, Number.parseInt(value, 10) || 1000)});`;
     case "expectVisible":
-      return `await web.expectVisible(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, state: "visible" })});`;
+      return `await expect(${locatorExpression}).toBeVisible();`;
     case "expectText":
       return target
-        ? `await web.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`
-        : `await web.expectText(${quoteCodeString(value)});`;
+        ? `await expect(${locatorExpression}).toContainText(${quoteCodeString(value)});`
+        : `await expect(page.locator("body")).toContainText(${quoteCodeString(value)});`;
     case "expectUrl":
-      return `await web.expectUrl(${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
+      return `await expect(page).toHaveURL(${quoteCodeString(value)});`;
     case "captureText":
-      return `capture(${quoteCodeString(value || "@t.capturedText")}, await web.text(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, trim: true })}));`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `capture(${quoteCodeString(value || "@t.capturedText")}, (await target.textContent())?.trim() || "");`
+      ]);
     case "captureValue":
-      return `capture(${quoteCodeString(value || "@t.capturedValue")}, await web.value(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })}));`;
+      return targetBlock([
+        `await target.waitFor({ state: "visible", timeout: 10000 });`,
+        `capture(${quoteCodeString(value || "@t.capturedValue")}, await target.inputValue());`
+      ]);
     default:
       return "";
   }
@@ -213,59 +284,143 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
   const target = selector.trim();
   const value = data.trim();
   const splitNumbers = (source: string) => source.split(",").map((item) => Number.parseInt(item.trim(), 10) || 0);
+  const pointTarget = target.replace(/^point:/i, "");
+  const [pointX, pointY] = splitNumbers(pointTarget);
 
   switch (option.id) {
     case "aiStep":
       return `await android.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ selector: target || undefined })});`;
     case "tap":
-      return `await android.tap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, waitFor: "displayed" })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.click();`
+      ]);
     case "tapPoint":
-      return `await android.tapPoint(${quoteCodeString(target)}, ${formatOptionsObject({ source: "manual" })});`;
+      return `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`;
     case "doubleTap":
-      return `await android.doubleTap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
-    case "longPress":
-      return `await android.longPress(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 800)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+      if (/^(point:)?\d+\s*,\s*\d+$/i.test(target)) {
+        return [
+          `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`,
+          `await driver.pause(80);`,
+          `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`
+        ].join("\n");
+      }
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.click();`,
+        `await driver.pause(80);`,
+        `await element.click();`
+      ]);
+    case "longPress": {
+      const duration = Math.max(250, Number.parseInt(value, 10) || 800);
+      if (/^(point:)?\d+\s*,\s*\d+$/i.test(target)) {
+        return `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().pause(${duration}).up().perform();`;
+      }
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `const location = await element.getLocation();`,
+        `const size = await element.getSize();`,
+        `await driver.action("pointer").move({ x: Math.round(location.x + size.width / 2), y: Math.round(location.y + size.height / 2) }).down().pause(${duration}).up().perform();`
+      ]);
+    }
     case "type":
-      return `await android.type(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, clear: true, type: "char-by-char", delayMs: 35 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.clearValue();`,
+        `await element.setValue(${quoteCodeString(value)});`
+      ]);
     case "clear":
-      return `await android.clear(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `await element.clearValue();`
+      ]);
     case "hideKeyboard":
-      return "await android.hideKeyboard();";
+      return "await driver.hideKeyboard().catch(() => undefined);";
     case "waitForDisplayed":
-      return `await android.waitForDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)}, ${formatOptionsObject({ pollMs: 250 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)} });`
+      ]);
     case "waitForExist":
-      return `await android.waitForExist(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)}, ${formatOptionsObject({ pollMs: 250 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForExist({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)} });`
+      ]);
     case "expectText":
-      return `await android.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `const actualText = await element.getText();`,
+        `if (!String(actualText).includes(${quoteCodeString(value)})) {`,
+        `  throw new Error(${quoteCodeString(`Expected ${target} text to contain ${value}`)} + \`, received \${actualText}\`);`,
+        `}`
+      ]);
     case "expectDisplayed":
-      return `await android.expectDisplayed(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`
+      ]);
     case "expectNotDisplayed":
-      return `await android.expectNotDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)}, reverse: true });`
+      ]);
     case "expectEnabled":
-      return `await android.expectEnabled(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `if (!await element.isEnabled()) {`,
+        `  throw new Error(${quoteCodeString(`Expected ${target} to be enabled`)});`,
+        `}`
+      ]);
     case "expectValue":
-      return `await android.expectValue(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
+      return webdriverElementBlock(target, [
+        `await element.waitForDisplayed({ timeout: 10000 });`,
+        `const actualValue = await element.getAttribute("value").catch(() => null) || await element.getText().catch(() => "");`,
+        `if (!String(actualValue).includes(${quoteCodeString(value)})) {`,
+        `  throw new Error(${quoteCodeString(`Expected ${target} value to contain ${value}`)} + \`, received \${actualValue}\`);`,
+        `}`
+      ]);
     case "swipe": {
       const [startX, startY] = splitNumbers(target);
       const [endX, endY, duration] = splitNumbers(value);
-      return `await android.swipe(${startX}, ${startY}, ${endX}, ${endY}, ${duration || 300});`;
+      return [
+        `await driver.touchAction([`,
+        `  { action: "press", x: ${startX || 500}, y: ${startY || 1500} },`,
+        `  { action: "wait", ms: ${duration || 300} },`,
+        `  { action: "moveTo", x: ${endX || 500}, y: ${endY || 500} },`,
+        `  "release"`,
+        `]);`
+      ].join("\n");
     }
     case "scrollIntoView":
-      return `await android.scrollIntoView(${quoteCodeString(target)}, ${formatOptionsObject({ direction: /^(up|left)$/i.test(value) ? value.toLowerCase() : "down", maxScrolls: 6 })});`;
+      return [
+        "{",
+        `  const direction = ${quoteCodeString(/^(up|left)$/i.test(value) ? "up" : "down")};`,
+        `  for (let attempt = 0; attempt < 6; attempt += 1) {`,
+        `    const element = await driver.$(${quoteCodeString(target)});`,
+        `    if (await element.isDisplayed().catch(() => false)) break;`,
+        `    const size = await driver.getWindowSize();`,
+        `    const startY = direction === "down" ? Math.round(size.height * 0.75) : Math.round(size.height * 0.25);`,
+        `    const endY = direction === "down" ? Math.round(size.height * 0.25) : Math.round(size.height * 0.75);`,
+        `    await driver.touchAction([`,
+        `      { action: "press", x: Math.round(size.width / 2), y: startY },`,
+        `      { action: "wait", ms: 250 },`,
+        `      { action: "moveTo", x: Math.round(size.width / 2), y: endY },`,
+        `      "release"`,
+        `    ]);`,
+        `  }`,
+        `  await (await driver.$(${quoteCodeString(target)})).waitForDisplayed({ timeout: 10000 });`,
+        "}"
+      ].join("\n");
     case "pressBack":
-      return "await android.pressBack();";
+      return "await driver.back();";
     case "pressKeyCode":
-      return `await android.pressKeyCode(${Math.max(0, Number.parseInt(target, 10) || 0)});`;
+      return `await driver.pressKeyCode(${Math.max(0, Number.parseInt(target, 10) || 0)});`;
     case "backgroundApp":
-      return `await android.backgroundApp(${Math.max(1, Number.parseInt(target || value, 10) || 3)});`;
+      return `await driver.background(${Math.max(1, Number.parseInt(target || value, 10) || 3)});`;
     case "activateApp":
-      return `await android.activateApp(${quoteCodeString(target)});`;
+      return `await driver.activateApp(${quoteCodeString(target)});`;
     case "terminateApp":
-      return `await android.terminateApp(${quoteCodeString(target)});`;
+      return `await driver.terminateApp(${quoteCodeString(target)});`;
     case "setOrientation":
-      return `await android.setOrientation(${quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
+      return `await driver.setOrientation(${quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
     case "pause":
-      return `await android.pause(${Math.max(0, Number.parseInt(target, 10) || 1000)});`;
+      return `await driver.pause(${Math.max(0, Number.parseInt(target, 10) || 1000)});`;
     default:
       return "";
   }

@@ -10,9 +10,22 @@ ARTIFACT_DIR="${QAIRA_HOST_RECORDER_ARTIFACT_ROOT:-$LOCAL_RUN_DIR/artifacts/host
 PORT="${QAIRA_HOST_RECORDER_PORT:-4311}"
 HOST_RECORDER_BIN="${QAIRA_HOST_RECORDER_BIN:-$LOCAL_RUN_DIR/bin/qaira-host-recorder}"
 SOURCE_NEWER_THAN_RECORDER=false
+UPDATED_RECORDER_SOURCE=""
 
-if [ -x "$HOST_RECORDER_BIN" ] && [ -f "$ENGINE_DIR/src/lib/recorder.ts" ] && [ "$ENGINE_DIR/src/lib/recorder.ts" -nt "$HOST_RECORDER_BIN" ]; then
-  SOURCE_NEWER_THAN_RECORDER=true
+if [ -x "$HOST_RECORDER_BIN" ]; then
+  for source_file in \
+    "$ENGINE_DIR/src/server.ts" \
+    "$ENGINE_DIR/src/lib/webEngine.ts" \
+    "$ENGINE_DIR/src/lib/recorder.ts" \
+    "$ENGINE_DIR/src/lib/pipeline.ts" \
+    "$ENGINE_DIR/src/lib/executor.ts"
+  do
+    if [ -f "$source_file" ] && [ "$source_file" -nt "$HOST_RECORDER_BIN" ]; then
+      SOURCE_NEWER_THAN_RECORDER=true
+      UPDATED_RECORDER_SOURCE="$source_file"
+      break
+    fi
+  done
 fi
 
 mkdir -p "$BROWSER_DIR" "$ARTIFACT_DIR"
@@ -22,7 +35,8 @@ if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/health" 
   echo "  Browser URL: http://localhost:$PORT"
   echo "  API/container URL: http://host.docker.internal:$PORT"
   if [ "$SOURCE_NEWER_THAN_RECORDER" = "true" ]; then
-    echo "  Updated Inspect source is available; restart this host recorder to load it."
+    echo "  Updated host recorder source is available; restart this host recorder to load it."
+    echo "  Newer source: $UPDATED_RECORDER_SOURCE"
   fi
   exit 0
 fi
@@ -40,7 +54,8 @@ fi
 USE_PACKAGED_RECORDER=true
 if [ "$SOURCE_NEWER_THAN_RECORDER" = "true" ]; then
   USE_PACKAGED_RECORDER=false
-  echo "Recorder source is newer than the packaged binary; using the current source build."
+  echo "Host recorder source is newer than the packaged binary; using the current source build."
+  echo "  Newer source: $UPDATED_RECORDER_SOURCE"
   echo "  Run npm run package:host-recorder from testengine/backend to refresh the distributed binary."
   echo
 fi
