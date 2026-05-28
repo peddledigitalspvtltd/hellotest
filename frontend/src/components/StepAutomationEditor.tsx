@@ -90,12 +90,27 @@ const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
   { id: "aiStep", label: "AI Step", selectorLabel: "Optional selector", valueLabel: "Instruction", valueRequired: true },
   { id: "codedJS", label: "CodedJS", selectorLabel: "Optional selector", valueLabel: "Edit generated code below" },
   { id: "tap", label: "Tap", selectorLabel: "UiAutomator/XPath/accessibility id", valueLabel: "Optional note", selectorRequired: true },
+  { id: "tapPoint", label: "Tap point", selectorLabel: "X,Y", valueLabel: "Optional note", selectorRequired: true, hint: "Example: 540,1200" },
+  { id: "doubleTap", label: "Double tap", selectorLabel: "Selector or point:X,Y", valueLabel: "Optional note", selectorRequired: true },
+  { id: "longPress", label: "Long press", selectorLabel: "Selector or point:X,Y", valueLabel: "Duration ms", selectorRequired: true },
   { id: "type", label: "Type", selectorLabel: "Input selector", valueLabel: "Text or token", selectorRequired: true, valueRequired: true },
   { id: "clear", label: "Clear", selectorLabel: "Input selector", valueLabel: "Optional note", selectorRequired: true },
+  { id: "hideKeyboard", label: "Hide keyboard", selectorLabel: "Optional note", valueLabel: "Optional note" },
   { id: "waitForDisplayed", label: "Wait visible", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
+  { id: "waitForExist", label: "Wait exists", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
   { id: "expectText", label: "Assert text", selectorLabel: "Selector", valueLabel: "Expected text", selectorRequired: true, valueRequired: true },
+  { id: "expectDisplayed", label: "Assert visible", selectorLabel: "Selector", valueLabel: "Optional note", selectorRequired: true },
+  { id: "expectNotDisplayed", label: "Assert hidden", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
+  { id: "expectEnabled", label: "Assert enabled", selectorLabel: "Selector", valueLabel: "Optional note", selectorRequired: true },
+  { id: "expectValue", label: "Assert value", selectorLabel: "Selector", valueLabel: "Expected value", selectorRequired: true, valueRequired: true },
   { id: "swipe", label: "Swipe", selectorLabel: "Start X,Y", valueLabel: "End X,Y,duration", selectorRequired: true, valueRequired: true, hint: "Example: selector 500,1500 and value 500,500,300" },
+  { id: "scrollIntoView", label: "Scroll into view", selectorLabel: "Selector/text", valueLabel: "Direction", selectorRequired: true },
   { id: "pressBack", label: "Press back", selectorLabel: "Optional note", valueLabel: "Optional note" },
+  { id: "pressKeyCode", label: "Press key code", selectorLabel: "Android key code", valueLabel: "Optional note", selectorRequired: true },
+  { id: "backgroundApp", label: "Background app", selectorLabel: "Seconds", valueLabel: "Optional note" },
+  { id: "activateApp", label: "Activate app", selectorLabel: "App package", valueLabel: "Optional note", selectorRequired: true },
+  { id: "terminateApp", label: "Terminate app", selectorLabel: "App package", valueLabel: "Optional note", selectorRequired: true },
+  { id: "setOrientation", label: "Set orientation", selectorLabel: "PORTRAIT or LANDSCAPE", valueLabel: "Optional note", selectorRequired: true },
   { id: "pause", label: "Pause", selectorLabel: "Milliseconds", valueLabel: "Optional note", selectorRequired: true }
 ];
 
@@ -204,21 +219,51 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
       return `await android.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ selector: target || undefined })});`;
     case "tap":
       return `await android.tap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000, waitFor: "displayed" })});`;
+    case "tapPoint":
+      return `await android.tapPoint(${quoteCodeString(target)}, ${formatOptionsObject({ source: "manual" })});`;
+    case "doubleTap":
+      return `await android.doubleTap(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+    case "longPress":
+      return `await android.longPress(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 800)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
     case "type":
       return `await android.type(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, clear: true, type: "char-by-char", delayMs: 35 })});`;
     case "clear":
       return `await android.clear(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+    case "hideKeyboard":
+      return "await android.hideKeyboard();";
     case "waitForDisplayed":
       return `await android.waitForDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)}, ${formatOptionsObject({ pollMs: 250 })});`;
+    case "waitForExist":
+      return `await android.waitForExist(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)}, ${formatOptionsObject({ pollMs: 250 })});`;
     case "expectText":
       return `await android.expectText(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
+    case "expectDisplayed":
+      return `await android.expectDisplayed(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+    case "expectNotDisplayed":
+      return `await android.expectNotDisplayed(${quoteCodeString(target)}, ${Math.max(250, Number.parseInt(value, 10) || 10000)});`;
+    case "expectEnabled":
+      return `await android.expectEnabled(${quoteCodeString(target)}, ${formatOptionsObject({ timeoutMs: 10000 })});`;
+    case "expectValue":
+      return `await android.expectValue(${quoteCodeString(target)}, ${quoteCodeString(value)}, ${formatOptionsObject({ timeoutMs: 10000, match: "contains" })});`;
     case "swipe": {
       const [startX, startY] = splitNumbers(target);
       const [endX, endY, duration] = splitNumbers(value);
       return `await android.swipe(${startX}, ${startY}, ${endX}, ${endY}, ${duration || 300});`;
     }
+    case "scrollIntoView":
+      return `await android.scrollIntoView(${quoteCodeString(target)}, ${formatOptionsObject({ direction: /^(up|left)$/i.test(value) ? value.toLowerCase() : "down", maxScrolls: 6 })});`;
     case "pressBack":
       return "await android.pressBack();";
+    case "pressKeyCode":
+      return `await android.pressKeyCode(${Math.max(0, Number.parseInt(target, 10) || 0)});`;
+    case "backgroundApp":
+      return `await android.backgroundApp(${Math.max(1, Number.parseInt(target || value, 10) || 3)});`;
+    case "activateApp":
+      return `await android.activateApp(${quoteCodeString(target)});`;
+    case "terminateApp":
+      return `await android.terminateApp(${quoteCodeString(target)});`;
+    case "setOrientation":
+      return `await android.setOrientation(${quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
     case "pause":
       return `await android.pause(${Math.max(0, Number.parseInt(target, 10) || 1000)});`;
     default:

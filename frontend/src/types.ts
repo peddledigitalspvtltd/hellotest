@@ -149,6 +149,28 @@ export type AiDesignImageInput = {
   url: string;
 };
 
+export type AiPromptTemplate = {
+  id: string;
+  project_id: string | null;
+  app_type_id?: string | null;
+  scope: string;
+  name: string;
+  description?: string | null;
+  domain?: string | null;
+  role?: string | null;
+  test_type?: string | null;
+  test_format?: string | null;
+  test_count?: number | null;
+  prompt_text: string;
+  applies_to: string[];
+  tags: string[];
+  built_in?: boolean;
+  is_active?: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export type AiDesignedTestCaseCandidate = {
   client_id: string;
   title: string;

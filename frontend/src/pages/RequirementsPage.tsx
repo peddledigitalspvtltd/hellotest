@@ -2053,6 +2053,8 @@ export function RequirementsPage() {
           onMaxCasesChange={setMaxCases}
           previewCases={previewCases}
           previewMessage={previewMessage}
+          promptTemplateAppTypeId={appTypeId}
+          promptTemplateProjectId={projectId}
           onPreviewMessageDismiss={() => setPreviewMessage("")}
           previewTone={previewTone}
           referenceImages={aiReferenceImages}

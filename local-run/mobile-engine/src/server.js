@@ -12,13 +12,29 @@ const nowIso = () => new Date().toISOString();
 
 const KEYWORDS = [
   "aiStep",
+  "step",
   "tap",
+  "tapPoint",
+  "doubleTap",
+  "longPress",
   "type",
   "clear",
+  "hideKeyboard",
   "swipe",
   "waitForDisplayed",
+  "waitForExist",
   "expectText",
+  "expectDisplayed",
+  "expectNotDisplayed",
+  "expectEnabled",
+  "expectValue",
+  "scrollIntoView",
   "pressBack",
+  "pressKeyCode",
+  "backgroundApp",
+  "activateApp",
+  "terminateApp",
+  "setOrientation",
   "pause"
 ];
 
@@ -30,6 +46,7 @@ function parseKeywordLine(line) {
   if (!match) return null;
 
   const keyword = match[1];
+  if (keyword === "step") return null;
   const argsSource = `[${match[2]}]`;
   try {
     const args = Function(`"use strict"; return (${argsSource});`)();
@@ -122,19 +139,82 @@ function recordAction(session, action) {
   return next;
 }
 
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+function parsePoint(value) {
+  const normalized = normalizeText(value).replace(/^point:/i, "");
+  const [x, y] = normalized.split(",").map((item) => Number(item.trim()) || 0);
+  return { x, y };
+}
+
+async function tapPoint(driver, point) {
+  await driver.action("pointer").move(point).down().up().perform();
+}
+
+async function resolveElementCenter(driver, selector) {
+  if (String(selector).startsWith("point:")) {
+    return parsePoint(selector);
+  }
+
+  const element = await driver.$(String(selector));
+  const location = await element.getLocation();
+  const size = await element.getSize();
+  return {
+    x: Math.round(location.x + size.width / 2),
+    y: Math.round(location.y + size.height / 2),
+    element
+  };
+}
+
+async function executeCodedAndroidScript(driver, source) {
+  const android = buildAndroidApi(driver);
+  const fn = new AsyncFunction("android", "driver", "params", "capture", source);
+  const captures = {};
+  const capture = (key, value) => {
+    captures[String(key || "").replace(/^@?[trs]\./, "") || `capture_${Object.keys(captures).length + 1}`] = String(value ?? "");
+  };
+  await fn(android, driver, {}, capture);
+  return captures;
+}
+
 async function executeKeyword(driver, command) {
   const [selector, value, extra] = command.args;
   switch (command.keyword) {
+    case "step":
+      if (typeof value === "function") {
+        await value();
+      }
+      return { status: "passed", note: `Completed Android step ${selector || ""}`.trim() };
     case "aiStep":
       return { status: "passed", note: `AI step noted: ${selector || value || "instruction"}` };
     case "tap":
       if (String(selector).startsWith("point:")) {
-        const [x, y] = String(selector).replace(/^point:/, "").split(",").map((item) => Number(item.trim()) || 0);
-        await driver.action("pointer").move({ x, y }).down().up().perform();
+        await tapPoint(driver, parsePoint(selector));
       } else {
         await driver.$(String(selector)).click();
       }
       return { status: "passed", note: `Tapped ${selector}` };
+    case "tapPoint":
+      await tapPoint(driver, parsePoint(selector));
+      return { status: "passed", note: `Tapped point ${selector}` };
+    case "doubleTap":
+      if (String(selector).startsWith("point:")) {
+        const point = parsePoint(selector);
+        await tapPoint(driver, point);
+        await driver.pause(80);
+        await tapPoint(driver, point);
+      } else {
+        const element = await driver.$(String(selector));
+        await element.click();
+        await driver.pause(80);
+        await element.click();
+      }
+      return { status: "passed", note: `Double tapped ${selector}` };
+    case "longPress": {
+      const resolved = await resolveElementCenter(driver, selector);
+      await driver.action("pointer").move({ x: resolved.x, y: resolved.y }).down().pause(Number(value) || 800).up().perform();
+      return { status: "passed", note: `Long pressed ${selector}` };
+    }
     case "type":
       if (String(selector) === "focused") {
         await driver.keys(String(value || ""));
@@ -145,9 +225,15 @@ async function executeKeyword(driver, command) {
     case "clear":
       await driver.$(String(selector)).clearValue();
       return { status: "passed", note: `Cleared ${selector}` };
+    case "hideKeyboard":
+      await driver.hideKeyboard().catch(() => undefined);
+      return { status: "passed", note: "Keyboard hidden" };
     case "waitForDisplayed":
       await driver.$(String(selector)).waitForDisplayed({ timeout: Number(value) || 10000 });
       return { status: "passed", note: `${selector} displayed` };
+    case "waitForExist":
+      await driver.$(String(selector)).waitForExist({ timeout: Number(value) || 10000 });
+      return { status: "passed", note: `${selector} exists` };
     case "expectText": {
       const text = await driver.$(String(selector)).getText();
       if (!String(text).includes(String(value || ""))) {
@@ -155,23 +241,115 @@ async function executeKeyword(driver, command) {
       }
       return { status: "passed", note: `${selector} text matched` };
     }
+    case "expectDisplayed": {
+      const displayed = await driver.$(String(selector)).isDisplayed();
+      if (!displayed) throw new Error(`Expected ${selector} to be displayed`);
+      return { status: "passed", note: `${selector} is displayed` };
+    }
+    case "expectNotDisplayed": {
+      const element = await driver.$(String(selector));
+      await element.waitForDisplayed({ timeout: Number(value) || 10000, reverse: true });
+      return { status: "passed", note: `${selector} is not displayed` };
+    }
+    case "expectEnabled": {
+      const enabled = await driver.$(String(selector)).isEnabled();
+      if (!enabled) throw new Error(`Expected ${selector} to be enabled`);
+      return { status: "passed", note: `${selector} is enabled` };
+    }
+    case "expectValue": {
+      const element = await driver.$(String(selector));
+      const actual = await element.getAttribute("value").catch(() => null) || await element.getText().catch(() => "");
+      if (!String(actual).includes(String(value || ""))) {
+        throw new Error(`Expected ${selector} value to contain ${value}, received ${actual}`);
+      }
+      return { status: "passed", note: `${selector} value matched` };
+    }
     case "swipe":
-      await driver.touchAction([
-        { action: "press", x: Number(selector) || 500, y: Number(value) || 1500 },
-        { action: "wait", ms: Number(extra) || 300 },
-        { action: "moveTo", x: Number(command.args[3]) || 500, y: Number(command.args[4]) || 500 },
-        "release"
-      ]);
+      {
+        const [startX, startY, endX, endY, duration] = command.args.map((item) => Number(item) || 0);
+        await driver.touchAction([
+          { action: "press", x: startX || 500, y: startY || 1500 },
+          { action: "wait", ms: duration || 300 },
+          { action: "moveTo", x: endX || 500, y: endY || 500 },
+          "release"
+        ]);
+      }
       return { status: "passed", note: "Swipe completed" };
+    case "scrollIntoView": {
+      const direction = /^(up|left)$/i.test(String(value || "")) ? "up" : "down";
+      const maxScrolls = Number(extra?.maxScrolls || extra) || 6;
+      for (let index = 0; index < maxScrolls; index += 1) {
+        const element = await driver.$(String(selector));
+        if (await element.isDisplayed().catch(() => false)) {
+          return { status: "passed", note: `${selector} scrolled into view` };
+        }
+        const size = await driver.getWindowSize();
+        const startY = direction === "down" ? Math.round(size.height * 0.75) : Math.round(size.height * 0.25);
+        const endY = direction === "down" ? Math.round(size.height * 0.25) : Math.round(size.height * 0.75);
+        await driver.touchAction([
+          { action: "press", x: Math.round(size.width / 2), y: startY },
+          { action: "wait", ms: 250 },
+          { action: "moveTo", x: Math.round(size.width / 2), y: endY },
+          "release"
+        ]);
+      }
+      throw new Error(`Unable to scroll ${selector} into view`);
+    }
     case "pressBack":
       await driver.back();
       return { status: "passed", note: "Pressed Android back" };
+    case "pressKeyCode":
+      await driver.pressKeyCode(Number(selector) || Number(value) || 0);
+      return { status: "passed", note: `Pressed Android key code ${selector || value}` };
+    case "backgroundApp":
+      await driver.background(Number(selector) || Number(value) || 3);
+      return { status: "passed", note: "Backgrounded app" };
+    case "activateApp":
+      await driver.activateApp(String(selector));
+      return { status: "passed", note: `Activated app ${selector}` };
+    case "terminateApp":
+      await driver.terminateApp(String(selector));
+      return { status: "passed", note: `Terminated app ${selector}` };
+    case "setOrientation":
+      await driver.setOrientation(/landscape/i.test(String(selector)) ? "LANDSCAPE" : "PORTRAIT");
+      return { status: "passed", note: `Set orientation ${selector}` };
     case "pause":
       await driver.pause(Number(selector) || 1000);
       return { status: "passed", note: "Pause completed" };
     default:
       throw new Error(`Unsupported Android keyword ${command.keyword}`);
   }
+}
+
+function buildAndroidApi(driver) {
+  const run = (keyword, args) => executeKeyword(driver, { keyword, args });
+  return {
+    step: async (_name, fn) => (typeof fn === "function" ? fn() : undefined),
+    aiStep: (instruction, options) => run("aiStep", [instruction, options]),
+    tap: (selector, options) => run("tap", [selector, options]),
+    tapPoint: (point, options) => run("tapPoint", [point, options]),
+    doubleTap: (selector, options) => run("doubleTap", [selector, options]),
+    longPress: (selector, durationMs, options) => run("longPress", [selector, durationMs, options]),
+    type: (selector, value, options) => run("type", [selector, value, options]),
+    clear: (selector, options) => run("clear", [selector, options]),
+    hideKeyboard: () => run("hideKeyboard", []),
+    waitForDisplayed: (selector, timeoutMs, options) => run("waitForDisplayed", [selector, timeoutMs, options]),
+    waitForExist: (selector, timeoutMs, options) => run("waitForExist", [selector, timeoutMs, options]),
+    expectText: (selector, value, options) => run("expectText", [selector, value, options]),
+    expectDisplayed: (selector, options) => run("expectDisplayed", [selector, options]),
+    expectNotDisplayed: (selector, timeoutMs) => run("expectNotDisplayed", [selector, timeoutMs]),
+    expectEnabled: (selector, options) => run("expectEnabled", [selector, options]),
+    expectValue: (selector, value, options) => run("expectValue", [selector, value, options]),
+    swipe: (startX, startY, endX, endY, durationMs) => run("swipe", [startX, startY, endX, endY, durationMs]),
+    scrollIntoView: (selector, options) => run("scrollIntoView", [selector, options?.direction, options]),
+    pressBack: () => run("pressBack", []),
+    pressKeyCode: (code) => run("pressKeyCode", [code]),
+    backgroundApp: (seconds) => run("backgroundApp", [seconds]),
+    activateApp: (appId) => run("activateApp", [appId]),
+    terminateApp: (appId) => run("terminateApp", [appId]),
+    setOrientation: (orientation) => run("setOrientation", [orientation]),
+    pause: (ms) => run("pause", [ms])
+  };
 }
 
 app.get("/health", async () => ({
@@ -197,7 +375,8 @@ app.post("/api/v1/mobile/execute", async (request) => {
   await withDriver(payload, async (driver) => {
     for (const step of steps) {
       const commands = parseKeywordScript(step.automation_code);
-      if (!commands.length) {
+      const source = String(step.automation_code || "").trim();
+      if (!commands.length && !source) {
         results.push({
           step_id: step.id,
           status: "blocked",
@@ -207,8 +386,12 @@ app.post("/api/v1/mobile/execute", async (request) => {
       }
 
       try {
-        for (const command of commands) {
-          await executeKeyword(driver, command);
+        if (commands.length) {
+          for (const command of commands) {
+            await executeKeyword(driver, command);
+          }
+        } else {
+          await executeCodedAndroidScript(driver, source);
         }
         results.push({ step_id: step.id, status: "passed", note: "Android step completed." });
       } catch (error) {

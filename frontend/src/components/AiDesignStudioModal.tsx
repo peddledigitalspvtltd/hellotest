@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
 import { ToastMessage } from "./ToastMessage";
 
@@ -50,7 +51,9 @@ export function AiDesignStudioModal({
   dialogClassName,
   parallelRequirementCount,
   onParallelRequirementCountChange,
-  scheduleHelperText
+  scheduleHelperText,
+  promptTemplateProjectId,
+  promptTemplateAppTypeId
 }: {
   eyebrow: string;
   requirementLabel: string;
@@ -98,6 +101,8 @@ export function AiDesignStudioModal({
   parallelRequirementCount?: number;
   onParallelRequirementCountChange?: (value: number) => void;
   scheduleHelperText?: string;
+  promptTemplateProjectId?: string;
+  promptTemplateAppTypeId?: string;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -248,7 +253,16 @@ export function AiDesignStudioModal({
                     </div>
                   </div>
 
-                  <FormField label="Additional context">
+                  <div className="ai-prompt-context-head">
+                    <span>Additional context</span>
+                    <AiPromptTemplatePicker
+                      appTypeId={promptTemplateAppTypeId}
+                      disabled={isPreviewing || isScheduling || isAccepting}
+                      onApply={(prompt) => onAdditionalContextChange(prompt)}
+                      projectId={promptTemplateProjectId}
+                    />
+                  </div>
+                  <FormField label="Prompt copy">
                     <textarea
                       placeholder="Release goals, risky flows, browser/device notes, compliance rules, known gaps..."
                       rows={5}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "./AppIcons";
+import { api } from "../lib/api";
 
 export type RecorderStartMode = "local" | "remote";
 
@@ -72,6 +73,7 @@ export function RecorderStartControls({
   const [localEngineUrl, setLocalEngineUrl] = useState(DEFAULT_LOCAL_ENGINE_URL);
   const [checkState, setCheckState] = useState<LocalCheckState>("idle");
   const [checkMessage, setCheckMessage] = useState("Check your local Test Engine before starting the recorder.");
+  const [isLaunchingAgent, setIsLaunchingAgent] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -137,6 +139,48 @@ export function RecorderStartControls({
       recorder_public_base_url: normalizedBrowserUrl || DEFAULT_LOCAL_BROWSER_URL
     });
     setIsSetupOpen(false);
+  };
+
+  const handleLaunchLocalAgent = async () => {
+    setIsLaunchingAgent(true);
+    setCheckMessage("Requesting QAira local runner launch...");
+
+    try {
+      const result = await api.localAgent.start({ target: "playwright" });
+      setCheckMessage(result.message || "Local runner launch requested.");
+      if (result.base_url) {
+        setLocalBrowserUrl(result.base_url);
+      }
+      window.setTimeout(() => void handleCheckSetup(), 1600);
+    } catch (error) {
+      setCheckState("failed");
+      setCheckMessage(error instanceof Error ? error.message : "Unable to request local runner launch.");
+    } finally {
+      setIsLaunchingAgent(false);
+    }
+  };
+
+  const handleCheckAgentStatus = async () => {
+    setCheckState("checking");
+    setCheckMessage("Checking local Playwright, mobile engine, and Appium services...");
+
+    try {
+      const status = await api.localAgent.status();
+      const webReady = status.web.ready;
+      const mobileReady = status.mobile.ready;
+      const appiumReady = status.appium.ready;
+      setLocalBrowserUrl(status.recommended.web_public_base_url || DEFAULT_LOCAL_BROWSER_URL);
+      setCheckState(webReady ? "ready" : "failed");
+      setCheckMessage([
+        `Playwright ${webReady ? "ready" : "not reachable"}`,
+        `Mobile engine ${mobileReady ? "ready" : "not reachable"}`,
+        `Appium ${appiumReady ? "ready" : "not reachable"}`,
+        status.launch_supported ? "one-click launch enabled" : "one-click launch disabled"
+      ].join(" · "));
+    } catch (error) {
+      setCheckState("failed");
+      setCheckMessage(error instanceof Error ? error.message : "Unable to check local runner services.");
+    }
   };
 
   useEffect(() => {
@@ -286,11 +330,11 @@ export function RecorderStartControls({
             <div className="detail-stack">
               <div className="empty-state compact">
                 <strong>Local setup</strong>
-                <span>For a visible local browser, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\start-host-recorder.cmd on Windows. Packaged Windows installs can run qaira-host-recorder.exe without sharing source files.</span>
+                <span>Use Start local runner when QAira API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed QAira script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service.</span>
               </div>
               <div className="empty-state compact">
                 <strong>Docker fallback</strong>
-                <span>If you want the embedded Docker live view instead, use browser URL {DOCKER_LOCAL_BROWSER_URL} and API/container URL {DOCKER_LOCAL_ENGINE_URL}.</span>
+                <span>If one-click launch is disabled, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\start-host-recorder.cmd on Windows. For Docker live view, use browser URL {DOCKER_LOCAL_BROWSER_URL} and API/container URL {DOCKER_LOCAL_ENGINE_URL}.</span>
               </div>
               <label className="form-field">
                 <span>Browser recorder URL</span>
@@ -304,6 +348,12 @@ export function RecorderStartControls({
                 <span>{checkMessage}</span>
               </div>
               <div className="testops-recorder-actions">
+                <button className="ghost-button" disabled={isLaunchingAgent || checkState === "checking"} onClick={() => void handleLaunchLocalAgent()} type="button">
+                  <span>{isLaunchingAgent ? "Starting runner..." : "Start local runner"}</span>
+                </button>
+                <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckAgentStatus()} type="button">
+                  <span>{checkState === "checking" ? "Checking..." : "Check all services"}</span>
+                </button>
                 <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckSetup()} type="button">
                   <span>{checkState === "checking" ? "Checking..." : "Check setup"}</span>
                 </button>

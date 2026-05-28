@@ -862,6 +862,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isInspectingLiveField, setIsInspectingLiveField] = useState(false);
   const [inspectMessage, setInspectMessage] = useState("");
   const [browserInspectFields, setBrowserInspectFields] = useState<RepositoryExtractedField[]>([]);
+  const [aiSuggestedInspectFields, setAiSuggestedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [stagedInspectFields, setStagedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const stagedInspectFieldsRef = useRef<RepositoryExtractedField[]>([]);
   const [repositoryUsageBlock, setRepositoryUsageBlock] = useState<{
@@ -1066,6 +1067,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const activePageObject = pageObjectModels.find((page) => page.screenName === selectedScreenName) || pageObjectModels[0] || null;
   const allObjectMembers = useMemo(() => pageObjectModels.flatMap((page) => page.members), [pageObjectModels]);
   const inspectedFields = useMemo(() => extractRepositoryFieldsFromDom(screenDomDraft), [screenDomDraft]);
+  const suggestedInspectFields = useMemo(() => {
+    const byLocator = new Map<string, RepositoryExtractedField>();
+    inspectedFields.forEach((field) => byLocator.set(field.locator, { ...field, source: "dom_candidate" }));
+    aiSuggestedInspectFields.forEach((field) => byLocator.set(field.locator, { ...field, source: "ai_extract" }));
+    return Array.from(byLocator.values());
+  }, [aiSuggestedInspectFields, inspectedFields]);
   const recorderLiveUrl = recorderSession?.live_view_url || "";
   const inspectRecorderLiveUrl = inspectRecorderSession?.live_view_url || "";
   const selectedLocators = selectedRepositoryEntry ? getRepositoryLocators(selectedRepositoryEntry) : [];
@@ -1073,6 +1080,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const openRepositoryInspect = (page: typeof activePageObject = activePageObject) => {
     const targetPage = page || activePageObject;
     if (targetPage?.screenName) {
+      if (targetPage.screenName !== selectedScreenName) {
+        setAiSuggestedInspectFields([]);
+      }
       setSelectedScreenName(targetPage.screenName);
       setScreenInfoDraft((current) => ({
         ...current,
@@ -2110,8 +2120,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return response;
     },
     onSuccess: (response) => {
-      response.fields.forEach((field) => {
-        stageInspectField({ ...field, source: "ai_extract" });
+      const aiFields = response.fields.map((field) => ({ ...field, source: "ai_extract" as const }));
+      setAiSuggestedInspectFields(aiFields);
+      aiFields.forEach((field) => {
         if (inspectRecorderSession?.status === "running") {
           void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
         }
@@ -2128,9 +2139,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         extractedAt: new Date().toISOString()
       });
       setInspectMessage(response.fallback_used
-        ? `Added ${response.fields.length} DOM-grounded suggestion${response.fields.length === 1 ? "" : "s"} to your selection. Review and save when ready.`
-        : `AI added ${response.fields.length} suggested field${response.fields.length === 1 ? "" : "s"} to your selection. Review and save when ready.`);
-      showInfo("Field suggestions are selected but not saved yet. Remove any unwanted fields before saving.");
+        ? `Listed ${response.fields.length} DOM-grounded suggestion${response.fields.length === 1 ? "" : "s"}. Select the fields you want to save.`
+        : `AI listed ${response.fields.length} suggested field${response.fields.length === 1 ? "" : "s"}. Select the fields you want to save.`);
+      showInfo("AI suggestions are ready for review. Select only the fields you want to save.");
     },
     onError: (error) => showError(error, "Unable to suggest screen fields.")
   });
@@ -3838,8 +3849,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   </div>
                     <div className="object-repository-inspector-preview">
                       <div className="object-repository-inspector-section-head">
-                        <strong>{inspectedFields.length ? `${inspectedFields.length} DOM suggestions` : "Suggested fields"}</strong>
-                        <span>Suggestions are not saved until selected and committed with the screen.</span>
+                        <strong>{suggestedInspectFields.length ? `${suggestedInspectFields.length} field suggestions` : "Suggested fields"}</strong>
+                        <span>DOM and AI suggestions are not saved until selected and committed with the screen.</span>
                       </div>
                       {browserInspectFields.length ? (
                         <section className="object-repository-browser-candidates" aria-label="Fields highlighted in the browser">
@@ -3881,7 +3892,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           ))}
                         </section>
                       ) : null}
-                      {inspectedFields.map((field) => {
+                      {suggestedInspectFields.map((field) => {
                         const isSelected = stagedInspectFields.some((selectedField) => selectedField.locator === field.locator);
                         return (
                           <article className={isSelected ? "object-repository-inspector-candidate is-selected" : "object-repository-inspector-candidate"} key={`${field.name}-${field.locator}`}>
@@ -3894,7 +3905,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 locator_kind: field.locatorKind,
                                 fallback_locators: formatLocatorDraft([{ locator: field.locator, strategy: field.locatorKind, confidenceScore: 0.8, isPrimary: true }, ...field.fallbackLocators]),
                                 dom_structure: field.dom,
-                                description: current.description || `${field.name} detected from screen DOM.`,
+                                description: current.description || `${field.name} detected from ${field.source === "ai_extract" ? "AI screen analysis" : "screen DOM"}.`,
                                 screenshot_url: screenScreenshotDraft || current.screenshot_url
                               }));
                               if (inspectRecorderSession?.status === "running") {
@@ -3913,7 +3924,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                   removeStagedInspectField(field.locator);
                                   return;
                                 }
-                                stageInspectField({ ...field, source: "dom_candidate" });
+                                stageInspectField({ ...field, source: field.source === "ai_extract" ? "ai_extract" : "dom_candidate" });
                                 if (inspectRecorderSession?.status === "running") {
                                   void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight candidate."));
                                 }
@@ -3924,7 +3935,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           </article>
                         );
                       })}
-                      {!inspectedFields.length && !browserInspectFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
+                      {!suggestedInspectFields.length && !browserInspectFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
                     </div>
                 </div>
                 <div className="testops-action-row object-repository-inspector-footer">

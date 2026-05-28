@@ -78,6 +78,15 @@ export function SparkIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function SearchIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <circle cx="11" cy="11" r="6" />
+      <path d="m16 16 4 4" />
+    </IconFrame>
+  );
+}
+
 export function FolderIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

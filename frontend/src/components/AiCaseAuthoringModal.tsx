@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { AiAuthoredTestCasePreview, Integration, Requirement, TestStep } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { normalizeStepParameterValues } from "../lib/stepParameters";
+import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { ToastMessage } from "./ToastMessage";
@@ -42,7 +43,9 @@ export function AiCaseAuthoringModal({
   disableApply,
   applyLabel,
   hasAutomationWarning,
-  isCreating
+  isCreating,
+  promptTemplateProjectId,
+  promptTemplateAppTypeId
 }: {
   requirementId: string;
   requirements: Requirement[];
@@ -68,6 +71,8 @@ export function AiCaseAuthoringModal({
   applyLabel: string;
   hasAutomationWarning: boolean;
   isCreating: boolean;
+  promptTemplateProjectId?: string;
+  promptTemplateAppTypeId?: string;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const selectedRequirement = requirements.find((requirement) => requirement.id === requirementId) || null;
@@ -146,7 +151,16 @@ export function AiCaseAuthoringModal({
                 <div className="empty-state compact">Choose the requirement this case should satisfy before generating.</div>
               )}
 
-              <FormField label="Additional context">
+              <div className="ai-prompt-context-head">
+                <span>Additional context</span>
+                <AiPromptTemplatePicker
+                  appTypeId={promptTemplateAppTypeId}
+                  disabled={isPreviewing || isApplying}
+                  onApply={(prompt) => onAdditionalContextChange(prompt)}
+                  projectId={promptTemplateProjectId}
+                />
+              </div>
+              <FormField label="Prompt copy">
                 <textarea
                   placeholder="Risk areas, acceptance notes, edge cases, user roles, environment assumptions..."
                   rows={6}

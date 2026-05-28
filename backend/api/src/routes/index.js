@@ -29,4 +29,6 @@ module.exports = async function (fastify) {
     fastify.register(require("./workspaceTransactions.routes"));
     fastify.register(require("./opsTelemetry.routes"));
     fastify.register(require("./aiKnowledge.routes"));
+    fastify.register(require("./aiPromptTemplates.routes"));
+    fastify.register(require("./localAgent.routes"));
   };

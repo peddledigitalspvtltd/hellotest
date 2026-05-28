@@ -7249,6 +7249,8 @@ export function TestCasesPage() {
           preview={aiCaseAuthoringPreview}
           previewMessage={aiCaseAuthoringMessage}
           previewTone={aiCaseAuthoringTone}
+          promptTemplateAppTypeId={appTypeId}
+          promptTemplateProjectId={projectId}
           requirementId={aiCaseAuthoringRequirementId}
           requirements={requirements}
           sourceDraft={aiCaseAuthoringSourceDraft}
@@ -7306,6 +7308,8 @@ export function TestCasesPage() {
           parallelRequirementCount={parallelRequirementLimit}
           previewCases={aiPreviewCases}
           previewMessage={aiPreviewMessage}
+          promptTemplateAppTypeId={appTypeId}
+          promptTemplateProjectId={projectId}
           onPreviewMessageDismiss={() => setAiPreviewMessage("")}
           previewTone={aiPreviewTone}
           referenceImages={aiReferenceImages}

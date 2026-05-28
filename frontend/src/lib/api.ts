@@ -3,6 +3,7 @@ import type {
   AiCaseAuthoringPreviewResponse,
   AiDesignImageInput,
   AiDesignPreviewResponse,
+  AiPromptTemplate,
   AiStepRephraseResponse,
   AiTestCaseGenerationJob,
   AutomationBuildResponse,
@@ -792,6 +793,50 @@ export const api = {
     update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; priority: number; status: string; requirement_id: string; requirement_ids: string[]; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }>) =>
       request<{ updated: boolean }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-cases/${id}`, { method: "DELETE" })
+  },
+  aiPromptTemplates: {
+    list: (query: { project_id?: string; app_type_id?: string; scope?: string }) =>
+      request<AiPromptTemplate[]>(`/ai-prompt-templates${toQueryString(query)}`),
+    create: (input: Partial<AiPromptTemplate> & { project_id?: string; app_type_id?: string; name: string; prompt_text: string }) =>
+      request<AiPromptTemplate>("/ai-prompt-templates", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
+    update: (id: string, input: Partial<AiPromptTemplate>) =>
+      request<AiPromptTemplate>(`/ai-prompt-templates/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input)
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean; id: string }>(`/ai-prompt-templates/${id}`, {
+        method: "DELETE"
+      })
+  },
+  localAgent: {
+    status: () =>
+      request<{
+        launch_supported: boolean;
+        web: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
+        mobile: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
+        appium: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
+        recommended: {
+          web_public_base_url: string;
+          mobile_public_base_url: string;
+          appium_server_url: string;
+        };
+      }>("/local-agent/status"),
+    start: (input?: { target?: "playwright" | "web" }) =>
+      request<{
+        started: boolean;
+        launch_supported: boolean;
+        already_running?: boolean;
+        base_url?: string;
+        pid?: number;
+        message: string;
+      }>("/local-agent/start", {
+        method: "POST",
+        body: JSON.stringify(input || {})
+      })
   },
   suiteTestCases: {
     list: (query?: { suite_id?: string; test_case_id?: string }) =>
