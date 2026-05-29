@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { InfoTooltip } from "./InfoTooltip";
 
 type DeleteConfirmationState = {
   title: string;
@@ -44,8 +45,10 @@ export function useDeleteConfirmation() {
         >
           <div className="resource-modal-header">
             <div className="resource-modal-title">
-              <h3>{state.title}</h3>
-              <p>{state.message}</p>
+              <div className="modal-title-info-row">
+                <h3>{state.title}</h3>
+                <InfoTooltip content={state.message} label="Confirmation details" />
+              </div>
             </div>
           </div>
           <div className="delete-confirmation-actions">

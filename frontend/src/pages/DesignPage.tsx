@@ -8,6 +8,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
@@ -1895,7 +1896,8 @@ function SuiteSidebar({
     <Panel
       className="execution-panel suite-design-panel suite-design-panel--list"
       actions={actions}
-      title="Suite tiles"
+      title="Test Suites"
+      titleVariant="eyebrow"
       subtitle={selectedAppType ? "Browse suites as tiles first, then open one to manage its mapped test cases." : "Select a project and app type first."}
     >
       <div className="suite-design-panel-stack">
@@ -2615,8 +2617,13 @@ function SuiteCaseEditorModal({
         <div className="suite-test-case-editor-header">
           <div className="suite-test-case-editor-title">
             <p className="eyebrow">Test Suites</p>
-            <h3 id="suite-case-editor-title">{isCreatingCase ? "Create test case" : selectedTestCase ? `Edit ${selectedTestCase.title}` : "Test case editor"}</h3>
-            <p>Use the modal for focused edits, then return to the three-panel suite workspace without losing your place.</p>
+            <div className="modal-title-info-row">
+              <h3 id="suite-case-editor-title">{isCreatingCase ? "Create test case" : selectedTestCase ? `Edit ${selectedTestCase.title}` : "Test case editor"}</h3>
+              <InfoTooltip
+                content="Use the modal for focused edits, then return to the three-panel suite workspace without losing your place."
+                label="Test case editor information"
+              />
+            </div>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">Close</button>
         </div>
@@ -3152,8 +3159,13 @@ function SuiteExecutionModal({
           <div className="execution-create-header">
             <div className="execution-create-title">
               <p className="eyebrow">Suites</p>
-              <h3 id="create-suite-execution-title">Create run</h3>
-              <p>Use the suites you selected here as the run snapshot scope.</p>
+              <div className="modal-title-info-row">
+                <h3 id="create-suite-execution-title">Create run</h3>
+                <InfoTooltip
+                  content="Use the suites you selected here as the run snapshot scope."
+                  label="Suite run information"
+                />
+              </div>
             </div>
             <button
               aria-label="Close create run dialog"
@@ -3297,8 +3309,13 @@ function SuiteModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>{mode === "edit" ? "Edit Suite" : "Create Suite"}</h3>
-            <p>Choose the reusable cases once, keep their saved order with the arrow controls, and submit from this modal.</p>
+            <div className="modal-title-info-row">
+              <h3>{mode === "edit" ? "Edit Suite" : "Create Suite"}</h3>
+              <InfoTooltip
+                content="Choose the reusable cases once, keep their saved order with the arrow controls, and submit from this modal."
+                label="Suite editor information"
+              />
+            </div>
           </div>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">
             Close

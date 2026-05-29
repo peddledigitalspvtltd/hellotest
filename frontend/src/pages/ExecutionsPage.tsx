@@ -10,6 +10,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import {
@@ -4330,8 +4331,13 @@ export function ExecutionsPage() {
 
                   <div className="execution-context-summary-head">
                     <div className="execution-context-summary-copy">
-                      <strong>Trace log</strong>
-                      <span>Every recorded stage for this batch process appears below in the order it happened.</span>
+                      <div className="execution-context-summary-title-row">
+                        <strong>Trace log</strong>
+                        <InfoTooltip
+                          content="Every recorded stage for this batch process appears below in the order it happened."
+                          label="Trace log information"
+                        />
+                      </div>
                     </div>
                     <span className="count-pill">
                       {selectedWorkspaceTransactionEventsQuery.isLoading
@@ -5843,14 +5849,20 @@ function ExecutionApiStepDialog({
                 <strong>Request</strong>
                 <span>{detail?.request?.url || step.api_request?.url || "No request URL captured yet."}</span>
                 {requestHeaders.length ? (
-                  <div className="automation-response-headers">
+                  <details className="automation-request-details execution-api-header-details">
+                    <summary>
+                      <span>Request headers</span>
+                      <strong>{requestHeaders.length}</strong>
+                    </summary>
+                    <div className="automation-request-details-body automation-response-headers">
                     {requestHeaders.map(([key, value]) => (
                       <span className="automation-response-header-chip" key={key}>
                         <strong>{key}</strong>
                         <span>{value}</span>
                       </span>
                     ))}
-                  </div>
+                    </div>
+                  </details>
                 ) : null}
                 {requestBody ? (
                   <pre className="automation-code-block automation-code-block--compact automation-code-block--selection">
@@ -5876,14 +5888,20 @@ function ExecutionApiStepDialog({
                   </div>
                 ) : null}
                 {responseHeaders.length ? (
-                  <div className="automation-response-headers">
+                  <details className="automation-request-details execution-api-header-details">
+                    <summary>
+                      <span>Response headers</span>
+                      <strong>{responseHeaders.length}</strong>
+                    </summary>
+                    <div className="automation-request-details-body automation-response-headers">
                     {responseHeaders.map(([key, value]) => (
                       <span className="automation-response-header-chip" key={key}>
                         <strong>{key}</strong>
                         <span>{value}</span>
                       </span>
                     ))}
-                  </div>
+                    </div>
+                  </details>
                 ) : null}
                 {responseBody ? (
                   <pre className="automation-code-block automation-code-block--compact automation-code-block--selection">
@@ -7768,8 +7786,13 @@ function ExecutionCreateModal({
           <div className="execution-create-header">
             <div className="execution-create-title">
               <p className="eyebrow">Test Runs</p>
-              <h3 id="create-execution-title">Create run</h3>
-              <p>Choose a manual suite snapshot or let AI plan an impact-based run from your release scope and existing library.</p>
+              <div className="modal-title-info-row">
+                <h3 id="create-execution-title">Create run</h3>
+                <InfoTooltip
+                  content="Choose a manual suite snapshot or let AI plan an impact-based run from your release scope and existing library."
+                  label="Create run information"
+                />
+              </div>
             </div>
             <button
               aria-label="Close create run dialog"
@@ -7884,8 +7907,13 @@ function ExecutionCreateModal({
             <section className="execution-hooks-panel">
               <div>
                 <span className="eyebrow">Run hooks</span>
-                <h4>Before and after automation</h4>
-                <p>Select a reusable test case or suite to run as setup/cleanup. QAira resolves the selected source into Test Engine hook steps when the run is queued.</p>
+                <div className="modal-title-info-row">
+                  <h4>Before and after automation</h4>
+                  <InfoTooltip
+                    content="Select a reusable test case or suite to run as setup/cleanup. QAira resolves the selected source into Test Engine hook steps when the run is queued."
+                    label="Run hooks information"
+                  />
+                </div>
               </div>
               <div className="execution-hooks-grid">
                 {renderHookTarget("Before each test", "beforeTestKind", "beforeTestId")}
@@ -8344,8 +8372,13 @@ function ExecutionContextSnapshotSummary({
     <div className="execution-context-summary-shell">
       <div className="execution-context-summary-head">
         <div className="execution-context-summary-copy">
-          <strong>Run context snapshot</strong>
-          <span>Environment, configuration, and test data were frozen when this run was created.</span>
+          <div className="execution-context-summary-title-row">
+            <strong>Run context snapshot</strong>
+            <InfoTooltip
+              content="Environment, configuration, and test data were frozen when this run was created."
+              label="Run context snapshot information"
+            />
+          </div>
         </div>
         {onViewFull ? (
           <button className="ghost-button" onClick={onViewFull} type="button">

@@ -1,4 +1,5 @@
 import type { RecorderSessionResponse } from "../types";
+import { InfoTooltip } from "./InfoTooltip";
 
 type RecorderSessionInsightsProps = {
   session: RecorderSessionResponse | null;
@@ -50,8 +51,13 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
       <section className="recorder-insight-panel">
         <div className="execution-context-summary-head">
           <div className="execution-context-summary-copy">
-            <strong>Captured steps</strong>
-            <span>Latest browser actions with the locator QAira will reuse for playback.</span>
+            <div className="execution-context-summary-title-row">
+              <strong>Captured steps</strong>
+              <InfoTooltip
+                content="Latest browser actions with the locator QAira will reuse for playback."
+                label="Captured steps information"
+              />
+            </div>
           </div>
           <span className="count-pill">{session.action_count || recentActions.length} actions</span>
         </div>
@@ -75,8 +81,13 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
       <section className="recorder-insight-panel">
         <div className="execution-context-summary-head">
           <div className="execution-context-summary-copy">
-            <strong>API candidates</strong>
-            <span>Fetch/XHR calls collected during the web recording for linked API case creation.</span>
+            <div className="execution-context-summary-title-row">
+              <strong>API candidates</strong>
+              <InfoTooltip
+                content="Fetch/XHR calls collected during the web recording for linked API case creation."
+                label="API candidates information"
+              />
+            </div>
           </div>
           <span className="count-pill">{session.network_count || recentNetwork.length} calls</span>
         </div>

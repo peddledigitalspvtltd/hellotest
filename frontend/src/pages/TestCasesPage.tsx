@@ -12,6 +12,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -648,6 +649,14 @@ function TestCaseRunIcon() {
   );
 }
 
+function RunOptionsChevronIcon() {
+  return (
+    <TestCaseActionIcon>
+      <path d="m7 10 5 5 5-5" />
+    </TestCaseActionIcon>
+  );
+}
+
 function TestCaseFlowMapIcon() {
   return (
     <TestCaseActionIcon>
@@ -843,7 +852,9 @@ export function TestCasesPage() {
   const [aiPreviewTone, setAiPreviewTone] = useState<"success" | "error">("success");
   const [schedulerActionCaseId, setSchedulerActionCaseId] = useState("");
   const [schedulerActionKind, setSchedulerActionKind] = useState<"accept" | "reject" | "run" | "run-local" | "run-remote" | "">("");
+  const [isRunOptionsOpen, setIsRunOptionsOpen] = useState(false);
   const [inspectingStepId, setInspectingStepId] = useState("");
+  const runOptionsRef = useRef<HTMLDivElement | null>(null);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -1063,6 +1074,27 @@ export function TestCasesPage() {
   const executionResults = executionResultsQuery.data || [];
   const allTestSteps = allTestStepsQuery.data || [];
   const integrations = integrationsQuery.data || [];
+  const apiOnlyCaseIds = useMemo(() => {
+    const stepsByCaseId = allTestSteps.reduce<Record<string, TestStep[]>>((accumulator, step) => {
+      const caseId = step.test_case_id;
+      if (!caseId) {
+        return accumulator;
+      }
+
+      accumulator[caseId] = accumulator[caseId] || [];
+      accumulator[caseId].push(step);
+      return accumulator;
+    }, {});
+
+    return new Set(
+      Object.entries(stepsByCaseId)
+        .filter(([, caseSteps]) =>
+          caseSteps.length > 0
+          && caseSteps.every((step) => String(step.step_type || "").toLowerCase() === "api" || Boolean(step.api_request))
+        )
+        .map(([caseId]) => caseId)
+    );
+  }, [allTestSteps]);
 
   const supportsLocalDesktopExecution = Boolean(session);
   const userById = useMemo(
@@ -1188,6 +1220,38 @@ export function TestCasesPage() {
     setExpandedStepIds([]);
     setExpandedStepGroupIds([]);
   };
+
+  useEffect(() => {
+    if (!isRunOptionsOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (runOptionsRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsRunOptionsOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsRunOptionsOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isRunOptionsOpen]);
+
+  useEffect(() => {
+    setIsRunOptionsOpen(false);
+  }, [selectedTestCaseId]);
 
   useEffect(() => {
     if (appTypesQuery.isPending) {
@@ -1491,6 +1555,7 @@ export function TestCasesPage() {
     filteredCases.length > 0 && filteredCases.every((item) => selectedActionTestCaseIds.includes(item.id));
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
+  const isApiOnlyTestCase = (testCaseId: string) => apiOnlyCaseIds.has(testCaseId);
   const testEngineIntegration = resolveScopedIntegration(testEngineIntegrations, "testengine", projectId);
   const mobileRemoteRecorderEnabled = Boolean(
     testEngineIntegration?.config?.mobile_cloud_provider
@@ -4324,14 +4389,15 @@ export function TestCasesPage() {
 
     try {
       if (mode === "local") {
+        const isApiOnlyLocalRun = isApiOnlyTestCase(testCaseId);
         const response = await createLocalRun.mutateAsync({
           project_id: projectId,
           app_type_id: appTypeId,
           test_case_ids: [testCaseId],
           assigned_to: selectedExecutionAssigneeId || undefined,
-          name: `${testCase.title} Local Run`,
+          name: `${testCase.title} ${isApiOnlyLocalRun ? "Local API Run" : "Local Run"}`,
           created_by: session.user.id,
-          engine_base_url: "http://localhost:4311"
+          engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
         });
 
         await Promise.all([
@@ -4341,7 +4407,7 @@ export function TestCasesPage() {
         ]);
 
         navigate(`/executions?view=local-runs&execution=${response.id}&testCase=${testCaseId}`);
-        showSuccess(`Local run started for ${testCase.title}.`);
+        showSuccess(`${isApiOnlyLocalRun ? "Local API run" : "Local run"} started for ${testCase.title}.`);
         return;
       }
 
@@ -4796,17 +4862,25 @@ export function TestCasesPage() {
   const parameterDialogHeaderContent = (
     <div className="step-parameter-dialog-context">
       <div className="step-parameter-dialog-context-card">
-        <strong>Scope guide</strong>
-        <span>`@t` saves on the case, `@s` saves on a linked suite, and `@r` stays local here for preview until a real execution data set supplies it.</span>
+        <div className="step-parameter-group-title-row">
+          <strong>Scope guide</strong>
+          <InfoTooltip
+            content="`@t` saves on the case, `@s` saves on a linked suite, and `@r` stays local here for preview until a real execution data set supplies it."
+            label="Scope guide information"
+          />
+        </div>
       </div>
       {selectedCaseSuites.length ? (
         <div className="step-parameter-dialog-context-card">
-          <strong>Suite targets</strong>
-          <span>
-            {selectedCaseSuites.length === 1
+          <div className="step-parameter-group-title-row">
+            <strong>Suite targets</strong>
+            <InfoTooltip
+              content={selectedCaseSuites.length === 1
               ? `Previewing and editing suite-shared values for "${selectedCaseSuites[0]?.name || "Linked suite"}".`
               : `This case is linked to ${selectedCaseSuites.length} suites. Choose the active suite target to preview or edit its saved @s values.`}
-          </span>
+              label="Suite target information"
+            />
+          </div>
           <div className="selection-chip-row">
             {selectedCaseSuites.map((suite) => (
               <button
@@ -4822,8 +4896,13 @@ export function TestCasesPage() {
         </div>
       ) : detectedStepParameters.some((parameter) => parameter.scope === "s") ? (
         <div className="step-parameter-dialog-context-card">
-          <strong>Suite targets</strong>
-          <span>Link this case to a suite before editing any `@s` values.</span>
+          <div className="step-parameter-group-title-row">
+            <strong>Suite targets</strong>
+            <InfoTooltip
+              content="Link this case to a suite before editing any `@s` values."
+              label="Suite target information"
+            />
+          </div>
         </div>
       ) : null}
     </div>
@@ -4961,66 +5040,119 @@ export function TestCasesPage() {
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
     && schedulerActionKind === "run-remote";
+  const isSelectedCasePureApi = Boolean(selectedTestCase?.id && isApiOnlyTestCase(selectedTestCase.id));
+  const canSelectedCaseRunLocally = Boolean(selectedTestCase && (selectedTestCase.automated === "yes" || isSelectedCasePureApi));
+  const isSelectedCaseManualRunDisabled = isSelectedCaseRunning || !projectId || !appTypeId || !session?.user.id;
+  const isSelectedCaseLocalRunDisabled =
+    !selectedTestCase
+    || isSelectedCaseLocalRunning
+    || createLocalRun.isPending
+    || !canSelectedCaseRunLocally
+    || !supportsLocalDesktopExecution
+    || !projectId
+    || !appTypeId
+    || !session?.user.id;
+  const isSelectedCaseRemoteRunDisabled =
+    !selectedTestCase
+    || isSelectedCaseRemoteRunning
+    || selectedTestCase.automated !== "yes"
+    || selectedTestCase.automation_status === "incomplete"
+    || !projectId
+    || !appTypeId
+    || !session?.user.id;
+  const selectedCaseLocalRunLabel = isSelectedCasePureApi ? "Run API locally" : "Run local Playwright";
   const caseHeaderActions = (
     <div className="panel-head-actions-row">
       <WorkspaceBackButton label="Back to test case tiles" onClick={handleWorkspaceBack} />
       {selectedTestCase ? (
-        <button
-          className="test-case-tile-action-button is-run test-case-header-run-button"
-          disabled={isSelectedCaseRunning || !projectId || !appTypeId || !session?.user.id}
-          onClick={() => void handleRunTestCase(selectedTestCase.id)}
-          title="Create and open a manual run for this test case. Manual runs are completed from Test Runs."
-          type="button"
-        >
-          <TestCaseRunIcon />
-          <span>{isSelectedCaseRunning ? "Creating…" : "Run manually"}</span>
-        </button>
-      ) : null}
-      {selectedTestCase ? (
-        <button
-          className="test-case-tile-action-button is-run test-case-header-run-button"
-          disabled={isSelectedCaseRemoteRunning || selectedTestCase.automated !== "yes" || selectedTestCase.automation_status === "incomplete" || !projectId || !appTypeId || !session?.user.id}
-          onClick={() => void handleRunTestCase(selectedTestCase.id, "remote")}
-          title={selectedTestCase.automation_status === "incomplete" ? "Repair missing object repository references before running this automation" : selectedTestCase.automated === "yes" ? "Run this automated test case through the configured remote Test Engine" : "Automate this test case before starting a remote run"}
-          type="button"
-        >
-          <TestCaseRunIcon />
-          <span>{isSelectedCaseRemoteRunning ? "Starting..." : "Run remotely"}</span>
-        </button>
-      ) : null}
-      {selectedTestCase && supportsLocalDesktopExecution ? (
-        <button
-          className="test-case-tile-action-button is-run test-case-header-run-button"
-          disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
-          onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
-          title={selectedTestCase.automation_status === "incomplete" ? "Run locally to diagnose incomplete object repository bindings" : selectedTestCase.automated === "yes" ? "Run the recorded test case locally on your machine" : "Record or automate this test case before starting a local run"}
-          type="button"
-        >
-          <TestCaseRunIcon />
-          <span>{isSelectedCaseLocalRunning ? "Starting…" : "Run local Playwright"}</span>
-        </button>
+        <div className="test-case-run-cluster" ref={runOptionsRef}>
+          <button
+            className="test-case-tile-action-button is-run test-case-header-run-button"
+            disabled={isSelectedCaseManualRunDisabled}
+            onClick={() => void handleRunTestCase(selectedTestCase.id)}
+            title="Create and open a manual run for this test case. Manual runs are completed from Test Runs."
+            type="button"
+          >
+            <TestCaseRunIcon />
+            <span>{isSelectedCaseRunning ? "Creating..." : "Run manually"}</span>
+          </button>
+          <span aria-hidden="true" className="test-case-run-divider">|</span>
+          <div className="test-case-run-menu">
+            <button
+              aria-label="Open run options"
+              aria-expanded={isRunOptionsOpen}
+              aria-haspopup="menu"
+              className="test-case-run-menu-trigger"
+              onClick={() => setIsRunOptionsOpen((current) => !current)}
+              title="Run options"
+              type="button"
+            >
+              <RunOptionsChevronIcon />
+            </button>
+            {isRunOptionsOpen ? (
+              <div className="test-case-run-menu-panel" role="menu">
+                <button
+                  className="test-case-run-menu-item"
+                  disabled={isSelectedCaseLocalRunDisabled}
+                  onClick={() => {
+                    setIsRunOptionsOpen(false);
+                    void handleRunTestCase(selectedTestCase.id, "local");
+                  }}
+                  role="menuitem"
+                  title={isSelectedCasePureApi ? "Run this API test case on the local Test Engine without a browser." : selectedTestCase.automated === "yes" ? "Run the recorded test case locally on your machine" : "Record or automate this test case before starting a local run"}
+                  type="button"
+                >
+                  <TestCaseRunIcon />
+                  <span>
+                    <strong>{isSelectedCaseLocalRunning ? "Starting local..." : selectedCaseLocalRunLabel}</strong>
+                    <small>{isSelectedCasePureApi ? "Use local Test Engine API execution." : "Use the local runner on this machine."}</small>
+                  </span>
+                </button>
+                <button
+                  className="test-case-run-menu-item"
+                  disabled={isSelectedCaseRemoteRunDisabled}
+                  onClick={() => {
+                    setIsRunOptionsOpen(false);
+                    void handleRunTestCase(selectedTestCase.id, "remote");
+                  }}
+                  role="menuitem"
+                  title={selectedTestCase.automation_status === "incomplete" ? "Repair missing object repository references before running this automation" : selectedTestCase.automated === "yes" ? "Run this automated test case through the configured remote Test Engine" : "Automate this test case before starting a remote run"}
+                  type="button"
+                >
+                  <TestCaseRunIcon />
+                  <span>
+                    <strong>{isSelectedCaseRemoteRunning ? "Starting remote..." : "Run remotely"}</strong>
+                    <small>Use the configured remote Test Engine.</small>
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
       ) : null}
       {selectedTestCase ? (
         <button
           aria-label={isVisualBuilderActive ? "Return to step list" : "Open flow map"}
-          className="ghost-button test-case-workspace-icon-action"
+          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
           onClick={() => setIsVisualBuilderActive((current) => !current)}
-          title={isVisualBuilderActive ? "Step list" : "Flow map"}
+          title={isVisualBuilderActive ? "Step list" : "Visual builder"}
           type="button"
         >
           {isVisualBuilderActive ? <TileCardStepsIcon /> : <TestCaseFlowMapIcon />}
+          <span>{isVisualBuilderActive ? "Step list" : "Visual builder"}</span>
         </button>
       ) : null}
       {selectedTestCase ? (
         <button
           aria-label="Preview execution script"
-          className="ghost-button test-case-workspace-icon-action"
+          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
           disabled={!mainSteps.length}
           onClick={() => openCaseAutomationPreview()}
-          title="Execution script"
+          title="Auto test code"
           type="button"
         >
           <AutomationCodeIcon />
+          <span>Auto test</span>
         </button>
       ) : null}
       {selectedTestCase ? (
@@ -5687,7 +5819,6 @@ export function TestCasesPage() {
       {!isCaseWorkspaceOpen ? (
         <PageHeader
           className="page-header--test-cases"
-          eyebrow="Test Cases"
           title="Test Case Library"
           description="Build reusable coverage with clean step detail, requirement traceability, suite linkage, and run-ready exports."
           meta={[
@@ -5757,7 +5888,7 @@ export function TestCasesPage() {
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Test case tiles" subtitle={appTypeId ? "Browse reusable coverage as cards first, then open one case into a full-page editor." : "Choose an app type to begin."}>
+          <Panel title="Test Cases" titleVariant="eyebrow" subtitle={appTypeId ? "Browse reusable coverage as cards first, then open one case into a full-page editor." : "Choose an app type to begin."}>
             <div className="design-list-toolbar test-case-catalog-toolbar">
               <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
               <CatalogSearchFilter
@@ -5958,6 +6089,8 @@ export function TestCasesPage() {
                       testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending";
                     const isRunningCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run";
                     const isRunningLocalCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run-local";
+                    const isApiOnlyCase = isApiOnlyTestCase(testCase.id);
+                    const canRunLocalCase = testCase.automated === "yes" || isApiOnlyCase;
                     const isAcceptingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "accept";
                     const isRejectingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "reject";
                     const tileActions = [
@@ -5988,11 +6121,11 @@ export function TestCasesPage() {
                         ]
                         : [
                           {
-                            label: "Run local Playwright",
-                            description: "Start this automated case against the local Playwright runner.",
+                            label: isApiOnlyCase ? "Run API locally" : "Run local Playwright",
+                            description: isApiOnlyCase ? "Start this API case against the local Test Engine API runner." : "Start this automated case against the local Playwright runner.",
                             icon: <TestCaseRunIcon />,
                             onClick: () => void handleRunTestCase(testCase.id, "local"),
-                            disabled: isRunningLocalCase || createLocalRun.isPending || testCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id,
+                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
                             tone: "primary" as const
                           },
                           {
@@ -6172,7 +6305,7 @@ export function TestCasesPage() {
                                 <TestCaseRunIcon />
                                 {isRunningCase ? "Creating..." : isFailedCase ? "Re-run manually" : "Run manually"}
                               </button>
-                              {testCase.automated === "yes" ? (
+                              {canRunLocalCase ? (
                                 <button
                                   className="ghost-button test-case-card-run-button"
                                   disabled={isRunningCase || isRunningLocalCase || createLocalRun.isPending || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
@@ -6183,7 +6316,7 @@ export function TestCasesPage() {
                                   type="button"
                                 >
                                   <TestCaseRunIcon />
-                                  {isRunningLocalCase ? "Starting..." : "Local Playwright"}
+                                  {isRunningLocalCase ? "Starting..." : isApiOnlyCase ? "Local API" : "Local Playwright"}
                                 </button>
                               ) : null}
                             </div>
@@ -6751,12 +6884,12 @@ export function TestCasesPage() {
                               </div>
                               <button
                                 className="primary-button"
-                                disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || selectedTestCase.automated !== "yes" || !projectId || !appTypeId || !session?.user.id}
+                                disabled={isSelectedCaseLocalRunning || createLocalRun.isPending || !canSelectedCaseRunLocally || !projectId || !appTypeId || !session?.user.id}
                                 onClick={() => void handleRunTestCase(selectedTestCase.id, "local")}
                                 type="button"
                               >
                                 <TestCaseRunIcon />
-                                <span>{isSelectedCaseLocalRunning ? "Starting..." : "Run local Playwright"}</span>
+                                <span>{isSelectedCaseLocalRunning ? "Starting..." : selectedCaseLocalRunLabel}</span>
                               </button>
                             </div>
                           ) : null}
@@ -6917,7 +7050,10 @@ export function TestCasesPage() {
             <div className="detail-stack step-inspect-body">
               <div className="detail-summary">
                 <strong>Step-level capture</strong>
-                <span>Start an inspector session and perform only this step action. Local inspection reuses the open QAira browser on port 4311 when available; captured automation and repository evidence remain mapped to this step.</span>
+                <InfoTooltip
+                  content="Start an inspector session and perform only this step action. Local inspection reuses the open QAira browser on port 4311 when available; captured automation and repository evidence remain mapped to this step."
+                  label="Step-level capture information"
+                />
               </div>
               <RecorderStartControls
                 disabled={!selectedTestCase || !testEngineIntegration}
@@ -6943,7 +7079,10 @@ export function TestCasesPage() {
                 <div className="step-inspect-browser-shell">
                   <div className="step-inspect-browser-toolbar">
                     <strong>Live browser view</strong>
-                    <span>Scroll vertically or horizontally to review the captured browser viewport.</span>
+                    <InfoTooltip
+                      content="Scroll vertically or horizontally to review the captured browser viewport."
+                      label="Live browser view information"
+                    />
                   </div>
                   <div className="step-inspect-browser-viewport">
                     <iframe
@@ -7077,8 +7216,17 @@ export function TestCasesPage() {
             <div className="import-modal-header">
               <div className="import-modal-title">
                 <p className="eyebrow">Bulk Import</p>
-                <h3 id="bulk-import-title">Import test cases from external sources</h3>
-                <p>Queue CSV, JUnit XML, TestNG XML, or Postman collection files together. CSV imports support an <strong>external_references</strong> column for ticket links, while Postman requests import as API test cases even when the collection has no test scripts. Large imports are sent in smaller batches automatically.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="bulk-import-title">Import test cases from external sources</h3>
+                  <InfoTooltip
+                    content={(
+                      <>
+                        Queue CSV, JUnit XML, TestNG XML, or Postman collection files together. CSV imports support an <strong>external_references</strong> column for ticket links, while Postman requests import as API test cases even when the collection has no test scripts. Large imports are sent in smaller batches automatically.
+                      </>
+                    )}
+                    label="Test case import information"
+                  />
+                </div>
               </div>
               <button aria-label="Close bulk import dialog" className="ghost-button" disabled={importTestCases.isPending} onClick={() => {
                 setImportBatches([]);
@@ -7271,7 +7419,7 @@ export function TestCasesPage() {
           existingCasesSubtitle="These reusable cases are already linked to one or more of the selected requirements in the current app type."
           existingCasesTitle="Linked test cases"
           externalLinksText={aiExternalLinksText}
-          eyebrow="Test Cases"
+          eyebrow="AI Generation"
           integrationId={integrationId}
           integrations={integrations}
           isAccepting={acceptDesignedCases.isPending}
@@ -7654,8 +7802,13 @@ function TestCaseSuiteTransferModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>Suite transfer</h3>
-            <p>Choose an existing suite target for {caseCount} selected case{caseCount === 1 ? "" : "s"}. Multi-suite links are preserved when you add.</p>
+            <div className="modal-title-info-row">
+              <h3>Suite transfer</h3>
+              <InfoTooltip
+                content={`Choose an existing suite target for ${caseCount} selected case${caseCount === 1 ? "" : "s"}. Multi-suite links are preserved when you add.`}
+                label="Suite transfer information"
+              />
+            </div>
           </div>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Close</button>
         </div>
@@ -7821,8 +7974,13 @@ function TestCaseSuiteModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>Create Suite</h3>
-            <p>Choose reusable cases, keep their saved order with the arrow controls, and create the suite from this dialog.</p>
+            <div className="modal-title-info-row">
+              <h3>Create Suite</h3>
+              <InfoTooltip
+                content="Choose reusable cases, keep their saved order with the arrow controls, and create the suite from this dialog."
+                label="Create suite information"
+              />
+            </div>
           </div>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">
             Close
@@ -8103,7 +8261,6 @@ function TestCaseExecutionModal({
         <form className="execution-create-form" onSubmit={onSubmit}>
           <div className="execution-create-header">
             <div className="execution-create-title">
-              <p className="eyebrow">Test Cases</p>
               <h3 id="create-test-case-execution-title">Create Run</h3>
               <p>The selected test cases will open directly in Test Runs without creating a suite first.</p>
             </div>
@@ -8736,8 +8893,16 @@ function StepActionMenu({
             >
               {action.icon}
               <span className="step-card-menu-item-content">
-                <span className="step-card-menu-item-label">{action.label}</span>
-                {action.description ? <span className="step-card-menu-item-description">{action.description}</span> : null}
+                <span className="step-card-menu-item-label-row">
+                  <span className="step-card-menu-item-label">{action.label}</span>
+                  {action.description ? (
+                    <InfoTooltip
+                      content={action.description}
+                      label={`${action.label} information`}
+                      trigger="span"
+                    />
+                  ) : null}
+                </span>
               </span>
             </button>
           ))}
@@ -9490,8 +9655,13 @@ function SharedGroupPickerModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>Insert Shared Group</h3>
-            <p>Choose a shared group to insert into this case. Edits inside the shared block stay linked across every referencing test case.</p>
+            <div className="modal-title-info-row">
+              <h3>Insert Shared Group</h3>
+              <InfoTooltip
+                content="Choose a shared group to insert into this case. Edits inside the shared block stay linked across every referencing test case."
+                label="Insert shared group information"
+              />
+            </div>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">
             Close

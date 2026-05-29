@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AddIcon } from "../components/AppIcons";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { TileBrowserPane } from "../components/TileBrowserPane";
@@ -640,7 +641,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       {view === "environments" ? (
         <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Environment tiles" subtitle="Browse run targets as tiles first, then open one environment into a focused editor.">
+            <Panel title="Environments" titleVariant="eyebrow" subtitle="Browse run targets as tiles first, then open one environment into a focused editor.">
               <TileBrowserPane className="test-environment-list">
                 {environmentsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
                 {!environmentsQuery.isLoading && environments.length ? (
@@ -701,7 +702,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       {view === "configurations" ? (
         <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Configuration tiles" subtitle="Browse reusable browser and device profiles as cards before opening one into the editor.">
+            <Panel title="Configurations" titleVariant="eyebrow" subtitle="Browse reusable browser and device profiles as cards before opening one into the editor.">
               <TileBrowserPane className="test-environment-list">
                 {configurationsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
                 {!configurationsQuery.isLoading && configurations.length ? (
@@ -764,7 +765,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       {view === "data" ? (
         <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Test data tiles" subtitle="Review reusable data sets as cards first, then open one source into a focused editor.">
+            <Panel title="Test Data" titleVariant="eyebrow" subtitle="Review reusable data sets as cards first, then open one source into a focused editor.">
               <TileBrowserPane className="test-environment-list">
                 {dataSetsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
                 {!dataSetsQuery.isLoading && dataSets.length ? (
@@ -1189,18 +1190,24 @@ function DataSetForm({
               ? `${draft.columns.length} column${draft.columns.length === 1 ? "" : "s"} · ${draft.rows.length} row${draft.rows.length === 1 ? "" : "s"}`
               : `${draft.rows.length} key/value pair${draft.rows.length === 1 ? "" : "s"}`}
           </strong>
-          <span>
-            {draft.mode === "table"
+          <InfoTooltip
+            content={draft.mode === "table"
               ? "Import a JSON, CSV, or spreadsheet file, or add columns first and then add rows."
               : "Switch back to spreadsheet mode anytime. Existing key/value entries will stay convertible."}
-          </span>
+            label="Test data editor information"
+          />
         </div>
 
         <section className="test-data-generator-panel">
           <div className="test-data-generator-header">
             <div>
-              <strong>Dynamic values per run</strong>
-              <span>Keep templates in this data set. Each new run and rerun resolves fresh values and stores its resolved snapshot.</span>
+              <div className="panel-title-row">
+                <strong>Dynamic values per run</strong>
+                <InfoTooltip
+                  content="Keep templates in this data set. Each new run and rerun resolves fresh values and stores its resolved snapshot."
+                  label="Dynamic test data information"
+                />
+              </div>
             </div>
             {generatedFieldCount ? (
               <span className="count-pill">{generatedFieldCount} generated field{generatedFieldCount === 1 ? "" : "s"}</span>
@@ -1220,9 +1227,14 @@ function DataSetForm({
               Add random text
             </button>
           </div>
-          <p className="test-data-generator-hint">
-            You can type templates in any value cell, for example <code>{"{{yopmail:signup}}"}</code>, <code>{"{{date:YYYY-MM-DD|+7d}}"}</code>, or <code>{"ORD-{{randomNumber:6}}"}</code>.
-          </p>
+          <InfoTooltip
+            content={(
+              <>
+                You can type templates in any value cell, for example <code>{"{{yopmail:signup}}"}</code>, <code>{"{{date:YYYY-MM-DD|+7d}}"}</code>, or <code>{"ORD-{{randomNumber:6}}"}</code>.
+              </>
+            )}
+            label="Template syntax information"
+          />
           {generatedFieldCount ? (
             <div className="test-data-generator-preview">
               <div className="test-data-generator-preview-header">
@@ -1243,7 +1255,10 @@ function DataSetForm({
                   </article>
                 ))}
               </div>
-              <small>This preview is illustrative. The exact generated values are frozen and visible in the created run.</small>
+              <InfoTooltip
+                content="This preview is illustrative. The exact generated values are frozen and visible in the created run."
+                label="Generated data preview information"
+              />
             </div>
           ) : null}
         </section>

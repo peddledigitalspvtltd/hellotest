@@ -1,5 +1,6 @@
 import { Children, cloneElement, isValidElement, useId } from "react";
 import type { ReactElement, ReactNode } from "react";
+import { InfoTooltip } from "./InfoTooltip";
 
 function mergeAriaDescribedBy(...values: Array<string | undefined>) {
   return values.filter(Boolean).join(" ") || undefined;
@@ -46,9 +47,10 @@ export function FormField({
       <label className="form-field-label" htmlFor={id}>
         <span>{label}</span>
         {required ? <span aria-hidden="true"> *</span> : null}
+        {hint ? <InfoTooltip className="form-field-info" content={hint} label={`${label} help`} /> : null}
       </label>
       {fieldControl}
-      {hint ? <p className="form-field-hint" id={hintId}>{hint}</p> : null}
+      {hint ? <p className="form-field-hint sr-only" id={hintId}>{hint}</p> : null}
       {error ? <span className="form-field-error" id={errorId} role="alert">{error}</span> : null}
     </div>
   );

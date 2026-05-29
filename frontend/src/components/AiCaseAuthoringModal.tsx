@@ -4,6 +4,7 @@ import { useDialogFocus } from "../hooks/useDialogFocus";
 import { normalizeStepParameterValues } from "../lib/stepParameters";
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { ToastMessage } from "./ToastMessage";
 
@@ -103,8 +104,13 @@ export function AiCaseAuthoringModal({
         <div className="ai-case-authoring-header">
           <div className="ai-case-authoring-header-copy">
             <p className="eyebrow">AI Authoring</p>
-            <h3>Complete This Test Case</h3>
-            <p>Use the linked requirement, current draft, and optional extra guidance to rephrase steps, fill gaps, and declare reusable test data for this case.</p>
+            <div className="modal-title-info-row">
+              <h3>Complete This Test Case</h3>
+              <InfoTooltip
+                content="Use the linked requirement, current draft, and optional extra guidance to rephrase steps, fill gaps, and declare reusable test data for this case."
+                label="AI authoring information"
+              />
+            </div>
           </div>
           <button className="ghost-button" disabled={closeDisabled} onClick={onClose} type="button">
             Close

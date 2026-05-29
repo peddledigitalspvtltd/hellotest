@@ -4,6 +4,7 @@ import type { AiPromptTemplate } from "../types";
 import { api } from "../lib/api";
 import { AddIcon, SearchIcon, SparkIcon } from "./AppIcons";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 
 const PROMPT_SCOPE = "test_case_generation";
 
@@ -150,8 +151,13 @@ export function AiPromptTemplatePicker({
             <div className="import-modal-header">
               <div className="import-modal-title">
                 <p className="eyebrow">Prompt Library</p>
-                <h3>Choose or create a prompt template</h3>
-                <p>Selecting a template copies it into Additional context. You can edit that copy without changing the saved template.</p>
+                <div className="modal-title-info-row">
+                  <h3>Choose or create a prompt template</h3>
+                  <InfoTooltip
+                    content="Selecting a template copies it into Additional context. You can edit that copy without changing the saved template."
+                    label="Prompt library information"
+                  />
+                </div>
               </div>
               <button className="ghost-button" disabled={createTemplate.isPending} onClick={() => setIsOpen(false)} type="button">
                 Close
@@ -189,8 +195,13 @@ export function AiPromptTemplatePicker({
               <section className="ai-prompt-template-create">
                 <div className="panel-head">
                   <div>
-                    <h3>Add new prompt</h3>
-                    <p>Capture the repeatable prompt shape once, then reuse it from Requirements and Test Cases.</p>
+                    <div className="panel-title-row">
+                      <h3>Add new prompt</h3>
+                      <InfoTooltip
+                        content="Capture the repeatable prompt shape once, then reuse it from Requirements and Test Cases."
+                        label="Add prompt information"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="record-grid">

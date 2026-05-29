@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ColumnsIcon, DragHandleIcon, PinIcon } from "./AppIcons";
+import { InfoTooltip } from "./InfoTooltip";
 import { api } from "../lib/api";
 
 export type DataTableColumn<T> = {
@@ -407,8 +408,13 @@ export function DataTable<T>({
         <div className="data-table-toolbar">
           {!hideToolbarCopy ? (
             <div className="data-table-toolbar-copy">
-              <strong>List layout</strong>
-              <span>{columnPreference.visibleColumnKeys.length} of {configurableColumns.length} details visible</span>
+              <div className="data-table-toolbar-title-row">
+                <strong>List layout</strong>
+                <InfoTooltip
+                  content={`${columnPreference.visibleColumnKeys.length} of ${configurableColumns.length} details visible.`}
+                  label="List layout information"
+                />
+              </div>
             </div>
           ) : <span />}
           <div className="data-table-toolbar-meta">
@@ -435,8 +441,13 @@ export function DataTable<T>({
               {isColumnConfigOpen ? (
                 <div className="data-table-config-panel" role="menu">
                   <div className="data-table-config-head">
-                    <strong>Column configuration</strong>
-                    <span>Show or hide details, then drag rows to reorder how list view appears.</span>
+                    <div className="data-table-config-title-row">
+                      <strong>Column configuration</strong>
+                      <InfoTooltip
+                        content="Show or hide details, then drag rows to reorder how list view appears."
+                        label="Column configuration information"
+                      />
+                    </div>
                   </div>
                   <div className="data-table-config-options">
                     {orderedColumns.map((column) => {

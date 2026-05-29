@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 import { api } from "../lib/api";
 import { countGeneratedTestDataFields, materializeTestDataRows } from "../lib/testDataGenerators";
 import type { TestConfiguration, TestDataSet, TestEnvironment } from "../types";
@@ -183,8 +184,13 @@ export function ExecutionContextSelector({
         <section className="execution-generated-data-preview">
           <div className="execution-generated-data-preview-header">
             <div>
-              <strong>Generated test data sample</strong>
-              <span>{generatedFieldCount} dynamic field{generatedFieldCount === 1 ? "" : "s"}. Fresh values are generated and retained when every run or rerun is created.</span>
+              <div className="execution-generated-data-title-row">
+                <strong>Generated test data sample</strong>
+                <InfoTooltip
+                  content={`${generatedFieldCount} dynamic field${generatedFieldCount === 1 ? "" : "s"}. Fresh values are generated and retained when every run or rerun is created.`}
+                  label="Generated test data information"
+                />
+              </div>
             </div>
             <button className="ghost-button" onClick={() => setDataPreviewRevision((current) => current + 1)} type="button">
               Refresh sample

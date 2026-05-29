@@ -8,6 +8,7 @@ import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -1592,8 +1593,13 @@ function SharedStepUsageDialog({
         <div className="import-modal-header">
           <div className="import-modal-title">
             <p className="eyebrow">Linked Cases</p>
-            <h3 id="shared-step-usage-title">{groupName}</h3>
-            <p>These test cases are currently linked to this shared group.</p>
+            <div className="modal-title-info-row">
+              <h3 id="shared-step-usage-title">{groupName}</h3>
+              <InfoTooltip
+                content="These test cases are currently linked to this shared group."
+                label="Linked cases information"
+              />
+            </div>
           </div>
           <button aria-label="Close linked cases dialog" className="ghost-button" onClick={onClose} type="button">
             Close
@@ -1913,8 +1919,16 @@ function SharedGroupStepActionMenu({
             >
               {action.icon}
               <span className="step-card-menu-item-content">
-                <span className="step-card-menu-item-label">{action.label}</span>
-                {action.description ? <span className="step-card-menu-item-description">{action.description}</span> : null}
+                <span className="step-card-menu-item-label-row">
+                  <span className="step-card-menu-item-label">{action.label}</span>
+                  {action.description ? (
+                    <InfoTooltip
+                      content={action.description}
+                      label={`${action.label} information`}
+                      trigger="span"
+                    />
+                  ) : null}
+                </span>
               </span>
             </button>
           ))}

@@ -185,7 +185,7 @@ export function FeedbackPage() {
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Feedback tiles" subtitle="Open one thread at a time from a card-first stream without keeping a split panel on screen.">
+          <Panel title="Feedback" titleVariant="eyebrow" subtitle="Open one thread at a time from a card-first stream without keeping a split panel on screen.">
             {feedback.isLoading ? (
               <TileCardSkeletonGrid />
             ) : null}

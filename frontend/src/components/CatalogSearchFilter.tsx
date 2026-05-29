@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { InfoTooltip } from "./InfoTooltip";
 
 const POPOVER_VIEWPORT_PADDING = 12;
 const POPOVER_TRIGGER_GAP = 10;
@@ -149,8 +150,10 @@ export function CatalogSearchFilter({
       style={popoverStyle}
     >
       <div className="catalog-filter-popover-header">
-        <strong>{title}</strong>
-        {subtitle ? <span>{subtitle}</span> : null}
+        <div className="catalog-filter-popover-title-row">
+          <strong>{title}</strong>
+          {subtitle ? <InfoTooltip content={subtitle} label={`${title} information`} /> : null}
+        </div>
       </div>
       {children}
     </div>

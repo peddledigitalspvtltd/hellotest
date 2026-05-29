@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
@@ -699,8 +700,13 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
               <div className="execution-context-summary-head">
                 <div className="execution-context-summary-copy">
-                  <strong>Object repository</strong>
-                  <span>Screens, labels, field names, and locators learned from AI builds and recorder sessions are reused across later builds in this scope.</span>
+                  <div className="execution-context-summary-title-row">
+                    <strong>Object repository</strong>
+                    <InfoTooltip
+                      content="Screens, labels, field names, and locators learned from AI builds and recorder sessions are reused across later builds in this scope."
+                      label="Object repository information"
+                    />
+                  </div>
                 </div>
                 <span className="count-pill">{learningCache.length} cached</span>
               </div>
@@ -876,8 +882,13 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
                 <div className="execution-context-summary-head">
                   <div className="execution-context-summary-copy">
-                    <strong>Trace log</strong>
-                    <span>Recorded operation stages in chronological order.</span>
+                    <div className="execution-context-summary-title-row">
+                      <strong>Trace log</strong>
+                      <InfoTooltip
+                        content="Recorded operation stages in chronological order."
+                        label="Trace log information"
+                      />
+                    </div>
                   </div>
                   <span className="count-pill">{(transactionEventsQuery.data || []).length} events</span>
                 </div>

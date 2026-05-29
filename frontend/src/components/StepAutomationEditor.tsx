@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PlayIcon } from "./AppIcons";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 import { SharedStepsIcon as SharedStepsIconGraphic } from "./SharedStepsIcon";
 import { api } from "../lib/api";
 import { parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
@@ -1754,8 +1755,10 @@ export function CodePreviewDialog({
       >
         <div className="resource-modal-header">
           <div className="resource-modal-title">
-            <h3>{title}</h3>
-            <p>{subtitle}</p>
+            <div className="modal-title-info-row">
+              <h3>{title}</h3>
+              <InfoTooltip content={subtitle} label={`${title} information`} />
+            </div>
           </div>
           <button aria-label="Close code preview" className="ghost-button" onClick={onClose} type="button">
             Close
@@ -2344,8 +2347,10 @@ export function StepAutomationDialog({
       >
         <div className="resource-modal-header">
           <div className="resource-modal-title">
-            <h3>{title}</h3>
-            <p>{subtitle}</p>
+            <div className="modal-title-info-row">
+              <h3>{title}</h3>
+              <InfoTooltip content={subtitle} label={`${title} information`} />
+            </div>
           </div>
           <button aria-label="Close step automation editor" className="ghost-button" onClick={onClose} type="button">
             Close
@@ -2491,13 +2496,16 @@ export function StepAutomationDialog({
                         <span>{isRunningApiRequest ? "Running..." : "Run"}</span>
                       </button>
                       <button
-                        className="ghost-button inline-button"
+                        className="ghost-button inline-button automation-ai-suggest-button"
                         disabled={!apiPreview?.ai_suggestions}
                         onClick={handleApplyApiSuggestions}
                         type="button"
                       >
                         <AutomationCodeIcon />
-                        <span>Auto suggest assertions and parsers</span>
+                        <span>
+                          <strong>AI suggest</strong>
+                          <small>Assertions and parsers</small>
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -2543,9 +2551,12 @@ export function StepAutomationDialog({
                       ) : null}
 
                       {responseHeaderEntries.length ? (
-                        <div className="automation-response-meta">
-                          <strong>Response headers</strong>
-                          <div className="automation-response-headers">
+                        <details className="automation-request-details automation-response-header-details">
+                          <summary>
+                            <span>Response headers</span>
+                            <strong>{responseHeaderEntries.length}</strong>
+                          </summary>
+                          <div className="automation-request-details-body automation-response-headers">
                             {responseHeaderEntries.map(([key, value]) => (
                               <span className="automation-response-header-chip" key={key}>
                                 <strong>{key}</strong>
@@ -2553,7 +2564,7 @@ export function StepAutomationDialog({
                               </span>
                             ))}
                           </div>
-                        </div>
+                        </details>
                       ) : null}
 
                       {apiPreview.response.body_json !== null && apiPreview.response.body_json !== undefined ? (
@@ -2706,12 +2717,25 @@ export function StepAutomationDialog({
                   </div>
                 </FormField>
 
-                <FormField
-                  label="Custom code override"
-                  hint="Leave blank to use the generated request snippet in group and case-level consolidated code views. JPath selections can seed this override automatically."
-                >
-                  <textarea rows={8} value={automationCode} onChange={(event) => setAutomationCode(event.target.value)} />
-                </FormField>
+                <details className="automation-request-details automation-custom-code-panel" open={Boolean(automationCode)}>
+                  <summary>
+                    <span>Custom code override</span>
+                    <strong>{automationCode ? "Override active" : "Optional"}</strong>
+                  </summary>
+                  <div className="automation-request-details-body">
+                    <FormField
+                      label="Override JavaScript"
+                      hint="Leave blank to use the generated request snippet in group and case-level consolidated code views. JPath selections can seed this override automatically."
+                    >
+                      <textarea
+                        placeholder="// Optional: override the generated request snippet for this step."
+                        rows={5}
+                        value={automationCode}
+                        onChange={(event) => setAutomationCode(event.target.value)}
+                      />
+                    </FormField>
+                  </div>
+                </details>
               </div>
             ) : (
               <>
@@ -2831,14 +2855,24 @@ export function StepAutomationDialog({
                   label="Step automation code"
                   hint="Use the same scoped tokens from the manual step text whenever automation needs case, suite, or run data."
                 >
-                  <textarea rows={14} value={automationCode} onChange={(event) => setAutomationCode(event.target.value)} />
+                  <textarea
+                    placeholder="// Add QAira keyword code or CodedJS for this step."
+                    rows={12}
+                    value={automationCode}
+                    onChange={(event) => setAutomationCode(event.target.value)}
+                  />
                 </FormField>
               </>
             )}
 
             <div className="detail-summary automation-preview-shell">
-              <strong>Consolidated preview</strong>
-              <span>This is what group and test-case level code views will use for this step.</span>
+              <div className="automation-preview-title-row">
+                <strong>Consolidated preview</strong>
+                <InfoTooltip
+                  content="This is what group and test-case level code views will use for this step."
+                  label="Consolidated preview information"
+                />
+              </div>
               <pre className="automation-code-block automation-code-block--compact">
                 <code>{previewCode}</code>
               </pre>
@@ -2887,8 +2921,13 @@ export function StepAutomationDialog({
         >
           <div className="resource-modal-header">
             <div className="resource-modal-title">
-              <h3>Use object repository field</h3>
-              <p>Select a screen, then map its saved field into this step locator.</p>
+              <div className="modal-title-info-row">
+                <h3>Use object repository field</h3>
+                <InfoTooltip
+                  content="Select a screen, then map its saved field into this step locator."
+                  label="Object repository picker information"
+                />
+              </div>
             </div>
             <button className="ghost-button" onClick={() => setIsRepositoryPickerOpen(false)} type="button">Close</button>
           </div>

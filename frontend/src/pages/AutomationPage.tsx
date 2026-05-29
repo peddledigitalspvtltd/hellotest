@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
@@ -3484,8 +3485,19 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   ) : null}
                   {screenDetailTab === "suggestions" ? (
                     <div className="repository-callout-list">
-                      <div className="object-repository-ai-strip"><SparkIcon /><span>Prefer `data-testid`, `aria-label`, and `role + name`; keep CSS and XPath as fallbacks only.</span></div>
-                      {selectedRepositoryEntry ? <p>Selected field stability: {Math.round(normalizeMetadataNumber(selectedRepositoryEntry.metadata?.stability_score, selectedRepositoryEntry.confidence) * 100)}%. Use AI improve to propose a healed locator from captured evidence.</p> : null}
+                      <div className="object-repository-ai-strip">
+                        <SparkIcon />
+                        <InfoTooltip
+                          content="Prefer `data-testid`, `aria-label`, and `role + name`; keep CSS and XPath as fallbacks only."
+                          label="Locator health information"
+                        />
+                      </div>
+                      {selectedRepositoryEntry ? (
+                        <InfoTooltip
+                          content={`Selected field stability: ${Math.round(normalizeMetadataNumber(selectedRepositoryEntry.metadata?.stability_score, selectedRepositoryEntry.confidence) * 100)}%. Use AI improve to propose a healed locator from captured evidence.`}
+                          label="Selected field stability information"
+                        />
+                      ) : null}
                     </div>
                   ) : null}
                 </section>
@@ -3618,10 +3630,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                <div className="import-modal-header">
 	                  <div className="import-modal-title">
 	                    <p className="eyebrow">Object Repository Import</p>
-	                    <h3 id="object-repository-import-title">Import screens and fields</h3>
-	                    <p>
-	                      Upload a QAira OR CSV, individual page object files, or a ZIP archive. CSV rows import as saved screens and fields; source files are parsed locally for Playwright, Selenium Java, C#, JavaScript, and TypeScript locators.
-	                    </p>
+	                    <div className="modal-title-info-row">
+	                      <h3 id="object-repository-import-title">Import screens and fields</h3>
+	                      <InfoTooltip
+	                        content="Upload a QAira OR CSV, individual page object files, or a ZIP archive. CSV rows import as saved screens and fields; source files are parsed locally for Playwright, Selenium Java, C#, JavaScript, and TypeScript locators."
+	                        label="Object repository import information"
+	                      />
+	                    </div>
 	                  </div>
 	                  <button
 	                    aria-label="Close object repository import dialog"
@@ -3706,8 +3721,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <div className="dialog object-repository-inspector" role="dialog" aria-modal="true" aria-label="Object repository inspector">
                 <div className="dialog-header">
                   <div>
-                    <h2>Inspect screen into repository</h2>
-                    <p>Select fields in the browser, remove mistakes from the selection, then save the screen and fields together.</p>
+                    <div className="modal-title-info-row">
+                      <h2>Inspect screen into repository</h2>
+                      <InfoTooltip
+                        content="Select fields in the browser, remove mistakes from the selection, then save the screen and fields together."
+                        label="Inspect screen information"
+                      />
+                    </div>
                   </div>
                   <button className="ghost-button compact" onClick={() => setIsInspectOpen(false)} type="button">Close</button>
                 </div>
@@ -4060,8 +4080,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           <div className="dialog object-repository-usage-dialog" role="dialog" aria-modal="true" aria-label="Repository usage">
             <div className="dialog-header">
               <div>
-                <h2>{repositoryUsageBlock.title}</h2>
-                <p>This repository object is referenced by the test cases below. Deleting it will keep the cases, mark automated ones incomplete, and prevent execution until their bindings are repaired.</p>
+                <div className="modal-title-info-row">
+                  <h2>{repositoryUsageBlock.title}</h2>
+                  <InfoTooltip
+                    content="This repository object is referenced by the test cases below. Deleting it will keep the cases, mark automated ones incomplete, and prevent execution until their bindings are repaired."
+                    label="Repository usage information"
+                  />
+                </div>
               </div>
               <button className="ghost-button compact" onClick={() => setRepositoryUsageBlock(null)} type="button">Close</button>
             </div>

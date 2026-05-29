@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
@@ -1276,8 +1277,13 @@ export function ProjectsPage() {
             <div className="project-create-header">
               <div className="project-create-title">
                 <p className="eyebrow">Projects & Scope</p>
-                <h3 id="create-project-title">Create project</h3>
-                <p>Create the project, attach app types, and select any extra members. Admins are added automatically, and your account is linked as a member.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="create-project-title">Create project</h3>
+                  <InfoTooltip
+                    content="Create the project, attach app types, and select any extra members. Admins are added automatically, and your account is linked as a member."
+                    label="Create project information"
+                  />
+                </div>
               </div>
               <button className="ghost-button" disabled={createProject.isPending} onClick={closeCreateProjectModal} type="button">
                 Close

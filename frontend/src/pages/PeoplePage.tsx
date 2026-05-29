@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { AddIcon, ImportIcon, UsersIcon } from "../components/AppIcons";
 import { api } from "../lib/api";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { SubnavTabs } from "../components/SubnavTabs";
@@ -516,7 +517,7 @@ export function PeoplePage() {
       {view === "users" ? (
         <WorkspaceMasterDetail
           browseView={(
-            <Panel title="User tiles" subtitle="Scan the directory in card form first, then open one person into a focused access editor.">
+            <Panel title="Users" titleVariant="eyebrow" subtitle="Scan the directory in card form first, then open one person into a focused access editor.">
               {isUserCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isUserCatalogLoading ? (
                 <div className="tile-browser-grid">
@@ -638,7 +639,7 @@ export function PeoplePage() {
       ) : (
         <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Role tiles" subtitle="Keep role definitions scannable, then open one label into a focused editor when needed.">
+            <Panel title="Roles" titleVariant="eyebrow" subtitle="Keep role definitions scannable, then open one label into a focused editor when needed.">
               {isRoleCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isRoleCatalogLoading ? (
                 <div className="tile-browser-grid">
@@ -735,8 +736,10 @@ export function PeoplePage() {
             <div className="people-modal-header">
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
-                <h3 id="create-user-title">Create user</h3>
-                <p>Add a workspace user without leaving the directory view.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="create-user-title">Create user</h3>
+                  <InfoTooltip content="Add a workspace user without leaving the directory view." label="Create user information" />
+                </div>
               </div>
               <button
                 aria-label="Close create user dialog"
@@ -818,8 +821,13 @@ export function PeoplePage() {
             <div className="people-modal-header">
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
-                <h3 id="import-users-title">Import users from CSV</h3>
-                <p>Upload a CSV with `Email`, optional `Name`, `Password` or `Password Hash`, and optional `Role` or `Role ID`. Plain passwords are hashed before users are stored.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="import-users-title">Import users from CSV</h3>
+                  <InfoTooltip
+                    content="Upload a CSV with `Email`, optional `Name`, `Password` or `Password Hash`, and optional `Role` or `Role ID`. Plain passwords are hashed before users are stored."
+                    label="User import information"
+                  />
+                </div>
               </div>
               <button
                 aria-label="Close user import dialog"
@@ -937,8 +945,10 @@ export function PeoplePage() {
             <div className="people-modal-header">
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
-                <h3 id="create-role-title">Create role</h3>
-                <p>Keep the role library concise and reusable across assignments.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="create-role-title">Create role</h3>
+                  <InfoTooltip content="Keep the role library concise and reusable across assignments." label="Create role information" />
+                </div>
               </div>
               <button
                 aria-label="Close create role dialog"

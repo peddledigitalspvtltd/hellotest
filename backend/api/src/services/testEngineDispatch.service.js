@@ -1176,26 +1176,34 @@ async function planExecutionDispatch(execution, options = {}) {
   let manualCaseCount = 0;
   let unsupportedAutomatedCaseCount = 0;
   const allowIncompleteAutomation = options.allowIncompleteAutomation === true;
+  const allowApiCasesWithoutAutomation = options.allowApiCasesWithoutAutomation === true;
 
   for (const caseSnapshot of execution.case_snapshots || []) {
     const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
+    const rawSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
+    const appTypeKind = appType?.type || null;
+    const isApiOnlyRunnableCase = allowApiCasesWithoutAutomation
+      && normalizeText(appTypeKind)?.toLowerCase() === "api"
+      && rawSteps.length > 0
+      && rawSteps.every((stepSnapshot) =>
+        resolveEngineStepType(stepSnapshot.step_type, appTypeKind) === "api"
+        && Boolean(normalizeApiRequest(stepSnapshot.api_request)?.url)
+      );
 
-    if (caseRecord?.automated !== "yes") {
+    if (caseRecord?.automated !== "yes" && !isApiOnlyRunnableCase) {
       manualCaseCount += 1;
       continue;
     }
 
     automatedCaseCount += 1;
 
-    if (caseRecord.automation_status && caseRecord.automation_status !== "ready") {
+    if (!isApiOnlyRunnableCase && caseRecord.automation_status && caseRecord.automation_status !== "ready") {
       warnings.push(`${caseSnapshot.test_case_title}: automation is incomplete because a required repository object is missing or still needs review.`);
       if (!allowIncompleteAutomation) {
         unsupportedAutomatedCaseCount += 1;
         continue;
       }
     }
-
-    const rawSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
 
     if (!rawSteps.length) {
       unsupportedAutomatedCaseCount += 1;
@@ -1205,7 +1213,7 @@ async function planExecutionDispatch(execution, options = {}) {
 
     const stepWarnings = [];
     const normalizedSteps = rawSteps.map((stepSnapshot) => {
-      const stepType = resolveEngineStepType(stepSnapshot.step_type, appType?.type || null);
+      const stepType = resolveEngineStepType(stepSnapshot.step_type, appTypeKind);
 
       if (!stepType) {
         stepWarnings.push(
@@ -1218,7 +1226,7 @@ async function planExecutionDispatch(execution, options = {}) {
         id: stepSnapshot.snapshot_step_id,
         order: stepSnapshot.step_order,
         step_type: stepType,
-        engine_class: resolveStepEngineClass({ step_type: stepType }, appType?.type || null),
+        engine_class: resolveStepEngineClass({ step_type: stepType }, appTypeKind),
         action: normalizeText(stepSnapshot.action),
         expected_result: normalizeText(stepSnapshot.expected_result),
         automation_code: normalizeRichText(stepSnapshot.automation_code),
@@ -1425,7 +1433,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
 
   const engineHost = normalizeEngineHostUrl(engineBaseUrl || integration?.base_url);
   if (!engineHost) {
-    throw new Error("Local run requires a local host recorder URL. Start local-run/bin/start-host-recorder.sh first.");
+    throw new Error("Local run requires a local Test Engine URL. Start QAira local-run or the local runner service first.");
   }
 
   const activeWebEngine = "playwright";
@@ -1460,6 +1468,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       }),
       callback
     };
+    const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
+    const isApiOnlyRun = orchestrationClass === "api";
     const liveViewUrl = buildProviderLiveViewUrl(directIntegration, activeWebEngine);
     const transactionMetadata = {
       source: "qaira.local-run",
@@ -1468,8 +1478,9 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       test_case_id: item.case_snapshot.test_case_id,
       engine_host: engineHost,
       queue_mode: "direct-local",
+      orchestration_class: orchestrationClass,
       active_web_engine: activeWebEngine,
-      live_view_url: liveViewUrl,
+      live_view_url: isApiOnlyRun ? null : liveViewUrl,
       callback_url: callback.url
     };
     const transaction = await workspaceTransactionService.createTransaction({
@@ -1479,7 +1490,9 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       action: "testengine_run",
       status: "running",
       title: `Local run for ${item.case_snapshot.test_case_title}`,
-      description: "Running immediately on the local Playwright host recorder.",
+      description: isApiOnlyRun
+        ? "Running immediately on the local Test Engine API runner."
+        : "Running immediately on the local Playwright host recorder.",
       metadata: transactionMetadata,
       related_kind: "testengine_run",
       related_id: item.engine_run_id,
@@ -1490,13 +1503,13 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
     await workspaceTransactionService.appendTransactionEvent(transaction.id, {
       level: "info",
       phase: "local-run.started",
-      message: `Started ${item.case_snapshot.test_case_title} on the local Playwright runner.`,
+      message: `Started ${item.case_snapshot.test_case_title} on the ${isApiOnlyRun ? "local API runner" : "local Playwright runner"}.`,
       details: {
         execution_id: plan.execution.id,
         test_case_id: item.case_snapshot.test_case_id,
         engine_run_id: item.engine_run_id,
         engine_host: engineHost,
-        live_view_url: liveViewUrl
+        live_view_url: isApiOnlyRun ? null : liveViewUrl
       }
     });
 
@@ -1519,7 +1532,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
         },
         completed_at: new Date().toISOString()
       });
-      throw new Error(`Unable to reach local Playwright runner at ${engineHost}: ${error instanceof Error ? error.message : "request failed"}`);
+      throw new Error(`Unable to reach ${isApiOnlyRun ? "local Test Engine" : "local Playwright runner"} at ${engineHost}: ${error instanceof Error ? error.message : "request failed"}`);
     }
 
     const payload = await response.json().catch(() => null);

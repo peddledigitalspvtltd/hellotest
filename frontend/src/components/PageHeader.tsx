@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { InfoTooltip } from "./InfoTooltip";
 
 type PageHeaderMetaItem = {
   label: string;
@@ -13,7 +14,7 @@ export function PageHeader({
   meta,
   className = ""
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -24,9 +25,11 @@ export function PageHeader({
     <header className={["page-header", "card", actions ? "" : "page-header--no-actions", className].filter(Boolean).join(" ")}>
       <div className="page-header-text">
         <div className="page-header-copy">
-          <p className="eyebrow">{eyebrow}</p>
-          <h1 className="page-header-title">{title}</h1>
-          {description ? <p className="page-description">{description}</p> : null}
+          {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+          <div className="page-header-title-row">
+            <h1 className="page-header-title">{title}</h1>
+            {description ? <InfoTooltip className="page-description-info" content={description} label="Page information" /> : null}
+          </div>
         </div>
         {meta?.length ? (
           <div className="page-header-meta">

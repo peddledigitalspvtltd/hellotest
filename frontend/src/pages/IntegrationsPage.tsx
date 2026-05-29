@@ -1149,7 +1149,7 @@ export function IntegrationsPage() {
 
       <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Integration tiles" subtitle="Review configured connections as tiles first, then open one profile into a focused editor.">
+            <Panel title="Integrations" titleVariant="eyebrow" subtitle="Review configured connections as tiles first, then open one profile into a focused editor.">
               {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isIntegrationCatalogLoading ? (
                 <div className="tile-browser-grid">

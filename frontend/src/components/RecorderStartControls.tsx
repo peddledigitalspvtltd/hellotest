@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "./AppIcons";
+import { InfoTooltip } from "./InfoTooltip";
 import { api } from "../lib/api";
 
 export type RecorderStartMode = "local" | "remote";
@@ -319,8 +320,13 @@ export function RecorderStartControls({
           >
             <div className="resource-modal-header">
               <div className="resource-modal-title">
-                <h3>Local recorder setup</h3>
-                <p>Run QAira local-run or a local Test Engine before recording on this computer.</p>
+                <div className="modal-title-info-row">
+                  <h3>Local recorder setup</h3>
+                  <InfoTooltip
+                    content="Run QAira local-run or a local Test Engine before recording on this computer."
+                    label="Local recorder setup information"
+                  />
+                </div>
               </div>
               <button className="ghost-button" onClick={() => setIsSetupOpen(false)} type="button">
                 Close
@@ -329,12 +335,22 @@ export function RecorderStartControls({
 
             <div className="detail-stack">
               <div className="empty-state compact">
-                <strong>Local setup</strong>
-                <span>Use Start local runner when QAira API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed QAira script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service.</span>
+                <span className="recorder-setup-copy-title-row">
+                  <strong>Local setup</strong>
+                  <InfoTooltip
+                    content="Use Start local runner when QAira API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed QAira script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
+                    label="Local setup information"
+                  />
+                </span>
               </div>
               <div className="empty-state compact">
-                <strong>Docker fallback</strong>
-                <span>If one-click launch is disabled, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\start-host-recorder.cmd on Windows. For Docker live view, use browser URL {DOCKER_LOCAL_BROWSER_URL} and API/container URL {DOCKER_LOCAL_ENGINE_URL}.</span>
+                <span className="recorder-setup-copy-title-row">
+                  <strong>Docker fallback</strong>
+                  <InfoTooltip
+                    content={`If one-click launch is disabled, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\\start-host-recorder.cmd on Windows. For Docker live view, use browser URL ${DOCKER_LOCAL_BROWSER_URL} and API/container URL ${DOCKER_LOCAL_ENGINE_URL}.`}
+                    label="Docker fallback information"
+                  />
+                </span>
               </div>
               <label className="form-field">
                 <span>Browser recorder URL</span>

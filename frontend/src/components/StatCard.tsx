@@ -1,3 +1,5 @@
+import { InfoTooltip } from "./InfoTooltip";
+
 export function StatCard({
   label,
   value,
@@ -9,9 +11,11 @@ export function StatCard({
 }) {
   return (
     <div className="stat-card card">
-      <span>{label}</span>
+      <span className="stat-card-label-row">
+        <span>{label}</span>
+        <InfoTooltip content={hint} label={`${label} information`} />
+      </span>
       <strong>{value}</strong>
-      <p>{hint}</p>
     </div>
   );
 }

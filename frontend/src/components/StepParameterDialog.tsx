@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 import type { StepParameterDefinition } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 
@@ -48,16 +49,19 @@ export function StepParameterDialog({
     {
       scope: "t",
       title: "Test case data",
+      info: "`@t` values are saved on this test case and reused whenever the case runs.",
       items: parameters.filter((parameter) => parameter.scope === "t")
     },
     {
       scope: "s",
       title: "Suite-shared data",
+      info: "`@s` values are saved on the selected linked suite so multiple cases can reuse the same value.",
       items: parameters.filter((parameter) => parameter.scope === "s")
     },
     {
       scope: "r",
       title: "Run data",
+      info: "`@r` values are run-scoped. They stay local in this editor preview until a real run data set supplies them.",
       items: parameters.filter((parameter) => parameter.scope === "r")
     }
   ].filter((group) => group.items.length);
@@ -116,8 +120,10 @@ export function StepParameterDialog({
         <div className="suite-create-header step-parameter-dialog-header">
           <div className="suite-create-title">
             <p className="eyebrow">Test data</p>
-            <h3>{title}</h3>
-            <p>{subtitle}</p>
+            <div className="modal-title-info-row">
+              <h3>{title}</h3>
+              <InfoTooltip content={subtitle} label="Test data information" />
+            </div>
           </div>
           <div className="step-parameter-dialog-head-meta">
             <span className="count-pill">{parameterCount} field{parameterCount === 1 ? "" : "s"}</span>
@@ -134,7 +140,10 @@ export function StepParameterDialog({
               {groupedParameters.map((group) => (
                 <section className="step-parameter-group" key={group.scope}>
                   <div className="step-parameter-group-head">
-                    <strong>{group.title}</strong>
+                    <div className="step-parameter-group-title-row">
+                      <strong>{group.title}</strong>
+                      <InfoTooltip content={group.info} label={`${group.title} information`} />
+                    </div>
                     <span>{group.items.length} item{group.items.length === 1 ? "" : "s"}</span>
                   </div>
                   {group.items.map((parameter) => {
@@ -204,9 +213,14 @@ export function StepParameterDialog({
                                 value={utilityDrafts[parameter.name] || ""}
                               />
                               <div className="step-parameter-utility-footer">
-                                <span>
-                                  Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, or <code>{"{{randomString:8}}"}</code>.
-                                </span>
+                                <InfoTooltip
+                                  content={(
+                                    <>
+                                      Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, or <code>{"{{randomString:8}}"}</code>.
+                                    </>
+                                  )}
+                                  label="Template utility information"
+                                />
                                 <button className="primary-button" onClick={() => applyUtilityTemplate(parameter.name)} type="button">
                                   Save template
                                 </button>
@@ -229,11 +243,12 @@ export function StepParameterDialog({
         </div>
 
         <div className="step-parameter-dialog-footer">
-          <span>
-            {parameterCount
+          <InfoTooltip
+            content={parameterCount
               ? `${parameterCount} detected field${parameterCount === 1 ? "" : "s"} stay scoped to this case, suite, or run context.`
               : "Detected params will appear here once steps reference @tokens."}
-          </span>
+            label="Detected fields information"
+          />
           <button className="ghost-button" onClick={onClose} type="button">
             Done
           </button>

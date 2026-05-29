@@ -10,6 +10,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -1324,7 +1325,7 @@ export function RequirementsPage() {
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Requirement tiles" subtitle="Start in the visual catalog, scan coverage quickly, then open one requirement into a focused editor view.">
+          <Panel title="Requirements" titleVariant="eyebrow" subtitle="Start in the visual catalog, scan coverage quickly, then open one requirement into a focused editor view.">
             <div className="design-list-toolbar requirement-catalog-toolbar">
               <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
               <CatalogSearchFilter
@@ -1651,8 +1652,13 @@ export function RequirementsPage() {
             <div className="requirement-create-header">
               <div className="requirement-create-title">
                 <p className="eyebrow">Requirements</p>
-                <h3 id="create-requirement-title">Create requirement</h3>
-                <p>Create the requirement in a focused modal, then link any reusable test cases that already exist for the selected app type.</p>
+                <div className="modal-title-info-row">
+                  <h3 id="create-requirement-title">Create requirement</h3>
+                  <InfoTooltip
+                    content="Create the requirement in a focused modal, then link any reusable test cases that already exist for the selected app type."
+                    label="Create requirement information"
+                  />
+                </div>
               </div>
               <button className="ghost-button" disabled={createRequirement.isPending || replaceMappings.isPending} onClick={closeCreateRequirementModal} type="button">
                 Close
@@ -1718,8 +1724,13 @@ export function RequirementsPage() {
                 <section className="requirement-link-section">
                   <div className="panel-head">
                     <div>
-                      <h3>Existing test cases</h3>
-                      <p>{appTypeId ? `Select reusable cases from ${currentAppTypeName} to link immediately.` : "Select an app type first to link existing reusable test cases."}</p>
+                      <div className="panel-title-row">
+                        <h3>Existing test cases</h3>
+                        <InfoTooltip
+                          content={appTypeId ? `Select reusable cases from ${currentAppTypeName} to link immediately.` : "Select an app type first to link existing reusable test cases."}
+                          label="Existing test cases information"
+                        />
+                      </div>
                     </div>
                     <div className="panel-head-actions">
                       <button
@@ -1777,11 +1788,18 @@ export function RequirementsPage() {
             <div className="import-modal-header">
               <div className="import-modal-title">
                 <p className="eyebrow">Bulk Import</p>
-                <h3 id="bulk-requirement-import-title">Import requirements from CSV</h3>
-                <p>
-                  Upload many requirements at once. Use columns: <strong>title</strong> (required), plus optional{" "}
-                  <strong>description</strong>, <strong>external_references</strong>, <strong>priority</strong> (1–5), and <strong>status</strong>.
-                </p>
+                <div className="modal-title-info-row">
+                  <h3 id="bulk-requirement-import-title">Import requirements from CSV</h3>
+                  <InfoTooltip
+                    content={(
+                      <>
+                        Upload many requirements at once. Use columns: <strong>title</strong> (required), plus optional{" "}
+                        <strong>description</strong>, <strong>external_references</strong>, <strong>priority</strong> (1-5), and <strong>status</strong>.
+                      </>
+                    )}
+                    label="Requirement import information"
+                  />
+                </div>
               </div>
               <button
                 aria-label="Close bulk requirement import dialog"

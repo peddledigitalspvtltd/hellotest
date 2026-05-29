@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreIcon } from "./AppIcons";
+import { InfoTooltip } from "./InfoTooltip";
 
 export type CatalogActionMenuItem = {
   label: string;
@@ -123,8 +124,16 @@ export function CatalogActionMenu({
         >
           {action.icon}
           <span className="step-card-menu-item-content">
-            <span className="step-card-menu-item-label">{action.label}</span>
-            {action.description ? <span className="step-card-menu-item-description">{action.description}</span> : null}
+            <span className="step-card-menu-item-label-row">
+              <span className="step-card-menu-item-label">{action.label}</span>
+              {action.description ? (
+                <InfoTooltip
+                  content={action.description}
+                  label={`${action.label} information`}
+                  trigger="span"
+                />
+              ) : null}
+            </span>
           </span>
         </button>
       ))}

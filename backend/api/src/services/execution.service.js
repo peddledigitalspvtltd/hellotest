@@ -1474,11 +1474,12 @@ exports.startLocalExecution = async (id, options = {}) => {
   }
 
   const dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution, {
-    allowIncompleteAutomation: true
+    allowIncompleteAutomation: true,
+    allowApiCasesWithoutAutomation: true
   });
 
   if (!dispatchPlan.eligible_automated_case_count) {
-    throw new Error("Local run requires a recorded automated web test case.");
+    throw new Error("Local run requires a recorded automated web test case or an API test case with saved API request steps.");
   }
 
   const localEngineBaseUrl = await resolveLocalEngineBaseUrl(options.engine_base_url);
