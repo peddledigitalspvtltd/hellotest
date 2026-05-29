@@ -1,4 +1,5 @@
 const { normalizeApiRequest } = require("../utils/testStepAutomation");
+const { materializeTemplateValue } = require("../utils/testDataGenerators");
 
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
 
@@ -32,6 +33,20 @@ const stringifyValue = (value) => {
 };
 
 const normalizeContextKey = (value) => normalizeText(String(value || "").replace(/^@+/, "")).toLowerCase();
+const GENERATED_CONTEXT_ALIASES = {
+  "t.random": "{{randomString:3}}",
+  random: "{{randomString:3}}",
+  "t.randomstring": "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  "t.randomnumber": "{{randomNumber:6}}",
+  randomnumber: "{{randomNumber:6}}",
+  "t.yopmail": "{{yopmail}}",
+  yopmail: "{{yopmail}}",
+  "t.today": "{{date:YYYY-MM-DD}}",
+  today: "{{date:YYYY-MM-DD}}",
+  "t.timestamp": "{{date:ISO}}",
+  timestamp: "{{date:ISO}}"
+};
 
 const ensureHttpUrl = (value) => {
   const normalized = normalizeText(value);
@@ -159,14 +174,20 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
     return "";
   }
 
-  if (Object.prototype.hasOwnProperty.call(values, normalizedKey)) {
+  if (
+    Object.prototype.hasOwnProperty.call(values, normalizedKey)
+    && !(GENERATED_CONTEXT_ALIASES[normalizedKey] && stringifyValue(values[normalizedKey]) === "")
+  ) {
     return stringifyValue(values[normalizedKey]);
   }
 
   if (!normalizedKey.includes(".")) {
     const scoped = `${fallbackScope}.${normalizedKey}`;
 
-    if (Object.prototype.hasOwnProperty.call(values, scoped)) {
+    if (
+      Object.prototype.hasOwnProperty.call(values, scoped)
+      && !(GENERATED_CONTEXT_ALIASES[scoped] && stringifyValue(values[scoped]) === "")
+    ) {
       return stringifyValue(values[scoped]);
     }
 
@@ -177,6 +198,10 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
     if (Object.prototype.hasOwnProperty.call(values, `r.${normalizedKey}`)) {
       return stringifyValue(values[`r.${normalizedKey}`]);
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(GENERATED_CONTEXT_ALIASES, normalizedKey)) {
+    return materializeTemplateValue(GENERATED_CONTEXT_ALIASES[normalizedKey]);
   }
 
   return "";

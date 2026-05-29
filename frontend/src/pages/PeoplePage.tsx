@@ -737,7 +737,7 @@ export function PeoplePage() {
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
                 <div className="modal-title-info-row">
-                  <h3 id="create-user-title">Create user</h3>
+                  <p className="eyebrow" id="create-user-title">Create user</p>
                   <InfoTooltip content="Add a workspace user without leaving the directory view." label="Create user information" />
                 </div>
               </div>
@@ -822,7 +822,7 @@ export function PeoplePage() {
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
                 <div className="modal-title-info-row">
-                  <h3 id="import-users-title">Import users from CSV</h3>
+                  <p className="eyebrow" id="import-users-title">Import users from CSV</p>
                   <InfoTooltip
                     content="Upload a CSV with `Email`, optional `Name`, `Password` or `Password Hash`, and optional `Role` or `Role ID`. Plain passwords are hashed before users are stored."
                     label="User import information"
@@ -946,7 +946,7 @@ export function PeoplePage() {
               <div className="people-modal-title">
                 <p className="eyebrow">People & Access</p>
                 <div className="modal-title-info-row">
-                  <h3 id="create-role-title">Create role</h3>
+                  <p className="eyebrow" id="create-role-title">Create role</p>
                   <InfoTooltip content="Keep the role library concise and reusable across assignments." label="Create role information" />
                 </div>
               </div>

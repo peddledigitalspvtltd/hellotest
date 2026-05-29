@@ -1756,7 +1756,7 @@ export function CodePreviewDialog({
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <div className="modal-title-info-row">
-              <h3>{title}</h3>
+              <p className="eyebrow">{title}</p>
               <InfoTooltip content={subtitle} label={`${title} information`} />
             </div>
           </div>
@@ -2348,7 +2348,7 @@ export function StepAutomationDialog({
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <div className="modal-title-info-row">
-              <h3>{title}</h3>
+              <p className="eyebrow">{title}</p>
               <InfoTooltip content={subtitle} label={`${title} information`} />
             </div>
           </div>
@@ -2481,9 +2481,12 @@ export function StepAutomationDialog({
 
                 <div className="automation-response-shell">
                   <div className="automation-response-header">
-                    <div>
+                    <div className="automation-response-title-row">
                       <strong>API response capture</strong>
-                      <span>Run the current request with the active test data values, inspect the response hierarchy, and lift a JSON path into your assertions.</span>
+                      <InfoTooltip
+                        content="Run the current request with active test data values, inspect the response hierarchy, and lift a JSON path into assertions or response captures."
+                        label="API response capture information"
+                      />
                     </div>
                     <div className="automation-response-actions">
                       <button
@@ -2493,7 +2496,7 @@ export function StepAutomationDialog({
                         type="button"
                       >
                         <PlayIcon />
-                        <span>{isRunningApiRequest ? "Running..." : "Run"}</span>
+                        <span>{isRunningApiRequest ? "Running..." : "Run Request"}</span>
                       </button>
                       <button
                         className="ghost-button inline-button automation-ai-suggest-button"
@@ -2504,14 +2507,14 @@ export function StepAutomationDialog({
                         <AutomationCodeIcon />
                         <span>
                           <strong>AI suggest</strong>
-                          <small>Assertions and parsers</small>
+                          <small>Assertions and Parsers</small>
                         </span>
                       </button>
                     </div>
                   </div>
 
-                  {apiPreviewError ? <div className="inline-message error-message">{apiPreviewError}</div> : null}
-                  {apiPreviewMessage ? <div className="inline-message success-message">{apiPreviewMessage}</div> : null}
+                  {apiPreviewError ? <div className="inline-message error-message automation-response-message">{apiPreviewError}</div> : null}
+                  {apiPreviewMessage ? <div className="inline-message success-message automation-response-message">{apiPreviewMessage}</div> : null}
 
                   {apiPreview ? (
                     <div className="automation-response-results">
@@ -2922,7 +2925,7 @@ export function StepAutomationDialog({
           <div className="resource-modal-header">
             <div className="resource-modal-title">
               <div className="modal-title-info-row">
-                <h3>Use object repository field</h3>
+                <p className="eyebrow">Use object repository field</p>
                 <InfoTooltip
                   content="Select a screen, then map its saved field into this step locator."
                   label="Object repository picker information"

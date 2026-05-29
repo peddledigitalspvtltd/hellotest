@@ -61,6 +61,27 @@ type DataSetBuildResult = {
   didSanitizeInvalidChars: boolean;
 };
 
+function TestDataUtilityIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="22">
+      <ellipse cx="10" cy="5" rx="7" ry="3" fill="currentColor" opacity="0.16" />
+      <path d="M3 5v8c0 1.7 3.1 3 7 3 1.1 0 2.1-.1 3-.4" />
+      <path d="M17 5v4.5" />
+      <path d="M3 9c0 1.7 3.1 3 7 3 1.1 0 2.1-.1 3-.4" />
+      <path d="M3 13c0 1.7 3.1 3 7 3" />
+      <circle cx="17" cy="16" r="2.3" />
+      <path d="M17 11.5v1.2" />
+      <path d="M17 19.3v1.2" />
+      <path d="m13.1 13.7.9.8" />
+      <path d="m20 17.5.9.8" />
+      <path d="M12.5 16h1.2" />
+      <path d="M20.3 16h1.2" />
+      <path d="m13.1 18.3.9-.8" />
+      <path d="m20 14.5.9-.8" />
+    </svg>
+  );
+}
+
 const INVALID_DATA_SET_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const INVALID_DATA_SET_CHAR_CHECK = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
@@ -779,7 +800,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                       >
                         <div className="tile-card-main">
                           <div className="tile-card-header">
-                            <span className="resource-card-badge">DATA</span>
+                            <span className="resource-card-badge test-data-card-icon"><TestDataUtilityIcon /></span>
                             <div className="tile-card-title-group">
                               <strong>{dataSet.name}</strong>
                               <span className="tile-card-kicker">{dataSet.mode === "table" ? "Table mode" : "Key/value mode"}</span>
@@ -922,7 +943,7 @@ function ResourceModalShell({
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <p className="eyebrow">Test Environment</p>
-            <h3>{title}</h3>
+            <p className="eyebrow">{title}</p>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">Close</button>
         </div>
@@ -1225,6 +1246,9 @@ function DataSetForm({
             </button>
             <button className="ghost-button" onClick={() => appendGeneratedField("unique_id", TEST_DATA_GENERATOR_TEMPLATES.randomString)} type="button">
               Add random text
+            </button>
+            <button className="ghost-button" onClick={() => appendGeneratedField("ai_data", TEST_DATA_GENERATOR_TEMPLATES.aiData)} type="button">
+              Add AI data
             </button>
           </div>
           <InfoTooltip

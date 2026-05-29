@@ -457,6 +457,7 @@ export function ProjectsPage() {
       const projectAppTypes = appTypesByProjectId[project.id] || [];
       const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
       const searchContent = [
+        project.id,
         project.name,
         project.display_id,
         project.description,
@@ -1278,7 +1279,7 @@ export function ProjectsPage() {
               <div className="project-create-title">
                 <p className="eyebrow">Projects & Scope</p>
                 <div className="modal-title-info-row">
-                  <h3 id="create-project-title">Create project</h3>
+                  <p className="eyebrow" id="create-project-title">Create project</p>
                   <InfoTooltip
                     content="Create the project, attach app types, and select any extra members. Admins are added automatically, and your account is linked as a member."
                     label="Create project information"

@@ -3631,7 +3631,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                  <div className="import-modal-title">
 	                    <p className="eyebrow">Object Repository Import</p>
 	                    <div className="modal-title-info-row">
-	                      <h3 id="object-repository-import-title">Import screens and fields</h3>
+	                      <p className="eyebrow" id="object-repository-import-title">Import screens and fields</p>
 	                      <InfoTooltip
 	                        content="Upload a QAira OR CSV, individual page object files, or a ZIP archive. CSV rows import as saved screens and fields; source files are parsed locally for Playwright, Selenium Java, C#, JavaScript, and TypeScript locators."
 	                        label="Object repository import information"

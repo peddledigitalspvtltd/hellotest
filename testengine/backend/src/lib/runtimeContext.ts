@@ -4,7 +4,32 @@ export type RuntimeExecutionContext = {
   values: Record<string, string>;
 };
 
-const STEP_PARAMETER_PATTERN = /@(?:(t|s|r)\.)?([A-Za-z0-9_]+)/gi;
+const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
+const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
+  "t.random": "{{randomString:3}}",
+  random: "{{randomString:3}}",
+  "t.randomstring": "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  "t.randomnumber": "{{randomNumber:6}}",
+  randomnumber: "{{randomNumber:6}}",
+  "t.yopmail": "{{yopmail}}",
+  yopmail: "{{yopmail}}",
+  "t.today": "{{date:YYYY-MM-DD}}",
+  today: "{{date:YYYY-MM-DD}}",
+  "t.timestamp": "{{date:ISO}}",
+  timestamp: "{{date:ISO}}"
+};
+const GENERATOR_ALIAS_TEMPLATES: Record<string, string> = {
+  random: "{{randomString:3}}",
+  string: "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  randomnumber: "{{randomNumber:6}}",
+  yopmail: "{{yopmail}}",
+  today: "{{date:YYYY-MM-DD}}",
+  timestamp: "{{date:ISO}}"
+};
 
 export const normalizeText = (value: string | null | undefined) => {
   const normalized = String(value || "").trim();
@@ -29,6 +54,60 @@ export const stringifyValue = (value: unknown) => {
   } catch {
     return String(value);
   }
+};
+
+const randomCharacters = (length: number, alphabet: string) =>
+  Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+
+const resolveDate = (rawOption: string | undefined, now: Date) => {
+  const [rawFormat, rawOffset] = String(rawOption || "YYYY-MM-DD").split("|").map((entry) => entry.trim());
+  const format = rawFormat || "YYYY-MM-DD";
+  const date = new Date(now.getTime());
+  const offsetMatch = rawOffset?.match(/^([+-]\d+)\s*([dwmy])$/i);
+
+  if (offsetMatch) {
+    const amount = Number.parseInt(offsetMatch[1], 10);
+    const unit = offsetMatch[2].toLowerCase();
+    if (unit === "d") date.setUTCDate(date.getUTCDate() + amount);
+    if (unit === "w") date.setUTCDate(date.getUTCDate() + amount * 7);
+    if (unit === "m") date.setUTCMonth(date.getUTCMonth() + amount);
+    if (unit === "y") date.setUTCFullYear(date.getUTCFullYear() + amount);
+  }
+
+  if (format.toLowerCase() === "iso") {
+    return date.toISOString();
+  }
+
+  const values: Record<string, string> = {
+    YYYY: String(date.getUTCFullYear()),
+    MM: String(date.getUTCMonth() + 1).padStart(2, "0"),
+    DD: String(date.getUTCDate()).padStart(2, "0"),
+    HH: String(date.getUTCHours()).padStart(2, "0"),
+    mm: String(date.getUTCMinutes()).padStart(2, "0"),
+    ss: String(date.getUTCSeconds()).padStart(2, "0")
+  };
+
+  return format.replace(/YYYY|MM|DD|HH|mm|ss/g, (token) => values[token]);
+};
+
+export const materializeTemplateValue = (value: unknown, now = new Date()): string => {
+  GENERATOR_TOKEN_PATTERN.lastIndex = 0;
+  GENERATOR_ALIAS_PATTERN.lastIndex = 0;
+  const evaluateToken = (_match: string, rawKind: string, rawOption: string | undefined) => {
+    const kind = rawKind.toLowerCase();
+    const option = String(rawOption || "").trim();
+    if (kind === "randomnumber") return randomCharacters(Math.max(1, Math.min(12, Number.parseInt(option, 10) || 6)), "0123456789");
+    if (kind === "randomstring") return randomCharacters(Math.max(1, Math.min(32, Number.parseInt(option, 10) || 8)), "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    if (kind === "yopmail") return `qaira-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
+    if (kind === "aidata") return option.toLowerCase().includes("email") ? `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com` : `ai-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}`;
+    return resolveDate(option || "YYYY-MM-DD", now);
+  };
+
+  return String(value ?? "")
+    .replace(GENERATOR_TOKEN_PATTERN, evaluateToken)
+    .replace(GENERATOR_ALIAS_PATTERN, (match: string, rawAlias: string): string =>
+      materializeTemplateValue(GENERATOR_ALIAS_TEMPLATES[String(rawAlias || "").toLowerCase()] || match, now)
+    );
 };
 
 export const normalizeKey = (value: string | null | undefined) => {
@@ -57,7 +136,10 @@ export const registerContextValue = (
 
 export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues: Record<string, string> = {}) => {
   const context: RuntimeExecutionContext = {
-    values: {}
+    values: Object.entries(GENERATED_CONTEXT_ALIASES).reduce<Record<string, string>>((values, [key, template]) => {
+      values[key] = materializeTemplateValue(template);
+      return values;
+    }, {})
   };
 
   Object.entries(envelope.suite_parameters || {}).forEach(([key, value]) => {
@@ -65,7 +147,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     if (!normalizedKey) {
       return;
     }
-    context.values[`s.${normalizedKey.replace(/^s\./, "")}`] = String(value ?? "");
+    context.values[`s.${normalizedKey.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
@@ -73,7 +155,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     if (!normalizedKey) {
       return;
     }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.manual_spec?.test_data || {}).forEach(([key, value]) => {
@@ -81,7 +163,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     if (!normalizedKey) {
       return;
     }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   (envelope.environment?.variables || []).forEach((entry) => {
@@ -89,7 +171,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     if (!normalizedKey) {
       return;
     }
-    context.values[`r.${normalizedKey.replace(/^r\./, "")}`] = stringifyValue(entry.value);
+    context.values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
   });
 
   (envelope.configuration?.variables || []).forEach((entry) => {
@@ -97,24 +179,28 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     if (!normalizedKey) {
       return;
     }
-    context.values[`r.${normalizedKey.replace(/^r\./, "")}`] = stringifyValue(entry.value);
+    context.values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
   });
 
+  const dataSetRows = Array.isArray(envelope.data_set?.template_rows)
+    ? envelope.data_set?.template_rows
+    : envelope.data_set?.rows || [];
+
   if (envelope.data_set?.mode === "key_value") {
-    (envelope.data_set.rows || []).forEach((row) => {
+    dataSetRows.forEach((row) => {
       const normalizedKey = normalizeKey(row.key);
       if (!normalizedKey) {
         return;
       }
-      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = stringifyValue(row.value);
+      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row.value);
     });
-  } else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {
-    Object.entries(envelope.data_set.rows[0] || {}).forEach(([key, value]) => {
+  } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
+    Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
       const normalizedKey = normalizeKey(key);
       if (!normalizedKey) {
         return;
       }
-      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = stringifyValue(value);
+      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
     });
   }
 
@@ -136,7 +222,7 @@ export const resolveContextValue = (
     return "";
   }
 
-  if (context.values[normalizedKey] !== undefined) {
+  if (context.values[normalizedKey] !== undefined && !(GENERATED_CONTEXT_ALIASES[normalizedKey] && context.values[normalizedKey] === "")) {
     return context.values[normalizedKey];
   }
 
@@ -155,6 +241,10 @@ export const resolveContextValue = (
     if (run !== undefined) {
       return run;
     }
+  }
+
+  if (GENERATED_CONTEXT_ALIASES[normalizedKey]) {
+    return materializeTemplateValue(GENERATED_CONTEXT_ALIASES[normalizedKey]);
   }
 
   return "";

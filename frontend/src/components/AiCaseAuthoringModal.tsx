@@ -105,7 +105,7 @@ export function AiCaseAuthoringModal({
           <div className="ai-case-authoring-header-copy">
             <p className="eyebrow">AI Authoring</p>
             <div className="modal-title-info-row">
-              <h3>Complete This Test Case</h3>
+              <p className="eyebrow">Complete This Test Case</p>
               <InfoTooltip
                 content="Use the linked requirement, current draft, and optional extra guidance to rephrase steps, fill gaps, and declare reusable test data for this case."
                 label="AI authoring information"
@@ -185,7 +185,7 @@ export function AiCaseAuthoringModal({
             <section className="ai-case-authoring-panel">
               <div className="panel-head">
                 <div>
-                  <h3>Current Draft Context</h3>
+                  <p className="eyebrow">Current Draft Context</p>
                   <p>The model uses the current workspace content as the starting point.</p>
                 </div>
               </div>

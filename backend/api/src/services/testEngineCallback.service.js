@@ -143,6 +143,8 @@ const parseStructuredLogs = (value) => {
       stepNotes: {},
       stepEvidence: {},
       stepApiDetails: {},
+      stepWebDetails: {},
+      stepAutomationDetails: {},
       stepCaptures: {}
     };
   }
@@ -156,6 +158,8 @@ const parseStructuredLogs = (value) => {
         stepNotes: {},
         stepEvidence: {},
         stepApiDetails: {},
+        stepWebDetails: {},
+        stepAutomationDetails: {},
         stepCaptures: {}
       };
     }
@@ -167,6 +171,8 @@ const parseStructuredLogs = (value) => {
       stepNotes: {},
       stepEvidence: {},
       stepApiDetails: {},
+      stepWebDetails: {},
+      stepAutomationDetails: {},
       stepCaptures: {}
     };
   }
@@ -176,6 +182,8 @@ const parseStructuredLogs = (value) => {
     stepNotes: isPlainObject(value.stepNotes) ? { ...value.stepNotes } : {},
     stepEvidence: isPlainObject(value.stepEvidence) ? { ...value.stepEvidence } : {},
     stepApiDetails: isPlainObject(value.stepApiDetails) ? { ...value.stepApiDetails } : {},
+    stepWebDetails: isPlainObject(value.stepWebDetails) ? { ...value.stepWebDetails } : {},
+    stepAutomationDetails: isPlainObject(value.stepAutomationDetails) ? { ...value.stepAutomationDetails } : {},
     stepCaptures: normalizeStepCaptures(value.stepCaptures)
   };
 };
@@ -211,6 +219,14 @@ const mergeLogsPayload = (current, patch) => {
     stepApiDetails: {
       ...base.stepApiDetails,
       ...next.stepApiDetails
+    },
+    stepWebDetails: {
+      ...base.stepWebDetails,
+      ...next.stepWebDetails
+    },
+    stepAutomationDetails: {
+      ...base.stepAutomationDetails,
+      ...next.stepAutomationDetails
     },
     stepCaptures: mergedStepCaptures
   };
@@ -263,6 +279,8 @@ const buildLogsPayloadFromStepOutcomes = (stepOutcomes = []) =>
       stepNotes: {},
       stepEvidence: {},
       stepApiDetails: {},
+      stepWebDetails: {},
+      stepAutomationDetails: {},
       stepCaptures: {}
     }
   );

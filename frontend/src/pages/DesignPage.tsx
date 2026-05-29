@@ -466,7 +466,7 @@ export function DesignPage() {
     return suites.filter((suite) => {
       const mappedCaseCount = suiteCounts[suite.id] || 0;
       const childSuiteCount = childSuiteCounts[suite.id] || 0;
-      const haystack = `${suite.name} ${suite.parent_id ? "nested" : "root"}`.toLowerCase();
+      const haystack = `${suite.display_id || ""} ${suite.id} ${suite.name} ${suite.parent_id || ""} ${suite.parent_id ? "nested" : "root"}`.toLowerCase();
       const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
 
       if (!matchesSearch) {
@@ -716,7 +716,17 @@ export function DesignPage() {
       const runCount = history.length;
       const matchesSearch =
         !normalizedSearch ||
-        `${testCase.title} ${testCase.description || ""} ${requirementTitle}`.toLowerCase().includes(normalizedSearch);
+        [
+          testCase.display_id || "",
+          testCase.id,
+          testCase.title,
+          testCase.description || "",
+          requirementTitle,
+          ...(testCase.requirement_ids || []),
+          testCase.requirement_id || "",
+          ...(testCase.suite_ids || []),
+          selectedSuiteId || ""
+        ].join(" ").toLowerCase().includes(normalizedSearch);
 
       if (!matchesSearch) {
         return false;
@@ -2187,6 +2197,7 @@ function TestCaseList({
     {
       key: "id",
       label: "ID",
+      sortValue: (testCase) => testCase.display_id || testCase.id,
       render: (testCase) => <DisplayIdBadge value={testCase.display_id || testCase.id} />
     },
     {
@@ -2618,7 +2629,7 @@ function SuiteCaseEditorModal({
           <div className="suite-test-case-editor-title">
             <p className="eyebrow">Test Suites</p>
             <div className="modal-title-info-row">
-              <h3 id="suite-case-editor-title">{isCreatingCase ? "Create test case" : selectedTestCase ? `Edit ${selectedTestCase.title}` : "Test case editor"}</h3>
+              <p className="eyebrow" id="suite-case-editor-title">{isCreatingCase ? "Create test case" : selectedTestCase ? `Edit ${selectedTestCase.title}` : "Test case editor"}</p>
               <InfoTooltip
                 content="Use the modal for focused edits, then return to the three-panel suite workspace without losing your place."
                 label="Test case editor information"
@@ -3160,7 +3171,7 @@ function SuiteExecutionModal({
             <div className="execution-create-title">
               <p className="eyebrow">Suites</p>
               <div className="modal-title-info-row">
-                <h3 id="create-suite-execution-title">Create run</h3>
+                <p className="eyebrow" id="create-suite-execution-title">Create run</p>
                 <InfoTooltip
                   content="Use the suites you selected here as the run snapshot scope."
                   label="Suite run information"
@@ -3310,7 +3321,7 @@ function SuiteModal({
         <div className="suite-create-header">
           <div className="suite-create-title">
             <div className="modal-title-info-row">
-              <h3>{mode === "edit" ? "Edit Suite" : "Create Suite"}</h3>
+              <p className="eyebrow">{mode === "edit" ? "Edit Suite" : "Create Suite"}</p>
               <InfoTooltip
                 content="Choose the reusable cases once, keep their saved order with the arrow controls, and submit from this modal."
                 label="Suite editor information"

@@ -8,6 +8,7 @@ import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { InfoTooltip } from "../components/InfoTooltip";
@@ -1421,6 +1422,8 @@ export function ExecutionsPage() {
 
     return workspaceTransactions.filter((transaction) =>
       [
+        transaction.id,
+        transaction.related_id,
         transaction.title,
         transaction.description,
         transaction.status,
@@ -3397,7 +3400,15 @@ export function ExecutionsPage() {
       const executionStatus = normalizeExecutionStatus(execution.status);
       const hasIssues = summary.failed + summary.blocked > 0;
       const hasEvidence = summary.total > 0;
-      const matchesSearch = !search || [execution.name || "", projectName, assigneeLabel].some((value) => value.toLowerCase().includes(search));
+      const matchesSearch = !search || [
+        execution.id,
+        execution.name || "",
+        projectName,
+        assigneeLabel,
+        ...(execution.suite_ids || []),
+        ...(execution.case_snapshots || []).flatMap((snapshot) => [snapshot.test_case_id, snapshot.test_case_title, snapshot.suite_id || "", snapshot.suite_name || ""]),
+        ...(execution.step_snapshots || []).flatMap((snapshot) => [snapshot.snapshot_step_id, snapshot.test_case_id, snapshot.group_id || "", snapshot.reusable_group_id || ""])
+      ].some((value) => String(value || "").toLowerCase().includes(search));
 
       if (!matchesSearch) {
         return false;
@@ -3469,7 +3480,15 @@ export function ExecutionsPage() {
       const assigneeLabel = schedule.assigned_user ? resolveUserPrimaryLabel(schedule.assigned_user) : "";
       const nextRunLabel = schedule.next_run_at || "";
 
-      return !search || [schedule.name, appTypeName, assigneeLabel, nextRunLabel].some((value) => value.toLowerCase().includes(search));
+      return !search || [
+        schedule.id,
+        schedule.name,
+        appTypeName,
+        assigneeLabel,
+        nextRunLabel,
+        ...(schedule.suite_ids || []),
+        ...(schedule.test_case_ids || [])
+      ].some((value) => String(value || "").toLowerCase().includes(search));
     });
   }, [appTypeNameById, deferredExecutionSearch, executionSchedules]);
 
@@ -3489,6 +3508,13 @@ export function ExecutionsPage() {
   }, [availableExecutionCatalogRows, selectedExecutionId, testRunsView]);
 
   const executionListColumns = useMemo<Array<DataTableColumn<Execution>>>(() => [
+    {
+      key: "id",
+      label: "Run ID",
+      defaultVisible: false,
+      sortValue: (execution) => execution.id,
+      render: (execution) => <DisplayIdBadge value={execution.id} />
+    },
     {
       key: "execution",
       label: "Run",
@@ -3603,6 +3629,13 @@ export function ExecutionsPage() {
   ], [executionSummaryById, handleRerunExecutionItem, liveNow, rerunExecution.isPending, session?.user.id]);
   const executionScheduleListColumns = useMemo<Array<DataTableColumn<ExecutionSchedule>>>(() => [
     {
+      key: "id",
+      label: "Schedule ID",
+      defaultVisible: false,
+      sortValue: (schedule) => schedule.id,
+      render: (schedule) => <DisplayIdBadge value={schedule.id} />
+    },
+    {
       key: "schedule",
       label: "Schedule",
       canToggle: false,
@@ -3688,6 +3721,13 @@ export function ExecutionsPage() {
     }
   ], [handleDeleteExecutionSchedule, handleRunExecutionSchedule, openEditScheduleBuilder]);
   const operationListColumns = useMemo<Array<DataTableColumn<WorkspaceTransaction>>>(() => [
+    {
+      key: "id",
+      label: "Operation ID",
+      defaultVisible: false,
+      sortValue: (transaction) => transaction.id,
+      render: (transaction) => <DisplayIdBadge value={transaction.id} />
+    },
     {
       key: "operation",
       label: "Batch process",
@@ -5398,7 +5438,7 @@ export function ExecutionsPage() {
             <div className="execution-evidence-modal-header">
               <div className="execution-evidence-modal-copy">
                 <p className="eyebrow">Execution Evidence</p>
-                <h3 id="execution-evidence-modal-title">{executionEvidencePreview.fileName || "Evidence image"}</h3>
+                <p className="eyebrow" id="execution-evidence-modal-title">{executionEvidencePreview.fileName || "Evidence image"}</p>
                 <p>{executionEvidencePreview.stepLabel}</p>
               </div>
               <button className="ghost-button" onClick={() => setExecutionEvidencePreview(null)} type="button">
@@ -5669,7 +5709,7 @@ function ReportEmailModal({
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <p className="eyebrow">Run Report</p>
-            <h3>Email report</h3>
+            <p className="eyebrow">Email report</p>
             <p>{runName}</p>
           </div>
           <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
@@ -5800,7 +5840,7 @@ function ExecutionApiStepDialog({
               </span>
               <StatusBadge value={status} />
             </div>
-            <h3>{`Step ${step.step_order} API details`}</h3>
+            <p className="eyebrow">{`Step ${step.step_order} API details`}</p>
             <p>{step.action || "Inspect the snapped API request, latest response, and configured assertions for this run."}</p>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">
@@ -7787,7 +7827,7 @@ function ExecutionCreateModal({
             <div className="execution-create-title">
               <p className="eyebrow">Test Runs</p>
               <div className="modal-title-info-row">
-                <h3 id="create-execution-title">Create run</h3>
+                <p className="eyebrow" id="create-execution-title">Create run</p>
                 <InfoTooltip
                   content="Choose a manual suite snapshot or let AI plan an impact-based run from your release scope and existing library."
                   label="Create run information"
@@ -7929,7 +7969,7 @@ function ExecutionCreateModal({
                   <section className="ai-studio-panel">
                     <div className="panel-head">
                       <div>
-                        <h3>Release impact prompt</h3>
+                        <p className="eyebrow">Release impact prompt</p>
                         <p>Shape the AI prompt with release scope, additional context, or both before previewing impacted coverage.</p>
                       </div>
                     </div>
@@ -8263,7 +8303,7 @@ function CreateExecutionScheduleModal({
           <div className="execution-create-header">
             <div className="execution-create-title">
               <p className="eyebrow">Scheduled Runs</p>
-              <h3 id="create-execution-schedule-title">{isEditing ? "Edit schedule" : "Create schedule"}</h3>
+              <p className="eyebrow" id="create-execution-schedule-title">{isEditing ? "Edit schedule" : "Create schedule"}</p>
               <p>{isEditing ? "Adjust the recurring run without losing its run history or current scope." : "Save a recurring run separately from the live run board, then launch it when needed."}</p>
             </div>
             <button aria-label={`Close ${isEditing ? "edit" : "create"} schedule dialog`} className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
@@ -8437,7 +8477,7 @@ function ExecutionContextSnapshotModal({
         <div className="execution-context-modal-header">
           <div className="execution-context-modal-copy">
             <p className="eyebrow">Run Context Snapshot</p>
-            <h3 id="execution-context-modal-title">{execution.name || "Selected run"}</h3>
+            <p className="eyebrow" id="execution-context-modal-title">{execution.name || "Selected run"}</p>
             <p>Review the exact environment, configuration, and test data preserved with this run. Later edits to reusable resources do not change this snapshot.</p>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">

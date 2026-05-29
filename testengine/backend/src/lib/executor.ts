@@ -16,6 +16,7 @@ import type {
 } from "../contracts/qaira.js";
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
+import { materializeTemplateValue } from "./runtimeContext.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -73,6 +74,20 @@ type EngineCaseLogsPayload = {
 };
 
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
+  "t.random": "{{randomString:3}}",
+  random: "{{randomString:3}}",
+  "t.randomstring": "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  "t.randomnumber": "{{randomNumber:6}}",
+  randomnumber: "{{randomNumber:6}}",
+  "t.yopmail": "{{yopmail}}",
+  yopmail: "{{yopmail}}",
+  "t.today": "{{date:YYYY-MM-DD}}",
+  today: "{{date:YYYY-MM-DD}}",
+  "t.timestamp": "{{date:ISO}}",
+  timestamp: "{{date:ISO}}"
+};
 const ARTIFACT_ROOT = process.env.ARTIFACT_ROOT || "/artifacts";
 
 const normalizeText = (value?: string | null) => {
@@ -115,6 +130,14 @@ const stringifyValue = (value: unknown) => {
   } catch {
     return String(value);
   }
+};
+
+const stringifyError = (error: unknown, fallback = "Step execution failed.") => {
+  if (error instanceof Error) {
+    return [error.message || fallback, error.stack ? `Stack:\n${error.stack}` : ""].filter(Boolean).join("\n");
+  }
+
+  return String(error || fallback);
 };
 
 const parseExpectedLiteral = (value?: string | null) => {
@@ -170,7 +193,10 @@ const registerContextValue = (context: ExecutionContext, key: string, value: unk
 
 const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
   const context: ExecutionContext = {
-    values: {}
+    values: Object.entries(GENERATED_CONTEXT_ALIASES).reduce<Record<string, string>>((values, [key, template]) => {
+      values[key] = materializeTemplateValue(template);
+      return values;
+    }, {})
   };
 
   Object.entries(envelope.suite_parameters || {}).forEach(([key, value]) => {
@@ -178,7 +204,7 @@ const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
     if (!normalizedKey) {
       return;
     }
-    context.values[`s.${normalizedKey.replace(/^s\./, "")}`] = String(value ?? "");
+    context.values[`s.${normalizedKey.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
@@ -186,7 +212,7 @@ const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
     if (!normalizedKey) {
       return;
     }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.manual_spec?.test_data || {}).forEach(([key, value]) => {
@@ -194,34 +220,38 @@ const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
     if (!normalizedKey) {
       return;
     }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   (envelope.environment?.variables || []).forEach((entry) => {
     if (!entry?.key) {
       return;
     }
-    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = stringifyValue(entry.value);
+    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
   });
 
   (envelope.configuration?.variables || []).forEach((entry) => {
     if (!entry?.key) {
       return;
     }
-    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = stringifyValue(entry.value);
+    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
   });
 
+  const dataSetRows = Array.isArray(envelope.data_set?.template_rows)
+    ? envelope.data_set?.template_rows
+    : envelope.data_set?.rows || [];
+
   if (envelope.data_set?.mode === "key_value") {
-    (envelope.data_set.rows || []).forEach((row) => {
+    dataSetRows.forEach((row) => {
       const normalizedKey = normalizeKey(row.key);
       if (!normalizedKey) {
         return;
       }
-      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = stringifyValue(row.value);
+      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row.value);
     });
-  } else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {
-    Object.entries(envelope.data_set.rows[0] || {}).forEach(([key, value]) => {
-      context.values[`t.${normalizeKey(key).replace(/^t\./, "")}`] = stringifyValue(value);
+  } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
+    Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
+      context.values[`t.${normalizeKey(key).replace(/^t\./, "")}`] = materializeTemplateValue(value);
     });
   }
 
@@ -235,7 +265,7 @@ const resolveContextValue = (context: ExecutionContext, scopedKey: string, fallb
     return "";
   }
 
-  if (context.values[normalizedKey] !== undefined) {
+  if (context.values[normalizedKey] !== undefined && !(GENERATED_CONTEXT_ALIASES[normalizedKey] && context.values[normalizedKey] === "")) {
     return context.values[normalizedKey];
   }
 
@@ -254,6 +284,10 @@ const resolveContextValue = (context: ExecutionContext, scopedKey: string, fallb
     if (run !== undefined) {
       return run;
     }
+  }
+
+  if (GENERATED_CONTEXT_ALIASES[normalizedKey]) {
+    return materializeTemplateValue(GENERATED_CONTEXT_ALIASES[normalizedKey]);
   }
 
   return "";
@@ -1068,6 +1102,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   let healingAttempted = false;
   let healingSucceeded = false;
   let webRunSessionStopped = false;
+  let currentStep: EngineRunEnvelope["steps"][number] | null = null;
   const stopWebRunSession = async (status?: "passed" | "failed" | "blocked") => {
     if (!webRunSession || webRunSessionStopped) {
       return {};
@@ -1131,9 +1166,11 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   };
   const runHookSteps = async (phase: EngineRunHook["phase"], entries: ReturnType<typeof normalizeHooks>) => {
     for (const entry of entries) {
+      currentStep = entry.step;
       const result = await executeEngineStep(entry.step);
       result.outcome = decorateHookOutcome(entry.hook, entry.step, result.outcome);
       recordStepResult(result);
+      currentStep = null;
 
       if (result.outcome.status === "failed" && entry.hook.fail_behavior !== "continue") {
         const behavior = entry.hook.fail_behavior || "fail-run";
@@ -1154,8 +1191,10 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     await runHookSteps("pre", preHookSteps);
 
     for (const step of orderedSteps) {
+      currentStep = step;
       const result = await executeEngineStep(step);
       recordStepResult(result);
+      currentStep = null;
 
       const progressSummary = `${envelope.qaira_test_case_title}: completed step ${stepOutcomes.length} of ${orderedSteps.length}.`;
       const progressRun = markRunState(run.id, "running", progressSummary);
@@ -1288,11 +1327,35 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       })
     );
   } catch (error) {
+    const failureMessage = stringifyError(error, `${envelope.qaira_test_case_title} failed during execution.`);
+
+    if (currentStep && !stepOutcomes.some((outcome) => outcome.step_id === currentStep?.id)) {
+      const failedOutcome: EngineStepOutcome = {
+        step_id: currentStep.id,
+        status: "failed",
+        started_at: null,
+        ended_at: nowIso(),
+        duration_ms: null,
+        note: [
+          `${envelope.qaira_test_case_title} failed on step ${currentStep.order}.`,
+          failureMessage
+        ].join("\n")
+      };
+      stepOutcomes.push(failedOutcome);
+      stepAutomationDetails[currentStep.id] = buildStepAutomationDetail({
+        step: currentStep,
+        status: "failed",
+        provider: currentStep.step_type,
+        endedAt: nowIso(),
+        errorMessage: failureMessage
+      });
+    }
+
     const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("failed"));
     const failedRun = markRunState(
       run.id,
       "failed",
-      error instanceof Error ? error.message : `${envelope.qaira_test_case_title} failed during execution.`,
+      failureMessage,
       { artifact_bundle: artifactBundle }
     );
 

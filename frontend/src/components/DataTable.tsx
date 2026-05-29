@@ -7,6 +7,7 @@ export type DataTableColumn<T> = {
   key: string;
   label: string;
   render: (row: T) => ReactNode;
+  sortValue?: (row: T) => string | number | null | undefined;
   headerRender?: () => ReactNode;
   canToggle?: boolean;
   defaultVisible?: boolean;
@@ -191,6 +192,7 @@ export function DataTable<T>({
 }) {
   const [isColumnConfigOpen, setIsColumnConfigOpen] = useState(false);
   const [draggedColumnKey, setDraggedColumnKey] = useState("");
+  const [sortState, setSortState] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
   const [columnPreference, setColumnPreference] = useState<NormalizedColumnPreference>(() =>
     normalizeColumnPreference(columns, storageKey ? readStoredColumnPreference(storageKey) : null)
   );
@@ -402,6 +404,65 @@ export function DataTable<T>({
     updateColumnPreference(() => normalizeColumnPreference(columns));
   };
 
+  const sortedRows = useMemo(() => {
+    if (!sortState) {
+      return rows;
+    }
+
+    const sortColumn = columns.find((column) => column.key === sortState.key);
+    if (!sortColumn?.sortValue) {
+      return rows;
+    }
+
+    const directionMultiplier = sortState.direction === "asc" ? 1 : -1;
+
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const leftValue = sortColumn.sortValue?.(left.row);
+        const rightValue = sortColumn.sortValue?.(right.row);
+        const isLeftBlank = leftValue === null || leftValue === undefined || leftValue === "";
+        const isRightBlank = rightValue === null || rightValue === undefined || rightValue === "";
+
+        if (isLeftBlank || isRightBlank) {
+          if (isLeftBlank && isRightBlank) {
+            return left.index - right.index;
+          }
+
+          return isLeftBlank ? 1 : -1;
+        }
+
+        const comparison =
+          typeof leftValue === "number" && typeof rightValue === "number"
+            ? leftValue - rightValue
+            : String(leftValue).localeCompare(String(rightValue), undefined, {
+                numeric: true,
+                sensitivity: "base"
+              });
+
+        return comparison ? comparison * directionMultiplier : left.index - right.index;
+      })
+      .map(({ row }) => row);
+  }, [columns, rows, sortState]);
+
+  const toggleSort = (column: DataTableColumn<T>) => {
+    if (!column.sortValue) {
+      return;
+    }
+
+    setSortState((current) => {
+      if (current?.key !== column.key) {
+        return { key: column.key, direction: "asc" };
+      }
+
+      if (current.direction === "asc") {
+        return { key: column.key, direction: "desc" };
+      }
+
+      return null;
+    });
+  };
+
   return (
     <div className="data-table-shell">
       {configurableColumns.length ? (
@@ -559,6 +620,11 @@ export function DataTable<T>({
                       moveColumn(draggedColumnKey, column.key);
                       setDraggedColumnKey("");
                     }}
+                    aria-sort={
+                      sortState?.key === column.key
+                        ? (sortState.direction === "asc" ? "ascending" : "descending")
+                        : undefined
+                    }
                     style={enableColumnResize ? { width: `${getColumnWidth(column)}px` } : undefined}
                   >
                     <div className="data-table-column-header">
@@ -575,7 +641,26 @@ export function DataTable<T>({
                           setDraggedColumnKey(column.key);
                         }}
                       >
-                        {column.headerRender ? column.headerRender() : <span className="data-table-header-label">{column.label}</span>}
+                        {column.headerRender ? column.headerRender() : (
+                          column.sortValue ? (
+                            <button
+                              className="data-table-header-sort-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleSort(column);
+                              }}
+                              title={`Sort by ${getColumnPreferenceLabel(column)}`}
+                              type="button"
+                            >
+                              <span className="data-table-header-label">{column.label}</span>
+                              {sortState?.key === column.key ? (
+                                <span aria-hidden="true" className="data-table-sort-indicator">
+                                  {sortState.direction === "asc" ? "Asc" : "Desc"}
+                                </span>
+                              ) : null}
+                            </button>
+                          ) : <span className="data-table-header-label">{column.label}</span>
+                        )}
                       </div>
                       {enableColumnResize && column.canResize !== false ? (
                         <span
@@ -608,7 +693,7 @@ export function DataTable<T>({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, index) => {
+              {sortedRows.map((row, index) => {
                 const rowClassName = [getRowClassName?.(row), onRowClick ? "is-clickable-row" : ""].filter(Boolean).join(" ");
 
                 return (

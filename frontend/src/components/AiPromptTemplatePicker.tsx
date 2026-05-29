@@ -152,7 +152,7 @@ export function AiPromptTemplatePicker({
               <div className="import-modal-title">
                 <p className="eyebrow">Prompt Library</p>
                 <div className="modal-title-info-row">
-                  <h3>Choose or create a prompt template</h3>
+                  <p className="eyebrow">Choose or create a prompt template</p>
                   <InfoTooltip
                     content="Selecting a template copies it into Additional context. You can edit that copy without changing the saved template."
                     label="Prompt library information"
@@ -196,7 +196,7 @@ export function AiPromptTemplatePicker({
                 <div className="panel-head">
                   <div>
                     <div className="panel-title-row">
-                      <h3>Add new prompt</h3>
+                      <p className="eyebrow">Add new prompt</p>
                       <InfoTooltip
                         content="Capture the repeatable prompt shape once, then reuse it from Requirements and Test Cases."
                         label="Add prompt information"

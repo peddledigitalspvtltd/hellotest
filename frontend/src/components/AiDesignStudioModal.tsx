@@ -3,6 +3,7 @@ import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requ
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
+import { InfoTooltip } from "./InfoTooltip";
 import { ToastMessage } from "./ToastMessage";
 
 export function AiDesignStudioModal({
@@ -132,7 +133,7 @@ export function AiDesignStudioModal({
   const filteredRequirements = requirements.filter((requirement) => {
     const query = requirementSearchTerm.trim().toLowerCase();
     if (!query) return true;
-    return [requirement.title, requirement.description, requirement.status, String(requirement.priority ?? "")]
+    return [requirement.display_id, requirement.id, requirement.title, requirement.description, requirement.status, String(requirement.priority ?? "")]
       .some((value) => String(value || "").toLowerCase().includes(query));
   });
 
@@ -150,8 +151,13 @@ export function AiDesignStudioModal({
         <div className="ai-studio-header">
           <div className="ai-studio-header-copy">
             <p className="eyebrow">{eyebrow}</p>
-            <h3>AI Test Case Generation</h3>
-            <p>Shape the LLM prompt with source requirements, extra context, photos, and external links before reviewing the generated cases for approval.</p>
+            <div className="modal-title-info-row">
+              <p className="eyebrow ai-studio-title">AI Test Case Generation</p>
+              <InfoTooltip
+                content="Shape the LLM prompt with source requirements, extra context, photos, and external links before reviewing the generated cases for approval."
+                label="AI test case generation information"
+              />
+            </div>
           </div>
           <button className="ghost-button" disabled={closeDisabled} onClick={onClose} type="button">
             Close
@@ -248,7 +254,7 @@ export function AiDesignStudioModal({
                 <section className="ai-studio-panel">
                   <div className="panel-head">
                     <div>
-                      <h3>Prompt context</h3>
+                      <p className="eyebrow">Prompt context</p>
                       <p>Provide the extra guidance the model should consider while drafting cases.</p>
                     </div>
                   </div>
@@ -339,24 +345,21 @@ export function AiDesignStudioModal({
             ) : null}
 
             <div className="action-row ai-studio-actions">
-              <button className="primary-button" disabled={disablePreview} onClick={onPreview} type="button">
+              <button className="primary-button ai-studio-primary-action" disabled={disablePreview} onClick={onPreview} type="button">
                 {isPreviewing ? "Designing…" : "Generate Preview"}
               </button>
               {onSchedule ? (
-                <button className="ghost-button" disabled={disableSchedule} onClick={onSchedule} type="button">
+                <button className="ghost-button ai-studio-secondary-action" disabled={disableSchedule} onClick={onSchedule} type="button">
                   {isScheduling ? "Scheduling…" : "Schedule Test Case Generation"}
                 </button>
               ) : null}
-              <button className="ghost-button" disabled={closeDisabled} onClick={onClose} type="button">
-                Close
-              </button>
             </div>
 
             <div className="ai-modal-grid">
               <div className="detail-stack">
                 <div className="panel-head">
                   <div>
-                    <h3>{existingCasesTitle}</h3>
+                    <p className="eyebrow">{existingCasesTitle}</p>
                     <p>{existingCasesSubtitle}</p>
                   </div>
                 </div>
@@ -377,14 +380,19 @@ export function AiDesignStudioModal({
                       </button>
                     </div>
                   ))}
-                  {!existingCases.length ? <div className="empty-state compact">No existing cases are linked to the current selection yet.</div> : null}
+                  {!existingCases.length ? (
+                    <div className="empty-state compact ai-generation-empty-state">
+                      <strong>No linked cases yet</strong>
+                      <span>The selected requirement scope has no reusable test cases attached.</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="detail-stack">
                 <div className="panel-head">
                   <div>
-                    <h3>AI draft cases</h3>
+                    <p className="eyebrow">AI draft cases</p>
                     <p>Review the generated drafts, adjust requirement mapping if needed, and remove any drafts you do not want to keep.</p>
                   </div>
                 </div>
@@ -450,7 +458,12 @@ export function AiDesignStudioModal({
                       </div>
                     </article>
                   ))}
-                  {!previewCases.length ? <div className="empty-state compact">Generate a preview to review AI-drafted cases here.</div> : null}
+                  {!previewCases.length ? (
+                    <div className="empty-state compact ai-generation-empty-state ai-generation-empty-state--wide">
+                      <strong>No AI drafts yet</strong>
+                      <span>Generate a preview to review new test cases, mappings, and steps before accepting them.</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -482,7 +495,7 @@ export function AiDesignStudioModal({
             <div className="ai-studio-header">
               <div className="ai-studio-header-copy">
                 <p className="eyebrow">Requirements</p>
-                <h3>{requirementLabel}</h3>
+                <p className="eyebrow">{requirementLabel}</p>
                 <p>{selectedRequirementCount} of {requirements.length} selected</p>
               </div>
               <button className="ghost-button" onClick={() => setIsRequirementDialogOpen(false)} type="button">

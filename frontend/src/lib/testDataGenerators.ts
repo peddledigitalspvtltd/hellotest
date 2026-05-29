@@ -3,13 +3,24 @@ import type { TestDataSetRow } from "../types";
 export const TEST_DATA_GENERATOR_TEMPLATES = {
   randomNumber: "{{randomNumber:6}}",
   randomString: "{{randomString:8}}",
+  aiData: "{{aiData:customer email}}",
   yopmail: "{{yopmail}}",
   date: "{{date:YYYY-MM-DD}}",
   tomorrow: "{{date:YYYY-MM-DD|+1d}}",
   timestamp: "{{date:ISO}}"
 } as const;
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
+const GENERATOR_ALIAS_TEMPLATES: Record<string, string> = {
+  random: "{{randomString:3}}",
+  string: "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  randomnumber: "{{randomNumber:6}}",
+  yopmail: "{{yopmail}}",
+  today: "{{date:YYYY-MM-DD}}",
+  timestamp: "{{date:ISO}}"
+};
 
 function clampLength(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number.parseInt(String(value || ""), 10);
@@ -62,14 +73,40 @@ function generateYopmailAddress(rawPrefix: string | undefined, now: Date) {
   return `${prefix}-${timestamp}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 }
 
-export function hasTestDataGeneratorTemplate(value: unknown) {
-  GENERATOR_TOKEN_PATTERN.lastIndex = 0;
-  return GENERATOR_TOKEN_PATTERN.test(String(value ?? ""));
+function generateAiData(rawPrompt: string | undefined, now: Date) {
+  const prompt = String(rawPrompt || "value").toLowerCase();
+  const suffix = randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789");
+
+  if (prompt.includes("email")) {
+    return `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${suffix}@yopmail.com`;
+  }
+
+  if (prompt.includes("phone") || prompt.includes("mobile")) {
+    return `9${randomCharacters(9, "0123456789")}`;
+  }
+
+  if (prompt.includes("name")) {
+    return `AI User ${suffix.toUpperCase()}`;
+  }
+
+  if (prompt.includes("address")) {
+    return `${randomCharacters(3, "123456789")} QAira Test Street`;
+  }
+
+  return `ai-${suffix}`;
 }
 
-export function evaluateTestDataTemplate(value: unknown, now = new Date()) {
+export function hasTestDataGeneratorTemplate(value: unknown) {
   GENERATOR_TOKEN_PATTERN.lastIndex = 0;
-  return String(value ?? "").replace(GENERATOR_TOKEN_PATTERN, (_, rawKind: string, rawOption: string | undefined) => {
+  GENERATOR_ALIAS_PATTERN.lastIndex = 0;
+  const source = String(value ?? "");
+  return GENERATOR_TOKEN_PATTERN.test(source) || GENERATOR_ALIAS_PATTERN.test(source);
+}
+
+export function evaluateTestDataTemplate(value: unknown, now = new Date()): string {
+  GENERATOR_TOKEN_PATTERN.lastIndex = 0;
+  GENERATOR_ALIAS_PATTERN.lastIndex = 0;
+  const evaluateToken = (_: string, rawKind: string, rawOption: string | undefined) => {
     const kind = rawKind.toLowerCase();
     const option = String(rawOption || "").trim();
 
@@ -85,8 +122,18 @@ export function evaluateTestDataTemplate(value: unknown, now = new Date()) {
       return generateYopmailAddress(option, now);
     }
 
+    if (kind === "aidata") {
+      return generateAiData(option, now);
+    }
+
     return resolveDate(option || "YYYY-MM-DD", now);
-  });
+  };
+
+  return String(value ?? "")
+    .replace(GENERATOR_TOKEN_PATTERN, evaluateToken)
+    .replace(GENERATOR_ALIAS_PATTERN, (match: string, rawAlias: string): string =>
+      evaluateTestDataTemplate(GENERATOR_ALIAS_TEMPLATES[String(rawAlias || "").toLowerCase()] || match, now)
+    );
 }
 
 export function materializeTestDataRows(rows: TestDataSetRow[], now = new Date()) {

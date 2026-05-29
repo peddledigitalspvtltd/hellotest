@@ -1507,9 +1507,15 @@ export function TestCasesPage() {
       const matchesSearch =
         !search ||
         [
+          testCase.display_id || "",
+          testCase.id,
           testCase.title,
           testCase.description || "",
           ...(testCase.external_references || []),
+          ...(testCase.requirement_ids || []),
+          testCase.requirement_id || "",
+          ...(testCase.suite_ids || []),
+          testCase.suite_id || "",
           requirementTitle
         ].some((value) => value.toLowerCase().includes(search));
 
@@ -4397,6 +4403,9 @@ export function TestCasesPage() {
           assigned_to: selectedExecutionAssigneeId || undefined,
           name: `${testCase.title} ${isApiOnlyLocalRun ? "Local API Run" : "Local Run"}`,
           created_by: session.user.id,
+          test_environment_id: selectedExecutionEnvironmentId || undefined,
+          test_configuration_id: selectedExecutionConfigurationId || undefined,
+          test_data_set_id: selectedExecutionDataSetId || undefined,
           engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
         });
 
@@ -4417,7 +4426,10 @@ export function TestCasesPage() {
         test_case_ids: [testCaseId],
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: `${testCase.title} Run`,
-        created_by: session.user.id
+        created_by: session.user.id,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined
       });
 
       if (mode === "remote") {
@@ -5076,7 +5088,7 @@ export function TestCasesPage() {
             <TestCaseRunIcon />
             <span>{isSelectedCaseRunning ? "Creating..." : "Run manually"}</span>
           </button>
-          <span aria-hidden="true" className="test-case-run-divider">|</span>
+          <span aria-hidden="true" className="test-case-run-combo-separator" />
           <div className="test-case-run-menu">
             <button
               aria-label="Open run options"
@@ -5092,7 +5104,7 @@ export function TestCasesPage() {
             {isRunOptionsOpen ? (
               <div className="test-case-run-menu-panel" role="menu">
                 <button
-                  className="test-case-run-menu-item"
+                  className="test-case-run-menu-item is-success-run"
                   disabled={isSelectedCaseLocalRunDisabled}
                   onClick={() => {
                     setIsRunOptionsOpen(false);
@@ -5109,7 +5121,7 @@ export function TestCasesPage() {
                   </span>
                 </button>
                 <button
-                  className="test-case-run-menu-item"
+                  className="test-case-run-menu-item is-success-run"
                   disabled={isSelectedCaseRemoteRunDisabled}
                   onClick={() => {
                     setIsRunOptionsOpen(false);
@@ -5242,6 +5254,7 @@ export function TestCasesPage() {
       label: "ID",
       width: 120,
       minWidth: 96,
+      sortValue: (testCase) => testCase.display_id || testCase.id,
       render: (testCase) => <DisplayIdBadge value={testCase.display_id || testCase.id} />
     },
     {
@@ -7040,7 +7053,7 @@ export function TestCasesPage() {
           >
             <div className="resource-modal-header">
               <div className="resource-modal-title">
-                <h3>Inspect step {inspectingStep.step_order}</h3>
+                <p className="eyebrow">Inspect step {inspectingStep.step_order}</p>
                 <p>{inspectingStep.action || inspectingStep.expected_result || "Record an action for this step."}</p>
               </div>
               <button className="ghost-button" disabled={Boolean(recorderSession)} onClick={() => setInspectingStepId("")} type="button">
@@ -7217,7 +7230,7 @@ export function TestCasesPage() {
               <div className="import-modal-title">
                 <p className="eyebrow">Bulk Import</p>
                 <div className="modal-title-info-row">
-                  <h3 id="bulk-import-title">Import test cases from external sources</h3>
+                  <p className="eyebrow" id="bulk-import-title">Import test cases from external sources</p>
                   <InfoTooltip
                     content={(
                       <>
@@ -7803,7 +7816,7 @@ function TestCaseSuiteTransferModal({
         <div className="suite-create-header">
           <div className="suite-create-title">
             <div className="modal-title-info-row">
-              <h3>Suite transfer</h3>
+              <p className="eyebrow">Suite transfer</p>
               <InfoTooltip
                 content={`Choose an existing suite target for ${caseCount} selected case${caseCount === 1 ? "" : "s"}. Multi-suite links are preserved when you add.`}
                 label="Suite transfer information"
@@ -7975,7 +7988,7 @@ function TestCaseSuiteModal({
         <div className="suite-create-header">
           <div className="suite-create-title">
             <div className="modal-title-info-row">
-              <h3>Create Suite</h3>
+              <p className="eyebrow">Create Suite</p>
               <InfoTooltip
                 content="Choose reusable cases, keep their saved order with the arrow controls, and create the suite from this dialog."
                 label="Create suite information"
@@ -8102,7 +8115,7 @@ function TestCaseSuiteLinkModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>Suite references</h3>
+            <p className="eyebrow">Suite references</p>
             <p>Link or unlink "{testCaseTitle}" from suites. Linked suites stay pinned at the top for quick review.</p>
           </div>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">
@@ -8261,7 +8274,7 @@ function TestCaseExecutionModal({
         <form className="execution-create-form" onSubmit={onSubmit}>
           <div className="execution-create-header">
             <div className="execution-create-title">
-              <h3 id="create-test-case-execution-title">Create Run</h3>
+              <p className="eyebrow" id="create-test-case-execution-title">Create Run</p>
               <p>The selected test cases will open directly in Test Runs without creating a suite first.</p>
             </div>
             <button
@@ -9578,7 +9591,7 @@ function StepGroupModal({
       >
         <div className="suite-create-header">
           <div className="suite-create-title">
-            <h3>Create Step Group</h3>
+            <p className="eyebrow">Create Step Group</p>
             <p>Name this group and decide whether it should stay local to this case or become a linked shared group used in other cases.</p>
           </div>
           <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">
@@ -9656,7 +9669,7 @@ function SharedGroupPickerModal({
         <div className="suite-create-header">
           <div className="suite-create-title">
             <div className="modal-title-info-row">
-              <h3>Insert Shared Group</h3>
+              <p className="eyebrow">Insert Shared Group</p>
               <InfoTooltip
                 content="Choose a shared group to insert into this case. Edits inside the shared block stay linked across every referencing test case."
                 label="Insert shared group information"

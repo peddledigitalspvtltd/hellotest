@@ -1,6 +1,16 @@
 const { randomBytes } = require("crypto");
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
+const GENERATOR_ALIAS_TEMPLATES = {
+  random: "{{randomString:3}}",
+  string: "{{randomString:8}}",
+  randomstring: "{{randomString:8}}",
+  randomnumber: "{{randomNumber:6}}",
+  yopmail: "{{yopmail}}",
+  today: "{{date:YYYY-MM-DD}}",
+  timestamp: "{{date:ISO}}"
+};
 
 const clampLength = (value, fallback, maximum) => {
   const numeric = Number.parseInt(String(value || ""), 10);
@@ -59,21 +69,51 @@ const generateYopmailAddress = (option, now) => {
   return `${prefix}-${stamp}-${randomFromAlphabet(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 };
 
-const hasGeneratorTemplate = (value) => {
-  GENERATOR_TOKEN_PATTERN.lastIndex = 0;
-  return GENERATOR_TOKEN_PATTERN.test(String(value ?? ""));
+const generateAiData = (option, now) => {
+  const prompt = String(option || "value").toLowerCase();
+  const suffix = randomFromAlphabet(6, "abcdefghijklmnopqrstuvwxyz0123456789");
+
+  if (prompt.includes("email")) {
+    return `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${suffix}@yopmail.com`;
+  }
+
+  if (prompt.includes("phone") || prompt.includes("mobile")) {
+    return `9${randomFromAlphabet(9, "0123456789")}`;
+  }
+
+  if (prompt.includes("name")) {
+    return `AI User ${suffix.toUpperCase()}`;
+  }
+
+  if (prompt.includes("address")) {
+    return `${randomFromAlphabet(3, "123456789")} QAira Test Street`;
+  }
+
+  return `ai-${suffix}`;
 };
 
-const materializeTemplateValue = (value, now = new Date()) => String(value ?? "").replace(
-  GENERATOR_TOKEN_PATTERN,
-  (_, kind, rawOption) => {
+const hasGeneratorTemplate = (value) => {
+  GENERATOR_TOKEN_PATTERN.lastIndex = 0;
+  GENERATOR_ALIAS_PATTERN.lastIndex = 0;
+  const source = String(value ?? "");
+  return GENERATOR_TOKEN_PATTERN.test(source) || GENERATOR_ALIAS_PATTERN.test(source);
+};
+
+const materializeTemplateToken = (_, kind, rawOption, now) => {
     const option = String(rawOption || "").trim();
     if (kind.toLowerCase() === "randomnumber") return generateRandomNumber(option);
     if (kind.toLowerCase() === "randomstring") return generateRandomString(option);
+    if (kind.toLowerCase() === "aidata") return generateAiData(option, now);
     if (kind.toLowerCase() === "yopmail") return generateYopmailAddress(option, now);
     return resolveDate(option, now);
-  }
-);
+};
+
+const materializeTemplateValue = (value, now = new Date()) =>
+  String(value ?? "")
+    .replace(GENERATOR_TOKEN_PATTERN, (match, kind, rawOption) => materializeTemplateToken(match, kind, rawOption, now))
+    .replace(GENERATOR_ALIAS_PATTERN, (match, alias) =>
+      materializeTemplateValue(GENERATOR_ALIAS_TEMPLATES[String(alias || "").toLowerCase()] || match, now)
+    );
 
 const materializeParameterValues = (values = {}, now = new Date()) =>
   Object.entries(values || {}).reduce((next, [key, value]) => {

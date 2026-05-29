@@ -10,6 +10,22 @@ type StepParameterDialogInputState = {
   placeholder?: string;
 };
 
+type UtilityTemplate = {
+  id: string;
+  label: string;
+  token: string;
+  custom?: boolean;
+};
+
+const DEFAULT_UTILITY_TEMPLATES: UtilityTemplate[] = [
+  { id: "random-number", label: "Random number", token: TEST_DATA_GENERATOR_TEMPLATES.randomNumber },
+  { id: "random-string", label: "Random string", token: TEST_DATA_GENERATOR_TEMPLATES.randomString },
+  { id: "ai-data", label: "AI data", token: TEST_DATA_GENERATOR_TEMPLATES.aiData },
+  { id: "yopmail", label: "Yopmail email", token: TEST_DATA_GENERATOR_TEMPLATES.yopmail },
+  { id: "today", label: "Today", token: TEST_DATA_GENERATOR_TEMPLATES.date },
+  { id: "tomorrow", label: "Tomorrow", token: TEST_DATA_GENERATOR_TEMPLATES.tomorrow }
+];
+
 function StepParameterUtilityIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="15">
@@ -45,11 +61,12 @@ export function StepParameterDialog({
   headerContent?: ReactNode;
   getInputState?: (parameter: StepParameterDefinition) => StepParameterDialogInputState;
 }) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const groupedParameters = [
     {
       scope: "t",
       title: "Test case data",
-      info: "`@t` values are saved on this test case and reused whenever the case runs.",
+      info: "`@t` values are saved on this test case and reused whenever the case runs. Unscoped tokens like `@email` are treated as test case scoped data.",
       items: parameters.filter((parameter) => parameter.scope === "t")
     },
     {
@@ -69,6 +86,35 @@ export function StepParameterDialog({
   const [activeUtilityParameter, setActiveUtilityParameter] = useState("");
   const [utilityDrafts, setUtilityDrafts] = useState<Record<string, string>>({});
   const [utilityFeedbackByParameter, setUtilityFeedbackByParameter] = useState<Record<string, string>>({});
+  const [utilityTemplateSearch, setUtilityTemplateSearch] = useState("");
+  const [customUtilityTemplates, setCustomUtilityTemplates] = useState<UtilityTemplate[]>([]);
+  const [customUtilityLabel, setCustomUtilityLabel] = useState("");
+  const [customUtilityToken, setCustomUtilityToken] = useState("");
+  const utilityTemplates = [...DEFAULT_UTILITY_TEMPLATES, ...customUtilityTemplates].filter((template) => {
+    const query = utilityTemplateSearch.trim().toLowerCase();
+    return !query || [template.label, template.token].some((value) => value.toLowerCase().includes(query));
+  });
+
+  const addCustomUtilityTemplate = () => {
+    const label = customUtilityLabel.trim();
+    const token = customUtilityToken.trim();
+
+    if (!label || !token) {
+      return;
+    }
+
+    setCustomUtilityTemplates((current) => [
+      ...current,
+      {
+        id: `custom-${Date.now()}`,
+        label,
+        token,
+        custom: true
+      }
+    ]);
+    setCustomUtilityLabel("");
+    setCustomUtilityToken("");
+  };
 
   const toggleUtilityBuilder = (parameterName: string) => {
     const nextValue = activeUtilityParameter === parameterName ? "" : parameterName;
@@ -121,7 +167,7 @@ export function StepParameterDialog({
           <div className="suite-create-title">
             <p className="eyebrow">Test data</p>
             <div className="modal-title-info-row">
-              <h3>{title}</h3>
+              <p className="eyebrow">{title}</p>
               <InfoTooltip content={subtitle} label="Test data information" />
             </div>
           </div>
@@ -140,13 +186,21 @@ export function StepParameterDialog({
               {groupedParameters.map((group) => (
                 <section className="step-parameter-group" key={group.scope}>
                   <div className="step-parameter-group-head">
-                    <div className="step-parameter-group-title-row">
+                    <button
+                      aria-expanded={!collapsedGroups[group.scope]}
+                      className="step-parameter-group-toggle"
+                      onClick={() => setCollapsedGroups((current) => ({ ...current, [group.scope]: !current[group.scope] }))}
+                      type="button"
+                    >
+                      <span aria-hidden="true">{collapsedGroups[group.scope] ? "+" : "-"}</span>
                       <strong>{group.title}</strong>
+                    </button>
+                    <div className="step-parameter-group-title-row">
                       <InfoTooltip content={group.info} label={`${group.title} information`} />
                     </div>
                     <span>{group.items.length} item{group.items.length === 1 ? "" : "s"}</span>
                   </div>
-                  {group.items.map((parameter) => {
+                  {!collapsedGroups[group.scope] ? group.items.map((parameter) => {
                     const inputState = getInputState?.(parameter) || {};
 
                     return (
@@ -178,21 +232,48 @@ export function StepParameterDialog({
                           </div>
                           {activeUtilityParameter === parameter.name ? (
                             <div className="step-parameter-utility-panel">
+                              <div className="step-parameter-utility-search-row">
+                                <input
+                                  aria-label="Search generator templates"
+                                  placeholder="Search generator templates"
+                                  value={utilityTemplateSearch}
+                                  onChange={(event) => setUtilityTemplateSearch(event.target.value)}
+                                />
+                              </div>
                               <div className="step-parameter-utility-actions">
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.randomNumber)} type="button">
-                                  Random number
-                                </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.randomString)} type="button">
-                                  Random string
-                                </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.yopmail)} type="button">
-                                  Yopmail email
-                                </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.date)} type="button">
-                                  Today
-                                </button>
-                                <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, TEST_DATA_GENERATOR_TEMPLATES.tomorrow)} type="button">
-                                  Tomorrow
+                                {utilityTemplates.map((template) => (
+                                  <span className="step-parameter-utility-template-chip" key={template.id}>
+                                    <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, template.token)} type="button">
+                                      {template.label}
+                                    </button>
+                                    {template.custom ? (
+                                      <button
+                                        aria-label={`Delete ${template.label} template`}
+                                        className="step-parameter-utility-delete"
+                                        onClick={() => setCustomUtilityTemplates((current) => current.filter((item) => item.id !== template.id))}
+                                        type="button"
+                                      >
+                                        ×
+                                      </button>
+                                    ) : null}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="step-parameter-utility-add-row">
+                                <input
+                                  aria-label="Template label"
+                                  placeholder="Template label"
+                                  value={customUtilityLabel}
+                                  onChange={(event) => setCustomUtilityLabel(event.target.value)}
+                                />
+                                <input
+                                  aria-label="Template token"
+                                  placeholder="{{aiData:customer email}}"
+                                  value={customUtilityToken}
+                                  onChange={(event) => setCustomUtilityToken(event.target.value)}
+                                />
+                                <button className="ghost-button" onClick={addCustomUtilityTemplate} type="button">
+                                  Add
                                 </button>
                               </div>
                               <textarea
@@ -216,7 +297,7 @@ export function StepParameterDialog({
                                 <InfoTooltip
                                   content={(
                                     <>
-                                      Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, or <code>{"{{randomString:8}}"}</code>.
+                                      Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, <code>{"{{randomString:8}}"}</code>, or <code>{"{{aiData:customer email}}"}</code>.
                                     </>
                                   )}
                                   label="Template utility information"
@@ -233,7 +314,7 @@ export function StepParameterDialog({
                         </FormField>
                       </div>
                     );
-                  })}
+                  }) : null}
                 </section>
               ))}
             </div>

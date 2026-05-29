@@ -321,7 +321,7 @@ export function RecorderStartControls({
             <div className="resource-modal-header">
               <div className="resource-modal-title">
                 <div className="modal-title-info-row">
-                  <h3>Local recorder setup</h3>
+                  <p className="eyebrow">Local recorder setup</p>
                   <InfoTooltip
                     content="Run QAira local-run or a local Test Engine before recording on this computer."
                     label="Local recorder setup information"

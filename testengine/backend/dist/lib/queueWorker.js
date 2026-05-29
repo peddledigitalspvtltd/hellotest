@@ -160,7 +160,9 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
     let healingSucceeded = Boolean(job.runtime_state?.healing_succeeded);
     const patchProposals = [];
     const pendingStepReports = [];
+    const reportedStepIds = new Set();
     const enqueueStepReport = (stepId, payload) => {
+        reportedStepIds.add(stepId);
         const reportPromise = reportQueuedStep(job.id, stepId, payload)
             .then((report) => {
             syncCapturedValuesToWebContext(report.captures, webRunSession);
@@ -183,6 +185,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         await Promise.allSettled(pendingStepReports);
     };
     let webRunSessionStopped = false;
+    let currentStep = null;
     const stopWebRunSession = async (finalStatus) => {
         if (!webRunSession || webRunSessionStopped) {
             return {};
@@ -244,6 +247,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             }
         }
         for (const [index, step] of remainingSteps.entries()) {
+            currentStep = step;
             updateRunState(accepted.id, "running", `${job.test_case_title}: executing ${step.step_type.toUpperCase()} step ${index + 1} of ${remainingSteps.length}.`);
             if (step.step_type === "api") {
                 const result = await executeApiStepInEngine(envelope, step, capturedValues);
@@ -286,6 +290,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     }));
                     return;
                 }
+                currentStep = null;
                 continue;
             }
             if (step.step_type === "android") {
@@ -300,6 +305,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     captures: {}
                 });
                 if (result.status === "passed") {
+                    currentStep = null;
                     continue;
                 }
                 const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("blocked"));
@@ -405,6 +411,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                 }));
                 return;
             }
+            currentStep = null;
         }
         const completionSummary = `${job.test_case_title} completed successfully.`;
         const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("passed"));
@@ -426,7 +433,11 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         }));
     }
     catch (error) {
-        const message = error instanceof Error ? error.message : `${job.test_case_title} failed in queue worker.`;
+        const serialized = serializeError(error);
+        const stack = "stack" in serialized ? serialized.stack : "";
+        const message = stack
+            ? `${serialized.message}\nStack:\n${stack}`
+            : String(serialized.message || `${job.test_case_title} failed in queue worker.`);
         updateRunState(accepted.id, "failed", message);
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
             event_type: "testengine.queue.job.crashed",
@@ -436,6 +447,19 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         }));
         try {
             const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+            if (currentStep && !reportedStepIds.has(currentStep.id)) {
+                enqueueStepReport(currentStep.id, {
+                    status: "failed",
+                    note: [
+                        `${job.test_case_title} failed on step ${currentStep.order}.`,
+                        message
+                    ].join("\n"),
+                    evidence: null,
+                    web_detail: null,
+                    automation_detail: buildAutomationDetail(currentStep, "failed", message, currentStep.step_type),
+                    captures: {}
+                });
+            }
             await flushStepReports();
             await completeQueuedJobWithMetadata(job.id, {
                 status: "failed",

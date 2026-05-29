@@ -8,7 +8,7 @@ const apiRequestExecutionService = require("./apiRequestExecution.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const opsTelemetryService = require("./opsTelemetry.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
-const { materializeDataSetSnapshot, materializeParameterValues } = require("../utils/testDataGenerators");
+const { materializeDataSetSnapshot, materializeParameterValues, materializeTemplateValue } = require("../utils/testDataGenerators");
 
 const getSuiteIdsForExecution = db.prepare(`
   SELECT suite_id, suite_name
@@ -126,6 +126,18 @@ const selectCaseForExecution = db.prepare(`
     status
   FROM test_cases
   WHERE id = ?
+`);
+
+const selectPrimarySuiteForCaseExecution = db.prepare(`
+  SELECT
+    test_suites.id AS suite_id,
+    test_suites.name AS suite_name,
+    test_suites.parameter_values AS suite_parameter_values
+  FROM suite_test_cases
+  JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
+  WHERE suite_test_cases.test_case_id = ?
+  ORDER BY suite_test_cases.sort_order ASC, test_suites.created_at DESC
+  LIMIT 1
 `);
 
 const selectTestEnvironment = db.prepare(`
@@ -334,12 +346,12 @@ function normalizeParameterValues(values = {}) {
 function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}) {
   const values = {};
 
-  Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
-    values[`s.${key.replace(/^s\./, "")}`] = value;
+  Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_template_values || caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
+    values[`s.${key.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
-  Object.entries(normalizeParameterValues(caseSnapshot?.parameter_values)).forEach(([key, value]) => {
-    values[`t.${key.replace(/^t\./, "")}`] = value;
+  Object.entries(normalizeParameterValues(caseSnapshot?.parameter_template_values || caseSnapshot?.parameter_values)).forEach(([key, value]) => {
+    values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   (execution?.test_environment?.snapshot?.variables || []).forEach((entry) => {
@@ -349,7 +361,7 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
       return;
     }
 
-    values[`r.${normalizedKey.replace(/^r\./, "")}`] = entry?.value === undefined || entry?.value === null ? "" : String(entry.value);
+    values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry?.value);
   });
 
   (execution?.test_configuration?.snapshot?.variables || []).forEach((entry) => {
@@ -359,28 +371,31 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
       return;
     }
 
-    values[`r.${normalizedKey.replace(/^r\./, "")}`] = entry?.value === undefined || entry?.value === null ? "" : String(entry.value);
+    values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry?.value);
   });
 
   const dataSetSnapshot = execution?.test_data_set?.snapshot || null;
+  const dataSetRows = Array.isArray(dataSetSnapshot?.template_rows)
+    ? dataSetSnapshot.template_rows
+    : dataSetSnapshot?.rows || [];
 
   if (dataSetSnapshot?.mode === "key_value") {
-    (dataSetSnapshot.rows || []).forEach((row) => {
+    dataSetRows.forEach((row) => {
       const normalizedKey = String(row?.key || "").trim().replace(/^@+/, "").toLowerCase();
       if (!normalizedKey) {
         return;
       }
-      values[`t.${normalizedKey.replace(/^t\./, "")}`] = row?.value === undefined || row?.value === null ? "" : String(row.value);
+      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row?.value);
     });
-  } else if (Array.isArray(dataSetSnapshot?.rows) && dataSetSnapshot.rows.length) {
-    Object.entries(dataSetSnapshot.rows[0] || {}).forEach(([key, value]) => {
+  } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
+    Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
       const normalizedKey = String(key || "").trim().toLowerCase();
 
       if (!normalizedKey) {
         return;
       }
 
-      values[`t.${normalizedKey}`] = value === undefined || value === null ? "" : String(value);
+      values[`t.${normalizedKey}`] = materializeTemplateValue(value);
     });
   }
 
@@ -711,6 +726,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       seenCaseIds.add(directCase.test_case_id);
       sortOrder += 1;
       const parameterTemplateValues = normalizeParameterValues(directCase.parameter_values);
+      const suiteParameterTemplateValues = normalizeParameterValues(directCase.suite_parameter_values);
 
       caseSnapshots.push({
         execution_id: executionId,
@@ -718,14 +734,14 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         test_case_title: directCase.test_case_title,
         test_case_description: directCase.test_case_description,
         external_references: normalizeStoredReferenceList(directCase.external_references),
-        suite_id: null,
-        suite_name: null,
+        suite_id: directCase.suite_id || null,
+        suite_name: directCase.suite_name || null,
         priority: directCase.priority,
         status: directCase.status,
         parameter_values: materializeParameterValues(parameterTemplateValues),
         parameter_template_values: parameterTemplateValues,
-        suite_parameter_values: {},
-        suite_parameter_template_values: {},
+        suite_parameter_values: materializeParameterValues(suiteParameterTemplateValues),
+        suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
         assigned_to: resolvedAssignedTo
       });
@@ -982,7 +998,13 @@ exports.createExecution = async ({
       throw new Error("All test cases must belong to the selected app type");
     }
 
-    directCaseRows.push(testCase);
+    const primarySuite = await selectPrimarySuiteForCaseExecution.get(testCaseId);
+    directCaseRows.push({
+      ...testCase,
+      suite_id: primarySuite?.suite_id || null,
+      suite_name: primarySuite?.suite_name || null,
+      suite_parameter_values: primarySuite?.suite_parameter_values || {}
+    });
   }
 
   const id = uuid();

@@ -223,7 +223,9 @@ async function executeQueuedJob(
   let healingSucceeded = Boolean(job.runtime_state?.healing_succeeded);
   const patchProposals: Array<Record<string, unknown>> = [];
   const pendingStepReports: Array<Promise<void>> = [];
+  const reportedStepIds = new Set<string>();
   const enqueueStepReport = (stepId: string, payload: Parameters<typeof reportQueuedStep>[2]) => {
+    reportedStepIds.add(stepId);
     const reportPromise = reportQueuedStep(job.id, stepId, payload)
       .then((report) => {
         syncCapturedValuesToWebContext(report.captures, webRunSession);
@@ -248,6 +250,7 @@ async function executeQueuedJob(
     await Promise.allSettled(pendingStepReports);
   };
   let webRunSessionStopped = false;
+  let currentStep: EngineRunStep | null = null;
   const stopWebRunSession = async (finalStatus?: "passed" | "failed" | "blocked") => {
     if (!webRunSession || webRunSessionStopped) {
       return {};
@@ -315,6 +318,7 @@ async function executeQueuedJob(
     }
 
     for (const [index, step] of remainingSteps.entries()) {
+      currentStep = step;
       updateRunState(
         accepted.id,
         "running",
@@ -364,6 +368,7 @@ async function executeQueuedJob(
           return;
         }
 
+        currentStep = null;
         continue;
       }
 
@@ -380,6 +385,7 @@ async function executeQueuedJob(
         });
 
         if (result.status === "passed") {
+          currentStep = null;
           continue;
         }
 
@@ -489,6 +495,8 @@ async function executeQueuedJob(
         }));
         return;
       }
+
+      currentStep = null;
     }
 
     const completionSummary = `${job.test_case_title} completed successfully.`;
@@ -510,7 +518,11 @@ async function executeQueuedJob(
       summary: completionSummary
     }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : `${job.test_case_title} failed in queue worker.`;
+    const serialized = serializeError(error);
+    const stack = "stack" in serialized ? serialized.stack : "";
+    const message = stack
+      ? `${serialized.message}\nStack:\n${stack}`
+      : String(serialized.message || `${job.test_case_title} failed in queue worker.`);
 
     updateRunState(accepted.id, "failed", message);
     emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
@@ -522,6 +534,19 @@ async function executeQueuedJob(
 
     try {
       const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+      if (currentStep && !reportedStepIds.has(currentStep.id)) {
+        enqueueStepReport(currentStep.id, {
+          status: "failed",
+          note: [
+            `${job.test_case_title} failed on step ${currentStep.order}.`,
+            message
+          ].join("\n"),
+          evidence: null,
+          web_detail: null,
+          automation_detail: buildAutomationDetail(currentStep, "failed", message, currentStep.step_type),
+          captures: {}
+        });
+      }
       await flushStepReports();
       await completeQueuedJobWithMetadata(job.id, {
         status: "failed",

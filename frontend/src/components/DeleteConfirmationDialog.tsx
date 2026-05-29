@@ -46,7 +46,7 @@ export function useDeleteConfirmation() {
           <div className="resource-modal-header">
             <div className="resource-modal-title">
               <div className="modal-title-info-row">
-                <h3>{state.title}</h3>
+                <p className="eyebrow">{state.title}</p>
                 <InfoTooltip content={state.message} label="Confirmation details" />
               </div>
             </div>

@@ -215,7 +215,7 @@ export function UserProfileDialog({
           <div className="people-modal-header profile-dialog-header">
             <div className="people-modal-title">
               <p>Personal profile</p>
-              <h3 id="profile-dialog-title">Update your sidebar profile</h3>
+              <p className="eyebrow" id="profile-dialog-title">Update your sidebar profile</p>
             </div>
             <button
               aria-label="Close profile dialog"

@@ -1,0 +1,14 @@
+{
+  "execution": {
+    "started_at": "2026-05-29T02:48:18.100Z",
+    "ended_at": "2026-05-29T02:48:18.108Z",
+    "status": "failed",
+    "summary": "Failed to parse URL from /assets"
+  },
+  "steps": [],
+  "captured_values": {
+    "t.id": "17253617",
+    "t.qrcode": "ydNjV8gb57703",
+    "t.random": "UAG"
+  }
+}

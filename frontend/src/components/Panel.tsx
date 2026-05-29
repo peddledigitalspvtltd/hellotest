@@ -21,7 +21,7 @@ export function Panel({
       <div className="panel-head">
         <div>
           <div className="panel-title-row">
-            {titleVariant === "eyebrow" ? <p className="eyebrow">{title}</p> : <h3>{title}</h3>}
+            <p className={titleVariant === "eyebrow" ? "eyebrow" : "panel-heading"}>{title}</p>
             {subtitle ? <InfoTooltip content={subtitle} label={`${title} information`} /> : null}
           </div>
         </div>

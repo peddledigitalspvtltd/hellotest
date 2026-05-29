@@ -470,7 +470,7 @@ export function KnowledgeRepoPage() {
             <div className="requirement-create-header">
               <div className="requirement-create-title">
                 <p className="eyebrow">AI Knowledge</p>
-                <h3>{editingId ? "Edit knowledge" : "Add knowledge"}</h3>
+                <p className="eyebrow">{editingId ? "Edit knowledge" : "Add knowledge"}</p>
                 <p>Store durable app context for local LLM retrieval, generation, and locator repair.</p>
               </div>
               <button className="ghost-button" onClick={() => setIsModalOpen(false)} type="button">

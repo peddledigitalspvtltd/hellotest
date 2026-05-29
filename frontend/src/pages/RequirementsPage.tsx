@@ -428,9 +428,12 @@ export function RequirementsPage() {
       const matchesSearch =
         !normalizedSearch ||
         [
+          item.display_id || "",
+          item.id,
           item.title,
           item.description || "",
           ...(item.external_references || []),
+          ...(item.test_case_ids || []),
           item.status || defaultRequirementStatus,
           `p${item.priority ?? 3}`,
           `priority ${item.priority ?? 3}`
@@ -512,6 +515,7 @@ export function RequirementsPage() {
     {
       key: "id",
       label: "ID",
+      sortValue: (item) => item.display_id || item.id,
       render: (item) => <DisplayIdBadge value={item.display_id || item.id} />
     },
     {
@@ -1653,7 +1657,7 @@ export function RequirementsPage() {
               <div className="requirement-create-title">
                 <p className="eyebrow">Requirements</p>
                 <div className="modal-title-info-row">
-                  <h3 id="create-requirement-title">Create requirement</h3>
+                  <p className="eyebrow" id="create-requirement-title">Create requirement</p>
                   <InfoTooltip
                     content="Create the requirement in a focused modal, then link any reusable test cases that already exist for the selected app type."
                     label="Create requirement information"
@@ -1725,7 +1729,7 @@ export function RequirementsPage() {
                   <div className="panel-head">
                     <div>
                       <div className="panel-title-row">
-                        <h3>Existing test cases</h3>
+                        <p className="eyebrow">Existing test cases</p>
                         <InfoTooltip
                           content={appTypeId ? `Select reusable cases from ${currentAppTypeName} to link immediately.` : "Select an app type first to link existing reusable test cases."}
                           label="Existing test cases information"
@@ -1789,7 +1793,7 @@ export function RequirementsPage() {
               <div className="import-modal-title">
                 <p className="eyebrow">Bulk Import</p>
                 <div className="modal-title-info-row">
-                  <h3 id="bulk-requirement-import-title">Import requirements from CSV</h3>
+                  <p className="eyebrow" id="bulk-requirement-import-title">Import requirements from CSV</p>
                   <InfoTooltip
                     content={(
                       <>
@@ -1910,7 +1914,7 @@ export function RequirementsPage() {
             <div className="requirement-create-header">
               <div className="requirement-create-title">
                 <p className="eyebrow">AI Product Owner</p>
-                <h3>Complete requirement</h3>
+                <p className="eyebrow">Complete requirement</p>
                 <p>
                   {optimizeTargets.length > 1
                     ? `Reviewing ${optimizeRequirementIndex + 1} of ${optimizeTargets.length}: ${activeOptimizeRequirement.title}`

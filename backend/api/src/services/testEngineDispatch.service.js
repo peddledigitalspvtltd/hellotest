@@ -12,6 +12,7 @@ const {
   normalizeTestStepType
 } = require("../utils/testStepAutomation");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { materializeTemplateValue } = require("../utils/testDataGenerators");
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
@@ -844,8 +845,8 @@ const buildManualSpec = ({ caseSnapshot, steps, execution }) => {
     steps: steps.map((step) => step.action || `Step ${step.order}`),
     assertions: steps.map((step) => step.expected_result).filter(Boolean),
     test_data: {
-      ...normalizeStringRecord(caseSnapshot.suite_parameter_values),
-      ...normalizeStringRecord(caseSnapshot.parameter_values)
+      ...normalizeStringRecord(caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values),
+      ...normalizeStringRecord(caseSnapshot.parameter_template_values || caseSnapshot.parameter_values)
     },
     environment_notes: normalizeText(execution.test_environment?.snapshot?.notes)
   };
@@ -947,8 +948,8 @@ const buildEngineEnvelope = ({
     }),
     object_repository: objectRepository,
     steps,
-    suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
-    case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
+    suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values),
+    case_parameters: normalizeStringRecord(caseSnapshot.parameter_template_values || caseSnapshot.parameter_values),
     environment: execution.test_environment
       ? {
           name: execution.test_environment.name,
@@ -973,7 +974,7 @@ const buildEngineEnvelope = ({
           columns: Array.isArray(execution.test_data_set.snapshot?.columns)
             ? execution.test_data_set.snapshot.columns.map((entry) => String(entry))
             : [],
-          rows: toEngineDataSetRows(execution.test_data_set.snapshot?.rows)
+          rows: toEngineDataSetRows(execution.test_data_set.snapshot?.template_rows || execution.test_data_set.snapshot?.rows)
         }
       : null,
     artifact_policy: {
@@ -1079,7 +1080,7 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
     if (!normalizedKey) {
       return;
     }
-    values[`s.${normalizedKey.replace(/^s\./, "")}`] = String(value ?? "");
+    values[`s.${normalizedKey.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
@@ -1087,7 +1088,7 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
     if (!normalizedKey) {
       return;
     }
-    values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   Object.entries(envelope.manual_spec?.test_data || {}).forEach(([key, value]) => {
@@ -1095,21 +1096,21 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
     if (!normalizedKey) {
       return;
     }
-    values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(value ?? "");
+    values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
   (envelope.environment?.variables || []).forEach((entry) => {
     if (!entry?.key) {
       return;
     }
-    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = String(entry.value ?? "");
+    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = materializeTemplateValue(entry.value);
   });
 
   (envelope.configuration?.variables || []).forEach((entry) => {
     if (!entry?.key) {
       return;
     }
-    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = String(entry.value ?? "");
+    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = materializeTemplateValue(entry.value);
   });
 
   if (envelope.data_set?.mode === "key_value") {
@@ -1120,7 +1121,7 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
         return;
       }
 
-      values[`t.${normalizedKey.replace(/^t\./, "")}`] = String(row?.value ?? "");
+      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row?.value);
     });
   } else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {
     Object.entries(envelope.data_set.rows[0] || {}).forEach(([key, value]) => {
@@ -1130,7 +1131,7 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
         return;
       }
 
-      values[`t.${normalizedKey}`] = String(value ?? "");
+      values[`t.${normalizedKey}`] = materializeTemplateValue(value);
     });
   }
 

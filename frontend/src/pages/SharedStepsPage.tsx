@@ -411,7 +411,7 @@ export function SharedStepsPage() {
         return true;
       }
 
-      return [group.name, group.description || "", ...(group.steps || []).map((step) => `${step.action || ""} ${step.expected_result || ""}`)]
+      return [group.display_id || "", group.id, group.name, group.description || "", ...(group.steps || []).map((step) => `${step.action || ""} ${step.expected_result || ""}`)]
         .join(" ")
         .toLowerCase()
         .includes(search);
@@ -535,6 +535,7 @@ export function SharedStepsPage() {
     {
       key: "id",
       label: "ID",
+      sortValue: (group) => group.display_id || group.id,
       render: (group) => <DisplayIdBadge value={group.display_id || group.id} />
     },
     {
@@ -1594,7 +1595,7 @@ function SharedStepUsageDialog({
           <div className="import-modal-title">
             <p className="eyebrow">Linked Cases</p>
             <div className="modal-title-info-row">
-              <h3 id="shared-step-usage-title">{groupName}</h3>
+              <p className="eyebrow" id="shared-step-usage-title">{groupName}</p>
               <InfoTooltip
                 content="These test cases are currently linked to this shared group."
                 label="Linked cases information"

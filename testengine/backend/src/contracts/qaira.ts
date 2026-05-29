@@ -331,6 +331,7 @@ export type EngineRunEnvelope = {
     mode: "key_value" | "table";
     columns: string[];
     rows: Array<Record<string, string>>;
+    template_rows?: Array<Record<string, string>>;
   } | null;
   artifact_policy: EngineRunArtifactPolicy;
   callback?: {
