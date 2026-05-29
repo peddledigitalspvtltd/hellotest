@@ -1,0 +1,76 @@
+{
+  "execution": {
+    "started_at": "2026-05-29T13:45:22.686Z",
+    "ended_at": "2026-05-29T13:45:23.063Z",
+    "status": "failed",
+    "summary": "Create Assets failed on step 1."
+  },
+  "steps": [
+    {
+      "step_id": "17be5779-1e0a-4c09-b651-0a190abe7d7d",
+      "request": {
+        "method": "POST",
+        "url": "https://api.getmaintainx.com/v1/assets",
+        "headers": {
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"name\": \"Forklift-{{randomString:3}}\",\n  \"description\": \"Forklift that is used to to move heavy equipments around {{randomString:3}}\",\n  \"assetTypes\": [\n    \"manual\",\n    \"tool\"\n  ], \n  \"manufacturer\": {\n    \"id\": 123,\n    \"name\": \"ACME Corporation\"\n  }\n}"
+      },
+      "response": {
+        "status": 201,
+        "status_text": "Created",
+        "headers": {
+          "access-control-allow-origin": "https://app.getmaintainx.com",
+          "connection": "keep-alive",
+          "content-language": "en",
+          "content-length": "15",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 29 May 2026 13:45:23 GMT",
+          "etag": "W/\"f-P7lMf7QR863Ok6GLhU/mM6czFcI\"",
+          "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+          "vary": "Origin",
+          "via": "1.1 5741af0254eb4244afcf870b8f7308a4.cloudfront.net (CloudFront)",
+          "x-amz-cf-id": "zCKJVZ2bxSqbVzyt0xFL-XPfmv0ZLOA3N3UE2vfwj_3cUtqTNCUHjA==",
+          "x-amz-cf-pop": "HYD57-P6",
+          "x-cache": "Miss from cloudfront",
+          "x-content-type-options": "nosniff",
+          "x-download-options": "noopen",
+          "x-frame-options": "SAMEORIGIN",
+          "x-permitted-cross-domain-policies": "none",
+          "x-rate-limit-limit": "100",
+          "x-rate-limit-remaining": "98",
+          "x-rate-limit-reset": "14",
+          "x-version": "26.5.1730-310194",
+          "x-xss-protection": "0"
+        },
+        "body": "{\"id\":17263796}",
+        "json": {
+          "id": 17263796
+        }
+      },
+      "captures": {
+        "@s.assetid": "17263796"
+      },
+      "assertions": [
+        {
+          "kind": "status",
+          "passed": false,
+          "target": null,
+          "expected": "200",
+          "actual": "201"
+        }
+      ]
+    }
+  ],
+  "captured_values": {
+    "s.token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+    "s.baseurl": "https://api.getmaintainx.com/v1",
+    "t.id": "17253617",
+    "t.qrcode": "{{randomString:8}}{{randomNumber:5}}",
+    "t.random": "{{randomString:3}}",
+    "t.s.token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+    "t.s.baseurl": "https://api.getmaintainx.com/v1",
+    "s.assetid": "17263796"
+  }
+}
