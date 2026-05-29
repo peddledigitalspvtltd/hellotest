@@ -317,7 +317,7 @@ export function DesignPage() {
 
   const createSuiteMutation = useMutation({ mutationFn: api.testSuites.create });
   const updateSuiteMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string> }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }> }) =>
       api.testSuites.update(id, input)
   });
   const assignSuiteCasesMutation = useMutation({
@@ -1090,7 +1090,7 @@ export function DesignPage() {
     setMessage("");
   };
 
-  const handleSuiteSave = async (input: { name: string; parent_id?: string; selectedIds: string[] }) => {
+  const handleSuiteSave = async (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => {
     try {
       let suiteId = selectedSuiteId;
 
@@ -1098,7 +1098,9 @@ export function DesignPage() {
         const response = await createSuiteMutation.mutateAsync({
           app_type_id: appTypeId,
           name: input.name,
-          parent_id: input.parent_id || undefined
+          parent_id: input.parent_id || undefined,
+          parallel_enabled: input.parallel_enabled,
+          parallel_count: input.parallel_count
         });
         suiteId = response.id;
       } else if (selectedSuite) {
@@ -1106,7 +1108,9 @@ export function DesignPage() {
           id: selectedSuite.id,
           input: {
             name: input.name,
-            parent_id: input.parent_id || undefined
+            parent_id: input.parent_id || undefined,
+            parallel_enabled: input.parallel_enabled,
+            parallel_count: input.parallel_count
           }
         });
       }
@@ -3281,7 +3285,7 @@ function SuiteModal({
   appTypeCases: TestCase[];
   selectedCaseIds: string[];
   onClose: () => void;
-  onSubmit: (input: { name: string; parent_id?: string; selectedIds: string[] }) => void;
+  onSubmit: (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => void;
   isSaving: boolean;
 }) {
   const availableCaseIdSet = useMemo(
@@ -3295,6 +3299,8 @@ function SuiteModal({
 
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
   const [parentId, setParentId] = useState(() => (mode === "edit" && suite ? suite.parent_id || "" : ""));
+  const [parallelEnabled, setParallelEnabled] = useState(() => Boolean(mode === "edit" && suite?.parallel_enabled));
+  const [parallelCount, setParallelCount] = useState(() => Math.max(1, Number(mode === "edit" ? suite?.parallel_count || 1 : 1)));
   const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => initialSelectedIds);
   const initialSelectedIdsKey = initialSelectedIds.join("::");
 
@@ -3302,12 +3308,14 @@ function SuiteModal({
     if (mode === "edit" && suite) {
       setName(suite.name);
       setParentId(suite.parent_id || "");
+      setParallelEnabled(Boolean(suite.parallel_enabled));
+      setParallelCount(Math.max(1, Number(suite.parallel_count || 1)));
       setLocalSelectedIds(initialSelectedIds);
       return;
     }
 
     setLocalSelectedIds((current) => current.filter((testCaseId) => availableCaseIdSet.has(testCaseId)));
-  }, [availableCaseIdSet, initialSelectedIdsKey, mode, suite?.id, suite?.name, suite?.parent_id]);
+  }, [availableCaseIdSet, initialSelectedIdsKey, mode, suite?.id, suite?.name, suite?.parent_id, suite?.parallel_enabled, suite?.parallel_count]);
 
   return (
     <div className="modal-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
@@ -3340,6 +3348,8 @@ function SuiteModal({
             onSubmit({
               name,
               parent_id: parentId || undefined,
+              parallel_enabled: parallelEnabled,
+              parallel_count: parallelEnabled ? parallelCount : 1,
               selectedIds: localSelectedIds
             });
           }}
@@ -3358,6 +3368,23 @@ function SuiteModal({
                       <option key={item.id} value={item.id}>{item.name}</option>
                     ))}
                 </select>
+              </FormField>
+              <FormField label="Suite parallel execution">
+                <div className="execution-parallel-control">
+                  <label>
+                    <input checked={parallelEnabled} onChange={(event) => setParallelEnabled(event.target.checked)} type="checkbox" />
+                    <span>Run this suite in parallel</span>
+                  </label>
+                  <input
+                    aria-label="Suite parallel count"
+                    disabled={!parallelEnabled}
+                    max={50}
+                    min={1}
+                    onChange={(event) => setParallelCount(Math.max(1, Number(event.target.value) || 1))}
+                    type="number"
+                    value={parallelCount}
+                  />
+                </div>
               </FormField>
             </div>
 

@@ -288,6 +288,13 @@ export type EngineRunEnvelope = {
     web?: number;
     android?: number;
   } | null;
+  execution_policy?: {
+    parallel_enabled?: boolean;
+    parallel_count?: number;
+    suite_parallel_override?: boolean;
+    suite_id?: string | null;
+    execution_order?: number;
+  } | null;
   browser: EngineBrowser;
   headless: boolean;
   max_repair_attempts: number;

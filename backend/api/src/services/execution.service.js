@@ -238,6 +238,29 @@ function normalizeText(value) {
   return normalized || null;
 }
 
+function normalizeBoolean(value, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value === 1;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+
+  return fallback;
+}
+
+function normalizeParallelCount(value, fallback = 1) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Math.max(1, Math.min(50, Number.isFinite(parsed) ? parsed : fallback));
+}
+
 function normalizeLocalEngineBaseUrl(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
 
@@ -346,11 +369,11 @@ function normalizeParameterValues(values = {}) {
 function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}) {
   const values = {};
 
-  Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_template_values || caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
+  Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
     values[`s.${key.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
-  Object.entries(normalizeParameterValues(caseSnapshot?.parameter_template_values || caseSnapshot?.parameter_values)).forEach(([key, value]) => {
+  Object.entries(normalizeParameterValues(caseSnapshot?.parameter_values)).forEach(([key, value]) => {
     values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
   });
 
@@ -375,9 +398,9 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
   });
 
   const dataSetSnapshot = execution?.test_data_set?.snapshot || null;
-  const dataSetRows = Array.isArray(dataSetSnapshot?.template_rows)
-    ? dataSetSnapshot.template_rows
-    : dataSetSnapshot?.rows || [];
+  const dataSetRows = Array.isArray(dataSetSnapshot?.rows)
+    ? dataSetSnapshot.rows
+    : dataSetSnapshot?.template_rows || [];
 
   if (dataSetSnapshot?.mode === "key_value") {
     dataSetRows.forEach((row) => {
@@ -876,6 +899,10 @@ exports.createExecution = async ({
   test_configuration_id,
   test_data_set_id,
   execution_hooks = [],
+  parallel_enabled = false,
+  parallel_count = 1,
+  execution_mode = "manual",
+  engine_base_url,
   assigned_to,
   name,
   created_by,
@@ -1008,8 +1035,15 @@ exports.createExecution = async ({
   }
 
   const id = uuid();
-  const normalizedTrigger = trigger === "local" ? "local" : trigger === "ci" ? "ci" : "manual";
+  const normalizedExecutionMode = normalizeText(execution_mode) === "local"
+    ? "local"
+    : normalizeText(execution_mode) === "remote"
+      ? "remote"
+      : "manual";
+  const normalizedTrigger = normalizedExecutionMode === "local" || trigger === "local" ? "local" : trigger === "ci" ? "ci" : "manual";
   const normalizedInitialStatus = initial_status === "running" ? "running" : "queued";
+  const normalizedParallelEnabled = normalizeBoolean(parallel_enabled);
+  const normalizedParallelCount = normalizeParallelCount(parallel_count);
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
@@ -1031,10 +1065,12 @@ exports.createExecution = async ({
         test_data_set_name,
         test_data_set_snapshot,
         execution_hooks,
+        parallel_enabled,
+        parallel_count,
         assigned_to,
         created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       project_id,
@@ -1052,6 +1088,8 @@ exports.createExecution = async ({
       selectedDataSet?.name || null,
       selectedDataSet?.snapshot || null,
       Array.isArray(execution_hooks) ? execution_hooks : [],
+      normalizedParallelEnabled,
+      normalizedParallelCount,
       resolvedAssignedTo,
       created_by
     );
@@ -1106,6 +1144,14 @@ exports.createExecution = async ({
   });
 
   await transaction();
+
+  if (normalizedExecutionMode === "remote" || normalizedExecutionMode === "local") {
+    await exports.startExecution(id, {
+      initiated_by: created_by,
+      execution_mode: normalizedExecutionMode,
+      engine_base_url: normalizedExecutionMode === "local" ? engine_base_url : undefined
+    });
+  }
 
   return { id };
 };

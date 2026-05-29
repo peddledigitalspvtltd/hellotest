@@ -10,7 +10,9 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       name: { required: true, type: "string", minLength: 2 },
       parent_id: { required: false, type: "string" },
-      parameter_values: { required: false, type: "object" }
+      parameter_values: { required: false, type: "object" },
+      parallel_enabled: { required: false, type: "boolean" },
+      parallel_count: { required: false, type: "number" }
     }, req.body);
 
     // Verify user has access to the app type's project
@@ -50,7 +52,9 @@ module.exports = async function (fastify) {
     fastify.validate({
       name: { required: false, type: "string", minLength: 2 },
       parent_id: { required: false, type: "string" },
-      parameter_values: { required: false, type: "object" }
+      parameter_values: { required: false, type: "object" },
+      parallel_enabled: { required: false, type: "boolean" },
+      parallel_count: { required: false, type: "number" }
     }, req.body);
 
     const testSuite = await service.getTestSuite(req.params.id);

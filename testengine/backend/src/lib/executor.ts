@@ -237,9 +237,9 @@ const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
     context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
   });
 
-  const dataSetRows = Array.isArray(envelope.data_set?.template_rows)
-    ? envelope.data_set?.template_rows
-    : envelope.data_set?.rows || [];
+  const dataSetRows = Array.isArray(envelope.data_set?.rows)
+    ? envelope.data_set?.rows
+    : envelope.data_set?.template_rows || [];
 
   if (envelope.data_set?.mode === "key_value") {
     dataSetRows.forEach((row) => {

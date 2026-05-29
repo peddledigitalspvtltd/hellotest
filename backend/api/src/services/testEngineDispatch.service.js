@@ -61,11 +61,37 @@ const selectExecutionCaseIds = db.prepare(`
   WHERE execution_id = ?
 `);
 
+const selectExecutionCaseOrder = db.prepare(`
+  SELECT test_case_id, suite_id, sort_order
+  FROM execution_case_snapshots
+  WHERE execution_id = ?
+  ORDER BY sort_order ASC, test_case_title ASC
+`);
+
+const selectSuiteParallelConfig = db.prepare(`
+  SELECT id, parallel_enabled, parallel_count
+  FROM test_suites
+  WHERE id = ?
+`);
+
 const selectLatestResultsForExecution = db.prepare(`
   SELECT DISTINCT ON (test_case_id) test_case_id, status
   FROM execution_results
   WHERE execution_id = ?
   ORDER BY test_case_id ASC, created_at DESC, id DESC
+`);
+
+const selectLatestLogsForExecution = db.prepare(`
+  SELECT DISTINCT ON (test_case_id) test_case_id, logs
+  FROM execution_results
+  WHERE execution_id = ?
+  ORDER BY test_case_id ASC, created_at DESC, id DESC
+`);
+
+const selectExecutionCaseRuntimeParameters = db.prepare(`
+  SELECT parameter_values, suite_parameter_values
+  FROM execution_case_snapshots
+  WHERE execution_id = ? AND test_case_id = ?
 `);
 
 const settleExecutionStatus = db.prepare(`
@@ -122,6 +148,13 @@ const updateJobLeaseState = obsDb.prepare(`
       leased_by = ?,
       lease_expires_at = ?,
       started_at = COALESCE(started_at, ?),
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
+const updateJobRuntimeStateForLease = obsDb.prepare(`
+  UPDATE test_engine_jobs
+  SET runtime_state = ?,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
@@ -269,6 +302,36 @@ const normalizeInteger = (value, fallback = null) => {
   }
 
   return fallback;
+};
+
+const normalizeBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
+const resolveExecutionPolicy = (execution, caseSnapshot) => {
+  const runParallelEnabled = normalizeBoolean(execution?.parallel_enabled, false);
+  const runParallelCount = Math.max(1, normalizeInteger(execution?.parallel_count, 1) ?? 1);
+  const suiteConfig = caseSnapshot?.suite_id ? selectSuiteParallelConfig.get(caseSnapshot.suite_id) : null;
+  const hasSuiteOverride = suiteConfig && suiteConfig.parallel_enabled !== null && suiteConfig.parallel_enabled !== undefined;
+  const parallelEnabled = hasSuiteOverride ? normalizeBoolean(suiteConfig.parallel_enabled, false) : runParallelEnabled;
+  const parallelCount = parallelEnabled
+    ? Math.max(1, normalizeInteger(hasSuiteOverride ? suiteConfig.parallel_count : runParallelCount, runParallelCount) ?? runParallelCount)
+    : 1;
+
+  return {
+    parallel_enabled: parallelEnabled,
+    parallel_count: parallelCount,
+    suite_parallel_override: Boolean(hasSuiteOverride),
+    suite_id: caseSnapshot?.suite_id || null,
+    execution_order: Math.max(1, normalizeInteger(caseSnapshot?.sort_order, 1) ?? 1)
+  };
 };
 
 const normalizeTestEngineWebEngine = (value, fallback = "playwright") => {
@@ -845,8 +908,8 @@ const buildManualSpec = ({ caseSnapshot, steps, execution }) => {
     steps: steps.map((step) => step.action || `Step ${step.order}`),
     assertions: steps.map((step) => step.expected_result).filter(Boolean),
     test_data: {
-      ...normalizeStringRecord(caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values),
-      ...normalizeStringRecord(caseSnapshot.parameter_template_values || caseSnapshot.parameter_values)
+      ...normalizeStringRecord(caseSnapshot.suite_parameter_values),
+      ...normalizeStringRecord(caseSnapshot.parameter_values)
     },
     environment_notes: normalizeText(execution.test_environment?.snapshot?.notes)
   };
@@ -873,6 +936,7 @@ const buildEngineEnvelope = ({
     || "chromium",
     "chromium"
   );
+  const executionPolicy = resolveExecutionPolicy(execution, caseSnapshot);
 
   return {
     engine_run_id: engineRunId,
@@ -893,6 +957,7 @@ const buildEngineEnvelope = ({
     trigger: "execution",
     source_mode: "manual-handover",
     automated: true,
+    execution_policy: executionPolicy,
     browser: resolvedBrowser,
     headless: integrationConfig.headless === true,
     max_repair_attempts:
@@ -948,8 +1013,8 @@ const buildEngineEnvelope = ({
     }),
     object_repository: objectRepository,
     steps,
-    suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values),
-    case_parameters: normalizeStringRecord(caseSnapshot.parameter_template_values || caseSnapshot.parameter_values),
+    suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
+    case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
     environment: execution.test_environment
       ? {
           name: execution.test_environment.name,
@@ -974,7 +1039,7 @@ const buildEngineEnvelope = ({
           columns: Array.isArray(execution.test_data_set.snapshot?.columns)
             ? execution.test_data_set.snapshot.columns.map((entry) => String(entry))
             : [],
-          rows: toEngineDataSetRows(execution.test_data_set.snapshot?.template_rows || execution.test_data_set.snapshot?.rows)
+          rows: toEngineDataSetRows(execution.test_data_set.snapshot?.rows)
         }
       : null,
     artifact_policy: {
@@ -1726,6 +1791,153 @@ async function getQueuedJob(id) {
   return job;
 }
 
+const isFinalResultStatus = (status) => ["passed", "failed", "blocked"].includes(normalizeText(status));
+
+const collectPriorExecutionCaptures = (executionId, testCaseId, suiteId, suiteScoped) => {
+  const orderRows = selectExecutionCaseOrder.all(executionId);
+  const current = orderRows.find((row) => row.test_case_id === testCaseId);
+
+  if (!current) {
+    return {};
+  }
+
+  const priorIds = new Set(
+    orderRows
+      .filter((row) =>
+        Number(row.sort_order || 0) < Number(current.sort_order || 0)
+        && (!suiteScoped || (row.suite_id || null) === (suiteId || null))
+      )
+      .map((row) => row.test_case_id)
+  );
+
+  if (!priorIds.size) {
+    return {};
+  }
+
+  const captures = {};
+  orderRows
+    .filter((row) =>
+      priorIds.has(row.test_case_id)
+      && (!suiteScoped || (row.suite_id || null) === (suiteId || null))
+    )
+    .forEach((row) => {
+      const caseSnapshot = selectExecutionCaseRuntimeParameters.get(executionId, row.test_case_id) || {};
+      Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.suite_parameter_values, {}))).forEach(([key, value]) => {
+        captures[`s.${key.replace(/^s\./, "")}`] = value;
+      });
+      Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.parameter_values, {}))).forEach(([key, value]) => {
+        captures[`t.${key.replace(/^t\./, "")}`] = value;
+      });
+    });
+
+  for (const row of selectLatestLogsForExecution.all(executionId)) {
+    if (!priorIds.has(row.test_case_id)) {
+      continue;
+    }
+
+    Object.assign(captures, executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs));
+  }
+
+  return captures;
+};
+
+const arePriorCasesComplete = (executionId, testCaseId, suiteId, suiteScoped) => {
+  const orderRows = selectExecutionCaseOrder.all(executionId);
+  const current = orderRows.find((row) => row.test_case_id === testCaseId);
+
+  if (!current) {
+    return true;
+  }
+
+  const priorIds = orderRows
+    .filter((row) =>
+      Number(row.sort_order || 0) < Number(current.sort_order || 0)
+      && (!suiteScoped || (row.suite_id || null) === (suiteId || null))
+    )
+    .map((row) => row.test_case_id);
+
+  if (!priorIds.length) {
+    return true;
+  }
+
+  const latestStatuses = new Map(
+    selectLatestResultsForExecution.all(executionId).map((row) => [row.test_case_id, row.status])
+  );
+
+  return priorIds.every((priorId) => isFinalResultStatus(latestStatuses.get(priorId)));
+};
+
+const getActiveJobCountForPolicy = async (candidate) => {
+  const policy = candidate.payload?.execution_policy || {};
+  const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
+  const params = [candidate.execution_id];
+  let query = `
+    SELECT payload
+    FROM test_engine_jobs
+    WHERE execution_id = ?
+      AND completed_at IS NULL
+      AND status IN ('leased', 'running')
+  `;
+
+  const result = await obsDb.query(query, params);
+  return result.rows.filter((row) => {
+    if (!suiteScoped) {
+      return true;
+    }
+
+    const payload = normalizeJsonValue(row.payload, {});
+    return payload?.execution_policy?.suite_id === policy.suite_id;
+  }).length;
+};
+
+const isQueuedJobLeaseEligible = async (candidate) => {
+  const payload = normalizeJsonValue(candidate.payload, {});
+  const policy = payload?.execution_policy || {};
+  const parallelEnabled = normalizeBoolean(policy.parallel_enabled, false);
+  const parallelCount = parallelEnabled ? Math.max(1, normalizeInteger(policy.parallel_count, 1) ?? 1) : 1;
+  const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
+  const activeCount = await getActiveJobCountForPolicy({
+    ...candidate,
+    payload
+  });
+
+  if (activeCount >= parallelCount) {
+    return false;
+  }
+
+  if (!parallelEnabled && !arePriorCasesComplete(candidate.execution_id, candidate.test_case_id, policy.suite_id || null, suiteScoped)) {
+    return false;
+  }
+
+  return true;
+};
+
+const attachPriorCapturesForLease = async (job) => {
+  const policy = job.payload?.execution_policy || {};
+  const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
+  const priorCaptures = collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped);
+
+  if (!Object.keys(priorCaptures).length) {
+    return job;
+  }
+
+  const runtimeState = parseRuntimeState(job.runtime_state);
+  const nextRuntimeState = {
+    ...runtimeState,
+    captured_values: {
+      ...priorCaptures,
+      ...runtimeState.captured_values
+    }
+  };
+
+  await updateJobRuntimeStateForLease.run(nextRuntimeState, job.id);
+
+  return {
+    ...job,
+    runtime_state: nextRuntimeState
+  };
+};
+
 const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engine_host, lease_seconds, engine_class } = {}) => {
   const normalizedWorkerId = normalizeText(worker_id) || "testengine-worker";
   const normalizedEngineHost = normalizeEngineHostUrl(engine_host);
@@ -1757,10 +1969,16 @@ const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engi
       params.push(scopedEngineHost);
     }
 
-    query += ` ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`;
+    query += ` ORDER BY created_at ASC, id ASC LIMIT 50 FOR UPDATE SKIP LOCKED`;
 
     const result = await obsDb.query(query, params);
-    return result.rows[0] || null;
+    for (const row of result.rows) {
+      if (await isQueuedJobLeaseEligible(row)) {
+        return row;
+      }
+    }
+
+    return null;
   };
 
   let row = await findCandidate(normalizedEngineHost);
@@ -1788,7 +2006,7 @@ const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engi
     [normalizedWorkerId, leaseExpiresAt, row.id]
   );
 
-  const leased = await getQueuedJob(row.id);
+  const leased = await attachPriorCapturesForLease(await getQueuedJob(row.id));
 
   if (leased.transaction_id) {
     await appendQueueTransactionEvent(leased.transaction_id, {

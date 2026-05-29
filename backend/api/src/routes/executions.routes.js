@@ -56,6 +56,10 @@ module.exports = async function (fastify) {
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       execution_hooks: { required: false, type: "array" },
+      parallel_enabled: { required: false, type: "boolean" },
+      parallel_count: { required: false, type: "number" },
+      execution_mode: { required: false, type: "string" },
+      engine_base_url: { required: false, type: "string" },
       assigned_to: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" }

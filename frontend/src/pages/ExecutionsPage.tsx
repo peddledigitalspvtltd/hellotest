@@ -2,7 +2,7 @@ import { FormEvent, Fragment, useDeferredValue, useEffect, useMemo, useRef, useS
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ActivityIcon, ArchiveIcon, CalendarIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, OpenIcon, PlayIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
+import { ActivityIcon, ArchiveIcon, CalendarIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
 import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -122,6 +122,7 @@ type ExecutionStepBlock = {
 type ExecutionIssueFilter = "all" | "with-issues" | "clean";
 type ExecutionEvidenceFilter = "all" | "with-evidence" | "no-evidence";
 type ExecutionCreateMode = "manual" | "smart";
+type ExecutionStartMode = "manual" | "remote" | "local";
 type ExecutionHookTargetKind = "none" | "test" | "suite";
 type ExecutionHookDraft = {
   beforeTestKind: ExecutionHookTargetKind;
@@ -1102,6 +1103,9 @@ export function ExecutionsPage() {
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [executionCreateMode, setExecutionCreateMode] = useState<ExecutionCreateMode>("manual");
+  const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
+  const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
+  const [executionParallelCount, setExecutionParallelCount] = useState(2);
   const [executionHookDraft, setExecutionHookDraft] = useState<ExecutionHookDraft>(() => emptyExecutionHookDraft());
   const [testRunsView, setTestRunsView] = useState<TestRunsView>("suite-runs");
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<string[]>([]);
@@ -2470,6 +2474,10 @@ export function ExecutionsPage() {
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
         execution_hooks: executionHooks.length ? executionHooks : undefined,
+        parallel_enabled: executionParallelEnabled,
+        parallel_count: executionParallelEnabled ? executionParallelCount : 1,
+        execution_mode: executionStartMode,
+        engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: executionName || undefined,
         created_by: session.user.id
@@ -2481,7 +2489,9 @@ export function ExecutionsPage() {
       showSuccess(
         executionCreateMode === "smart"
           ? `AI smart run created with ${selectedSmartCaseIds.length} impacted case${selectedSmartCaseIds.length === 1 ? "" : "s"} under Default.`
-          : "Run created from a snapshot of the selected suites."
+          : executionStartMode === "manual"
+            ? "Manual run created from a snapshot of the selected suites."
+            : `Automation run created and started ${executionStartMode === "local" ? "locally" : "remotely"}.`
       );
       await refreshExecutionScope(response.id);
     } catch (error) {
@@ -4004,7 +4014,7 @@ export function ExecutionsPage() {
                 </button>
                 <button className="primary-button" onClick={() => setIsCreateExecutionModalOpen(true)} type="button">
                   <PlayIcon />
-                  Create Run
+                  Create Run Manually
                 </button>
               </>
             )
@@ -5486,6 +5496,9 @@ export function ExecutionsPage() {
           assigneeOptions={assigneeOptions}
           canCreateExecution={canCreateExecution}
           executionCreateMode={executionCreateMode}
+          executionStartMode={executionStartMode}
+          executionParallelEnabled={executionParallelEnabled}
+          executionParallelCount={executionParallelCount}
           executionName={executionName}
           integrations={integrations}
           executionHookDraft={executionHookDraft}
@@ -5499,6 +5512,9 @@ export function ExecutionsPage() {
           onAppTypeChange={handleExecutionAppTypeChange}
           onClose={closeExecutionBuilder}
           onExecutionCreateModeChange={setExecutionCreateMode}
+          onExecutionStartModeChange={setExecutionStartMode}
+          onExecutionParallelEnabledChange={setExecutionParallelEnabled}
+          onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionNameChange={setExecutionName}
           onExecutionHookDraftChange={setExecutionHookDraft}
           onPreviewSmartExecution={() => void handlePreviewSmartExecution()}
@@ -7621,6 +7637,12 @@ function ExecutionCreateModal({
   onAppTypeChange,
   executionCreateMode,
   onExecutionCreateModeChange,
+  executionStartMode,
+  onExecutionStartModeChange,
+  executionParallelEnabled,
+  executionParallelCount,
+  onExecutionParallelEnabledChange,
+  onExecutionParallelCountChange,
   selectedProject,
   selectedAppType,
   scopeSuites,
@@ -7676,6 +7698,12 @@ function ExecutionCreateModal({
   onAppTypeChange: (value: string) => void;
   executionCreateMode: ExecutionCreateMode;
   onExecutionCreateModeChange: (value: ExecutionCreateMode) => void;
+  executionStartMode: ExecutionStartMode;
+  onExecutionStartModeChange: (value: ExecutionStartMode) => void;
+  executionParallelEnabled: boolean;
+  executionParallelCount: number;
+  onExecutionParallelEnabledChange: (value: boolean) => void;
+  onExecutionParallelCountChange: (value: number) => void;
   selectedProject: string;
   selectedAppType: string;
   scopeSuites: TestSuite[];
@@ -7724,6 +7752,7 @@ function ExecutionCreateModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const isSmartMode = executionCreateMode === "smart";
+  const [hookSearch, setHookSearch] = useState("");
   const smartPreviewCases = smartExecutionPreview?.cases || [];
   const hasSmartPlanningInput = Boolean(smartExecutionReleaseScope.trim() || smartExecutionAdditionalContext.trim());
   const normalizedRequirementSearch = smartExecutionRequirementSearch.trim().toLowerCase();
@@ -7738,12 +7767,17 @@ function ExecutionCreateModal({
   const selectedSmartCaseCount = selectedSmartExecutionCaseIds.length;
   const areAllSmartCasesSelected = Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
   const hookTargetOptions = (kind: ExecutionHookTargetKind) => {
+    const search = hookSearch.trim().toLowerCase();
     if (kind === "test") {
-      return libraryCases.map((testCase) => ({ id: testCase.id, label: testCase.title }));
+      return libraryCases
+        .filter((testCase) => !search || testCase.title.toLowerCase().includes(search))
+        .map((testCase) => ({ id: testCase.id, label: testCase.title }));
     }
 
     if (kind === "suite") {
-      return scopeSuites.map((suite) => ({ id: suite.id, label: suite.name }));
+      return scopeSuites
+        .filter((suite) => !search || suite.name.toLowerCase().includes(search))
+        .map((suite) => ({ id: suite.id, label: suite.name }));
     }
 
     return [];
@@ -7874,6 +7908,38 @@ function ExecutionCreateModal({
               </FormField>
             </div>
 
+            <div className="execution-create-grid">
+              <FormField label="Create Run Manually">
+                <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                  <option value="manual">Create Run Manually</option>
+                  <option value="remote">Create Run Remotely</option>
+                  <option value="local">CreateRun Local</option>
+                </select>
+              </FormField>
+
+              <FormField label="Parallel execution">
+                <div className="execution-parallel-control">
+                  <label>
+                    <input
+                      checked={executionParallelEnabled}
+                      onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>Run tests in parallel</span>
+                  </label>
+                  <input
+                    aria-label="Parallel test count"
+                    disabled={!executionParallelEnabled}
+                    min={1}
+                    max={50}
+                    onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}
+                    type="number"
+                    value={executionParallelCount}
+                  />
+                </div>
+              </FormField>
+            </div>
+
             <div className="execution-mode-switch" aria-label="Run creation mode" role="group">
               <button
                 aria-pressed={!isSmartMode}
@@ -7931,6 +7997,15 @@ function ExecutionCreateModal({
                     label="Run hooks information"
                   />
                 </div>
+              </div>
+              <div className="execution-hook-search">
+                <SearchIcon size={16} />
+                <input
+                  aria-label="Search hook suites and cases"
+                  onChange={(event) => setHookSearch(event.target.value)}
+                  placeholder="Search suites or test cases"
+                  value={hookSearch}
+                />
               </div>
               <div className="execution-hooks-grid">
                 {renderHookTarget("Before each test", "beforeTestKind", "beforeTestId")}
@@ -8198,7 +8273,15 @@ function ExecutionCreateModal({
 
           <div className="action-row execution-create-actions">
             <button className="primary-button" disabled={!canCreateExecution || isSubmitting || (isSmartMode && isPreviewingSmartExecution)} type="submit">
-              {isSubmitting ? "Creating…" : isSmartMode ? "Create AI smart run" : "Create run"}
+              {isSubmitting
+                ? "Creating…"
+                : isSmartMode
+                  ? "Create AI smart run"
+                  : executionStartMode === "remote"
+                    ? "Create Run Remotely"
+                    : executionStartMode === "local"
+                      ? "CreateRun Local"
+                      : "Create Run Manually"}
             </button>
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel

@@ -502,9 +502,9 @@ export const api = {
   testSuites: {
     list: (query?: { app_type_id?: string; parent_id?: string }) =>
       request<TestSuite[]>(`/test-suites${toQueryString(query)}`),
-    create: (input: { app_type_id: string; name: string; parent_id?: string; parameter_values?: Record<string, string> }) =>
+    create: (input: { app_type_id: string; name: string; parent_id?: string; parameter_values?: Record<string, string>; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string> }>) =>
+    update: (id: string, input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }>) =>
       request<{ updated: boolean }>(`/test-suites/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignTestCases: (id: string, test_case_ids: string[]) =>
       request<{ updated: boolean; assigned: number }>(`/test-suites/${id}/assign-test-cases`, {
@@ -931,7 +931,7 @@ export const api = {
       request<Execution>(`/executions/${id}`),
     previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release_scope?: string; additional_context?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; name?: string; created_by: string }) =>
       request<{ id: string }>("/executions", { method: "POST", body: JSON.stringify(input) }),
     createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),

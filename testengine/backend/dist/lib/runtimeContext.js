@@ -153,9 +153,9 @@ export const buildInitialContext = (envelope, capturedValues = {}) => {
         }
         context.values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
     });
-    const dataSetRows = Array.isArray(envelope.data_set?.template_rows)
-        ? envelope.data_set?.template_rows
-        : envelope.data_set?.rows || [];
+    const dataSetRows = Array.isArray(envelope.data_set?.rows)
+        ? envelope.data_set?.rows
+        : envelope.data_set?.template_rows || [];
     if (envelope.data_set?.mode === "key_value") {
         dataSetRows.forEach((row) => {
             const normalizedKey = normalizeKey(row.key);

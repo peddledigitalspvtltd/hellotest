@@ -1,0 +1,77 @@
+{
+  "execution": {
+    "started_at": "2026-05-29T14:19:09.351Z",
+    "ended_at": "2026-05-29T14:19:10.328Z",
+    "status": "passed",
+    "summary": "Create Assets completed successfully."
+  },
+  "steps": [
+    {
+      "step_id": "51f2fd5f-b546-439f-93b7-b8388d28269f",
+      "request": {
+        "method": "POST",
+        "url": "https://api.getmaintainx.com/v1/assets",
+        "headers": {
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"name\": \"Forklift-ag3\",\n  \"description\": \"Forklift-ag3 that is used to to move heavy equipments around \",\n  \"assetTypes\": [\n    \"manual\",\n    \"tool\"\n  ], \n  \"manufacturer\": {\n    \"id\": 123,\n    \"name\": \"ACME Corporation\"\n  }\n}"
+      },
+      "response": {
+        "status": 201,
+        "status_text": "Created",
+        "headers": {
+          "access-control-allow-origin": "https://app.getmaintainx.com",
+          "connection": "keep-alive",
+          "content-language": "en",
+          "content-length": "15",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 29 May 2026 14:19:10 GMT",
+          "etag": "W/\"f-18u0F7/PzNjhtQxK1j05tXD4oXA\"",
+          "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+          "vary": "Origin",
+          "via": "1.1 898e7abc0de61925c5e722b3d2dc3db4.cloudfront.net (CloudFront)",
+          "x-amz-cf-id": "A5NueNw_p1ZGL72nMi_KkLfS0RZq0JMdYMSYI4w-D772ofb44altkQ==",
+          "x-amz-cf-pop": "HYD57-P6",
+          "x-cache": "Miss from cloudfront",
+          "x-content-type-options": "nosniff",
+          "x-download-options": "noopen",
+          "x-frame-options": "SAMEORIGIN",
+          "x-permitted-cross-domain-policies": "none",
+          "x-rate-limit-limit": "100",
+          "x-rate-limit-remaining": "99",
+          "x-rate-limit-reset": "60",
+          "x-version": "26.5.1730-310194",
+          "x-xss-protection": "0"
+        },
+        "body": "{\"id\":17264126}",
+        "json": {
+          "id": 17264126
+        }
+      },
+      "captures": {
+        "@s.assetid": "17264126"
+      },
+      "assertions": [
+        {
+          "kind": "status",
+          "passed": true,
+          "target": null,
+          "expected": "201",
+          "actual": "201"
+        }
+      ]
+    }
+  ],
+  "captured_values": {
+    "s.token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+    "s.baseurl": "https://api.getmaintainx.com/v1",
+    "t.id": "17253617",
+    "t.qrcode": "Es7uxT5f23242",
+    "t.random": "Forklift-po3",
+    "t.assetname": "Forklift-ag3",
+    "t.s.token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEzODA4NzcsIm9yZ2FuaXphdGlvbklkIjo1MzMyNzksImlhdCI6MTc4MDAyMjE4NSwic3ViIjoiUkVTVF9BUElfQVVUSCIsImp0aSI6IjYyZmQ2YmM5LWZiOWEtNGMyOS05YmQ1LWZkOGIwMWFjYjViYyJ9.DVxP4emfB9jj1kfm1sEWHw3zm1iKjBvap7S4cpTvYnM",
+    "t.s.baseurl": "https://api.getmaintainx.com/v1",
+    "s.assetid": "17264126"
+  }
+}

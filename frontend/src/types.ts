@@ -359,6 +359,8 @@ export type TestSuite = {
   name: string;
   parent_id: string | null;
   parameter_values?: Record<string, string>;
+  parallel_enabled?: boolean | null;
+  parallel_count?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -743,6 +745,8 @@ export type Execution = {
     snapshot: ExecutionDataSetSnapshot | null;
   } | null;
   assigned_to?: string | null;
+  parallel_enabled?: boolean | null;
+  parallel_count?: number | null;
   assigned_user?: {
     id: string;
     email: string;

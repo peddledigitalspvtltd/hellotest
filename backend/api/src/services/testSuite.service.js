@@ -25,7 +25,37 @@ const normalizeParameterValues = (values = {}) => {
   }, {});
 };
 
-exports.createTestSuite = async ({ app_type_id, name, parent_id, parameter_values, created_by }) => {
+const normalizeBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value === 1;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+
+  return fallback;
+};
+
+const normalizeParallelCount = (value, fallback = 1) => {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Math.max(1, Math.min(50, Number.isFinite(parsed) ? parsed : fallback));
+};
+
+const shapeSuite = (suite) => ({
+  ...suite,
+  parameter_values: normalizeParameterValues(suite.parameter_values),
+  parallel_enabled: suite.parallel_enabled === null || suite.parallel_enabled === undefined ? null : normalizeBoolean(suite.parallel_enabled),
+  parallel_count: suite.parallel_count === null || suite.parallel_count === undefined ? null : normalizeParallelCount(suite.parallel_count)
+});
+
+exports.createTestSuite = async ({ app_type_id, name, parent_id, parameter_values, parallel_enabled, parallel_count, created_by }) => {
   if (!app_type_id || !name) {
     throw new Error("Missing required fields");
   }
@@ -51,9 +81,20 @@ exports.createTestSuite = async ({ app_type_id, name, parent_id, parameter_value
   const display_id = await displayIdService.createDisplayId("test_suite");
 
   await db.prepare(`
-    INSERT INTO test_suites (id, display_id, app_type_id, name, parent_id, parameter_values, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `).run(id, display_id, app_type_id, name, parent_id || null, normalizeParameterValues(parameter_values), created_by || null, created_by || null);
+    INSERT INTO test_suites (id, display_id, app_type_id, name, parent_id, parameter_values, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    id,
+    display_id,
+    app_type_id,
+    name,
+    parent_id || null,
+    normalizeParameterValues(parameter_values),
+    parallel_enabled === undefined ? null : normalizeBoolean(parallel_enabled),
+    parallel_enabled === undefined ? null : normalizeParallelCount(parallel_count),
+    created_by || null,
+    created_by || null
+  );
 
   return { id };
 };
@@ -79,10 +120,7 @@ exports.getTestSuites = async ({ app_type_id, parent_id }) => {
   query += ` ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC`;
 
   const suites = await db.prepare(query).all(...params);
-  return suites.map((suite) => ({
-    ...suite,
-    parameter_values: normalizeParameterValues(suite.parameter_values)
-  }));
+  return suites.map(shapeSuite);
 };
 
 exports.getTestSuite = async (id) => {
@@ -92,10 +130,7 @@ exports.getTestSuite = async (id) => {
 
   if (!suite) throw new Error("Test suite not found");
 
-  return {
-    ...suite,
-    parameter_values: normalizeParameterValues(suite.parameter_values)
-  };
+  return shapeSuite(suite);
 };
 
 exports.updateTestSuite = async (id, data) => {
@@ -124,12 +159,16 @@ exports.updateTestSuite = async (id, data) => {
 
   await db.prepare(`
     UPDATE test_suites
-    SET name = ?, parent_id = ?, parameter_values = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET name = ?, parent_id = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     data.name ?? existing.name,
     parentId || null,
     data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
+    data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
+    data.parallel_enabled !== undefined || data.parallel_count !== undefined
+      ? normalizeParallelCount(data.parallel_count, existing.parallel_count || 1)
+      : existing.parallel_count,
     data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
     id
   );
