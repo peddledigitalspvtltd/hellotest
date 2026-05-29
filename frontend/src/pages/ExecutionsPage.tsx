@@ -1190,13 +1190,7 @@ export function ExecutionsPage() {
   const executionsQuery = useQuery({
     queryKey: ["executions", projectId, appTypeId],
     queryFn: () => api.executions.list(projectId ? { project_id: projectId, app_type_id: appTypeId || undefined } : undefined),
-    refetchInterval: (query) =>
-      Array.isArray(query.state.data) && query.state.data.some((execution) => {
-        const status = normalizeExecutionStatus(execution.status);
-        return status === "queued" || status === "running";
-      })
-        ? EXECUTION_POLL_INTERVAL_MS
-        : false
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const executionSchedulesQuery = useQuery({
     queryKey: ["execution-schedules", projectId, appTypeId],
@@ -1204,16 +1198,14 @@ export function ExecutionsPage() {
       project_id: projectId || undefined,
       app_type_id: appTypeId || undefined
     }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId),
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const selectedExecutionQuery = useQuery({
     queryKey: ["execution", selectedExecutionId],
     queryFn: () => api.executions.get(selectedExecutionId),
     enabled: Boolean(selectedExecutionId),
-    refetchInterval: (query) => {
-      const status = normalizeExecutionStatus((query.state.data as Execution | undefined)?.status);
-      return status === "queued" || status === "running" ? EXECUTION_POLL_INTERVAL_MS : false;
-    }
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
@@ -1239,21 +1231,12 @@ export function ExecutionsPage() {
     queryKey: ["execution-results", selectedExecutionId],
     queryFn: () => api.executionResults.list({ execution_id: selectedExecutionId }),
     enabled: Boolean(selectedExecutionId),
-    refetchInterval: () => {
-      const status = normalizeExecutionStatus(selectedExecutionQuery.data?.status);
-      return status === "queued" || status === "running" ? EXECUTION_POLL_INTERVAL_MS : false;
-    }
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const allExecutionResultsQuery = useQuery({
     queryKey: ["execution-results"],
     queryFn: () => api.executionResults.list(),
-    refetchInterval: () =>
-      Array.isArray(executionsQuery.data) && executionsQuery.data.some((execution) => {
-        const status = normalizeExecutionStatus(execution.status);
-        return status === "queued" || status === "running";
-      })
-        ? EXECUTION_POLL_INTERVAL_MS
-        : false
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const integrationsQuery = useQuery({
     queryKey: ["integrations", "llm"],
@@ -1273,19 +1256,13 @@ export function ExecutionsPage() {
       limit: 100
     }),
     enabled: Boolean(projectId && session),
-    refetchInterval: (query) =>
-      Array.isArray(query.state.data) && query.state.data.some((transaction) => ["queued", "running"].includes(transaction.status))
-        ? EXECUTION_POLL_INTERVAL_MS
-        : false
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
   const selectedWorkspaceTransactionEventsQuery = useQuery({
     queryKey: ["workspace-transaction-events", selectedOperationId],
     queryFn: () => api.workspaceTransactions.events(selectedOperationId),
     enabled: Boolean(selectedOperationId && session),
-    refetchInterval: () => {
-      const selectedTransaction = (workspaceTransactionsQuery.data || []).find((transaction) => transaction.id === selectedOperationId);
-      return selectedTransaction && ["queued", "running"].includes(selectedTransaction.status) ? EXECUTION_POLL_INTERVAL_MS : false;
-    }
+    refetchInterval: EXECUTION_POLL_INTERVAL_MS
   });
 
   const createExecution = useMutation({ mutationFn: api.executions.create });

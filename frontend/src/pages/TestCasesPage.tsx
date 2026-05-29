@@ -232,6 +232,7 @@ const createDraftGroupId = () =>
 const TEST_CASE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.testCaseParameterDrafts.v1";
 const SUITE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.suiteParameterDrafts.v1";
 const RUN_PARAMETER_PREVIEW_STORAGE_KEY = "qaira.runParameterPreviewDrafts.v1";
+const TEST_CASE_RUN_POLL_INTERVAL_MS = 20_000;
 
 const normalizeScopedParameterValues = (
   values?: Record<string, unknown> | null,
@@ -904,7 +905,8 @@ export function TestCasesPage() {
   const executionsQuery = useQuery({
     queryKey: ["executions", projectId],
     queryFn: () => api.executions.list(projectId ? { project_id: projectId } : undefined),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId),
+    refetchInterval: TEST_CASE_RUN_POLL_INTERVAL_MS
   });
   const sharedStepGroupsQuery = useQuery({
     queryKey: ["shared-step-groups", appTypeId],
@@ -914,7 +916,8 @@ export function TestCasesPage() {
   const executionResultsQuery = useQuery({
     queryKey: ["global-test-case-results", appTypeId],
     queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId)
+    enabled: Boolean(appTypeId),
+    refetchInterval: TEST_CASE_RUN_POLL_INTERVAL_MS
   });
   const allTestStepsQuery = useQuery({
     queryKey: ["global-test-steps", appTypeId],
@@ -5211,6 +5214,24 @@ export function TestCasesPage() {
     setIsCreating(false);
     setDraftSteps([]);
   };
+  const openLatestFailureRun = (testCaseId: string) => {
+    const latestFailure = (historyByCaseId[testCaseId] || [])
+      .find((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase()));
+
+    if (!latestFailure) {
+      openLibraryCase(testCaseId);
+      return;
+    }
+
+    const execution = executions.find((item) => item.id === latestFailure.execution_id);
+    const runView = execution?.trigger === "local"
+      ? "local-runs"
+      : execution?.suite_ids?.length || latestFailure.suite_id
+        ? "suite-runs"
+        : "test-case-runs";
+
+    navigate(`/executions?view=${runView}&execution=${latestFailure.execution_id}&testCase=${testCaseId}`);
+  };
   const testCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => [
     {
       key: "select",
@@ -6298,7 +6319,7 @@ export function TestCasesPage() {
                                   className="ghost-button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    openLibraryCase(testCase.id);
+                                    openLatestFailureRun(testCase.id);
                                   }}
                                   type="button"
                                 >
