@@ -7,6 +7,7 @@ import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
@@ -26,6 +27,7 @@ import {
 } from "../components/StepAutomationEditor";
 import { ProjectDropdown } from "../components/ProjectDropdown";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { SuiteScopePicker } from "../components/SuiteCasePicker";
@@ -123,28 +125,28 @@ type ExecutionIssueFilter = "all" | "with-issues" | "clean";
 type ExecutionEvidenceFilter = "all" | "with-evidence" | "no-evidence";
 type ExecutionCreateMode = "manual" | "smart";
 type ExecutionStartMode = "manual" | "remote" | "local";
-type ExecutionHookTargetKind = "none" | "test" | "suite";
-type ExecutionHookDraft = {
-  beforeTestKind: ExecutionHookTargetKind;
-  beforeTestId: string;
-  afterTestKind: ExecutionHookTargetKind;
-  afterTestId: string;
-  beforeSuiteKind: ExecutionHookTargetKind;
-  beforeSuiteId: string;
-  afterSuiteKind: ExecutionHookTargetKind;
-  afterSuiteId: string;
-};
+type ExecutionHookDraft = RunHookSelection[];
 
-const emptyExecutionHookDraft = (): ExecutionHookDraft => ({
-  beforeTestKind: "none",
-  beforeTestId: "",
-  afterTestKind: "none",
-  afterTestId: "",
-  beforeSuiteKind: "none",
-  beforeSuiteId: "",
-  afterSuiteKind: "none",
-  afterSuiteId: ""
-});
+const emptyExecutionHookDraft = (): ExecutionHookDraft => [];
+
+const hookTypeToExecutionHookMeta = (hookType: RunHookType) => {
+  switch (hookType) {
+    case "BEFORE_ALL":
+      return { scope: "run", phase: "pre", name: "Before Run", fail_behavior: "fail-run" };
+    case "AFTER_ALL":
+      return { scope: "run", phase: "post", name: "After Run", fail_behavior: "continue" };
+    case "BEFORE_SUITE":
+      return { scope: "suite", phase: "pre", name: "Before Suite", fail_behavior: "fail-run" };
+    case "AFTER_SUITE":
+      return { scope: "suite", phase: "post", name: "After Suite", fail_behavior: "continue" };
+    case "BEFORE_TEST":
+      return { scope: "test", phase: "pre", name: "Before Test", fail_behavior: "fail-run" };
+    case "AFTER_TEST":
+      return { scope: "test", phase: "post", name: "After Test", fail_behavior: "continue" };
+    default:
+      return { scope: "test", phase: "pre", name: "Run Hook", fail_behavior: "fail-run" };
+  }
+};
 type TestRunsView = "test-case-runs" | "suite-runs" | "local-runs" | "scheduled-runs" | "batch-process";
 type CatalogViewMode = "tile" | "list";
 
@@ -1105,7 +1107,7 @@ export function ExecutionsPage() {
   const [executionCreateMode, setExecutionCreateMode] = useState<ExecutionCreateMode>("manual");
   const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
   const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
-  const [executionParallelCount, setExecutionParallelCount] = useState(2);
+  const [executionParallelCount, setExecutionParallelCount] = useState(1);
   const [executionHookDraft, setExecutionHookDraft] = useState<ExecutionHookDraft>(() => emptyExecutionHookDraft());
   const [testRunsView, setTestRunsView] = useState<TestRunsView>("suite-runs");
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<string[]>([]);
@@ -1544,9 +1546,17 @@ export function ExecutionsPage() {
   const closeExecutionBuilder = () => {
     closeCreateExecutionModal();
     setExecutionName("");
+    setExecutionStartMode("manual");
+    setExecutionParallelEnabled(false);
+    setExecutionParallelCount(1);
     setExecutionHookDraft(emptyExecutionHookDraft());
     resetExecutionContextSelection();
     resetSmartExecutionBuilder();
+  };
+
+  const openExecutionBuilder = (mode: ExecutionStartMode = "manual") => {
+    setExecutionStartMode(mode);
+    setIsCreateExecutionModalOpen(true);
   };
 
   const closeScheduleBuilder = () => {
@@ -2425,44 +2435,20 @@ export function ExecutionsPage() {
       return;
     }
 
-    const executionHooks = [
-      {
-        id: "before-test-hook",
-        name: "Before test",
-        scope: "test",
-        phase: "pre",
-        fail_behavior: "fail-run",
-        target_kind: executionHookDraft.beforeTestKind,
-        target_id: executionHookDraft.beforeTestId
-      },
-      {
-        id: "after-test-hook",
-        name: "After test",
-        scope: "test",
-        phase: "post",
-        fail_behavior: "mark-blocked",
-        target_kind: executionHookDraft.afterTestKind,
-        target_id: executionHookDraft.afterTestId
-      },
-      {
-        id: "before-suite-hook",
-        name: "Before suite",
-        scope: "suite",
-        phase: "pre",
-        fail_behavior: "fail-run",
-        target_kind: executionHookDraft.beforeSuiteKind,
-        target_id: executionHookDraft.beforeSuiteId
-      },
-      {
-        id: "after-suite-hook",
-        name: "After suite",
-        scope: "suite",
-        phase: "post",
-        fail_behavior: "mark-blocked",
-        target_kind: executionHookDraft.afterSuiteKind,
-        target_id: executionHookDraft.afterSuiteId
-      }
-    ].filter((hook) => hook.target_kind !== "none" && hook.target_id);
+    const executionHooks = executionHookDraft.map((hook, index) => {
+      const meta = hookTypeToExecutionHookMeta(hook.hookType);
+      return {
+        id: hook.id,
+        name: `${meta.name}: ${hook.name}`,
+        hook_type: hook.hookType,
+        scope: meta.scope,
+        phase: meta.phase,
+        fail_behavior: meta.fail_behavior,
+        target_kind: hook.itemType,
+        target_id: hook.itemId,
+        execution_order: index + 1
+      };
+    });
 
     try {
       const response = await createExecution.mutateAsync({
@@ -4012,10 +3998,12 @@ export function ExecutionsPage() {
                   <CalendarIcon />
                   Schedule Run
                 </button>
-                <button className="primary-button" onClick={() => setIsCreateExecutionModalOpen(true)} type="button">
-                  <PlayIcon />
-                  Create Run Manually
-                </button>
+                <CreateRunActionButton
+                  source="TEST_RUNS"
+                  onCreateManualRun={() => openExecutionBuilder("manual")}
+                  onCreateLocalRun={() => openExecutionBuilder("local")}
+                  onCreateRemoteRun={() => openExecutionBuilder("remote")}
+                />
               </>
             )
           }
@@ -7752,7 +7740,6 @@ function ExecutionCreateModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const isSmartMode = executionCreateMode === "smart";
-  const [hookSearch, setHookSearch] = useState("");
   const smartPreviewCases = smartExecutionPreview?.cases || [];
   const hasSmartPlanningInput = Boolean(smartExecutionReleaseScope.trim() || smartExecutionAdditionalContext.trim());
   const normalizedRequirementSearch = smartExecutionRequirementSearch.trim().toLowerCase();
@@ -7766,64 +7753,6 @@ function ExecutionCreateModal({
     && filteredSmartRequirementOptions.every((requirement) => selectedSmartRequirementIds.includes(requirement.id));
   const selectedSmartCaseCount = selectedSmartExecutionCaseIds.length;
   const areAllSmartCasesSelected = Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
-  const hookTargetOptions = (kind: ExecutionHookTargetKind) => {
-    const search = hookSearch.trim().toLowerCase();
-    if (kind === "test") {
-      return libraryCases
-        .filter((testCase) => !search || testCase.title.toLowerCase().includes(search))
-        .map((testCase) => ({ id: testCase.id, label: testCase.title }));
-    }
-
-    if (kind === "suite") {
-      return scopeSuites
-        .filter((suite) => !search || suite.name.toLowerCase().includes(search))
-        .map((suite) => ({ id: suite.id, label: suite.name }));
-    }
-
-    return [];
-  };
-  const renderHookTarget = (
-    label: string,
-    kindKey: keyof ExecutionHookDraft,
-    idKey: keyof ExecutionHookDraft
-  ) => {
-    const kind = executionHookDraft[kindKey] as ExecutionHookTargetKind;
-    const options = hookTargetOptions(kind);
-
-    return (
-      <div className="execution-hook-row">
-        <FormField label={label}>
-          <select
-            value={kind}
-            onChange={(event) => onExecutionHookDraftChange({
-              ...executionHookDraft,
-              [kindKey]: event.target.value as ExecutionHookTargetKind,
-              [idKey]: ""
-            })}
-          >
-            <option value="none">No hook</option>
-            <option value="test">Run another test case</option>
-            <option value="suite">Run suite setup/cleanup</option>
-          </select>
-        </FormField>
-        <FormField label="Hook source">
-          <select
-            disabled={kind === "none" || !options.length}
-            value={executionHookDraft[idKey]}
-            onChange={(event) => onExecutionHookDraftChange({ ...executionHookDraft, [idKey]: event.target.value })}
-          >
-            <option value="">{kind === "none" ? "Choose a hook type first" : options.length ? "Select source" : "No sources available"}</option>
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FormField>
-      </div>
-    );
-  };
-
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && onClose()} role="presentation">
       <div
@@ -7909,11 +7838,11 @@ function ExecutionCreateModal({
             </div>
 
             <div className="execution-create-grid">
-              <FormField label="Create Run Manually">
+              <FormField label="Run type">
                 <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                  <option value="manual">Create Run Manually</option>
-                  <option value="remote">Create Run Remotely</option>
-                  <option value="local">CreateRun Local</option>
+                  <option value="manual">Create Manual Run</option>
+                  <option value="local">Create Local Run</option>
+                  <option value="remote">Create Remote Run</option>
                 </select>
               </FormField>
 
@@ -7987,33 +7916,12 @@ function ExecutionCreateModal({
               selectedEnvironmentId={selectedEnvironmentId}
             />
 
-            <section className="execution-hooks-panel">
-              <div>
-                <span className="eyebrow">Run hooks</span>
-                <div className="modal-title-info-row">
-                  <h4>Before and after automation</h4>
-                  <InfoTooltip
-                    content="Select a reusable test case or suite to run as setup/cleanup. QAira resolves the selected source into Test Engine hook steps when the run is queued."
-                    label="Run hooks information"
-                  />
-                </div>
-              </div>
-              <div className="execution-hook-search">
-                <SearchIcon size={16} />
-                <input
-                  aria-label="Search hook suites and cases"
-                  onChange={(event) => setHookSearch(event.target.value)}
-                  placeholder="Search suites or test cases"
-                  value={hookSearch}
-                />
-              </div>
-              <div className="execution-hooks-grid">
-                {renderHookTarget("Before each test", "beforeTestKind", "beforeTestId")}
-                {renderHookTarget("After each test", "afterTestKind", "afterTestId")}
-                {renderHookTarget("Before suite", "beforeSuiteKind", "beforeSuiteId")}
-                {renderHookTarget("After suite", "afterSuiteKind", "afterSuiteId")}
-              </div>
-            </section>
+            <RunHooksBuilder
+              onChange={onExecutionHookDraftChange}
+              suites={scopeSuites}
+              testCases={libraryCases}
+              value={executionHookDraft}
+            />
 
             {isSmartMode ? (
               <div className="ai-studio-shell execution-smart-shell">
@@ -8278,10 +8186,10 @@ function ExecutionCreateModal({
                 : isSmartMode
                   ? "Create AI smart run"
                   : executionStartMode === "remote"
-                    ? "Create Run Remotely"
+                    ? "Create Remote Run"
                     : executionStartMode === "local"
-                      ? "CreateRun Local"
-                      : "Create Run Manually"}
+                      ? "Create Local Run"
+                      : "Create Manual Run"}
             </button>
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel

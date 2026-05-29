@@ -469,7 +469,7 @@ const normalizeEngineHooks = (value, appTypeKind = "web") => {
         ? entry.steps.map((step, stepIndex) => normalizeEngineHookStep(step, stepIndex, appTypeKind)).filter(Boolean)
         : [];
 
-      if (!["pre", "post"].includes(phase) || !["suite", "test"].includes(scope) || !steps.length) {
+      if (!["pre", "post"].includes(phase) || !["run", "suite", "test"].includes(scope) || !steps.length) {
         return null;
       }
 

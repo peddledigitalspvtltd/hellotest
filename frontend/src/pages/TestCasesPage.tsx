@@ -8,6 +8,7 @@ import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, RecordIco
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
@@ -119,6 +120,8 @@ type TestCaseDraft = {
   status: string;
   requirement_id: string;
 };
+
+type ExecutionStartMode = "manual" | "local" | "remote";
 
 type StepDraft = {
   action: string;
@@ -773,6 +776,9 @@ export function TestCasesPage() {
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
+  const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
+  const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
+  const [executionParallelCount, setExecutionParallelCount] = useState(1);
   const [automationStartUrl, setAutomationStartUrl] = useState("");
   const [automationContext, setAutomationContext] = useState("");
   const [automationFailureThreshold, setAutomationFailureThreshold] = useState(3);
@@ -1203,6 +1209,9 @@ export function TestCasesPage() {
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
     setSelectedExecutionAssigneeId("");
+    setExecutionStartMode("manual");
+    setExecutionParallelEnabled(false);
+    setExecutionParallelCount(1);
     resetExecutionContextSelection();
   };
 
@@ -2775,7 +2784,7 @@ export function TestCasesPage() {
     }
   };
 
-  const handleCreateSuite = async (input: { name: string; parent_id?: string; selectedIds: string[] }) => {
+  const handleCreateSuite = async (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled: boolean; parallel_count: number }) => {
     if (!appTypeId) {
       setMessageTone("error");
       setMessage("Select an app type before creating a suite.");
@@ -2786,7 +2795,9 @@ export function TestCasesPage() {
       const response = await createSuite.mutateAsync({
         app_type_id: appTypeId,
         name: input.name,
-        parent_id: input.parent_id || undefined
+        parent_id: input.parent_id || undefined,
+        parallel_enabled: input.parallel_enabled,
+        parallel_count: input.parallel_enabled ? input.parallel_count : 1
       });
 
       if (input.selectedIds.length) {
@@ -2939,6 +2950,10 @@ export function TestCasesPage() {
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
+        parallel_enabled: executionParallelEnabled,
+        parallel_count: executionParallelEnabled ? executionParallelCount : 1,
+        execution_mode: executionStartMode,
+        engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: executionName.trim() || undefined,
         created_by: session.user.id
@@ -2950,7 +2965,12 @@ export function TestCasesPage() {
         queryClient.invalidateQueries({ queryKey: ["executions"] }),
         queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
       ]);
-      navigate(`/executions?view=test-case-runs&execution=${response.id}`);
+      navigate(`/executions?view=${executionStartMode === "local" ? "local-runs" : "test-case-runs"}&execution=${response.id}`);
+      showSuccess(
+        executionStartMode === "manual"
+          ? `Manual run created with ${selectedActionTestCaseIds.length} selected test case${selectedActionTestCaseIds.length === 1 ? "" : "s"}.`
+          : `${executionStartMode === "local" ? "Local" : "Remote"} run created and started with ${selectedActionTestCaseIds.length} selected test case${selectedActionTestCaseIds.length === 1 ? "" : "s"}.`
+      );
     } catch (error) {
       showError(error, "Unable to create run");
     }
@@ -6019,15 +6039,23 @@ export function TestCasesPage() {
                 <TileCardSuiteIcon />
                 <span>Create suite</span>
               </button>
-              <button
-                className="ghost-button"
+              <CreateRunActionButton
                 disabled={!projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id}
-                onClick={() => setIsCreateExecutionModalOpen(true)}
-                type="button"
-              >
-                <TestCaseRunIcon />
-                <span>Create Run</span>
-              </button>
+                selectedTestCaseIds={selectedActionTestCaseIds}
+                source="TEST_CASES"
+                onCreateManualRun={() => {
+                  setExecutionStartMode("manual");
+                  setIsCreateExecutionModalOpen(true);
+                }}
+                onCreateLocalRun={() => {
+                  setExecutionStartMode("local");
+                  setIsCreateExecutionModalOpen(true);
+                }}
+                onCreateRemoteRun={() => {
+                  setExecutionStartMode("remote");
+                  setIsCreateExecutionModalOpen(true);
+                }}
+              />
               <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
                 <TestCaseCreateIcon />
                 <span>New case</span>
@@ -7205,12 +7233,18 @@ export function TestCasesPage() {
           canCreateExecution={Boolean(projectId && appTypeId && selectedActionCases.length && session?.user.id)}
           executionName={executionName}
           isSubmitting={createExecution.isPending}
+          executionParallelCount={executionParallelCount}
+          executionParallelEnabled={executionParallelEnabled}
+          executionStartMode={executionStartMode}
           onAssigneeChange={setSelectedExecutionAssigneeId}
           onClose={closeCreateExecutionModal}
           onConfigurationChange={setSelectedExecutionConfigurationId}
           onDataSetChange={setSelectedExecutionDataSetId}
           onEnvironmentChange={setSelectedExecutionEnvironmentId}
           onExecutionNameChange={setExecutionName}
+          onExecutionParallelCountChange={setExecutionParallelCount}
+          onExecutionParallelEnabledChange={setExecutionParallelEnabled}
+          onExecutionStartModeChange={setExecutionStartMode}
           onRemoveTestCase={(testCaseId) =>
             setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCaseId))
           }
@@ -7981,7 +8015,7 @@ function TestCaseSuiteModal({
   appTypeCases: TestCase[];
   selectedCaseIds: string[];
   onClose: () => void;
-  onSubmit: (input: { name: string; parent_id?: string; selectedIds: string[] }) => void;
+  onSubmit: (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled: boolean; parallel_count: number }) => void;
   isSaving: boolean;
 }) {
   const initialSelectedIds = useMemo(
@@ -7990,6 +8024,8 @@ function TestCaseSuiteModal({
   );
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
+  const [parallelEnabled, setParallelEnabled] = useState(false);
+  const [parallelCount, setParallelCount] = useState(1);
   const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => initialSelectedIds);
   const initialSelectedIdsKey = initialSelectedIds.join("::");
 
@@ -8028,7 +8064,9 @@ function TestCaseSuiteModal({
             onSubmit({
               name,
               parent_id: parentId || undefined,
-              selectedIds: localSelectedIds
+              selectedIds: localSelectedIds,
+              parallel_enabled: parallelEnabled,
+              parallel_count: parallelEnabled ? parallelCount : 1
             });
           }}
         >
@@ -8044,6 +8082,28 @@ function TestCaseSuiteModal({
                     <option key={suite.id} value={suite.id}>{suite.name}</option>
                   ))}
                 </select>
+              </FormField>
+              <FormField label="Parallel execution">
+                <div className="execution-parallel-control">
+                  <label>
+                    <input
+                      checked={parallelEnabled}
+                      onChange={(event) => setParallelEnabled(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>Run cases in parallel</span>
+                  </label>
+                  <input
+                    aria-label="Suite parallel test count"
+                    disabled={!parallelEnabled}
+                    min={1}
+                    max={50}
+                    onChange={(event) => setParallelCount(Math.max(1, Number(event.target.value) || 1))}
+                    required={parallelEnabled}
+                    type="number"
+                    value={parallelCount}
+                  />
+                </div>
               </FormField>
             </div>
 
@@ -8250,6 +8310,9 @@ function TestCaseExecutionModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
+  executionStartMode,
+  executionParallelEnabled,
+  executionParallelCount,
   canCreateExecution,
   isSubmitting,
   onAssigneeChange,
@@ -8257,6 +8320,9 @@ function TestCaseExecutionModal({
   onConfigurationChange,
   onDataSetChange,
   onExecutionNameChange,
+  onExecutionStartModeChange,
+  onExecutionParallelEnabledChange,
+  onExecutionParallelCountChange,
   onRemoveTestCase,
   onClose,
   onSubmit
@@ -8272,6 +8338,9 @@ function TestCaseExecutionModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  executionStartMode: ExecutionStartMode;
+  executionParallelEnabled: boolean;
+  executionParallelCount: number;
   canCreateExecution: boolean;
   isSubmitting: boolean;
   onAssigneeChange: (value: string) => void;
@@ -8279,6 +8348,9 @@ function TestCaseExecutionModal({
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
   onExecutionNameChange: (value: string) => void;
+  onExecutionStartModeChange: (value: ExecutionStartMode) => void;
+  onExecutionParallelEnabledChange: (value: boolean) => void;
+  onExecutionParallelCountChange: (value: number) => void;
   onRemoveTestCase: (testCaseId: string) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -8355,6 +8427,38 @@ function TestCaseExecutionModal({
               selectedEnvironmentId={selectedEnvironmentId}
             />
 
+            <div className="execution-create-grid">
+              <FormField label="Run type">
+                <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                  <option value="manual">Create Manual Run</option>
+                  <option value="local">Create Local Run</option>
+                  <option value="remote">Create Remote Run</option>
+                </select>
+              </FormField>
+
+              <FormField label="Parallel execution">
+                <div className="execution-parallel-control">
+                  <label>
+                    <input
+                      checked={executionParallelEnabled}
+                      onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>Run tests in parallel</span>
+                  </label>
+                  <input
+                    aria-label="Parallel test count"
+                    disabled={!executionParallelEnabled}
+                    min={1}
+                    max={50}
+                    onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}
+                    type="number"
+                    value={executionParallelCount}
+                  />
+                </div>
+              </FormField>
+            </div>
+
             <FormField label="Run scope" required>
               <div className="selection-summary-card">
                 <div className="selection-summary-header">
@@ -8382,7 +8486,13 @@ function TestCaseExecutionModal({
               Cancel
             </button>
             <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
-              {isSubmitting ? "Creating…" : "Create Run"}
+              {isSubmitting
+                ? "Creating…"
+                : executionStartMode === "local"
+                  ? "Create Local Run"
+                  : executionStartMode === "remote"
+                    ? "Create Remote Run"
+                    : "Create Manual Run"}
             </button>
           </div>
         </form>

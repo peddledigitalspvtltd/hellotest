@@ -344,7 +344,7 @@ async function resolveLocalEngineBaseUrl(preferredUrl) {
     }
   }
 
-  return normalizedCandidates[0];
+  throw new Error("Local Test Engine is not connected.");
 }
 
 function normalizeParameterValues(values = {}) {
@@ -1044,6 +1044,9 @@ exports.createExecution = async ({
   const normalizedInitialStatus = initial_status === "running" ? "running" : "queued";
   const normalizedParallelEnabled = normalizeBoolean(parallel_enabled);
   const normalizedParallelCount = normalizeParallelCount(parallel_count);
+  const resolvedEngineBaseUrl = normalizedExecutionMode === "local"
+    ? await resolveLocalEngineBaseUrl(engine_base_url)
+    : null;
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
@@ -1149,7 +1152,7 @@ exports.createExecution = async ({
     await exports.startExecution(id, {
       initiated_by: created_by,
       execution_mode: normalizedExecutionMode,
-      engine_base_url: normalizedExecutionMode === "local" ? engine_base_url : undefined
+      engine_base_url: resolvedEngineBaseUrl || undefined
     });
   }
 
@@ -1157,8 +1160,10 @@ exports.createExecution = async ({
 };
 
 exports.createLocalRun = async (input = {}) => {
+  const localEngineBaseUrl = await resolveLocalEngineBaseUrl(input.engine_base_url);
   const created = await exports.createExecution({
     ...input,
+    engine_base_url: localEngineBaseUrl,
     trigger: "local",
     initial_status: "running",
     name: input.name || "Local Run"
@@ -1167,7 +1172,7 @@ exports.createLocalRun = async (input = {}) => {
   try {
     const result = await exports.startLocalExecution(created.id, {
       initiated_by: input.created_by,
-      engine_base_url: input.engine_base_url
+      engine_base_url: localEngineBaseUrl
     });
     return {
       id: created.id,
@@ -1430,7 +1435,7 @@ exports.startExecution = async (id, options = {}) => {
     if (dispatchPlan.eligible_automated_case_count > 0) {
       testEngineIntegration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
       const localEngineBaseUrl = options.execution_mode === "local"
-        ? normalizeLocalEngineBaseUrl(options.engine_base_url)
+        ? await resolveLocalEngineBaseUrl(options.engine_base_url)
         : null;
 
       if (testEngineIntegration && localEngineBaseUrl) {
@@ -1440,6 +1445,22 @@ exports.startExecution = async (id, options = {}) => {
           config: {
             ...(testEngineIntegration.config || {}),
             execution_mode: "local",
+            public_base_url: "http://localhost:4301",
+            live_view_url: "http://localhost:4301/api/v1/live-session?provider=playwright"
+          }
+        };
+      }
+
+      if (!testEngineIntegration && localEngineBaseUrl) {
+        testEngineIntegration = {
+          id: null,
+          base_url: localEngineBaseUrl,
+          config: {
+            execution_mode: "local",
+            active_web_engine: "playwright",
+            headless: false,
+            video_mode: "retain-on-failure",
+            trace_mode: "retain-on-failure",
             public_base_url: "http://localhost:4301",
             live_view_url: "http://localhost:4301/api/v1/live-session?provider=playwright"
           }

@@ -1,0 +1,184 @@
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { PlayIcon } from "./AppIcons";
+
+export type CreateRunSource = "TEST_CASES" | "TEST_SUITES" | "TEST_RUNS";
+export type CreateRunMode = "MANUAL" | "LOCAL" | "REMOTE";
+
+export interface CreateRunActionButtonProps {
+  source: CreateRunSource;
+  selectedTestCaseIds?: string[];
+  selectedSuiteIds?: string[];
+  selectedRunIds?: string[];
+  disabled?: boolean;
+  onCreateManualRun: () => void;
+  onCreateLocalRun: () => void;
+  onCreateRemoteRun: () => void;
+}
+
+function RunActionChevronIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path d="m7 10 5 5 5-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function resolveSourceLabel(source: CreateRunSource) {
+  if (source === "TEST_CASES") return "selected test cases";
+  if (source === "TEST_SUITES") return "selected suites";
+  return "selected runs";
+}
+
+export function CreateRunActionButton({
+  source,
+  selectedTestCaseIds = [],
+  selectedSuiteIds = [],
+  selectedRunIds = [],
+  disabled = false,
+  onCreateManualRun,
+  onCreateLocalRun,
+  onCreateRemoteRun
+}: CreateRunActionButtonProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const selectionCount = selectedTestCaseIds.length + selectedSuiteIds.length + selectedRunIds.length;
+  const sourceLabel = resolveSourceLabel(source);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = Math.max(menuRef.current?.offsetWidth || 292, 292);
+      const menuHeight = menuRef.current?.offsetHeight || 190;
+      const viewportPadding = 10;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - menuWidth),
+        window.innerWidth - menuWidth - viewportPadding
+      );
+      const bottomTop = rect.bottom + 8;
+      const top = bottomTop + menuHeight > window.innerHeight - viewportPadding
+        ? Math.max(viewportPadding, rect.top - menuHeight - 8)
+        : bottomTop;
+
+      setMenuStyle({
+        left,
+        top,
+        minWidth: "18.25rem",
+        maxWidth: "min(calc(100vw - 1.25rem), 23rem)",
+        opacity: 1
+      });
+    };
+
+    updateMenuPosition();
+    const frameId = window.requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setIsOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const handleSelect = (mode: CreateRunMode) => {
+    setIsOpen(false);
+    if (mode === "LOCAL") {
+      onCreateLocalRun();
+      return;
+    }
+    if (mode === "REMOTE") {
+      onCreateRemoteRun();
+      return;
+    }
+    onCreateManualRun();
+  };
+
+  const menu = isOpen && !disabled ? (
+    <div
+      className="run-action-dropdown"
+      ref={menuRef}
+      role="menu"
+      style={menuStyle || { opacity: 0, pointerEvents: "none" }}
+    >
+      <button onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
+        <span className="run-action-option-icon"><PlayIcon /></span>
+        <span>
+          <strong>Create Local Run</strong>
+          <small>Use local Test Engine execution.</small>
+        </span>
+      </button>
+      <button onClick={() => handleSelect("REMOTE")} role="menuitem" type="button">
+        <span className="run-action-option-icon"><PlayIcon /></span>
+        <span>
+          <strong>Create Remote Run</strong>
+          <small>Use configured remote Test Engine.</small>
+        </span>
+      </button>
+      {selectionCount ? (
+        <p>{selectionCount} {sourceLabel} ready for run creation.</p>
+      ) : null}
+    </div>
+  ) : null;
+
+  return (
+    <div className="create-run-action-button" ref={triggerRef}>
+      <button
+        className="run-action-main"
+        disabled={disabled}
+        onClick={() => handleSelect("MANUAL")}
+        type="button"
+      >
+        <PlayIcon />
+        <span>Create Manual Run</span>
+      </button>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        aria-label="Open create run options"
+        className="run-action-toggle"
+        disabled={disabled}
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <RunActionChevronIcon />
+      </button>
+      {menu && typeof document !== "undefined" ? createPortal(menu, document.body) : null}
+    </div>
+  );
+}
