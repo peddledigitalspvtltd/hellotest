@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PlayIcon } from "./AppIcons";
+import { PlayIcon, SparkIcon } from "./AppIcons";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
 import { SharedStepsIcon as SharedStepsIconGraphic } from "./SharedStepsIcon";
@@ -2504,7 +2504,7 @@ export function StepAutomationDialog({
                         onClick={handleApplyApiSuggestions}
                         type="button"
                       >
-                        <AutomationCodeIcon />
+                        <SparkIcon />
                         <span>
                           <strong>AI suggest</strong>
                           <small>Assertions and Parsers</small>
