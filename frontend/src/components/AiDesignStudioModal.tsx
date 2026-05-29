@@ -136,6 +136,7 @@ export function AiDesignStudioModal({
     return [requirement.display_id, requirement.id, requirement.title, requirement.description, requirement.status, String(requirement.priority ?? "")]
       .some((value) => String(value || "").toLowerCase().includes(query));
   });
+  const schedulerHelpText = scheduleHelperText || "Queue one AI generation run per selected requirement. Generated cases land back in the library with accept and reject review actions.";
 
   return (
     <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
@@ -231,12 +232,6 @@ export function AiDesignStudioModal({
                     ) : null}
                   </div>
 
-                  {onSchedule ? (
-                    <div className="detail-summary compact-summary">
-                      <strong>AI scheduler</strong>
-                      <span>{scheduleHelperText || "Queue one AI generation run per selected requirement. Generated cases land back in the library with accept and reject review actions."}</span>
-                    </div>
-                  ) : null}
                 </section>
 
                 <div className="ai-studio-sidebar-divider" aria-hidden="true">
@@ -349,9 +344,15 @@ export function AiDesignStudioModal({
                 {isPreviewing ? "Designing…" : "Generate Preview"}
               </button>
               {onSchedule ? (
-                <button className="ghost-button ai-studio-secondary-action" disabled={disableSchedule} onClick={onSchedule} type="button">
-                  {isScheduling ? "Scheduling…" : "Schedule Test Case Generation"}
-                </button>
+                <div className="ai-studio-schedule-action">
+                  <button className="ghost-button ai-studio-secondary-action" disabled={disableSchedule} onClick={onSchedule} type="button">
+                    {isScheduling ? "Scheduling…" : "Schedule Test Case Generation"}
+                  </button>
+                  <InfoTooltip
+                    content={schedulerHelpText}
+                    label="AI scheduler information"
+                  />
+                </div>
               ) : null}
             </div>
 
@@ -469,7 +470,7 @@ export function AiDesignStudioModal({
             </div>
 
             <div className="action-row ai-studio-footer">
-              <button className="primary-button" disabled={disableAccept} onClick={onAccept} type="button">
+              <button className="primary-button ai-studio-accept-button" disabled={disableAccept} onClick={onAccept} type="button">
                 {isAccepting ? "Accepting…" : acceptLabel}
               </button>
             </div>
