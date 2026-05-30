@@ -215,10 +215,12 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
     prompt.push(additionalContext);
   }
 
-  if (knowledge && knowledge.length > 0) {
+  const knowledgeItems = Array.isArray(knowledge) ? knowledge : Array.isArray(knowledge?.knowledge) ? knowledge.knowledge : [];
+
+  if (knowledgeItems.length > 0) {
     prompt.push("");
     prompt.push("AI Knowledge Repo (Domain rules, established flows, and reference material):");
-    knowledge.forEach((k) => {
+    knowledgeItems.forEach((k) => {
       prompt.push(`- [${k.title}]: ${k.content}`);
     });
   }
@@ -424,7 +426,12 @@ exports.previewRequirementsTestCases = async ({
   const externalLinks = normalizeTextList(external_links);
   const normalizedImages = normalizeImageAssets(images);
   const integration = await resolveIntegration(integration_id);
-  const knowledge = await aiKnowledgeService.getActiveKnowledgeForLLM(scopedRequirements[0].project_id, appType.id);
+  const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(scopedRequirements[0].project_id, {
+    app_type_id: appType.id,
+    query: additionalContext,
+    module_name: appType.module_name || null,
+    feature_name: appType.feature_name || null
+  });
   
   const generatedCases = await requestGeneratedCases({
     integration,

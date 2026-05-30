@@ -282,6 +282,7 @@ const statements = [
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`,
+  `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS last_error TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
@@ -294,7 +295,7 @@ const statements = [
   `ALTER TABLE test_engine_jobs ALTER COLUMN runtime_state SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE test_engine_jobs ALTER COLUMN runtime_state SET NOT NULL`,
   `ALTER TABLE test_engine_jobs DROP CONSTRAINT IF EXISTS test_engine_jobs_status_check`,
-  `ALTER TABLE test_engine_jobs ADD CONSTRAINT test_engine_jobs_status_check CHECK (status IN ('queued', 'leased', 'running', 'completed', 'failed', 'aborted'))`,
+  `ALTER TABLE test_engine_jobs ADD CONSTRAINT test_engine_jobs_status_check CHECK (status IN ('queued', 'claimed', 'leased', 'running', 'completed', 'failed', 'aborted'))`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_engine_jobs_engine_run_id ON test_engine_jobs (engine_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, app_type_kind, engine_host, created_at ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_exec ON test_engine_jobs (execution_id, created_at DESC)`

@@ -453,7 +453,12 @@ exports.updateRequirement = async (id, data) => {
 exports.previewRequirementOptimization = async ({ id, integration_id, additional_context } = {}) => {
   const requirement = await exports.getRequirement(id);
   const linkedTestCases = await selectLinkedTestCases.all(id);
-  const knowledge = await aiKnowledgeService.getActiveKnowledgeForLLM(requirement.project_id, null);
+  const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(requirement.project_id, {
+    app_type_id: requirement.app_type_id || null,
+    query: requirement.description || requirement.title,
+    module_name: requirement.module_name || null,
+    feature_name: requirement.feature_name || null
+  });
   const integration = await resolveLlmIntegration(integration_id, requirement.project_id);
   let suggestion;
 

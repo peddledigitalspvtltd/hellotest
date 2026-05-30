@@ -1997,7 +1997,7 @@ const buildPrompt = ({
     JSON.stringify(summarizeCache(cacheRows), null, 2),
     "",
     "AI Knowledge / local agent education:",
-    JSON.stringify(summarizeKnowledge(knowledgeRows), null, 2)
+    JSON.stringify(summarizeKnowledge(knowledgeRows?.knowledge || knowledgeRows), null, 2)
   ];
 
   if (capturedActions.length) {
@@ -2558,10 +2558,12 @@ const buildCaseCore = async ({
     appTypeId: testCase.app_type_id || null,
     limit: MAX_CACHE_ROWS
   });
-  const knowledgeRows = await aiKnowledgeService.getActiveKnowledgeForLLM(
-    testCase.project_id || null,
-    testCase.app_type_id || null
-  );
+  const knowledgeRows = await aiKnowledgeService.buildKnowledgeContextPackage(testCase.project_id || null, {
+    app_type_id: testCase.app_type_id || null,
+    query: testCase.title || null,
+    module_name: testCase.module_name || null,
+    feature_name: testCase.feature_name || null
+  });
   const capturedActions = normalizeCapturedActions(captured_actions);
   const capturedNetwork = normalizeCapturedNetwork(captured_network);
   const buildContext = await resolveBuildContext({
@@ -2577,12 +2579,12 @@ const buildCaseCore = async ({
 
   await appendEvent(transaction_id, {
     phase: "automation.context",
-    message: `Packed ${steps.length} manual step${steps.length === 1 ? "" : "s"} with ${cacheRows.length} cached locator learning item${cacheRows.length === 1 ? "" : "s"} and ${knowledgeRows.length} active knowledge item${knowledgeRows.length === 1 ? "" : "s"}.`,
+    message: `Packed ${steps.length} manual step${steps.length === 1 ? "" : "s"} with ${cacheRows.length} cached locator learning item${cacheRows.length === 1 ? "" : "s"} and ${Array.isArray(knowledgeRows?.knowledge) ? knowledgeRows.knowledge.length : 0} active knowledge item${Array.isArray(knowledgeRows?.knowledge) && knowledgeRows.knowledge.length === 1 ? "" : "s"}.`,
     details: {
       test_case_id,
       step_count: steps.length,
       cache_hits: cacheRows.length,
-      knowledge_items: knowledgeRows.length,
+      knowledge_items: Array.isArray(knowledgeRows?.knowledge) ? knowledgeRows.knowledge.length : 0,
       captured_actions: capturedActions.length,
       captured_network: capturedNetwork.length,
       test_environment_id: buildContext.environment?.id || null,

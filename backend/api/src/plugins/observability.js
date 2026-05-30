@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const db = require("../db");
+const obsDb = require("../obsDb");
 
 const metricsState = {
   inflight: 0,
@@ -77,7 +78,7 @@ const recordRequestMetric = ({ method, route, statusCode, durationMs }) => {
   metricsState.requests.set(key, entry);
 };
 
-const renderMetrics = () => {
+const renderMetrics = (engineMetrics = {}) => {
   const memoryUsage = process.memoryUsage();
   const lines = [
     "# HELP qaira_http_requests_total Total HTTP requests handled by the API.",
@@ -120,7 +121,40 @@ const renderMetrics = () => {
     lines.push(`qaira_process_memory_bytes{type="${formatLabelValue(memoryType)}"} ${value}`);
   }
 
+  if (engineMetrics) {
+    lines.push("# HELP qaira_runs_total Total Qaira execution runs.");
+    lines.push("# TYPE qaira_runs_total gauge");
+    lines.push(`qaira_runs_total ${engineMetrics.total || 0}`);
+
+    lines.push("# HELP qaira_runs_running Number of Qaira execution runs currently running.");
+    lines.push("# TYPE qaira_runs_running gauge");
+    lines.push(`qaira_runs_running ${engineMetrics.running || 0}`);
+
+    lines.push("# HELP qaira_runs_queued Number of queued Qaira execution runs.");
+    lines.push("# TYPE qaira_runs_queued gauge");
+    lines.push(`qaira_runs_queued ${engineMetrics.queued || 0}`);
+
+    if (engineMetrics.last_heartbeat_at) {
+      lines.push("# HELP qaira_run_heartbeat_timestamp Timestamp of the most recent heartbeat.");
+      lines.push("# TYPE qaira_run_heartbeat_timestamp gauge");
+      lines.push(`qaira_run_heartbeat_timestamp ${Math.floor(new Date(engineMetrics.last_heartbeat_at).getTime() / 1000)}`);
+    }
+  }
+
   return `${lines.join("\n")}\n`;
+};
+
+const getEngineMetrics = async () => {
+  const result = await obsDb.query(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+      MAX(heartbeat_at) AS last_heartbeat_at
+    FROM test_engine_jobs
+  `);
+
+  return result.rows[0] || {};
 };
 
 module.exports = async function observabilityPlugin(fastify) {
@@ -190,8 +224,10 @@ module.exports = async function observabilityPlugin(fastify) {
   });
 
   fastify.get("/metrics", async (_request, reply) => {
+    const engineMetrics = await getEngineMetrics();
+
     reply
       .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-      .send(renderMetrics());
+      .send(renderMetrics(engineMetrics));
   });
 };

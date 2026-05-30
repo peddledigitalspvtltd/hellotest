@@ -9,6 +9,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
+import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
@@ -28,6 +29,7 @@ import {
   formatTileCardLabel,
   getTileCardTone
 } from "../components/TileCardPrimitives";
+import { RunHooksBuilder, type RunHookSelection } from "../components/RunHooksBuilder";
 import { SuiteCasePicker, SuiteScopePicker } from "../components/SuiteCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
@@ -79,6 +81,7 @@ type DraftTestStep = {
 type SuiteCaseEditorSectionKey = "case" | "steps" | "history";
 
 type SuiteModalMode = "create" | "edit";
+type ExecutionStartMode = "manual" | "local" | "remote";
 type SuitePlacementFilter = "all" | "root" | "nested";
 type SuiteMappedCasesFilter = "all" | "with-cases" | "empty";
 type SuiteChildrenFilter = "all" | "with-children" | "no-children";
@@ -234,6 +237,10 @@ export function DesignPage() {
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
+  const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
+  const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
+  const [executionParallelCount, setExecutionParallelCount] = useState(1);
+  const [executionHookDraft, setExecutionHookDraft] = useState<RunHookSelection[]>([]);
   const [suiteModalMode, setSuiteModalMode] = useState<SuiteModalMode>("create");
   const [isSuiteModalOpen, setIsSuiteModalOpen] = useState(false);
   const [isSuiteParameterDialogOpen, setIsSuiteParameterDialogOpen] = useState(false);
@@ -387,6 +394,10 @@ export function DesignPage() {
     setExecutionName("");
     setSelectedExecutionAssigneeId("");
     resetExecutionContextSelection();
+    setExecutionStartMode("manual");
+    setExecutionParallelEnabled(false);
+    setExecutionParallelCount(1);
+    setExecutionHookDraft([]);
   };
 
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(() => createEmptyCaseDraft());
@@ -1310,6 +1321,11 @@ export function DesignPage() {
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
+        execution_mode: executionStartMode,
+        engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
+        parallel_enabled: executionParallelEnabled || undefined,
+        parallel_count: executionParallelEnabled ? executionParallelCount : undefined,
+        execution_hooks: executionHookDraft.length ? executionHookDraft : undefined,
         assigned_to: selectedExecutionAssigneeId || undefined,
         name: executionName.trim() || undefined,
         created_by: session.user.id
@@ -1684,7 +1700,18 @@ export function DesignPage() {
             onClearSuiteSelection={() => setSelectedSuiteActionIds([])}
             onCreateSuite={openCreateSuiteModal}
             onDeleteSelectedSuites={() => void handleDeleteSelectedSuites()}
-            onCreateExecution={() => setIsCreateExecutionModalOpen(true)}
+            onCreateManualRun={() => {
+              setExecutionStartMode("manual");
+              setIsCreateExecutionModalOpen(true);
+            }}
+            onCreateLocalRun={() => {
+              setExecutionStartMode("local");
+              setIsCreateExecutionModalOpen(true);
+            }}
+            onCreateRemoteRun={() => {
+              setExecutionStartMode("remote");
+              setIsCreateExecutionModalOpen(true);
+            }}
             isLoading={suitesQuery.isLoading && Boolean(appTypeId)}
             selectedAppType={selectedAppType}
             canCreateSuite={Boolean(appTypeId)}
@@ -1795,14 +1822,22 @@ export function DesignPage() {
         <SuiteExecutionModal
           assigneeOptions={assigneeOptions}
           canCreateExecution={Boolean(projectId && appTypeId && executionTargetSuiteIds.length && session?.user.id)}
+          executionHookDraft={executionHookDraft}
           executionName={executionName}
+          executionParallelCount={executionParallelCount}
+          executionParallelEnabled={executionParallelEnabled}
+          executionStartMode={executionStartMode}
           isSubmitting={createExecutionMutation.isPending}
           onAssigneeChange={setSelectedExecutionAssigneeId}
           onClose={closeCreateExecutionModal}
           onConfigurationChange={setSelectedExecutionConfigurationId}
           onDataSetChange={setSelectedExecutionDataSetId}
           onEnvironmentChange={setSelectedExecutionEnvironmentId}
+          onExecutionHookDraftChange={setExecutionHookDraft}
           onExecutionNameChange={setExecutionName}
+          onExecutionParallelCountChange={setExecutionParallelCount}
+          onExecutionParallelEnabledChange={setExecutionParallelEnabled}
+          onExecutionStartModeChange={setExecutionStartMode}
           onSuiteSelectionChange={setSelectedSuiteActionIds}
           onSubmit={handleCreateExecution}
           appTypeId={appTypeId}
@@ -1815,6 +1850,7 @@ export function DesignPage() {
           selectedProject={selectedProject?.name || ""}
           scopeSuites={suites}
           selectedSuiteIds={selectedSuiteActionIds}
+          testCases={allTestCases}
         />
       ) : null}
 
@@ -1859,7 +1895,9 @@ function SuiteSidebar({
   onClearSuiteSelection,
   onCreateSuite,
   onDeleteSelectedSuites,
-  onCreateExecution,
+  onCreateManualRun,
+  onCreateLocalRun,
+  onCreateRemoteRun,
   isLoading,
   selectedAppType,
   canCreateSuite,
@@ -1894,7 +1932,9 @@ function SuiteSidebar({
   onClearSuiteSelection: () => void;
   onCreateSuite: () => void;
   onDeleteSelectedSuites: () => void;
-  onCreateExecution: () => void;
+  onCreateManualRun: () => void;
+  onCreateLocalRun: () => void;
+  onCreateRemoteRun: () => void;
   isLoading: boolean;
   selectedAppType: AppType | null;
   canCreateSuite: boolean;
@@ -1917,7 +1957,14 @@ function SuiteSidebar({
       <div className="suite-design-panel-stack">
         <div className="design-sidebar-actions">
           <button className="primary-button" disabled={!canCreateSuite} onClick={onCreateSuite} type="button">Create Suite</button>
-          <button className="ghost-button" disabled={!canCreateExecution} onClick={onCreateExecution} type="button">Create Run</button>
+          <CreateRunActionButton
+            disabled={!canCreateExecution}
+            selectedSuiteIds={selectedSuiteActionIds}
+            source="TEST_SUITES"
+            onCreateManualRun={onCreateManualRun}
+            onCreateLocalRun={onCreateLocalRun}
+            onCreateRemoteRun={onCreateRemoteRun}
+          />
         </div>
 
         <div className="design-list-toolbar suite-sidebar-toolbar">
@@ -3127,13 +3174,22 @@ function SuiteExecutionModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
+  executionStartMode,
+  executionParallelEnabled,
+  executionParallelCount,
+  executionHookDraft,
+  testCases,
   canCreateExecution,
   isSubmitting,
   onAssigneeChange,
   onEnvironmentChange,
   onConfigurationChange,
   onDataSetChange,
+  onExecutionHookDraftChange,
   onExecutionNameChange,
+  onExecutionParallelCountChange,
+  onExecutionParallelEnabledChange,
+  onExecutionStartModeChange,
   onSuiteSelectionChange,
   onClose,
   onSubmit
@@ -3150,19 +3206,28 @@ function SuiteExecutionModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  executionStartMode: ExecutionStartMode;
+  executionParallelEnabled: boolean;
+  executionParallelCount: number;
+  executionHookDraft: RunHookSelection[];
+  testCases: TestCase[];
   canCreateExecution: boolean;
   isSubmitting: boolean;
   onAssigneeChange: (value: string) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
+  onExecutionHookDraftChange: (nextHooks: RunHookSelection[]) => void;
   onExecutionNameChange: (value: string) => void;
+  onExecutionParallelCountChange: (value: number) => void;
+  onExecutionParallelEnabledChange: (value: boolean) => void;
+  onExecutionStartModeChange: (value: ExecutionStartMode) => void;
   onSuiteSelectionChange: (nextIds: string[]) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <div className="modal-backdrop" onClick={() => !isSubmitting && onClose()} role="presentation">
+    <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && onClose()} role="presentation">
       <div
         aria-labelledby="create-suite-execution-title"
         aria-modal="true"
@@ -3173,12 +3238,12 @@ function SuiteExecutionModal({
         <form className="execution-create-form" onSubmit={onSubmit}>
           <div className="execution-create-header">
             <div className="execution-create-title">
-              <p className="eyebrow">Suites</p>
+              <p className="eyebrow">Test Runs</p>
               <div className="modal-title-info-row">
-                <p className="eyebrow" id="create-suite-execution-title">Create run</p>
+                <p className="eyebrow" id="create-suite-execution-title">Create Manual Run</p>
                 <InfoTooltip
-                  content="Use the suites you selected here as the run snapshot scope."
-                  label="Suite run information"
+                  content="Create a manual run from the selected suites in this project and app type."
+                  label="Create run information"
                 />
               </div>
             </div>
@@ -3221,6 +3286,38 @@ function SuiteExecutionModal({
               </FormField>
             </div>
 
+            <div className="execution-create-grid">
+              <FormField label="Run type">
+                <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                  <option value="manual">Create Manual Run</option>
+                  <option value="local">Create Local Run</option>
+                  <option value="remote">Create Remote Run</option>
+                </select>
+              </FormField>
+
+              <FormField label="Parallel execution">
+                <div className="execution-parallel-control">
+                  <label>
+                    <input
+                      checked={executionParallelEnabled}
+                      onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>Run tests in parallel</span>
+                  </label>
+                  <input
+                    aria-label="Parallel test count"
+                    disabled={!executionParallelEnabled}
+                    min={1}
+                    max={50}
+                    onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}
+                    type="number"
+                    value={executionParallelCount}
+                  />
+                </div>
+              </FormField>
+            </div>
+
             <div className="detail-summary">
               <strong>{selectedProject || "Select a project to continue"}</strong>
               <span>{selectedAppType ? `${selectedAppType} app type selected for this snapshot.` : "Choose an app type to load suite scope."}</span>
@@ -3237,6 +3334,13 @@ function SuiteExecutionModal({
               selectedConfigurationId={selectedConfigurationId}
               selectedDataSetId={selectedDataSetId}
               selectedEnvironmentId={selectedEnvironmentId}
+            />
+
+            <RunHooksBuilder
+              onChange={onExecutionHookDraftChange}
+              suites={scopeSuites}
+              testCases={testCases}
+              value={executionHookDraft}
             />
 
             <FormField label="Suite scope" required>
@@ -3257,7 +3361,13 @@ function SuiteExecutionModal({
 
           <div className="action-row execution-create-actions">
             <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
-              {isSubmitting ? "Creating…" : "Create run"}
+              {isSubmitting
+                ? "Creating…"
+                : executionStartMode === "remote"
+                  ? "Create Remote Run"
+                  : executionStartMode === "local"
+                    ? "Create Local Run"
+                    : "Create Manual Run"}
             </button>
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel

@@ -21669,6 +21669,7 @@ button.pom-member-row {
 
 .hook-picker-dialog {
   display: grid;
+  grid-template-rows: auto auto 1fr auto;
   gap: 0.9rem;
   width: min(48rem, calc(100vw - 2rem));
   max-height: min(42rem, calc(100vh - 2rem));
