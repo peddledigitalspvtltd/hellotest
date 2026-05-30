@@ -51,6 +51,8 @@ export function RunHooksBuilder({
   const [pickerHookType, setPickerHookType] = useState<RunHookType | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestedHooks, setSuggestedHooks] = useState<RunHookSelection[]>([]);
   const activeDefinition = HOOK_DEFINITIONS.find((definition) => definition.type === activeHookType) || HOOK_DEFINITIONS[0];
   const activeHooks = value.filter((hook) => hook.hookType === activeHookType);
   const normalizedSearch = pickerSearch.trim().toLowerCase();
@@ -68,6 +70,44 @@ export function RunHooksBuilder({
     setPickerHookType(hookType);
     setPickerSearch("");
     setPickerSelectedIds([]);
+  };
+
+  const openSuggestions = () => {
+    // simple heuristic-based suggestions (client-side AI stub)
+    const suggestions: RunHookSelection[] = [];
+    // global before-run suggestions
+    suggestions.push({
+      id: makeHookId("BEFORE_ALL", "test", "prepare-global"),
+      hookType: "BEFORE_ALL",
+      itemType: "test",
+      itemId: "prepare-global",
+      name: "Prepare test environment"
+    });
+
+    // suggest per-suite hooks for up to 5 suites
+    suites.slice(0, 5).forEach((suite) => {
+      suggestions.push({
+        id: makeHookId("BEFORE_SUITE", "suite", suite.id),
+        hookType: "BEFORE_SUITE",
+        itemType: "suite",
+        itemId: suite.id,
+        name: `Seed data for ${suite.name}`
+      });
+    });
+
+    // suggest per-test hooks for up to 5 test cases
+    testCases.slice(0, 5).forEach((testCase) => {
+      suggestions.push({
+        id: makeHookId("BEFORE_TEST", "test", testCase.id),
+        hookType: "BEFORE_TEST",
+        itemType: "test",
+        itemId: testCase.id,
+        name: `Reset state for ${testCase.title}`
+      });
+    });
+
+    setSuggestedHooks(suggestions);
+    setShowSuggestions(true);
   };
 
   const closePicker = () => {
@@ -125,6 +165,52 @@ export function RunHooksBuilder({
     onChange([...value, ...additions.filter((hook) => !existingIds.has(hook.id))]);
     closePicker();
   };
+
+  const addSuggestedHook = (hook: RunHookSelection) => {
+    const existingIds = new Set(value.map((h) => h.id));
+    if (!existingIds.has(hook.id)) {
+      onChange([...value, hook]);
+    }
+    // remove from suggestions list visually
+    setSuggestedHooks((current) => current.filter((h) => h.id !== hook.id));
+  };
+
+  const suggestionsModal = showSuggestions ? (
+    <div className="hook-picker-backdrop" role="presentation" onClick={() => setShowSuggestions(false)}>
+      <div
+        aria-label={`Suggested hooks`}
+        aria-modal="true"
+        className="hook-picker-dialog"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="hook-picker-header">
+          <div>
+            <strong>Suggested hooks</strong>
+            <span>AI-driven suggestions based on your suites and test cases.</span>
+          </div>
+          <button className="ghost-button" onClick={() => setShowSuggestions(false)} type="button">Close</button>
+        </div>
+        <div className="hook-picker-list">
+          <section>
+            {suggestedHooks.length ? (
+              suggestedHooks.map((hook) => (
+                <label className="hook-picker-option" key={hook.id}>
+                  <span>{hook.name}</span>
+                  <small>{hook.hookType.replace(/_/g, " ")}</small>
+                  <div style={{marginLeft: '0.5rem'}}>
+                    <button className="primary-button" type="button" onClick={() => addSuggestedHook(hook)}>Add</button>
+                  </div>
+                </label>
+              ))
+            ) : (
+              <p>No suggestions available.</p>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const removeHook = (hookId: string) => {
     onChange(value.filter((hook) => hook.id !== hookId));
@@ -254,9 +340,10 @@ export function RunHooksBuilder({
             <strong>{activeDefinition.label}</strong>
             <span>{activeDefinition.description}</span>
           </div>
-          <button className="ghost-button" onClick={() => openPicker(activeDefinition.type)} type="button">
-            + Add hook
-          </button>
+          <div style={{display: 'flex', gap: '0.5rem'}}>
+            <button className="ghost-button" onClick={() => openSuggestions()} type="button">Suggest</button>
+            <button className="ghost-button" onClick={() => openPicker(activeDefinition.type)} type="button">+ Add hook</button>
+          </div>
         </div>
         {activeHooks.length ? (
           <div className="run-hook-list">
@@ -279,6 +366,7 @@ export function RunHooksBuilder({
         )}
       </div>
       {picker && typeof document !== "undefined" ? createPortal(picker, document.body) : null}
+      {suggestionsModal && typeof document !== "undefined" ? createPortal(suggestionsModal, document.body) : null}
     </section>
   );
 }

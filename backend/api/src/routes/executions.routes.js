@@ -43,6 +43,39 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/executions/manual-run-suggestion", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      app_type_id: { required: true, type: "string" },
+      selected_suite_ids: { required: false, type: "array", items: "string" },
+      test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      additional_context: { required: false, type: "string" },
+      integration_id: { required: false, type: "string" }
+    }, req.body);
+
+    await projectService.getProject(req.body.project_id, req.user.id);
+    const appType = await appTypeService.getAppType(req.body.app_type_id);
+
+    if (appType.project_id !== req.body.project_id) {
+      throw new Error("App type must belong to the selected project");
+    }
+
+    return executionPlanningService.suggestManualExecutionSetup({
+      project_id: req.body.project_id,
+      appType,
+      selected_suite_ids: req.body.selected_suite_ids || [],
+      test_environment_id: req.body.test_environment_id,
+      test_configuration_id: req.body.test_configuration_id,
+      test_data_set_id: req.body.test_data_set_id,
+      additional_context: req.body.additional_context,
+      integration_id: req.body.integration_id
+    });
+  });
+
   // CREATE EXECUTION
   fastify.post("/executions", async (req) => {
     await fastify.authenticate(req);
