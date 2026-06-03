@@ -10,6 +10,11 @@ const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   web: "web"
 };
 
+const AI_AUTHORING_TIMEOUT_MS = Math.max(
+  5000,
+  Number.parseInt(process.env.AI_AUTHORING_TIMEOUT_MS || "45000", 10) || 45000
+);
+
 const normalizeText = (value) => {
   if (typeof value !== "string") {
     return null;
@@ -120,32 +125,67 @@ const resolveIntegration = async (integration_id) => {
     throw new Error("Selected LLM integration is inactive");
   }
 
+  if (!normalizeText(integration.model)) {
+    throw new Error("Selected LLM integration is missing a model");
+  }
+
   return integration;
 };
 
+const resolveChatCompletionsUrl = (baseUrl) => {
+  const normalizedBaseUrl = normalizeText(baseUrl) || "https://api.openai.com/v1";
+
+  if (/\/chat\/completions\/?$/i.test(normalizedBaseUrl)) {
+    return normalizedBaseUrl.replace(/\/+$/, "");
+  }
+
+  return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+};
+
 const requestChatCompletion = async ({ integration, prompt }) => {
-  const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${integration.api_key}`
-    },
-    body: JSON.stringify({
-      model: integration.model,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content: "You are a senior QA test author. Return strict JSON only."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_AUTHORING_TIMEOUT_MS);
+  const headers = {
+    "Content-Type": "application/json"
+  };
+  const apiKey = normalizeText(integration.api_key);
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  let response;
+
+  try {
+    response = await fetch(resolveChatCompletionsUrl(integration.base_url), {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: integration.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: "You are a senior QA test author. Return strict JSON only."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+      })
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("AI authoring timed out while waiting for the LLM provider");
+    }
+
+    throw new Error(`Unable to reach the AI authoring provider: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const raw = await response.text();

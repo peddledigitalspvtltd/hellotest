@@ -12,6 +12,7 @@ const fastify = require("fastify")({
 
 const cors = require("@fastify/cors");
 const db = require("./db");
+const { config } = require("./config");
 const { ensureRuntimeSchema: ensureMainRuntimeSchema } = require("./db/bootstrap");
 const { ensureRuntimeSchema: ensureObsRuntimeSchema } = require("./obsDb/bootstrap");
 const executionScheduleService = require("./services/executionSchedule.service");
@@ -19,6 +20,8 @@ const aiTestCaseGenerationService = require("./services/aiTestCaseGeneration.ser
 const aiAutomationBuilderService = require("./services/aiAutomationBuilder.service");
 const projectSyncService = require("./services/projectSync.service");
 const batchProcessService = require("./services/batchProcess.service");
+const permissionService = require("./services/permission.service");
+const { ROUTE_PERMISSIONS } = require("./security/permissions.catalog");
 const { verifyToken, generateRequestId } = require("./utils/token");
 
 const createError = (message, statusCode) => {
@@ -152,6 +155,56 @@ fastify.decorate("requireAdmin", async (req) => {
   }
 });
 
+fastify.decorate("requirePermission", (permissionCode, options = {}) => async (req) => {
+  await fastify.authenticate(req);
+
+  const projectId = typeof options.projectId === "function"
+    ? options.projectId(req)
+    : options.projectId || req.params?.project_id || req.params?.projectId || req.body?.project_id || req.query?.project_id || null;
+
+  const allowed = await permissionService.hasPermission(req.user, permissionCode, projectId);
+
+  if (!allowed) {
+    throw createError(`Permission required: ${permissionCode}`, 403);
+  }
+});
+
+fastify.addHook("onRoute", (routeOptions) => {
+  const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method];
+  const url = routeOptions.url;
+
+  for (const method of methods) {
+    const permissionCode = ROUTE_PERMISSIONS.get(`${String(method).toUpperCase()} ${url}`);
+
+    if (!permissionCode) {
+      continue;
+    }
+
+    const existingPreHandlers = routeOptions.preHandler
+      ? Array.isArray(routeOptions.preHandler)
+        ? routeOptions.preHandler
+        : [routeOptions.preHandler]
+      : [];
+
+    const permissionHandler = async (req) => {
+      if (permissionCode === "user.manage" && String(method).toUpperCase() === "PUT" && url === "/users/:id") {
+        await fastify.authenticate(req);
+
+        if (req.user?.id === req.params?.id) {
+          return;
+        }
+      }
+
+      return fastify.requirePermission(permissionCode)(req);
+    };
+
+    routeOptions.preHandler = [
+      ...existingPreHandlers,
+      permissionHandler
+    ];
+  }
+});
+
 fastify.decorate("authenticateTestEngine", async (req) => {
   const provided =
     req.headers["x-qaira-testengine-secret"]
@@ -183,7 +236,7 @@ fastify.addHook("onRequest", async (req, reply) => {
 // Improved CORS configuration
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",")
-  : ["http://localhost:5173", "http://localhost:8080"];
+  : config.corsOrigins;
 
 fastify.register(cors, {
   origin: (origin, cb) => {

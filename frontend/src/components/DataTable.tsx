@@ -470,10 +470,10 @@ export function DataTable<T>({
           {!hideToolbarCopy ? (
             <div className="data-table-toolbar-copy">
               <div className="data-table-toolbar-title-row">
-                <strong>List layout</strong>
+                <strong>Grid layout</strong>
                 <InfoTooltip
                   content={`${columnPreference.visibleColumnKeys.length} of ${configurableColumns.length} details visible.`}
-                  label="List layout information"
+                  label="Grid layout information"
                 />
               </div>
             </div>

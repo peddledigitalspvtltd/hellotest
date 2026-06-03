@@ -59,6 +59,24 @@ CREATE TABLE project_members (
 CREATE INDEX idx_project_members_project_user
   ON project_members (project_id, user_id);
 
+CREATE TABLE permissions (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE role_permissions (
+  role_id TEXT NOT NULL,
+  permission_id TEXT NOT NULL,
+  PRIMARY KEY (role_id, permission_id),
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_role_permissions_permission
+  ON role_permissions (permission_id);
+
 -- =========================
 -- APP TYPES (DESIGN BOUNDARY)
 -- =========================
@@ -305,7 +323,12 @@ CREATE TABLE executions (
   app_type_id TEXT,
   name TEXT,
   trigger TEXT CHECK(trigger IN ('manual','ci','local')),
-  status TEXT CHECK(status IN ('queued','running','completed','failed')),
+  status TEXT CHECK(status IN ('queued','running','passed','failed','skipped','blocked','retrying','cancelled','aborted','partially_completed','completed')),
+  execution_mode TEXT NOT NULL DEFAULT 'remote' CHECK(execution_mode IN ('local','remote','scheduled')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  worker_id TEXT,
+  duration_ms INTEGER,
   test_environment_id TEXT,
   test_environment_name TEXT,
   test_environment_snapshot JSONB,
@@ -398,6 +421,115 @@ CREATE TABLE execution_results (
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (executed_by) REFERENCES users(id)
 );
+
+CREATE TABLE suite_runs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  suite_id TEXT,
+  parent_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','passed','failed','skipped','blocked','retrying','cancelled','aborted','partially_completed')),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  duration_ms INTEGER,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  worker_id TEXT,
+  execution_mode TEXT NOT NULL DEFAULT 'remote' CHECK(execution_mode IN ('local','remote','scheduled')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (run_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_suite_runs_run
+  ON suite_runs (run_id, status);
+
+CREATE TABLE test_case_runs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  suite_run_id TEXT,
+  test_case_id TEXT,
+  parent_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','passed','failed','skipped','blocked','retrying','cancelled','aborted','partially_completed')),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  duration_ms INTEGER,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  worker_id TEXT,
+  execution_mode TEXT NOT NULL DEFAULT 'remote' CHECK(execution_mode IN ('local','remote','scheduled')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (run_id) REFERENCES executions(id) ON DELETE CASCADE,
+  FOREIGN KEY (suite_run_id) REFERENCES suite_runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_test_case_runs_suite
+  ON test_case_runs (suite_run_id, status);
+
+CREATE INDEX idx_test_case_runs_run_case
+  ON test_case_runs (run_id, test_case_id);
+
+CREATE TABLE step_runs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  test_case_run_id TEXT,
+  step_id TEXT,
+  parent_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','passed','failed','skipped','blocked','retrying','cancelled','aborted','partially_completed')),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  duration_ms INTEGER,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  worker_id TEXT,
+  execution_mode TEXT NOT NULL DEFAULT 'remote' CHECK(execution_mode IN ('local','remote','scheduled')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (run_id) REFERENCES executions(id) ON DELETE CASCADE,
+  FOREIGN KEY (test_case_run_id) REFERENCES test_case_runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_step_runs_case
+  ON step_runs (test_case_run_id, status);
+
+CREATE TABLE execution_capacity (
+  engine_type TEXT PRIMARY KEY CHECK(engine_type IN ('api','web','android')),
+  max_parallel INTEGER NOT NULL DEFAULT 1,
+  current_running INTEGER NOT NULL DEFAULT 0,
+  queued_count INTEGER NOT NULL DEFAULT 0,
+  healthy_workers INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE worker_heartbeat (
+  worker_id TEXT PRIMARY KEY,
+  engine_type TEXT CHECK(engine_type IS NULL OR engine_type IN ('api','web','android')),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  current_job_id TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX idx_worker_heartbeat_seen
+  ON worker_heartbeat (last_seen_at DESC);
+
+CREATE TABLE notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  session_id TEXT,
+  project_id TEXT,
+  run_id TEXT,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_notifications_user_status
+  ON notifications (user_id, status, created_at DESC);
 
 CREATE TABLE workspace_transactions (
   id TEXT PRIMARY KEY,
@@ -513,7 +645,7 @@ ALTER TABLE executions
 ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_status_check;
 ALTER TABLE executions
   ADD CONSTRAINT executions_status_check
-  CHECK (status IN ('queued', 'running', 'completed', 'failed', 'aborted'));
+  CHECK (status IN ('queued', 'running', 'passed', 'failed', 'skipped', 'blocked', 'retrying', 'cancelled', 'aborted', 'partially_completed', 'completed'));
 
 CREATE TABLE IF NOT EXISTS execution_schedules (
   id TEXT PRIMARY KEY,

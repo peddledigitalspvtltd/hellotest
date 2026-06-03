@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const integrationService = require("./integration.service");
 const { getEmailSenderProfile, sendMail } = require("./email.service");
+const { DEFAULT_ROLE_PERMISSIONS } = require("../security/permissions.catalog");
 const { hashPassword, verifyPassword, createToken, verifyToken } = require("../utils/token");
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
@@ -87,18 +88,24 @@ const ensureMemberRole = async () => {
     WHERE name = 'member'
   `).get();
 
-  if (existing) {
-    return existing.id;
+  const roleId = existing?.id || crypto.randomUUID();
+
+  if (!existing) {
+    await db.prepare(`
+      INSERT INTO roles (id, name)
+      VALUES (?, 'member')
+    `).run(roleId);
   }
 
-  const id = crypto.randomUUID();
-
   await db.prepare(`
-    INSERT INTO roles (id, name)
-    VALUES (?, 'member')
-  `).run(id);
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT ?, permissions.id
+    FROM permissions
+    WHERE permissions.code = ANY(?::text[])
+    ON CONFLICT (role_id, permission_id) DO NOTHING
+  `).run(roleId, DEFAULT_ROLE_PERMISSIONS.member || []);
 
-  return id;
+  return roleId;
 };
 
 const assignDefaultProjectMemberships = async (userId) => {

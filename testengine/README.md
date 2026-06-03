@@ -161,16 +161,16 @@ docker compose -f testengine/docker-compose.yml up --build
 For a standalone image-based host deployment, use:
 
 ```bash
-docker compose -f testengine/docker-compose.deploy.yml pull
-docker compose -f testengine/docker-compose.deploy.yml up -d
+./qaira.sh deploy --stack testengine
 ```
 
-Or from the repo root:
+Use `--config <file>` or environment variables to override the QAira API URL,
+published engine URL, image tag, Selenium binds, and shared secret:
 
 ```bash
-./run-testengine.sh
-./start-testengine-ops.sh
-./release-testengine.sh
+QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \
+ENGINE_PUBLIC_URL=http://13.55.32.201:4301 \
+./qaira.sh deploy --stack testengine --yes
 ```
 
 For a separate Test Engine host that should also align its OPS settings with the
@@ -214,13 +214,13 @@ AMD64-only. If you want to override the Grid images explicitly, set:
 ```bash
 QAIRA_SELENIUM_HUB_IMAGE=selenium/hub:4.22.0 \
 QAIRA_SELENIUM_NODE_IMAGE=selenium/node-chromium:4.22.0 \
-./run-testengine.sh
+./qaira.sh up --stack testengine
 ```
 
 On an AMD64 host, you can opt back into Chrome with:
 
 ```bash
-QAIRA_SELENIUM_NODE_IMAGE=selenium/node-chrome:4.22.0 ./run-testengine.sh
+QAIRA_SELENIUM_NODE_IMAGE=selenium/node-chrome:4.22.0 ./qaira.sh up --stack testengine
 ```
 
 For image-based deployments, Selenium Grid and VNC bind to `127.0.0.1` by

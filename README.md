@@ -23,22 +23,15 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 - `testengine`: standalone Playwright worker plane
 - `openapi.yaml`: API contract
 
-## Quick start: full stack
+## Quick Start
 
-1. Pull the PostgreSQL image:
-
-```bash
-docker pull postgres:16-alpine
-```
-
-2. Start everything from the repo root:
+Start everything from the repo root:
 
 ```bash
-docker compose -f docker-compose.full.yml pull
-docker compose -f docker-compose.full.yml up -d
+./qaira.sh up --stack full
 ```
 
-3. Open the apps:
+Open the apps:
 
 - Frontend: `http://localhost:8080`
 - API: `http://localhost:3000`
@@ -49,48 +42,26 @@ On the first boot, the Postgres container creates the `qaira` database and autom
 - `backend/db/schema.sql`
 - `backend/db/seed.sql`
 
-## Release script
+## Operator Script
 
-Use the root release script to build amd64 backend/frontend/Test Engine images, push them to Docker Hub, and refresh the running stack:
-
-```bash
-./release.sh
-```
-
-Useful variants:
+Use `qaira.sh` as the single root entrypoint for service relation config, image publishing, and compose deployment:
 
 ```bash
-IMAGE_TAG=v1.0.0 ./release.sh
-DOCKER_NAMESPACE=your-dockerhub-user ./release.sh
-./release.sh --no-deploy
-./release.sh --deploy-testengine-local
+./qaira.sh config --stack full
+./qaira.sh push
+./qaira.sh deploy --stack platform
+./qaira.sh deploy --stack testengine --yes
 ```
 
-`release.sh` now builds and pushes three images:
-
-- QAira backend
-- QAira frontend
-- QAira Test Engine
-
-For a separate Test Engine EC2 host, use:
+`./qaira.sh config` writes the resolved service contract to `.qaira/<stack>.env`. Override any endpoint or image with environment variables or `--config <file>`:
 
 ```bash
-./release-testengine.sh
+QAIRA_PUBLIC_URL=https://qaira.example.com \
+QAIRA_API_BASE_URL=https://qaira.example.com/api \
+./qaira.sh deploy --stack platform
 ```
 
-If you want a push-only entrypoint with no local deploy refresh:
-
-```bash
-./push-images.sh
-```
-
-If you want the EC2 host to pull the latest git changes and refresh its stack:
-
-```bash
-./deploy-ec2.sh
-./deploy-ec2.sh --stack platform
-./deploy-ec2.sh --stack testengine
-```
+The deploy command prints the target stack, compose file, frontend URL, API URLs, and Test Engine URL before it changes containers. Use `--yes` only from automation.
 
 For AWS EC2 hosts, prefer the scripts in [deploymentscripts](./deploymentscripts):
 
@@ -120,18 +91,15 @@ cd backend
 
 The API will be available at `http://localhost:3000`.
 
-## Start individual services
+## Start Individual Services
 
-From the repo root:
+From the repo root, target services through the same operator script:
 
 ```bash
-./run-postgres.sh
-./run-backend.sh
-./run-frontend.sh
-./run-testengine.sh
+./qaira.sh up --stack full postgres api
+./qaira.sh up --stack full frontend
+./qaira.sh up --stack testengine testengine
 ```
-
-By default these scripts reuse the local image reference already configured in Compose. Set `PULL_IMAGES=1` when you want them to pull published images first.
 
 ## Platform stack
 

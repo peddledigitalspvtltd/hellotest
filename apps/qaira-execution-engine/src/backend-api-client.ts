@@ -1,6 +1,7 @@
 import axios from "axios";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
+import type { RunSnapshot } from "./models/execution.js";
 
 export interface ClaimResponse {
   runId: string;
@@ -26,7 +27,7 @@ export class EngineApiClient {
     return response.data || null;
   }
 
-  async loadRunSnapshot(runId: string): Promise<Record<string, unknown>> {
+  async loadRunSnapshot(runId: string): Promise<RunSnapshot> {
     const url = `${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/snapshot`;
     logger.info({ url, runId }, "Loading run snapshot");
 
@@ -34,7 +35,7 @@ export class EngineApiClient {
       timeout: 20_000
     });
 
-    return response.data;
+    return response.data as RunSnapshot;
   }
 
   async sendHeartbeat(runId: string, engineId: string): Promise<boolean> {

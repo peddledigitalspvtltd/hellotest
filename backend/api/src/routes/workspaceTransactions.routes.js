@@ -100,7 +100,7 @@ module.exports = async function (fastify) {
     return responseBody;
   });
 
-  fastify.delete("/workspace-transactions/:id", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.delete("/workspace-transactions/:id", async (req) => {
     return workspaceTransactionService.deleteTransaction(req.params.id);
   });
 };

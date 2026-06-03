@@ -1,4 +1,4 @@
-import { QueueScheduler, Worker, type Job } from "bullmq";
+import { Worker, type Job } from "bullmq";
 import Redis from "ioredis";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
@@ -7,13 +7,11 @@ import { RunOrchestrator } from "../orchestrator/run-orchestrator.js";
 
 export class QueueWorker {
   private readonly connection: Redis;
-  private readonly scheduler: QueueScheduler;
   private readonly worker: Worker;
   private readonly apiClient = new EngineApiClient();
 
   constructor() {
     this.connection = new Redis(config.redisUrl);
-    this.scheduler = new QueueScheduler(config.queueName, { connection: this.connection });
     this.worker = new Worker(
       config.queueName,
       async (job: Job) => this.processJob(job),
@@ -31,7 +29,7 @@ export class QueueWorker {
 
   async start(): Promise<void> {
     logger.info({ queue: config.queueName, redis: config.redisUrl }, "Starting engine queue worker");
-    await this.scheduler.waitUntilReady();
+    await this.worker.waitUntilReady();
   }
 
   private async processJob(job: Job): Promise<void> {
@@ -49,7 +47,6 @@ export class QueueWorker {
 
   async stop(): Promise<void> {
     await this.worker.close();
-    await this.scheduler.close();
     await this.connection.quit();
   }
 }

@@ -21,6 +21,8 @@ import type {
   Feedback,
   Integration,
   KeyValueEntry,
+  Permission,
+  PermissionGroup,
   Project,
   ProjectMember,
   Requirement,
@@ -353,10 +355,17 @@ export const api = {
   },
   roles: {
     list: () => request<Role[]>("/roles"),
-    create: (input: { name: string }) =>
+    permissions: () => request<PermissionGroup[]>("/permissions"),
+    rolePermissions: (id: string) => request<Permission[]>(`/roles/${id}/permissions`),
+    create: (input: { name: string; permission_codes?: string[] }) =>
       request<{ id: string }>("/roles", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ name: string }>) =>
       request<{ updated: boolean }>(`/roles/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    replacePermissions: (id: string, permission_codes: string[]) =>
+      request<{ updated: boolean; permission_codes: string[] }>(`/roles/${id}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ permission_codes })
+      }),
     delete: (id: string) => request<{ deleted: boolean }>(`/roles/${id}`, { method: "DELETE" })
   },
   projects: {

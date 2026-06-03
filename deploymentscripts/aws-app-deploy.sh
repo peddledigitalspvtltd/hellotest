@@ -103,7 +103,7 @@ info "Public entrypoint bind: ${QAIRA_HTTP_BIND}:${QAIRA_HTTP_PORT}"
 info "Internal service binds: 127.0.0.1 by default"
 
 # shellcheck disable=SC2086
-"$REPO_ROOT/deploy-ec2.sh" $DEPLOY_ARGS
+"$REPO_ROOT/qaira.sh" deploy $DEPLOY_ARGS --yes
 
 require_url "http://127.0.0.1:${QAIRA_HTTP_PORT}/health" "QAira API through HAProxy"
 require_url "http://127.0.0.1:${QAIRA_HTTP_PORT}/" "QAira frontend through HAProxy"

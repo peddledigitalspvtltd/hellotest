@@ -30,7 +30,7 @@ export class RunOrchestrator {
 
     await this.executeHooks("beforeRun", this.snapshot.hooks || []);
 
-    const suiteResults = [];
+    const suiteResults: ExecutionResult["suites"] = [];
     let runStatus: ExecutionStatus = "passed";
 
     for (const suite of this.snapshot.suites) {
@@ -38,7 +38,7 @@ export class RunOrchestrator {
       await this.executeHooks("beforeSuite", suite.hooks || []);
 
       const caseResults = await this.executeSuite(suite);
-      const suiteStatus = caseResults.some((item) => item.status !== "passed") ? "failed" : "passed";
+      const suiteStatus: ExecutionStatus = caseResults.some((item) => item.status !== "passed") ? "failed" : "passed";
       if (suiteStatus === "failed") {
         runStatus = "failed";
       }
@@ -71,7 +71,7 @@ export class RunOrchestrator {
       const runner = resolveRunner(runCase);
       await runner.setup(this.context.getContext());
 
-      let caseStatus: string = "passed";
+      let caseStatus: ExecutionStatus = "passed";
       let elapsedMs = 0;
       const caseStart = Date.now();
 

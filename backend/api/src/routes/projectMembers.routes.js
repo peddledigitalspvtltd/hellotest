@@ -1,7 +1,7 @@
 const service = require("../services/projectMember.service");
 
 module.exports = async function (fastify) {
-  fastify.post("/project-members", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.post("/project-members", async (req) => {
     fastify.validate({
       project_id: { required: true, type: "string" },
       user_id: { required: true, type: "string" },
@@ -20,7 +20,7 @@ module.exports = async function (fastify) {
     return service.getProjectMember(req.params.id);
   });
 
-  fastify.put("/project-members/:id", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.put("/project-members/:id", async (req) => {
     fastify.validate({
       project_id: { required: false, type: "string" },
       user_id: { required: false, type: "string" },
@@ -30,7 +30,7 @@ module.exports = async function (fastify) {
     return service.updateProjectMember(req.params.id, req.body);
   });
 
-  fastify.delete("/project-members/:id", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.delete("/project-members/:id", async (req) => {
     return service.deleteProjectMember(req.params.id);
   });
 };

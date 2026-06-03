@@ -32,7 +32,7 @@ export class AxiosApiRunner implements RunnerAdapter {
       }
 
       Object.entries(captures).forEach(([key, value]) => {
-        context.setRunVariable(key, value);
+        context.runVariables[key] = value;
       });
 
       const assertions = Array.isArray(step.parameters?.assertions) ? step.parameters.assertions as Array<Record<string, unknown>> : [];
@@ -51,7 +51,7 @@ export class AxiosApiRunner implements RunnerAdapter {
         }
       }
 
-      context.setStepOutput(step.stepId, response.data);
+      context.outputs[step.stepId] = response.data;
 
       return {
         stepId: step.stepId,

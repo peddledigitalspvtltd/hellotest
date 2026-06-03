@@ -128,7 +128,7 @@ const sanitizeIntegration = (integration) => {
 
 module.exports = async function (fastify) {
   fastify.post("/integrations", async (req) => {
-    await fastify.requireAdmin(req);
+    await fastify.authenticate(req);
 
     fastify.validate({
       type: { required: true, type: "string", enum: INTEGRATION_TYPE_VALUES },
@@ -162,7 +162,7 @@ module.exports = async function (fastify) {
   });
 
   fastify.post("/integrations/test-connection", async (req) => {
-    await fastify.requireAdmin(req);
+    await fastify.authenticate(req);
 
     fastify.validate({
       type: { required: true, type: "string", enum: INTEGRATION_TYPE_VALUES },
@@ -188,7 +188,7 @@ module.exports = async function (fastify) {
   });
 
   fastify.put("/integrations/:id", async (req) => {
-    await fastify.requireAdmin(req);
+    await fastify.authenticate(req);
 
     fastify.validate({
       type: { required: false, type: "string", enum: INTEGRATION_TYPE_VALUES },
@@ -206,7 +206,7 @@ module.exports = async function (fastify) {
   });
 
   fastify.delete("/integrations/:id", async (req) => {
-    await fastify.requireAdmin(req);
+    await fastify.authenticate(req);
     return service.deleteIntegration(req.params.id);
   });
 };

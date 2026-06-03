@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
@@ -130,6 +130,25 @@ export function AiDesignStudioModal({
   const scopedPreviewRequirements = selectedRequirementIds.length
     ? requirements.filter((requirement) => selectedRequirementIds.includes(requirement.id))
     : requirements;
+  const [isIntegrationWarningDismissed, setIsIntegrationWarningDismissed] = useState(false);
+  const integrationWarning = !integrations.length
+    ? "No active LLM integrations are available yet. Create one in Integrations to use AI test case generation."
+    : "";
+  const toasterMessage = previewMessage || (!isIntegrationWarningDismissed ? integrationWarning : "");
+  const toasterTone = previewMessage ? previewTone : "error";
+
+  useEffect(() => {
+    setIsIntegrationWarningDismissed(false);
+  }, [integrations.length]);
+
+  const dismissToasterMessage = () => {
+    if (previewMessage) {
+      onPreviewMessageDismiss();
+      return;
+    }
+
+    setIsIntegrationWarningDismissed(true);
+  };
   const filteredRequirements = requirements.filter((requirement) => {
     const query = requirementSearchTerm.trim().toLowerCase();
     if (!query) return true;
@@ -216,7 +235,7 @@ export function AiDesignStudioModal({
                     </FormField>
 
                     <FormField label="Draft cases to generate">
-                      <input min="1" max="20" type="number" value={maxCases} onChange={(event) => onMaxCasesChange(Number(event.target.value) || 6)} />
+                      <input min="1" max="3" type="number" value={maxCases} onChange={(event) => onMaxCasesChange(Math.min(3, Math.max(1, Number(event.target.value) || 3)))} />
                     </FormField>
 
                     {onSchedule && onParallelRequirementCountChange ? (
@@ -331,13 +350,7 @@ export function AiDesignStudioModal({
           </div>
 
           <div className="ai-studio-main">
-            <ToastMessage message={previewMessage} onDismiss={onPreviewMessageDismiss} tone={previewTone} />
-
-            {!integrations.length ? (
-              <div className="inline-message error-message">
-                No active LLM integrations are available yet. Create one in Integrations to use AI test case generation.
-              </div>
-            ) : null}
+            <ToastMessage message={toasterMessage} onDismiss={dismissToasterMessage} tone={toasterTone} />
 
             <div className="action-row ai-studio-actions">
               <button className="primary-button ai-studio-primary-action" disabled={disablePreview} onClick={onPreview} type="button">

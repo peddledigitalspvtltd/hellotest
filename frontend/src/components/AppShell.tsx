@@ -25,20 +25,20 @@ const PREFERENCES_UPDATED_EVENT = "qaira:preferences-updated";
 
 const navigation = [
   {
-    label: "Main",
+    label: "Workspace",
     items: [
-      { id: "overview", to: "/", label: "Dashboard", shortLabel: "Home", icon: DashboardIcon },
+      { id: "overview", to: "/", label: "Home", shortLabel: "Home", icon: DashboardIcon },
       { id: "projects", to: "/projects", label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects" }
     ]
   },
   {
-    label: "Test Management",
+    label: "Create",
     items: [
       {
         id: "authoring",
         to: "/test-cases",
-        label: "Test Authoring",
-        shortLabel: "Authoring",
+        label: "Library",
+        shortLabel: "Library",
         icon: FlaskIcon,
         subItems: TEST_AUTHORING_SECTION_ITEMS,
         matchPaths: TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
@@ -57,7 +57,7 @@ const navigation = [
       {
         id: "runs",
         to: "/executions",
-        label: "Test Runs",
+        label: "Runs",
         shortLabel: "Runs",
         icon: PlayIcon,
         subItems: [{ to: "/executions", label: "Run Console", shortLabel: "Console", icon: "executions" }],
@@ -67,7 +67,7 @@ const navigation = [
       {
         id: "testops",
         to: "/testops",
-        label: "TestOps",
+        label: "Operations",
         shortLabel: "Ops",
         icon: ActivityIcon,
         subItems: TESTOPS_SECTION_ITEMS,
@@ -77,8 +77,8 @@ const navigation = [
       {
         id: "environment",
         to: "/test-environments",
-        label: "Test Environment",
-        shortLabel: "Environment",
+        label: "Environments",
+        shortLabel: "Env",
         icon: ServerIcon,
         subItems: TEST_ENVIRONMENT_SECTION_ITEMS,
         matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
@@ -87,11 +87,11 @@ const navigation = [
     ]
   },
   {
-    label: "Administration",
+    label: "Connect",
     items: [
-      { id: "people", to: "/people", label: "Users", shortLabel: "Users", icon: UsersIcon },
+      { id: "people", to: "/people", label: "People", shortLabel: "People", icon: UsersIcon },
       { id: "integrations", to: "/integrations", label: "Integrations", shortLabel: "Connect", icon: PlugIcon },
-      { id: "knowledge", to: "/knowledge-repo", label: "AI Knowledge", shortLabel: "Knowledge", icon: DocumentIcon }
+      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge", shortLabel: "Knowledge", icon: DocumentIcon }
     ]
   },
   {
@@ -100,7 +100,7 @@ const navigation = [
       { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon },
       { id: "settings", to: "/settings", label: "Settings", shortLabel: "Settings", icon: CogIcon },
       { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon },
-      { id: "feedback", to: "/feedback", label: "Reporting & Feedback", shortLabel: "Feedback", icon: ChatIcon }
+      { id: "feedback", to: "/feedback", label: "Feedback", shortLabel: "Feedback", icon: ChatIcon }
     ]
   }
 ] as const;
@@ -349,16 +349,16 @@ export function AppShell() {
           <div className="sidebar-brand-row">
             <div className="sidebar-brand-lockup">
               <div
-                aria-label="QAIra Home"
+                aria-label="Qaira Home"
                 className="brand-mark"
-                title={shouldCollapseSidebar ? "QAIra Home" : undefined}
+                title={shouldCollapseSidebar ? "Qaira Home" : undefined}
               >
-                {shouldCollapseSidebar ? "Q" : "QAIra"}
+                {shouldCollapseSidebar ? "Q" : "Qaira"}
               </div>
               {!shouldCollapseSidebar ? (
                 <div className="brand-copy">
-                  <strong>QAIra</strong>
-                  <span>Workspace</span>
+                  <strong>Qaira</strong>
+                  <span>Command Center</span>
                 </div>
               ) : null}
             </div>
@@ -429,11 +429,11 @@ export function AppShell() {
             <div className="nav-group" key={group.label}>
               {!shouldCollapseSidebar ? (
                 <p className="nav-group-label">
-                  {group.label === "Main"
+                  {group.label === "Workspace"
                     ? t("nav.section.main", group.label)
-                    : group.label === "Test Management"
+                    : group.label === "Create"
                       ? t("nav.section.testManagement", group.label)
-                      : group.label === "Administration"
+                      : group.label === "Connect"
                         ? t("nav.section.administration", group.label)
                         : t("nav.section.settings", group.label)}
                 </p>

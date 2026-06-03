@@ -1,7 +1,8 @@
 require("./tracing"); // Must be loaded before other modules
 const app = require("./app");
+const { config } = require("./config");
 
-const port = Number(process.env.PORT || 3000);
+const port = config.port;
 
 process.on("unhandledRejection", (reason) => {
   app.log.error({ error: reason }, "Unhandled promise rejection captured; API process remains alive.");

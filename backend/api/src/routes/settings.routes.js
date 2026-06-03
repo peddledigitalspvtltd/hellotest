@@ -9,7 +9,7 @@ module.exports = async function (fastify) {
   });
 
   fastify.put("/settings/localization", async (req) => {
-    await fastify.requireAdmin(req);
+    await fastify.authenticate(req);
 
     fastify.validate({
       strings: { required: true, type: "object" }

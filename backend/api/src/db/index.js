@@ -1,5 +1,6 @@
 const { AsyncLocalStorage } = require("async_hooks");
 const { Pool } = require("pg");
+const { config } = require("../config");
 
 const transactionContext = new AsyncLocalStorage();
 
@@ -12,20 +13,20 @@ const resolveSsl = () => {
 };
 
 const resolvePoolConfig = () => {
-  if (process.env.DATABASE_URL) {
+  if (config.postgresUrl) {
     return {
-      connectionString: process.env.DATABASE_URL,
+      connectionString: config.postgresUrl,
       ssl: resolveSsl(),
       max: Number(process.env.DB_POOL_MAX || 10)
     };
   }
 
   return {
-    host: process.env.PGHOST || process.env.POSTGRES_HOST || "localhost",
-    port: Number(process.env.PGPORT || process.env.POSTGRES_PORT || 5432),
-    user: process.env.PGUSER || process.env.POSTGRES_USER || "qaira",
-    password: process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD || "qaira",
-    database: process.env.PGDATABASE || process.env.POSTGRES_DB || "qaira",
+    host: config.postgres.host,
+    port: config.postgres.port,
+    user: config.postgres.user,
+    password: config.postgres.password,
+    database: config.postgres.database,
     ssl: resolveSsl(),
     max: Number(process.env.DB_POOL_MAX || 10)
   };
@@ -56,7 +57,85 @@ const serializeParam = (value) => {
 
 const toPgPlaceholders = (sql) => {
   let index = 0;
-  return sql.replace(/\?/g, () => `$${++index}`);
+  let output = "";
+  let quote = null;
+  let dollarTag = null;
+
+  for (let cursor = 0; cursor < sql.length; cursor += 1) {
+    const char = sql[cursor];
+    const next = sql[cursor + 1];
+
+    if (dollarTag) {
+      if (sql.startsWith(dollarTag, cursor)) {
+        output += dollarTag;
+        cursor += dollarTag.length - 1;
+        dollarTag = null;
+      } else {
+        output += char;
+      }
+      continue;
+    }
+
+    if (quote) {
+      output += char;
+      if (char === quote) {
+        if (quote === "'" && next === "'") {
+          output += next;
+          cursor += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    const dollarMatch = sql.slice(cursor).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
+    if (dollarMatch) {
+      dollarTag = dollarMatch[0];
+      output += dollarTag;
+      cursor += dollarTag.length - 1;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      output += char;
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      const newlineIndex = sql.indexOf("\n", cursor + 2);
+      const endIndex = newlineIndex === -1 ? sql.length : newlineIndex;
+      output += sql.slice(cursor, endIndex);
+      cursor = endIndex - 1;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      const commentEndIndex = sql.indexOf("*/", cursor + 2);
+      const endIndex = commentEndIndex === -1 ? sql.length : commentEndIndex + 2;
+      output += sql.slice(cursor, endIndex);
+      cursor = endIndex - 1;
+      continue;
+    }
+
+    if (char === "?") {
+      if (next === "|" || next === "&") {
+        output += char;
+        continue;
+      }
+
+      const previousNonSpace = output.match(/\S(?=\s*$)/)?.[0] || "";
+      const nextNonSpace = sql.slice(cursor + 1).match(/\S/)?.[0] || "";
+      const isJsonbExistsOperator = /[\w)"\]]/.test(previousNonSpace) && nextNonSpace === "'";
+      output += isJsonbExistsOperator ? char : `$${++index}`;
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
 };
 
 const getExecutor = () => {

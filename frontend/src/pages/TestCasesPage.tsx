@@ -849,7 +849,7 @@ export function TestCasesPage() {
   const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
   const [aiRequirementIds, setAiRequirementIds] = useState<string[]>([]);
   const [integrationId, setIntegrationId] = useState("");
-  const [maxCases, setMaxCases] = useState(8);
+  const [maxCases, setMaxCases] = useState(3);
   const [parallelRequirementLimit, setParallelRequirementLimit] = useState(5);
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
   const [aiExternalLinksText, setAiExternalLinksText] = useState("");

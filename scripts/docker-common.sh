@@ -8,7 +8,10 @@ ensure_docker() {
     exit 1
   fi
 
-  docker info >/dev/null
+  if ! docker ps >/dev/null 2>&1; then
+    echo "Docker daemon is not reachable. Start Docker Desktop, then rerun the command." >&2
+    exit 1
+  fi
 }
 
 compose_cmd() {

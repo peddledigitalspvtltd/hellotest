@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { AddIcon, ImportIcon, UsersIcon } from "../components/AppIcons";
 import { api } from "../lib/api";
@@ -10,12 +10,13 @@ import { Panel } from "../components/Panel";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { TileCardFact, TileCardIconFrame, TileCardStatusIndicator, TileCardUsersIcon } from "../components/TileCardPrimitives";
+import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { parseUserCsv, type ImportedUserRow } from "../lib/userImport";
-import type { Role, User } from "../types";
+import type { PermissionGroup, Role, User } from "../types";
 
 type PeopleView = "users" | "roles";
 type FeedbackTone = "success" | "error";
@@ -29,12 +30,19 @@ export function PeoplePage() {
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { users, roles } = useWorkspaceData();
+  const permissions = useQuery({
+    queryKey: ["permissions"],
+    queryFn: api.roles.permissions,
+    enabled: Boolean(session)
+  });
   const [feedback, setFeedback] = useState<{ message: string; tone: FeedbackTone } | null>(null);
   const [view, setView] = useState<PeopleView>(searchParams.get("view") === "roles" ? "roles" : "users");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [userDraft, setUserDraft] = useState(createEmptyUserDraft());
   const [roleDraft, setRoleDraft] = useState(EMPTY_ROLE_DRAFT);
+  const [rolePermissionDraft, setRolePermissionDraft] = useState<string[]>([]);
+  const [createRolePermissionDraft, setCreateRolePermissionDraft] = useState<string[]>([]);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
   const [isImportUsersModalOpen, setIsImportUsersModalOpen] = useState(false);
@@ -44,6 +52,11 @@ export function PeoplePage() {
   const [importUsersFileName, setImportUsersFileName] = useState("");
   const [importUserRows, setImportUserRows] = useState<ImportedUserRow[]>([]);
   const [importUserWarnings, setImportUserWarnings] = useState<string[]>([]);
+  const selectedRolePermissions = useQuery({
+    queryKey: ["roles", selectedRoleId, "permissions"],
+    queryFn: () => api.roles.rolePermissions(selectedRoleId),
+    enabled: Boolean(session && selectedRoleId)
+  });
 
   const userItems = users.data || [];
   const roleItems = roles.data || [];
@@ -58,6 +71,29 @@ export function PeoplePage() {
     [selectedRoleId, roleItems]
   );
   const isAdmin = session?.user.role === "admin";
+  const permissionGroups = permissions.data || [];
+  const allPermissionCodes = useMemo(
+    () => permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
+    [permissionGroups]
+  );
+  const memberDefaultPermissionCodes = useMemo(
+    () => allPermissionCodes.filter((code) => ![
+      "project.delete",
+      "settings.manage",
+      "user.manage",
+      "role.manage",
+      "project_member.manage",
+      "requirement.delete",
+      "testcase.delete",
+      "suite.delete",
+      "run.delete",
+      "schedule.delete",
+      "integration.manage",
+      "transaction.manage",
+      "ops.manage"
+    ].includes(code)),
+    [allPermissionCodes]
+  );
   const defaultMemberRoleId = useMemo(
     () => roleItems.find((item) => item.name === "member")?.id || roleItems[0]?.id || "",
     [roleItems]
@@ -103,6 +139,10 @@ export function PeoplePage() {
 
     setRoleDraft(EMPTY_ROLE_DRAFT);
   }, [selectedRole]);
+
+  useEffect(() => {
+    setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code));
+  }, [selectedRolePermissions.data]);
 
   useEffect(() => {
     const requestedView = searchParams.get("view");
@@ -160,7 +200,8 @@ export function PeoplePage() {
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["users"] }),
-      queryClient.invalidateQueries({ queryKey: ["roles"] })
+      queryClient.invalidateQueries({ queryKey: ["roles"] }),
+      queryClient.invalidateQueries({ queryKey: ["permissions"] })
     ]);
   };
 
@@ -236,6 +277,7 @@ export function PeoplePage() {
 
   const openCreateRoleModal = () => {
     setCreateRoleDraft(EMPTY_ROLE_DRAFT);
+    setCreateRolePermissionDraft(memberDefaultPermissionCodes);
     setIsCreateRoleModalOpen(true);
   };
 
@@ -246,6 +288,7 @@ export function PeoplePage() {
 
     setIsCreateRoleModalOpen(false);
     setCreateRoleDraft(EMPTY_ROLE_DRAFT);
+    setCreateRolePermissionDraft(memberDefaultPermissionCodes);
   };
 
   const openImportUsersModal = () => {
@@ -346,6 +389,16 @@ export function PeoplePage() {
     onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete role", "error")
   });
 
+  const replaceRolePermissions = useMutation({
+    mutationFn: ({ id, permissionCodes }: { id: string; permissionCodes: string[] }) =>
+      api.roles.replacePermissions(id, permissionCodes),
+    onSuccess: async () => {
+      showFeedback("Role permissions updated.", "success");
+      await queryClient.invalidateQueries({ queryKey: ["roles", selectedRoleId, "permissions"] });
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update role permissions", "error")
+  });
+
   const handleUserCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     createUser.mutate({
@@ -358,7 +411,144 @@ export function PeoplePage() {
 
   const handleRoleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    createRole.mutate({ name: createRoleDraft.name });
+    createRole.mutate({ name: createRoleDraft.name, permission_codes: createRolePermissionDraft });
+  };
+
+  const togglePermission = (code: string, target: "create" | "edit") => {
+    const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+    setter((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code].sort());
+  };
+
+  const setPermissionGroup = (group: PermissionGroup, checked: boolean, target: "create" | "edit") => {
+    const groupCodes = group.permissions.map((permission) => permission.code);
+    const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+
+    setter((current) => {
+      const next = new Set(current);
+      for (const code of groupCodes) {
+        if (checked) {
+          next.add(code);
+        } else {
+          next.delete(code);
+        }
+      }
+      return [...next].sort();
+    });
+  };
+
+  const renderPermissionMatrix = (selectedCodes: string[], target: "create" | "edit") => {
+    const selectedSet = new Set(selectedCodes);
+    const selectedPermissions = permissionGroups.flatMap((group) =>
+      group.permissions
+        .filter((permission) => selectedSet.has(permission.code))
+        .map((permission) => ({ ...permission, groupLabel: group.label }))
+    );
+    const availablePermissions = permissionGroups.flatMap((group) =>
+      group.permissions
+        .filter((permission) => !selectedSet.has(permission.code))
+        .map((permission) => ({ ...permission, groupLabel: group.label }))
+    );
+
+    const setAllPermissions = (checked: boolean) => {
+      const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+      setter(checked ? allPermissionCodes : []);
+    };
+
+    return (
+    <div className="permission-transfer">
+      <div className="permission-transfer-column">
+        <div className="permission-transfer-head">
+          <div>
+            <strong>Not selected</strong>
+            <span>{availablePermissions.length} permission{availablePermissions.length === 1 ? "" : "s"}</span>
+          </div>
+          <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
+            Add all
+          </button>
+        </div>
+        <div className="permission-transfer-list">
+          {availablePermissions.map((permission) => (
+            <button className="permission-transfer-item" key={permission.code} onClick={() => togglePermission(permission.code, target)} type="button">
+              <span>
+                <strong>{permission.code}</strong>
+                <small>{permission.groupLabel} · {permission.description}</small>
+              </span>
+              <span aria-hidden="true" className="permission-transfer-arrow">→</span>
+            </button>
+          ))}
+          {!availablePermissions.length ? <div className="empty-state compact">Every permission is selected.</div> : null}
+        </div>
+      </div>
+
+      <div aria-hidden="true" className="permission-transfer-bridge">⇄</div>
+
+      <div className="permission-transfer-column is-selected">
+        <div className="permission-transfer-head">
+          <div>
+            <strong>Selected</strong>
+            <span>{selectedPermissions.length} permission{selectedPermissions.length === 1 ? "" : "s"}</span>
+          </div>
+          <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
+            Clear
+          </button>
+        </div>
+        <div className="permission-transfer-list">
+          {selectedPermissions.map((permission) => (
+            <button className="permission-transfer-item is-selected" key={permission.code} onClick={() => togglePermission(permission.code, target)} type="button">
+              <span aria-hidden="true" className="permission-transfer-arrow">←</span>
+              <span>
+                <strong>{permission.code}</strong>
+                <small>{permission.groupLabel} · {permission.description}</small>
+              </span>
+            </button>
+          ))}
+          {!selectedPermissions.length ? <div className="empty-state compact">No permissions selected.</div> : null}
+        </div>
+      </div>
+
+      <div className="permission-group-strip">
+      {permissionGroups.map((group) => {
+        const groupCodes = group.permissions.map((permission) => permission.code);
+        const selectedCount = groupCodes.filter((code) => selectedCodes.includes(code)).length;
+        const isAllSelected = selectedCount === groupCodes.length && groupCodes.length > 0;
+
+        return (
+          <section className="permission-group-card" key={group.key}>
+            <div className="permission-group-head">
+              <div>
+                <strong>{group.label}</strong>
+                <span>{selectedCount} of {groupCodes.length} selected</span>
+              </div>
+              <label className="permission-toggle-all">
+                <input
+                  checked={isAllSelected}
+                  onChange={(event) => setPermissionGroup(group, event.target.checked, target)}
+                  type="checkbox"
+                />
+                <span>All</span>
+              </label>
+            </div>
+            <div className="permission-option-list">
+              {group.permissions.map((permission) => (
+                <label className="permission-option" key={permission.code}>
+                  <input
+                    checked={selectedCodes.includes(permission.code)}
+                    onChange={() => togglePermission(permission.code, target)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>{permission.code}</strong>
+                    <small>{permission.description}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      </div>
+    </div>
+    );
   };
 
   const confirmDeleteUser = async (user: User) => {
@@ -500,9 +690,7 @@ export function PeoplePage() {
       />
 
       {feedback ? (
-        <p className={`inline-message ${feedback.tone === "success" ? "success-message" : "error-message"}`}>
-          {feedback.message}
-        </p>
+        <ToastMessage message={feedback.message} onDismiss={() => setFeedback(null)} tone={feedback.tone} />
       ) : null}
 
       <SubnavTabs
@@ -685,32 +873,60 @@ export function PeoplePage() {
                 <div className="detail-stack">
                   <div className="detail-summary">
                     <strong>{selectedRole.name}</strong>
-                    <span>Reusable access label</span>
+                    <span>{rolePermissionDraft.length} permissions selected</span>
                   </div>
                   {isAdmin ? (
-                    <form
-                      className="form-grid"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name } });
-                      }}
-                    >
-                      <FormField label="Role name">
-                        <input
-                          name="name"
-                          value={roleDraft.name}
-                          onChange={(event) => setRoleDraft({ name: event.target.value })}
-                        />
-                      </FormField>
-                      <div className="action-row">
-                        <button className="primary-button" disabled={updateRole.isPending} type="submit">
-                          {updateRole.isPending ? "Saving…" : "Save role"}
-                        </button>
-                        <button className="ghost-button danger" disabled={deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
-                          Delete role
-                        </button>
+                    <>
+                      <form
+                        className="form-grid"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name } });
+                        }}
+                      >
+                        <FormField label="Role name">
+                          <input
+                            name="name"
+                            value={roleDraft.name}
+                            onChange={(event) => setRoleDraft({ name: event.target.value })}
+                          />
+                        </FormField>
+                        <div className="action-row">
+                          <button className="primary-button" disabled={updateRole.isPending} type="submit">
+                            {updateRole.isPending ? "Saving…" : "Save role"}
+                          </button>
+                          <button className="ghost-button danger" disabled={deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
+                            Delete role
+                          </button>
+                        </div>
+                      </form>
+
+                      <div className="role-permission-editor">
+                        <div className="detail-summary">
+                          <strong>Permissions</strong>
+                          <span>Bind feature access and CRUD actions to this role. Changes apply anywhere this role is assigned.</span>
+                        </div>
+                        {permissions.isLoading || selectedRolePermissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(rolePermissionDraft, "edit")}
+                        <div className="action-row">
+                          <button
+                            className="primary-button"
+                            disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                            onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
+                            type="button"
+                          >
+                            {replaceRolePermissions.isPending ? "Saving permissions…" : "Save permissions"}
+                          </button>
+                          <button
+                            className="ghost-button"
+                            disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                            onClick={() => setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code))}
+                            type="button"
+                          >
+                            Reset
+                          </button>
+                        </div>
                       </div>
-                    </form>
+                    </>
                   ) : (
                     <div className="empty-state compact">Read-only access. Ask an admin to change role definitions.</div>
                   )}
@@ -971,6 +1187,11 @@ export function PeoplePage() {
                     onChange={(event) => setCreateRoleDraft({ name: event.target.value })}
                   />
                 </FormField>
+                <div className="detail-summary">
+                  <strong>Default permissions</strong>
+                  <span>Member-safe permissions are selected by default. Adjust before creating the role.</span>
+                </div>
+                {permissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(createRolePermissionDraft, "create")}
               </div>
 
               <div className="action-row people-modal-actions">

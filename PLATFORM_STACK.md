@@ -52,30 +52,27 @@ QAira already runs on Fastify, which means Pino logging is native through the ba
 - `testengine/docker-compose.deploy.yml`
   - standalone Playwright Test Engine deployment for a separate EC2
 
-## Release Flow
+## Operator Flow
 
-Use [release.sh](/Users/jayarajumetta/MJ/qaira/release.sh:1) from the main repo host to build and push:
+Use [qaira.sh](/Users/jayarajumetta/MJ/qaira/qaira.sh:1) as the root entrypoint for service relation config, image publishing, and compose deployment:
 
-- QAira backend image
-- QAira frontend image
-- QAira Test Engine image
+```bash
+./qaira.sh config --stack platform
+./qaira.sh push
+./qaira.sh deploy --stack platform
+./qaira.sh deploy --stack testengine --yes
+```
 
-Use [release-testengine.sh](/Users/jayarajumetta/MJ/qaira/release-testengine.sh:1) on the separate Test Engine host to pull the published image and refresh the standalone engine container.
+`qaira.sh` generates `.qaira/<stack>.env` with the resolved frontend, API, worker, Test Engine, database, Redis, and image settings. Override values with environment variables or `--config <file>`.
 
-## Service Start Scripts
+For AWS EC2 deployments, prefer the `deploymentscripts` wrappers because they bind internal services to localhost by default and make duplicate/container audits easier.
 
-- [run-postgres.sh](/Users/jayarajumetta/MJ/qaira/run-postgres.sh:1)
-- [run-backend.sh](/Users/jayarajumetta/MJ/qaira/run-backend.sh:1)
-- [run-frontend.sh](/Users/jayarajumetta/MJ/qaira/run-frontend.sh:1)
-- [run-testengine.sh](/Users/jayarajumetta/MJ/qaira/run-testengine.sh:1)
+## AWS Service Scripts
+
 - [deploymentscripts/aws-app-deploy.sh](/Users/jayarajumetta/MJ/qaira/deploymentscripts/aws-app-deploy.sh:1)
 - [deploymentscripts/aws-testengine-deploy.sh](/Users/jayarajumetta/MJ/qaira/deploymentscripts/aws-testengine-deploy.sh:1)
 - [deploymentscripts/aws-status.sh](/Users/jayarajumetta/MJ/qaira/deploymentscripts/aws-status.sh:1)
 - [deploymentscripts/aws-logs.sh](/Users/jayarajumetta/MJ/qaira/deploymentscripts/aws-logs.sh:1)
-
-Set `PULL_IMAGES=1` if you want those scripts to pull registry images before starting services.
-
-For AWS EC2 deployments, prefer the `deploymentscripts` wrappers because they bind internal services to localhost by default and make duplicate/container audits easier.
 
 ## Recommended Deploy Split
 

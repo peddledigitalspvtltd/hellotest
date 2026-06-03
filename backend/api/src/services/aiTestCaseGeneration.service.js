@@ -5,9 +5,9 @@ const testCaseService = require("./testCase.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
-const DEFAULT_CASES_PER_REQUIREMENT = 8;
+const DEFAULT_CASES_PER_REQUIREMENT = 3;
 const DEFAULT_PARALLEL_REQUIREMENTS = 5;
-const MAX_CASES_PER_REQUIREMENT = 20;
+const MAX_CASES_PER_REQUIREMENT = 3;
 const MAX_PARALLEL_REQUIREMENTS = 5;
 const REQUIREMENT_BATCH_LIMIT = 5;
 const MAX_LLM_RETRY_ATTEMPTS = 4;

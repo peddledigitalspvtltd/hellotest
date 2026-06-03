@@ -1,5 +1,6 @@
 const service = require("../services/user.service");
 const batchProcessService = require("../services/batchProcess.service");
+const permissionService = require("../services/permission.service");
 
 module.exports = async function (fastify) {
   const createError = (message, statusCode) => {
@@ -8,7 +9,7 @@ module.exports = async function (fastify) {
     return error;
   };
 
-  fastify.post("/users", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.post("/users", async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
       password_hash: { required: true, type: "string", minLength: 3 },
@@ -19,7 +20,7 @@ module.exports = async function (fastify) {
     return service.createUser(req.body);
   });
 
-  fastify.post("/users/import", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.post("/users/import", async (req) => {
     fastify.validate({
       rows: { required: true, type: "array" },
       default_role_id: { required: false, type: "string" }
@@ -53,20 +54,20 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const isSelfUpdate = req.user?.id === req.params.id;
-    const isAdmin = req.user?.role === "admin";
+    const isPrivilegedUserManager = req.user?.role === "admin" || await permissionService.hasPermission(req.user, "user.manage");
 
-    if (!isSelfUpdate && !isAdmin) {
+    if (!isSelfUpdate && !isPrivilegedUserManager) {
       throw createError("You can only update your own profile.", 403);
     }
 
-    if (!isAdmin && (req.body?.role_id !== undefined || req.body?.password_hash !== undefined)) {
-      throw createError("Only admins can change roles or password hashes from this endpoint.", 403);
+    if (!isPrivilegedUserManager && (req.body?.role_id !== undefined || req.body?.password_hash !== undefined)) {
+      throw createError("Permission required: user.manage", 403);
     }
 
     return service.updateUser(req.params.id, req.body);
   });
 
-  fastify.delete("/users/:id", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.delete("/users/:id", async (req) => {
     return service.deleteUser(req.params.id);
   });
 };

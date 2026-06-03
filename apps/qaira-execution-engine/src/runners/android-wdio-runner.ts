@@ -1,4 +1,5 @@
 import { remote, type Browser } from "webdriverio";
+import { config } from "../config.js";
 import type { ExecutionContext, RunStep, RunnerStepResult } from "../models/execution.js";
 import type { RunnerAdapter } from "./runner-adapter.js";
 
@@ -16,7 +17,7 @@ export class AndroidWdioRunner implements RunnerAdapter {
     this.session = await remote({
       path: "/wd/hub",
       protocol: "http",
-      hostname: String(context.runVariables["appiumHost"] || "localhost"),
+      hostname: String(context.runVariables["appiumHost"] || (config.appMode === "local" ? "localhost" : "appium")),
       port: Number(context.runVariables["appiumPort"] || 4723),
       capabilities
     });

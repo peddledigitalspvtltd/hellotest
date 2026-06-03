@@ -2,10 +2,23 @@ const db = require("./index");
 const {
   INTEGRATION_TYPE_VALUES
 } = require("../domain/catalog");
+const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require("../security/permissions.catalog");
 
 let bootstrapPromise = null;
 
 const sqlEnum = (values) => values.map((value) => `'${String(value).replace(/'/g, "''")}'`).join(", ");
+const sqlValue = (value) => `'${String(value).replace(/'/g, "''")}'`;
+const permissionSeedValues = PERMISSIONS
+  .map((permission) => `(${sqlValue(permission.id)}, ${sqlValue(permission.code)}, ${sqlValue(permission.description)})`)
+  .join(",\n      ");
+const rolePermissionSeedStatements = Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([roleName, permissionCodes]) => `
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT roles.id, permissions.id
+    FROM roles
+    JOIN permissions ON permissions.code IN (${permissionCodes.map(sqlValue).join(", ")})
+    WHERE LOWER(roles.name) = ${sqlValue(roleName.toLowerCase())}
+    ON CONFLICT (role_id, permission_id) DO NOTHING
+  `);
 
 const statements = [
   `
@@ -542,6 +555,29 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_suite_test_cases_test_case_sort ON suite_test_cases (test_case_id, sort_order)`,
   `CREATE INDEX IF NOT EXISTS idx_requirement_test_cases_test_case ON requirement_test_cases (test_case_id)`,
   `CREATE INDEX IF NOT EXISTS idx_project_members_project_user ON project_members (project_id, user_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS permissions (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      description TEXT,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role_id TEXT NOT NULL,
+      permission_id TEXT NOT NULL,
+      PRIMARY KEY (role_id, permission_id)
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_role_permissions_permission ON role_permissions (permission_id)`,
+  `
+    INSERT INTO permissions (id, code, description)
+    VALUES
+      ${permissionSeedValues}
+    ON CONFLICT (code) DO NOTHING
+  `,
+  ...rolePermissionSeedStatements,
   `CREATE INDEX IF NOT EXISTS idx_execution_suites_execution_suite ON execution_suites (execution_id, suite_id)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_scope_status ON ai_test_case_generation_jobs (app_type_id, status, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_project_created ON ai_test_case_generation_jobs (project_id, created_at DESC)`,
@@ -909,6 +945,172 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_engine_jobs_engine_run_id ON test_engine_jobs (engine_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, engine_class, app_type_kind, engine_host, created_at ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case ON test_engine_jobs (execution_id, test_case_id)`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'remote'`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS worker_id TEXT`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS error_message TEXT`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  `ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_execution_mode_check`,
+  `ALTER TABLE executions ADD CONSTRAINT executions_execution_mode_check CHECK (execution_mode IN ('local', 'remote', 'scheduled'))`,
+  `ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_status_check`,
+  `ALTER TABLE executions ADD CONSTRAINT executions_status_check CHECK (status IN ('queued', 'running', 'passed', 'failed', 'skipped', 'blocked', 'retrying', 'cancelled', 'aborted', 'partially_completed', 'completed'))`,
+  `
+    CREATE TABLE IF NOT EXISTS suite_runs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      suite_id TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      duration_ms INTEGER,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      worker_id TEXT,
+      execution_mode TEXT NOT NULL DEFAULT 'remote',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS run_id TEXT`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS suite_id TEXT`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS parent_id TEXT`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued'`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS error_message TEXT`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS worker_id TEXT`,
+  `ALTER TABLE suite_runs ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'remote'`,
+  `ALTER TABLE suite_runs DROP CONSTRAINT IF EXISTS suite_runs_status_check`,
+  `ALTER TABLE suite_runs ADD CONSTRAINT suite_runs_status_check CHECK (status IN ('queued', 'running', 'passed', 'failed', 'skipped', 'blocked', 'retrying', 'cancelled', 'aborted', 'partially_completed'))`,
+  `ALTER TABLE suite_runs DROP CONSTRAINT IF EXISTS suite_runs_execution_mode_check`,
+  `ALTER TABLE suite_runs ADD CONSTRAINT suite_runs_execution_mode_check CHECK (execution_mode IN ('local', 'remote', 'scheduled'))`,
+  `CREATE INDEX IF NOT EXISTS idx_suite_runs_run ON suite_runs (run_id, status)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_runs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      suite_run_id TEXT,
+      test_case_id TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      duration_ms INTEGER,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      worker_id TEXT,
+      execution_mode TEXT NOT NULL DEFAULT 'remote',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS run_id TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS suite_run_id TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS test_case_id TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS parent_id TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued'`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS error_message TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS worker_id TEXT`,
+  `ALTER TABLE test_case_runs ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'remote'`,
+  `ALTER TABLE test_case_runs DROP CONSTRAINT IF EXISTS test_case_runs_status_check`,
+  `ALTER TABLE test_case_runs ADD CONSTRAINT test_case_runs_status_check CHECK (status IN ('queued', 'running', 'passed', 'failed', 'skipped', 'blocked', 'retrying', 'cancelled', 'aborted', 'partially_completed'))`,
+  `ALTER TABLE test_case_runs DROP CONSTRAINT IF EXISTS test_case_runs_execution_mode_check`,
+  `ALTER TABLE test_case_runs ADD CONSTRAINT test_case_runs_execution_mode_check CHECK (execution_mode IN ('local', 'remote', 'scheduled'))`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_runs_suite ON test_case_runs (suite_run_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_runs_run_case ON test_case_runs (run_id, test_case_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS step_runs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      test_case_run_id TEXT,
+      step_id TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      duration_ms INTEGER,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      worker_id TEXT,
+      execution_mode TEXT NOT NULL DEFAULT 'remote',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS run_id TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS test_case_run_id TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS step_id TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS parent_id TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued'`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS error_message TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS worker_id TEXT`,
+  `ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'remote'`,
+  `ALTER TABLE step_runs DROP CONSTRAINT IF EXISTS step_runs_status_check`,
+  `ALTER TABLE step_runs ADD CONSTRAINT step_runs_status_check CHECK (status IN ('queued', 'running', 'passed', 'failed', 'skipped', 'blocked', 'retrying', 'cancelled', 'aborted', 'partially_completed'))`,
+  `ALTER TABLE step_runs DROP CONSTRAINT IF EXISTS step_runs_execution_mode_check`,
+  `ALTER TABLE step_runs ADD CONSTRAINT step_runs_execution_mode_check CHECK (execution_mode IN ('local', 'remote', 'scheduled'))`,
+  `CREATE INDEX IF NOT EXISTS idx_step_runs_case ON step_runs (test_case_run_id, status)`,
+  `
+    CREATE TABLE IF NOT EXISTS execution_capacity (
+      engine_type TEXT PRIMARY KEY,
+      max_parallel INTEGER NOT NULL DEFAULT 1,
+      current_running INTEGER NOT NULL DEFAULT 0,
+      queued_count INTEGER NOT NULL DEFAULT 0,
+      healthy_workers INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE execution_capacity DROP CONSTRAINT IF EXISTS execution_capacity_engine_type_check`,
+  `ALTER TABLE execution_capacity ADD CONSTRAINT execution_capacity_engine_type_check CHECK (engine_type IN ('api', 'web', 'android'))`,
+  `
+    INSERT INTO execution_capacity (engine_type, max_parallel)
+    VALUES ('api', 30), ('web', 5), ('android', 2)
+    ON CONFLICT (engine_type) DO NOTHING
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS worker_heartbeat (
+      worker_id TEXT PRIMARY KEY,
+      engine_type TEXT,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      current_job_id TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `,
+  `ALTER TABLE worker_heartbeat DROP CONSTRAINT IF EXISTS worker_heartbeat_engine_type_check`,
+  `ALTER TABLE worker_heartbeat ADD CONSTRAINT worker_heartbeat_engine_type_check CHECK (engine_type IS NULL OR engine_type IN ('api', 'web', 'android'))`,
+  `CREATE INDEX IF NOT EXISTS idx_worker_heartbeat_seen ON worker_heartbeat (last_seen_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      session_id TEXT,
+      project_id TEXT,
+      run_id TEXT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'unread',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS session_id TEXT`,
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS project_id TEXT`,
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS run_id TEXT`,
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'unread'`,
+  `ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_status_check`,
+  `ALTER TABLE notifications ADD CONSTRAINT notifications_status_check CHECK (status IN ('unread', 'read'))`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications (user_id, status, created_at DESC)`,
   `
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

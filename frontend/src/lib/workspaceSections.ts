@@ -21,9 +21,9 @@ export type WorkspaceSectionItem = {
 
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: "/requirements", label: "Requirements", shortLabel: "Reqs", icon: "requirements" },
-  { to: "/test-cases", label: "Test Cases", shortLabel: "Cases", icon: "cases" },
+  { to: "/test-cases", label: "Cases", shortLabel: "Cases", icon: "cases" },
   { to: "/shared-steps", label: "Shared Steps", shortLabel: "Shared", icon: "shared" },
-  { to: "/design", label: "Test Suites", shortLabel: "Suites", icon: "suites" }
+  { to: "/design", label: "Suites", shortLabel: "Suites", icon: "suites" }
 ];
 
 export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
@@ -33,40 +33,40 @@ export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const AUTOMATION_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/automation", label: "Automation Cases", shortLabel: "Cases", icon: "automation" },
-  { to: "/object-repository", label: "Object Repository", shortLabel: "OR", icon: "repository" },
-  { to: "/local-playwright", label: "Local Playwright", shortLabel: "Local", icon: "playwright" }
+  { to: "/automation", label: "Automation", shortLabel: "Auto", icon: "automation" },
+  { to: "/object-repository", label: "Objects", shortLabel: "Objects", icon: "repository" },
+  { to: "/local-playwright", label: "Recorder", shortLabel: "Record", icon: "playwright" }
 ];
 
 export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/testops", label: "Batch Process", shortLabel: "Batch", icon: "ops" },
-  { to: "/ops-telemetry", label: "OPS Telemetry", shortLabel: "Telemetry", icon: "telemetry" },
-  { to: "/traces", label: "Distributed Traces", shortLabel: "Traces", icon: "traces" }
+  { to: "/testops", label: "Jobs", shortLabel: "Jobs", icon: "ops" },
+  { to: "/ops-telemetry", label: "Telemetry", shortLabel: "Telemetry", icon: "telemetry" },
+  { to: "/traces", label: "Traces", shortLabel: "Traces", icon: "traces" }
 ];
 
 export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
-  "/": "Dashboard",
+  "/": "Home",
   "/projects": "Projects",
   "/requirements": "Requirements",
-  "/test-cases": "Test Cases",
+  "/test-cases": "Cases",
   "/shared-steps": "Shared Step Groups",
-  "/design": "Test Suites",
-  "/executions": "Test Runs",
-  "/automation": "Automation Cases",
-  "/object-repository": "Object Repository",
-  "/local-playwright": "Local Playwright",
-  "/testops": "Batch Process",
-  "/ops-telemetry": "OPS Telemetry",
-  "/traces": "Distributed Traces",
+  "/design": "Suites",
+  "/executions": "Runs",
+  "/automation": "Automation",
+  "/object-repository": "Objects",
+  "/local-playwright": "Recorder",
+  "/testops": "Jobs",
+  "/ops-telemetry": "Telemetry",
+  "/traces": "Traces",
   "/test-environments": "Environments",
   "/test-data": "Test Data",
   "/test-configurations": "Configurations",
-  "/people": "Users",
+  "/people": "People",
   "/integrations": "Integrations",
   "/support": "Support",
   "/notifications": "Notifications",
   "/settings": "Settings",
-  "/feedback": "Reporting & Feedback"
+  "/feedback": "Feedback"
 };
 
 export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {

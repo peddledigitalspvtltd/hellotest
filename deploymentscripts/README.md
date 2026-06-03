@@ -1,11 +1,11 @@
 # QAira AWS Deployment Scripts
 
-These scripts are the preferred EC2 entrypoints for AWS-style deployment. They keep the old root scripts usable, but give operators safer defaults and quick status/log checks.
+These scripts are the preferred EC2 entrypoints for AWS-style deployment. The root [qaira.sh](../qaira.sh) script owns image publishing, service relation config, and compose orchestration; these wrappers add AWS-safe bind defaults and quick status/log checks.
 
 ## Recommended AWS Shape
 
 - Build/release host or CI:
-  - runs `./release.sh --no-deploy`
+  - runs `./qaira.sh push`
   - builds and pushes backend, frontend, and Test Engine images
 - App EC2:
   - runs only the platform plane
@@ -16,7 +16,7 @@ These scripts are the preferred EC2 entrypoints for AWS-style deployment. They k
   - services: Test Engine, Selenium Hub, Selenium Chromium node
   - command: `deploymentscripts/aws-testengine-deploy.sh`
 
-Avoid running `./release.sh` without `--no-deploy` on EC2 after switching to the platform stack. Plain `./release.sh` refreshes `docker-compose.full.yml`, while AWS app hosts should refresh `docker-compose.platform.yml`.
+Avoid ad hoc `docker compose up` on EC2 after switching to the platform stack. App hosts should refresh through `./qaira.sh deploy --stack platform` or `deploymentscripts/aws-app-deploy.sh` so service URLs and bind defaults stay consistent.
 
 ## Deploy App Host
 

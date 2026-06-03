@@ -3,12 +3,18 @@ const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http')
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { resourceFromAttributes } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+const { config } = require('./config');
 
-const traceExporter = new OTLPTraceExporter({
-  url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT 
-    ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`
-    : 'http://localhost:4318/v1/traces',
-});
+if (!config.enableObservability) {
+  module.exports = null;
+  return;
+}
+
+const otelUrl = config.otelEndpoint
+  ? `${config.otelEndpoint.replace(/\/+$/, '')}/v1/traces`
+  : undefined;
+
+const traceExporter = otelUrl ? new OTLPTraceExporter({ url: otelUrl }) : undefined;
 
 const sdk = new NodeSDK({
   resource: resourceFromAttributes({
@@ -19,7 +25,11 @@ const sdk = new NodeSDK({
 });
 
 // Initialize the SDK and register with the global tracer provider
-sdk.start();
+try {
+  sdk.start();
+} catch (error) {
+  console.warn('Tracing disabled after startup error:', error.message);
+}
 
 process.on('SIGTERM', () => {
   sdk.shutdown()

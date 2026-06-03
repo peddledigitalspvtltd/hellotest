@@ -1,0 +1,74 @@
+const APP_MODES = new Set(["local", "docker", "aws", "k8s"]);
+const STORAGE_PROVIDERS = new Set(["local", "minio", "s3"]);
+const QUEUE_PROVIDERS = new Set(["redis"]);
+
+const normalizeBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+};
+
+const normalizeNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+const enumValue = (value, allowed, fallback) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : fallback;
+};
+
+const appMode = enumValue(process.env.APP_MODE, APP_MODES, "local");
+const localOnly = appMode === "local";
+
+const serviceHost = (name, localFallback) => (localOnly ? localFallback : name);
+
+const config = {
+  appMode,
+  port: normalizeNumber(process.env.PORT, 3000),
+  postgresUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL || "",
+  postgres: {
+    host: process.env.PGHOST || process.env.POSTGRES_HOST || serviceHost("postgres", "localhost"),
+    port: normalizeNumber(process.env.PGPORT || process.env.POSTGRES_PORT, 5432),
+    user: process.env.PGUSER || process.env.POSTGRES_USER || "qaira",
+    password: process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD || "qaira",
+    database: process.env.PGDATABASE || process.env.POSTGRES_DB || "qaira"
+  },
+  obsPostgresUrl: process.env.OBS_POSTGRES_URL || process.env.OBS_DATABASE_URL || "",
+  obsPostgres: {
+    host: process.env.OBS_PGHOST || process.env.OBS_POSTGRES_HOST || serviceHost("postgres", "localhost"),
+    port: normalizeNumber(process.env.OBS_PGPORT || process.env.OBS_POSTGRES_PORT, 5432),
+    user: process.env.OBS_PGUSER || process.env.OBS_POSTGRES_USER || "qaira",
+    password: process.env.OBS_PGPASSWORD || process.env.OBS_POSTGRES_PASSWORD || "qaira",
+    database: process.env.OBS_PGDATABASE || process.env.OBS_POSTGRES_DB || "qaira_obs"
+  },
+  redisUrl: process.env.REDIS_URL || `redis://${serviceHost("redis", "localhost")}:6379`,
+  storageProvider: enumValue(process.env.STORAGE_PROVIDER, STORAGE_PROVIDERS, "local"),
+  evidenceLocalPath: process.env.EVIDENCE_LOCAL_PATH || "/tmp/qaira-evidence",
+  s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || "qaira-artifacts",
+  queueProvider: enumValue(process.env.QUEUE_PROVIDER, QUEUE_PROVIDERS, "redis"),
+  enableObservability: normalizeBoolean(process.env.ENABLE_OBSERVABILITY, process.env.NODE_ENV === "production"),
+  enableRealtime: normalizeBoolean(process.env.ENABLE_REALTIME, true),
+  maxParallelRuns: normalizeNumber(process.env.MAX_PARALLEL_RUNS, 3),
+  maxParallelSuites: normalizeNumber(process.env.MAX_PARALLEL_SUITES, 4),
+  maxParallelTests: normalizeNumber(process.env.MAX_PARALLEL_TESTS, 10),
+  maxWorkersApi: normalizeNumber(process.env.MAX_WORKERS_API, 30),
+  maxWorkersWeb: normalizeNumber(process.env.MAX_WORKERS_WEB, 5),
+  maxWorkersAndroid: normalizeNumber(process.env.MAX_WORKERS_ANDROID, 2),
+  retryMaxAttempts: normalizeNumber(process.env.RETRY_MAX_ATTEMPTS, 3),
+  retryBackoffSeconds: normalizeNumber(process.env.RETRY_BACKOFF_SECONDS, 5),
+  jobSleepSeconds: normalizeNumber(process.env.JOB_SLEEP_SECONDS, 1),
+  corsOrigins: (process.env.CORS_ORIGIN || (localOnly ? "http://localhost:5173,http://localhost:8080" : ""))
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+  otelEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || ""
+};
+
+module.exports = {
+  config,
+  normalizeBoolean,
+  normalizeNumber
+};

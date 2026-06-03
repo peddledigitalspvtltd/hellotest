@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AiAuthoredTestCasePreview, Integration, Requirement, TestStep } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { normalizeStepParameterValues } from "../lib/stepParameters";
@@ -89,6 +89,41 @@ export function AiCaseAuthoringModal({
     () => Object.entries(sourceDraft.parameter_values || {}).sort(([left], [right]) => left.localeCompare(right)),
     [sourceDraft.parameter_values]
   );
+  const [isIntegrationWarningDismissed, setIsIntegrationWarningDismissed] = useState(false);
+  const [isAutomationWarningDismissed, setIsAutomationWarningDismissed] = useState(false);
+  const integrationWarning = !integrations.length
+    ? "No active LLM integrations are available yet. Create one in Integrations to use AI authoring."
+    : "";
+  const automationWarning = hasAutomationWarning && !isCreating
+    ? "Replacing this case will overwrite the current saved step set, including any existing automation code or API request setup."
+    : "";
+  const toasterMessage =
+    previewMessage ||
+    (!isIntegrationWarningDismissed ? integrationWarning : "") ||
+    (!isAutomationWarningDismissed ? automationWarning : "");
+  const toasterTone = previewMessage ? previewTone : "error";
+
+  useEffect(() => {
+    setIsIntegrationWarningDismissed(false);
+  }, [integrations.length]);
+
+  useEffect(() => {
+    setIsAutomationWarningDismissed(false);
+  }, [hasAutomationWarning, isCreating]);
+
+  const dismissToasterMessage = () => {
+    if (previewMessage) {
+      onPreviewMessageDismiss();
+      return;
+    }
+
+    if (integrationWarning && !isIntegrationWarningDismissed) {
+      setIsIntegrationWarningDismissed(true);
+      return;
+    }
+
+    setIsAutomationWarningDismissed(true);
+  };
 
   return (
     <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
@@ -175,11 +210,6 @@ export function AiCaseAuthoringModal({
                 />
               </FormField>
 
-              {hasAutomationWarning && !isCreating ? (
-                <div className="inline-message error-message">
-                  Replacing this case will overwrite the current saved step set, including any existing automation code or API request setup.
-                </div>
-              ) : null}
             </section>
 
             <section className="ai-case-authoring-panel">
@@ -229,13 +259,7 @@ export function AiCaseAuthoringModal({
           </aside>
 
           <section className="ai-case-authoring-main">
-            <ToastMessage message={previewMessage} onDismiss={onPreviewMessageDismiss} tone={previewTone} />
-
-            {!integrations.length ? (
-              <div className="inline-message error-message">
-                No active LLM integrations are available yet. Create one in Integrations to use AI authoring.
-              </div>
-            ) : null}
+            <ToastMessage message={toasterMessage} onDismiss={dismissToasterMessage} tone={toasterTone} />
 
             <div className="action-row ai-case-authoring-actions">
               <button className="primary-button" disabled={disableGenerate} onClick={onGenerate} type="button">

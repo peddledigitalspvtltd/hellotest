@@ -14,6 +14,18 @@ export type Role = {
   name: string;
 };
 
+export type Permission = {
+  id: string;
+  code: string;
+  description: string | null;
+};
+
+export type PermissionGroup = {
+  key: string;
+  label: string;
+  permissions: Permission[];
+};
+
 export type Project = {
   id: string;
   display_id?: string | null;

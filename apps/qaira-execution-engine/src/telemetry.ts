@@ -1,26 +1,36 @@
 import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { Resource } from "@opentelemetry/resources";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import { config } from "./config.js";
 
 let sdk: NodeSDK | null = null;
 
 export const initializeTelemetry = async () => {
+  if (!config.enableObservability || !config.otelEndpoint) {
+    return;
+  }
+
   diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
 
   const traceExporter = new OTLPTraceExporter({ url: config.otelEndpoint });
 
   sdk = new NodeSDK({
-    resource: new Resource({
+    resource: resourceFromAttributes({
       [SemanticResourceAttributes.SERVICE_NAME]: "qaira-execution-engine",
       [SemanticResourceAttributes.SERVICE_NAMESPACE]: "qaira"
     }),
     traceExporter
   });
 
-  await sdk.start();
+  try {
+    await sdk.start();
+  } catch (error) {
+    sdk = null;
+    // Observability is optional; workers must still execute tests when OTel is unavailable.
+    console.warn("Telemetry unavailable; continuing without tracing", error);
+  }
 };
 
 export const shutdownTelemetry = async () => {
