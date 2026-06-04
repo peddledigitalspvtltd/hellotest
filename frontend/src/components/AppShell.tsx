@@ -8,6 +8,7 @@ import { ProjectDropdown } from "./ProjectDropdown";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { canAccessPath, hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
 import {
   AUTOMATION_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
@@ -115,6 +116,10 @@ function isNavigationItemActive(item: { to: string; matchPaths?: readonly string
   }
 
   return Boolean(item.matchPaths?.includes(pathname));
+}
+
+function navItemPermissions(item: { to: string; matchPaths?: readonly string[] }) {
+  return [item.to, ...(item.matchPaths || [])].flatMap((path) => requiredPermissionsForPath(path));
 }
 
 function getNavigationItemLabel(item: { label: string; shortLabel?: string }, shouldCollapseSidebar: boolean) {
@@ -269,6 +274,7 @@ export function AppShell() {
   const isWorkspaceWideLibrary = WORKSPACE_LIBRARY_PATHS.has(location.pathname);
 
   const currentSection = useMemo(() => WORKSPACE_PAGE_LABELS[location.pathname] || "Workspace", [location.pathname]);
+  const canAccessCurrentRoute = canAccessPath(session, location.pathname);
 
   const shouldCollapseSidebar = !isMobileViewport && isCollapsed;
   const sidebarClassName = `${shouldCollapseSidebar ? "sidebar is-collapsed" : "sidebar"}${isMobileSidebarOpen ? " is-mobile-open" : ""}`;
@@ -440,11 +446,17 @@ export function AppShell() {
               ) : null}
               <div className="nav-group-items">
                 {group.items.map((item) => {
+                  if (!hasAnyPermission(session, navItemPermissions(item))) {
+                    return null;
+                  }
+
                   const Icon = item.icon;
                   const isDisabled = Boolean("disabledWhenNoProjects" in item && item.disabledWhenNoProjects && hasNoProjects);
                   const badgeCount = "countKey" in item ? navCounts[item.countKey as keyof typeof navCounts] : undefined;
                   const isActive = isNavigationItemActive(item, location.pathname);
-                  const subItems = "subItems" in item ? item.subItems : undefined;
+                  const subItems = "subItems" in item
+                    ? item.subItems.filter((subItem) => canAccessPath(session, subItem.to))
+                    : undefined;
 
                   return (
                     <div className="nav-item-stack" key={item.to}>
@@ -600,7 +612,15 @@ export function AppShell() {
             </div>
           </div>
         ) : null}
-        <Outlet />
+        {canAccessCurrentRoute ? (
+          <Outlet />
+        ) : (
+          <section className="permission-empty-state card">
+            <span className="eyebrow">Access Limited</span>
+            <h1>You do not have permission to view this workspace area.</h1>
+            <p>Ask an administrator to update your role permissions, or choose another available menu item from the sidebar.</p>
+          </section>
+        )}
       </main>
 
       <UserProfileDialog isOpen={isProfileDialogOpen} onClose={() => setIsProfileDialogOpen(false)} />

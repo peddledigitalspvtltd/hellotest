@@ -6141,11 +6141,12 @@ export function TestCasesPage() {
                     const stepCount = stepCountByCaseId[testCase.id] || 0;
                     const caseStatusValue = latest?.status || testCase.status || defaultTestCaseStatus;
                     const suiteCount = (testCase.suite_ids || []).length || 0;
-                    const defectCount = new Set(history.flatMap((result) => result.defects || [])).size;
+                    const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
                     const passedRuns = history.filter((result) => result.status === "passed").length;
                     const passRate = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
                     const statusLabel = formatTileCardLabel(caseStatusValue, "Ready");
                     const isFailedCase = ["failed", "blocked"].includes(String(latest?.status || "").toLowerCase());
+                    const isUnlinkedCase = !requirementTitle;
                     const isAiGeneratedCase = Boolean(testCase.ai_generation_source);
                     const isPendingSchedulerCase =
                       testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending";
@@ -6155,12 +6156,43 @@ export function TestCasesPage() {
                     const canRunLocalCase = testCase.automated === "yes" || isApiOnlyCase;
                     const isAcceptingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "accept";
                     const isRejectingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "reject";
+                    const automationReadiness = testCase.automated === "yes"
+                      ? 100
+                      : Math.min(96, Math.max(26, 36 + stepCount * 4 + (requirementTitle ? 14 : 0) + (history.length ? 8 : 0) - failedRunCount * 6));
+                    const stabilityScore = history.length ? passRate : 0;
+                    const caseTypeLabel = testCase.automated === "yes" ? "Auto" : "Manual";
+                    const aiInsightTone = isFailedCase ? "danger" : isUnlinkedCase || stabilityScore < 60 ? "warning" : "success";
+                    const aiInsight = isFailedCase
+                      ? "AI: Recent failures point to unstable execution evidence. Review latest run details and add negative coverage."
+                      : isUnlinkedCase
+                        ? "AI: Link this case to a requirement so release scope and risk coverage stay traceable."
+                        : testCase.automated !== "yes" && automationReadiness >= 70
+                          ? "AI: Strong automation candidate with clear scope and repeatable validation steps."
+                          : "AI: Stable recent coverage. Keep it in the release gate for confidence tracking.";
                     const tileActions = [
                       {
                         label: "Open case",
                         description: "Open this test case in the workspace.",
                         icon: <OpenIcon />,
                         onClick: () => openLibraryCase(testCase.id)
+                      },
+                      ...(isFailedCase
+                        ? [
+                          {
+                            label: "View latest failure",
+                            description: "Open the most recent failed or blocked execution.",
+                            icon: <OpenIcon />,
+                            onClick: () => openLatestFailureRun(testCase.id)
+                          }
+                        ]
+                        : []),
+                      {
+                        label: isFailedCase ? "Re-run manually" : "Run manually",
+                        description: "Create a manual execution run for this test case.",
+                        icon: <TestCaseRunIcon />,
+                        onClick: () => void handleRunTestCase(testCase.id),
+                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id,
+                        tone: "primary" as const
                       },
                       ...(isPendingSchedulerCase
                         ? [
@@ -6228,6 +6260,7 @@ export function TestCasesPage() {
                         aria-pressed={isActive}
                         className={[
                           "record-card tile-card test-case-card test-case-catalog-card",
+                          isFailedCase ? "is-risk" : isUnlinkedCase || stabilityScore < 60 ? "is-warning" : "is-healthy",
                           isActive ? "is-active" : "",
                           isSelectedForAction ? "is-marked-for-delete" : ""
                         ].filter(Boolean).join(" ")}
@@ -6291,96 +6324,47 @@ export function TestCasesPage() {
                           </div>
                           <p className="tile-card-description">{testCase.description || "No description yet for this test case."}</p>
                           <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
-                            <span title={`Priority P${testCase.priority || 3}`}>
-                              <strong>{`P${testCase.priority || 3}`}</strong>
-                              <small>Priority</small>
+                            <span title={requirementTitle || "No requirement linked"}>
+                              <strong>{requirementTitle ? "Linked" : "Open"}</strong>
+                              <small>Requirement</small>
                             </span>
                             <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
                               <strong>{stepCount}</strong>
                               <small>Steps</small>
                             </span>
-                            <span title={`${defectCount} defect${defectCount === 1 ? "" : "s"} linked from recent runs`}>
-                              <strong>{defectCount}</strong>
-                              <small>Defects</small>
+                            <span title={`${caseTypeLabel} execution`}>
+                              <strong>{caseTypeLabel}</strong>
+                              <small>Type</small>
                             </span>
-                            <span title={`${history.length} recent run${history.length === 1 ? "" : "s"}`}>
-                              <strong>{history.length}</strong>
-                              <small>Runs</small>
+                            <span title={`${failedRunCount} failed or blocked recent run${failedRunCount === 1 ? "" : "s"}`}>
+                              <strong>{failedRunCount ? `${failedRunCount}x` : "0x"}</strong>
+                              <small>Failed</small>
                             </span>
                           </div>
                           <div className="tile-card-footer">
-                            <div className="test-case-card-progress-row" aria-label={history.length ? `${passRate}% recent pass rate` : "No recent run coverage"}>
-                              <div className="test-case-card-progress-track">
-                                <span style={{ width: `${passRate}%` }} />
+                            <div className="test-case-readiness-grid">
+                              <div className="test-case-card-progress-row" aria-label={`${automationReadiness}% automation readiness`}>
+                                <div>
+                                  <span>Automation readiness</span>
+                                  <strong>{`${automationReadiness}%`}</strong>
+                                </div>
+                                <div className="test-case-card-progress-track">
+                                  <span style={{ width: `${automationReadiness}%` }} />
+                                </div>
                               </div>
-                              <small>{history.length ? `${passRate}% passed` : "No runs"}</small>
+                              <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent stability` : "No recent run stability"}>
+                                <div>
+                                  <span>Stability</span>
+                                  <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
+                                </div>
+                                <div className={["test-case-card-progress-track", stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}>
+                                  <span style={{ width: `${history.length ? stabilityScore : 8}%` }} />
+                                </div>
+                              </div>
                             </div>
-                            <div className={["test-case-card-actions", isPendingSchedulerCase ? "is-generated" : ""].filter(Boolean).join(" ")}>
-                              {isPendingSchedulerCase ? (
-                                <>
-                                  <button
-                                    className="ghost-button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openLibraryCase(testCase.id);
-                                    }}
-                                    type="button"
-                                  >
-                                    <OpenIcon />
-                                    Review
-                                  </button>
-                                  <button
-                                    className="primary-button"
-                                    disabled={isAcceptingCase || isRejectingCase || isRunningCase}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void handleReviewGeneratedCase(testCase.id, "accept");
-                                    }}
-                                    type="button"
-                                  >
-                                    <TestCaseAcceptIcon />
-                                    Accept
-                                  </button>
-                                </>
-                              ) : isFailedCase ? (
-                                <button
-                                  className="ghost-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openLatestFailureRun(testCase.id);
-                                  }}
-                                  type="button"
-                                >
-                                  <OpenIcon />
-                                  View Failure
-                                </button>
-                              ) : null}
-                              <button
-                                className="primary-button test-case-card-run-button"
-                                disabled={isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleRunTestCase(testCase.id);
-                                }}
-                                type="button"
-                              >
-                                <TestCaseRunIcon />
-                                {isRunningCase ? "Creating..." : isFailedCase ? "Re-run manually" : "Run manually"}
-                              </button>
-                              {canRunLocalCase ? (
-                                <button
-                                  className="ghost-button test-case-card-run-button"
-                                  disabled={isRunningCase || isRunningLocalCase || createLocalRun.isPending || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleRunTestCase(testCase.id, "local");
-                                  }}
-                                  type="button"
-                                >
-                                  <TestCaseRunIcon />
-                                  {isRunningLocalCase ? "Starting..." : isApiOnlyCase ? "Local API" : "Local Playwright"}
-                                </button>
-                              ) : null}
+                            <div className={`test-case-ai-note ${aiInsightTone}`}>
+                              <span aria-hidden="true">{isFailedCase ? "!" : "AI"}</span>
+                              <p>{aiInsight}</p>
                             </div>
                           </div>
                         </div>

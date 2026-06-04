@@ -12,10 +12,15 @@ module.exports = async function (fastify) {
   fastify.post("/users", async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
-      password_hash: { required: true, type: "string", minLength: 3 },
+      password: { required: false, type: "string", minLength: 6 },
+      password_hash: { required: false, type: "string", minLength: 3 },
       name: { required: false, type: "string" },
       role_id: { required: true, type: "string" }
     }, req.body);
+
+    if (!req.body.password && !req.body.password_hash) {
+      throw createError("Password is required", 400);
+    }
 
     return service.createUser(req.body);
   });
@@ -47,6 +52,7 @@ module.exports = async function (fastify) {
   fastify.put("/users/:id", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       email: { required: false, type: "string", minLength: 3 },
+      password: { required: false, type: "string", minLength: 6 },
       password_hash: { required: false, type: "string", minLength: 3 },
       name: { required: false, type: "string" },
       role_id: { required: false, type: "string" },
@@ -60,7 +66,7 @@ module.exports = async function (fastify) {
       throw createError("You can only update your own profile.", 403);
     }
 
-    if (!isPrivilegedUserManager && (req.body?.role_id !== undefined || req.body?.password_hash !== undefined)) {
+    if (!isPrivilegedUserManager && (req.body?.role_id !== undefined || req.body?.password_hash !== undefined || req.body?.password !== undefined)) {
       throw createError("Permission required: user.manage", 403);
     }
 

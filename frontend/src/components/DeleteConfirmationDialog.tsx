@@ -51,6 +51,10 @@ export function useDeleteConfirmation() {
               </div>
             </div>
           </div>
+          <div className="delete-confirmation-body">
+            <span className="delete-confirmation-icon" aria-hidden="true">!</span>
+            <p>{state.message}</p>
+          </div>
           <div className="delete-confirmation-actions">
             <button className="ghost-button" onClick={() => close(false)} type="button">
               Cancel

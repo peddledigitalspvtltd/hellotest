@@ -4,6 +4,7 @@ export type User = {
   name: string | null;
   avatar_data_url?: string | null;
   role?: "admin" | "member";
+  permissions?: string[];
   auth_provider?: "local" | "google";
   email_verified?: boolean;
   created_at?: string;

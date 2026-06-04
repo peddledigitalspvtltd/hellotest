@@ -1,12 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FolderIcon, LayersIcon, PlayIcon } from "../components/AppIcons";
-import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import { StatusBadge } from "../components/StatusBadge";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
+import { canAccessPath, hasPermission } from "../lib/permissions";
 import type { ExecutionResult } from "../types";
 
 type DashboardTone = "success" | "info" | "neutral" | "error";
@@ -118,10 +119,12 @@ function DashboardToneChip({
 export function OverviewPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const {
     users,
     feedback,
     projects,
+    projectMembers,
     requirements,
     appTypes,
     testSuites,
@@ -131,16 +134,53 @@ export function OverviewPage() {
     executionResults
   } = useWorkspaceData();
 
-  const usersList = users.data || [];
+  const usersListRaw = users.data || [];
   const feedbackList = feedback.data || [];
   const projectsList = projects.data || [];
-  const requirementsList = requirements.data || [];
-  const appTypesList = appTypes.data || [];
-  const suitesList = testSuites.data || [];
-  const testCasesList = testCases.data || [];
+  const projectMembersList = projectMembers.data || [];
+  const appTypesListRaw = appTypes.data || [];
+  const requirementsListRaw = requirements.data || [];
+  const suitesListRaw = testSuites.data || [];
+  const testCasesListRaw = testCases.data || [];
   const testStepsList = testSteps.data || [];
-  const executionsList = executions.data || [];
-  const executionResultsList = executionResults.data || [];
+  const executionsListRaw = executions.data || [];
+  const executionResultsListRaw = executionResults.data || [];
+  const activeProjectId = projectId || projectsList[0]?.id || "";
+  const selectedProject = projectsList.find((project) => String(project.id) === String(activeProjectId)) || null;
+  const appTypesList = useMemo(
+    () => appTypesListRaw.filter((appType) => String(appType.project_id) === String(activeProjectId)),
+    [activeProjectId, appTypesListRaw]
+  );
+  const activeAppTypeIds = useMemo(() => new Set(appTypesList.map((appType) => appType.id)), [appTypesList]);
+  const requirementsList = useMemo(
+    () => requirementsListRaw.filter((requirement) => String(requirement.project_id) === String(activeProjectId)),
+    [activeProjectId, requirementsListRaw]
+  );
+  const suitesList = useMemo(
+    () => suitesListRaw.filter((suite) => activeAppTypeIds.has(suite.app_type_id)),
+    [activeAppTypeIds, suitesListRaw]
+  );
+  const testCasesList = useMemo(
+    () => testCasesListRaw.filter((testCase) => testCase.app_type_id && activeAppTypeIds.has(testCase.app_type_id)),
+    [activeAppTypeIds, testCasesListRaw]
+  );
+  const executionsList = useMemo(
+    () => executionsListRaw.filter((execution) => String(execution.project_id) === String(activeProjectId)),
+    [activeProjectId, executionsListRaw]
+  );
+  const activeExecutionIds = useMemo(() => new Set(executionsList.map((execution) => execution.id)), [executionsList]);
+  const executionResultsList = useMemo(
+    () => executionResultsListRaw.filter((result) => activeExecutionIds.has(result.execution_id) || activeAppTypeIds.has(result.app_type_id)),
+    [activeAppTypeIds, activeExecutionIds, executionResultsListRaw]
+  );
+  const projectMemberUserIds = useMemo(
+    () => new Set(projectMembersList.filter((member) => String(member.project_id) === String(activeProjectId)).map((member) => member.user_id)),
+    [activeProjectId, projectMembersList]
+  );
+  const usersList = useMemo(
+    () => usersListRaw.filter((user) => projectMemberUserIds.has(user.id) || user.role === "admin"),
+    [projectMemberUserIds, usersListRaw]
+  );
   const latestExecutionResultsList = useMemo(
     () => pickLatestExecutionResults(executionResultsList),
     [executionResultsList]
@@ -204,6 +244,19 @@ export function OverviewPage() {
     return Math.round((casesWithStepsCount / testCasesList.length) * 100);
   }, [casesWithStepsCount, testCasesList]);
 
+  const automatedCasesCount = useMemo(
+    () => testCasesList.filter((testCase) => testCase.automated === "yes").length,
+    [testCasesList]
+  );
+
+  const automationCoverage = useMemo(() => {
+    if (!testCasesList.length) {
+      return 0;
+    }
+
+    return Math.round((automatedCasesCount / testCasesList.length) * 100);
+  }, [automatedCasesCount, testCasesList.length]);
+
   const executionStatusCounts = useMemo(() => {
     return executionsList.reduce(
       (counts, execution) => {
@@ -234,9 +287,17 @@ export function OverviewPage() {
     return Math.round((resultStatusCounts.passed / resultStatusCounts.total) * 100);
   }, [resultStatusCounts]);
 
+  const latestExecution = useMemo(() => {
+    return [...executionsList].sort((left, right) => latestExecutionTimestamp(right) - latestExecutionTimestamp(left))[0] || null;
+  }, [executionsList]);
+
+  const latestExecutionSummary = latestExecution ? executionSummaryById[latestExecution.id] || { ...EMPTY_EXECUTION_SUMMARY } : { ...EMPTY_EXECUTION_SUMMARY };
+  const latestPassRate = latestExecutionSummary.total ? latestExecutionSummary.percent : passRate;
+  const latestFailedSignals = latestExecutionSummary.failed + latestExecutionSummary.blocked;
+
   const releaseReadinessScore = useMemo(
-    () => Math.round((requirementCoverage * 0.4) + (automationReadiness * 0.25) + (passRate * 0.35)),
-    [automationReadiness, passRate, requirementCoverage]
+    () => Math.round((requirementCoverage * 0.38) + (automationCoverage * 0.27) + (latestPassRate * 0.35)),
+    [automationCoverage, latestPassRate, requirementCoverage]
   );
 
   const adminUserCount = useMemo(
@@ -354,6 +415,10 @@ export function OverviewPage() {
       }
     ];
   }, [casesMissingStepsCount, coverageGapCount, executionStatusCounts.failed, executionStatusCounts.running, suitesList.length]);
+  const visibleQuickActions = useMemo(
+    () => quickActions.filter((action) => canAccessPath(session, action.to)),
+    [quickActions, session]
+  );
 
   const workspacePillars = useMemo(() => {
     return [
@@ -714,34 +779,111 @@ export function OverviewPage() {
     return "No critical blockers are dominating the board. The quality conversation can move from firefighting to planning.";
   }, [casesMissingStepsCount, coverageGapCount, resultStatusCounts.blocked, resultStatusCounts.failed, resultStatusCounts.running]);
 
+  const openRiskCount = coverageGapCount + casesMissingStepsCount + resultStatusCounts.failed + resultStatusCounts.blocked + executionStatusCounts.failed;
+  const releaseBlockerCount = resultStatusCounts.failed + resultStatusCounts.blocked + executionStatusCounts.failed;
+  const releaseStateLabel = releaseReadinessScore >= 85 ? "Release Ready" : releaseReadinessScore >= 65 ? "Needs Hardening" : "At Risk";
+  const releaseHeadline = releaseReadinessScore >= 85
+    ? "Ready for release review"
+    : releaseReadinessScore >= 65
+      ? "Production readiness needs hardening"
+      : "Not ready for production";
+  const appTypeSummary = appTypesList.length
+    ? appTypesList.map((appType) => appType.is_unified ? `${appType.name} unified` : appType.type.toUpperCase()).slice(0, 3).join(" + ")
+    : "No app type";
+  const healthMeterStyle = (value: number) => ({ width: `${Math.max(0, Math.min(100, value))}%` });
+  const releaseRingStyle = { "--score": releaseReadinessScore } as CSSProperties;
+  const canManageProjects = hasPermission(session, "project.view");
+  const canOpenSuites = hasPermission(session, "suite.view");
+  const canOpenRuns = hasPermission(session, "run.view");
+
   return (
-    <div className="page-content">
-      <PageHeader
-        eyebrow="Dashboard"
-        title={`QAira workspace dashboard for ${session?.user.name || "your team"}`}
-        description="Track scope, reusable design assets, run evidence, and the next quality actions in one view that matches how QAira is actually being used today."
-        meta={[
-          { label: "Requirements mapped", value: `${requirementCoverage}%` },
-          { label: "Executable cases", value: `${casesWithStepsCount}/${testCasesList.length || 0}` },
-          { label: "Pass rate", value: `${passRate}%` }
-        ]}
-        actions={
-          <>
+    <div className="page-content page-content--overview overview-layout">
+      <header className="page-header card overview-hero">
+        <div className="page-header-text">
+          <div className="page-header-title-row">
+            <span className="eyebrow">Quality Command Center</span>
+            <span className={`status-pill ${releaseReadinessScore >= 85 ? "success" : releaseReadinessScore >= 65 ? "warning" : "danger"}`}>{releaseStateLabel}</span>
+          </div>
+          <h1 className="page-header-title">{selectedProject?.name || "Select a project"}</h1>
+          <p className="page-description">
+            Monitor release readiness, requirement coverage, automation confidence, latest execution health, and AI-prioritized risks for the active project.
+          </p>
+
+          <div className="page-header-meta">
+            <span className="page-header-meta-item">Project <strong>{selectedProject?.display_id || selectedProject?.id || "None"}</strong></span>
+            <span className="page-header-meta-item">App Type <strong>{appTypeSummary}</strong></span>
+            <span className="page-header-meta-item">Latest Run <strong>{latestExecution?.name || "No run yet"}</strong></span>
+          </div>
+        </div>
+
+        <div className="page-actions">
+          {canManageProjects ? (
             <button className="ghost-button" onClick={() => navigate("/projects")} type="button">
               <FolderIcon />
               Manage Scope
             </button>
+          ) : null}
+          {canOpenSuites ? (
             <button className="ghost-button" onClick={() => navigate("/design")} type="button">
               <LayersIcon />
               Open Suite Studio
             </button>
+          ) : null}
+          {canOpenRuns ? (
             <button className="primary-button" onClick={() => navigate("/executions")} type="button">
               <PlayIcon />
               Open Execution Hub
             </button>
-          </>
-        }
-      />
+          ) : null}
+        </div>
+      </header>
+
+      <section className="health-grid" aria-label="Project health overview">
+        <article className="health-card release-card">
+          <div className="health-card-head">
+            <span>Release Readiness</span>
+            <b className={releaseReadinessScore >= 85 ? "risk-dot success" : releaseReadinessScore >= 65 ? "risk-dot warning" : "risk-dot"} />
+          </div>
+          <div className="release-score">
+            <div className="score-ring" style={releaseRingStyle}>
+              <strong>{releaseReadinessScore}%</strong>
+              <span>{releaseStateLabel}</span>
+            </div>
+            <div>
+              <h2>{releaseHeadline}</h2>
+              <p>{readinessNarrative}</p>
+            </div>
+          </div>
+        </article>
+
+        <article className="stat-card">
+          <span>Requirement Coverage</span>
+          <strong>{requirementCoverage}%</strong>
+          <small>{mappedRequirementsCount} / {requirementsList.length || 0} mapped</small>
+          <i className="meter"><em style={healthMeterStyle(requirementCoverage)} /></i>
+        </article>
+
+        <article className="stat-card info">
+          <span>Automation Coverage</span>
+          <strong>{automationCoverage}%</strong>
+          <small>{automatedCasesCount} automated scenario{automatedCasesCount === 1 ? "" : "s"}</small>
+          <i className="meter"><em style={healthMeterStyle(automationCoverage)} /></i>
+        </article>
+
+        <article className="stat-card danger">
+          <span>Latest Pass Rate</span>
+          <strong>{latestPassRate}%</strong>
+          <small>{latestFailedSignals} failed or blocked test{latestFailedSignals === 1 ? "" : "s"}</small>
+          <i className="meter danger"><em style={healthMeterStyle(latestPassRate)} /></i>
+        </article>
+
+        <article className="stat-card warning">
+          <span>Open Risks</span>
+          <strong>{openRiskCount}</strong>
+          <small>{releaseBlockerCount} release blocker{releaseBlockerCount === 1 ? "" : "s"}</small>
+          <i className="meter warning"><em style={healthMeterStyle(Math.min(100, openRiskCount ? 35 + openRiskCount * 6 : 8))} /></i>
+        </article>
+      </section>
 
       <div className="dashboard-hero-grid">
         <Panel
@@ -788,7 +930,7 @@ export function OverviewPage() {
           subtitle="The actions most likely to improve coverage quality, execution confidence, or day-to-day workspace hygiene."
         >
           <div className="dashboard-action-grid">
-            {quickActions.map((action) => (
+            {visibleQuickActions.map((action) => (
               <button
                 className="dashboard-action-card"
                 key={action.id}
@@ -806,6 +948,7 @@ export function OverviewPage() {
                 </div>
               </button>
             ))}
+            {!visibleQuickActions.length ? <div className="empty-state compact">No recommended actions are available for your current permissions.</div> : null}
           </div>
         </Panel>
       </div>

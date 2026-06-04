@@ -62,6 +62,27 @@ const getSessionRole = async (id) => {
   return row?.is_workspace_admin || row?.has_admin_membership ? "admin" : "member";
 };
 
+const getSessionPermissions = async (id, role) => {
+  if (role === "admin") {
+    return DEFAULT_ROLE_PERMISSIONS.admin || [];
+  }
+
+  const rows = await db.prepare(`
+    SELECT DISTINCT permissions.code
+    FROM project_members
+    JOIN role_permissions ON role_permissions.role_id = project_members.role_id
+    JOIN permissions ON permissions.id = role_permissions.permission_id
+    WHERE project_members.user_id = ?
+    ORDER BY permissions.code ASC
+  `).all(id);
+
+  if (rows.length) {
+    return rows.map((row) => row.code);
+  }
+
+  return DEFAULT_ROLE_PERMISSIONS.member || [];
+};
+
 const selectUserForSession = async (id) => {
   const user = await db.prepare(`
     SELECT id, email, name, avatar_data_url, auth_provider, email_verified, created_at, is_workspace_admin
@@ -74,10 +95,12 @@ const selectUserForSession = async (id) => {
   }
 
   const { is_workspace_admin, ...rest } = user;
+  const role = await getSessionRole(id);
 
   return {
     ...rest,
-    role: await getSessionRole(id)
+    role,
+    permissions: await getSessionPermissions(id, role)
   };
 };
 

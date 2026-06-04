@@ -5,12 +5,14 @@ export function WorkspaceMasterDetail({
   browseView,
   className = "",
   detailView,
-  isDetailOpen
+  isDetailOpen,
+  variant = "switch"
 }: {
   browseView: ReactNode;
   className?: string;
   detailView: ReactNode;
   isDetailOpen: boolean;
+  variant?: "switch" | "split";
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -80,6 +82,19 @@ export function WorkspaceMasterDetail({
       behavior: "auto"
     });
   };
+
+  if (variant === "split") {
+    return (
+      <div className={["workspace-master-detail workspace-master-detail--split", isDetailOpen ? "is-detail-open" : "is-browse-open", className].filter(Boolean).join(" ")} ref={rootRef}>
+        <div className="workspace-master-detail-panel workspace-master-detail-browse-panel" ref={panelRef}>
+          {browseView}
+        </div>
+        <div className="workspace-master-detail-panel workspace-master-detail-detail-panel">
+          {detailView}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={["workspace-master-detail", isDetailOpen ? "is-detail-open" : "is-browse-open", className].filter(Boolean).join(" ")} ref={rootRef}>

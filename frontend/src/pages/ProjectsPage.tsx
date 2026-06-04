@@ -1,14 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, GithubIcon, GoogleDriveIcon } from "../components/AppIcons";
+import { AddIcon, GithubIcon, GoogleDriveIcon, GridIcon, ListIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
-import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import {
@@ -30,7 +31,7 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { useAuth } from "../auth/AuthContext";
 import { formatAuditTimestamp } from "../lib/auditDisplay";
-import type { AppType, ExecutionResult, WorkspaceTransaction } from "../types";
+import type { AppType, Execution, ExecutionResult, Project, WorkspaceTransaction } from "../types";
 
 type ProjectSection = "members" | "appTypes";
 
@@ -64,6 +65,34 @@ type ProjectPassCoverage = {
   totalCases: number;
   passedCases: number;
   coveragePercent: number;
+};
+
+type ProjectHealthTone = "success" | "warning" | "danger" | "neutral";
+
+type ProjectPortfolioItem = {
+  project: Project;
+  memberCount: number;
+  memberNames: string[];
+  appTypes: AppType[];
+  appTypeCount: number;
+  appTypeSummary: string;
+  requirementCount: number;
+  testCaseCount: number;
+  suiteCount: number;
+  coverage: ProjectRequirementCoverage;
+  automationCoverage: ProjectAutomationCoverage;
+  passCoverage: ProjectPassCoverage;
+  latestExecution: Execution | null;
+  latestExecutionResults: ExecutionResult[];
+  latestFailedCount: number;
+  latestBlockedCount: number;
+  latestDurationLabel: string;
+  latestRunLabel: string;
+  readinessScore: number;
+  healthTone: ProjectHealthTone;
+  healthLabel: string;
+  readinessLabel: string;
+  insight: string;
 };
 
 const createDraftId = () =>
@@ -117,6 +146,138 @@ const getMetricTone = (covered: number, total: number) => {
   return "danger" as const;
 };
 
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const formatCompactCount = (value: number, singular: string, plural = `${singular}s`) =>
+  `${value} ${value === 1 ? singular : plural}`;
+
+const formatProjectTimeAgo = (value?: string | null) => {
+  if (!value) {
+    return "No run yet";
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return "Not recorded";
+  }
+
+  const diffMs = Date.now() - timestamp;
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (absMs < minute) {
+    return "Just now";
+  }
+
+  if (absMs < hour) {
+    const minutes = Math.round(absMs / minute);
+    return `${minutes}m ago`;
+  }
+
+  if (absMs < day) {
+    const hours = Math.round(absMs / hour);
+    return `${hours}h ago`;
+  }
+
+  const days = Math.round(absMs / day);
+  return `${days}d ago`;
+};
+
+const formatProjectDuration = (execution?: Execution | null) => {
+  if (!execution?.started_at || !execution.ended_at) {
+    return "Not recorded";
+  }
+
+  const startedAt = new Date(execution.started_at).getTime();
+  const endedAt = new Date(execution.ended_at).getTime();
+  const durationMs = endedAt - startedAt;
+
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return "Not recorded";
+  }
+
+  const minutes = Math.round(durationMs / 60000);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+};
+
+const resolveProjectHealth = ({
+  readinessScore,
+  requirementCount,
+  testCaseCount,
+  latestFailedCount,
+  latestBlockedCount,
+  passCoverage
+}: {
+  readinessScore: number;
+  requirementCount: number;
+  testCaseCount: number;
+  latestFailedCount: number;
+  latestBlockedCount: number;
+  passCoverage: ProjectPassCoverage;
+}) => {
+  if (!requirementCount && !testCaseCount) {
+    return {
+      healthTone: "neutral" as const,
+      healthLabel: "New",
+      readinessLabel: "Not assessed"
+    };
+  }
+
+  if (latestFailedCount > 0 || latestBlockedCount > 0 || (passCoverage.totalCases > 0 && passCoverage.coveragePercent < 60)) {
+    return {
+      healthTone: "danger" as const,
+      healthLabel: "Risky",
+      readinessLabel: "Not Ready"
+    };
+  }
+
+  if (readinessScore >= 80) {
+    return {
+      healthTone: "success" as const,
+      healthLabel: "Healthy",
+      readinessLabel: "Release Ready"
+    };
+  }
+
+  return {
+    healthTone: "warning" as const,
+    healthLabel: "Watch",
+    readinessLabel: "Needs Review"
+  };
+};
+
+const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
+  if (!item.requirementCount && !item.testCaseCount) {
+    return "Start by importing requirements or creating the first test suite.";
+  }
+
+  if (item.latestFailedCount > 0 || item.latestBlockedCount > 0) {
+    return `${formatCompactCount(item.latestFailedCount, "failed test")} and ${formatCompactCount(item.latestBlockedCount, "blocked test")} need review before release.`;
+  }
+
+  if (item.automationCoverage.totalCases > 0 && item.automationCoverage.coveragePercent < 40) {
+    return "Automation maturity is low. Prioritize high-value regression flows for the next sprint.";
+  }
+
+  if (item.coverage.totalRequirements > 0 && item.coverage.coveragePercent < 80) {
+    return "Requirement traceability has gaps. Link uncovered requirements before release planning.";
+  }
+
+  if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent >= 80) {
+    return "Execution confidence is strong. Keep monitoring high-risk app types for regressions.";
+  }
+
+  return "Project scope is available. Add recent execution evidence to improve readiness confidence.";
+};
+
 function ProjectProgressBar({
   label,
   value,
@@ -148,7 +309,7 @@ export function ProjectsPage() {
   const { session } = useAuth();
   const isAdmin = session?.user.role === "admin";
   const domainMetadataQuery = useDomainMetadata();
-  const { projects, users, roles, projectMembers, appTypes, requirements, testCases, executionResults } = useWorkspaceData();
+  const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData();
   const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
   const [focusedProjectId, setFocusedProjectId] = useState("");
   const [section, setSection] = useState<ProjectSection>("members");
@@ -158,6 +319,7 @@ export function ProjectsPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
   const [projectMemberFilter, setProjectMemberFilter] = useState("all");
+  const [projectViewMode, setProjectViewMode] = useState<"cards" | "list">("cards");
   const defaultAppTypeValue = domainMetadataQuery.data?.app_types.default_type || "web";
   const appTypeTypeOptions = domainMetadataQuery.data?.app_types.types || [];
   const appTypeDropdownOptions = useMemo(
@@ -193,7 +355,9 @@ export function ProjectsPage() {
     projectMembers.isPending ||
     appTypes.isPending ||
     requirements.isPending ||
+    testSuites.isPending ||
     testCases.isPending ||
+    executions.isPending ||
     executionResults.isPending;
 
   useEffect(() => {
@@ -316,6 +480,48 @@ export function ProjectsPage() {
 
     return counts;
   }, [projectIdByAppTypeId, testCases.data]);
+
+  const testSuiteCountByProjectId = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    (testSuites.data || []).forEach((suite) => {
+      const owningProjectId = projectIdByAppTypeId.get(suite.app_type_id);
+
+      if (!owningProjectId) {
+        return;
+      }
+
+      counts[owningProjectId] = (counts[owningProjectId] || 0) + 1;
+    });
+
+    return counts;
+  }, [projectIdByAppTypeId, testSuites.data]);
+
+  const latestExecutionByProjectId = useMemo(() => {
+    const latestByProjectId: Record<string, Execution> = {};
+
+    (executions.data || []).forEach((execution) => {
+      const current = latestByProjectId[execution.project_id];
+      const currentTime = current?.created_at ? new Date(current.created_at).getTime() || 0 : 0;
+      const nextTime = execution.created_at ? new Date(execution.created_at).getTime() || 0 : 0;
+
+      if (!current || nextTime >= currentTime) {
+        latestByProjectId[execution.project_id] = execution;
+      }
+    });
+
+    return latestByProjectId;
+  }, [executions.data]);
+
+  const executionResultsByExecutionId = useMemo(() => {
+    const map: Record<string, ExecutionResult[]> = {};
+
+    (executionResults.data || []).forEach((result) => {
+      map[result.execution_id] = [...(map[result.execution_id] || []), result];
+    });
+
+    return map;
+  }, [executionResults.data]);
 
   const latestExecutionResultByCaseId = useMemo(() => {
     const resultsByCaseId: Record<string, ExecutionResult> = {};
@@ -450,17 +656,119 @@ export function ProjectsPage() {
     return coverageByProjectId;
   }, [latestExecutionResultByCaseId, projectIdByAppTypeId, projectItems, testCases.data]);
 
+  const projectPortfolioItems = useMemo<ProjectPortfolioItem[]>(() => {
+    return projectItems.map((project) => {
+      const projectAppTypes = appTypesByProjectId[project.id] || [];
+      const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
+      const memberNames = Array.from(projectMemberUserIds)
+        .map((userId) => users.data?.find((user) => user.id === userId))
+        .map((user) => user?.name || user?.email || "")
+        .filter(Boolean);
+      const coverage = requirementCoverageByProjectId[project.id] || emptyRequirementCoverage;
+      const automationCoverage = automationCoverageByProjectId[project.id] || emptyAutomationCoverage;
+      const passCoverage = passCoverageByProjectId[project.id] || emptyPassCoverage;
+      const latestExecution = latestExecutionByProjectId[project.id] || null;
+      const latestExecutionResults = latestExecution ? executionResultsByExecutionId[latestExecution.id] || [] : [];
+      const latestFailedCount = latestExecutionResults.filter((result) => result.status === "failed").length;
+      const latestBlockedCount = latestExecutionResults.filter((result) => result.status === "blocked").length;
+      const readinessScore = clampPercent(
+        Math.round((coverage.coveragePercent * 0.35) + (automationCoverage.coveragePercent * 0.25) + (passCoverage.coveragePercent * 0.4))
+      );
+      const health = resolveProjectHealth({
+        readinessScore,
+        requirementCount: requirementCountByProjectId[project.id] || 0,
+        testCaseCount: testCaseCountByProjectId[project.id] || 0,
+        latestFailedCount,
+        latestBlockedCount,
+        passCoverage
+      });
+      const appTypeSummary = projectAppTypes.length
+        ? projectAppTypes.map((appType) => appType.is_unified ? `${appType.name} unified` : `${appType.name} ${appType.type}`).join(", ")
+        : "No app types";
+      const baseItem = {
+        project,
+        memberCount: memberCountByProjectId[project.id] || 0,
+        memberNames,
+        appTypes: projectAppTypes,
+        appTypeCount: projectAppTypes.length,
+        appTypeSummary,
+        requirementCount: requirementCountByProjectId[project.id] || 0,
+        testCaseCount: testCaseCountByProjectId[project.id] || 0,
+        suiteCount: testSuiteCountByProjectId[project.id] || 0,
+        coverage,
+        automationCoverage,
+        passCoverage,
+        latestExecution,
+        latestExecutionResults,
+        latestFailedCount,
+        latestBlockedCount,
+        latestDurationLabel: formatProjectDuration(latestExecution),
+        latestRunLabel: formatProjectTimeAgo(latestExecution?.created_at || latestExecution?.started_at),
+        readinessScore,
+        ...health
+      };
+
+      return {
+        ...baseItem,
+        insight: getProjectInsight(baseItem)
+      };
+    });
+  }, [
+    appTypesByProjectId,
+    automationCoverageByProjectId,
+    executionResultsByExecutionId,
+    latestExecutionByProjectId,
+    memberCountByProjectId,
+    passCoverageByProjectId,
+    projectItems,
+    projectMemberUserIdsByProjectId,
+    requirementCountByProjectId,
+    requirementCoverageByProjectId,
+    testCaseCountByProjectId,
+    testSuiteCountByProjectId,
+    users.data
+  ]);
+
+  const portfolioSummary = useMemo(() => {
+    const totalProjects = projectPortfolioItems.length;
+    const riskyProjects = projectPortfolioItems.filter((item) => item.healthTone === "danger").length;
+    const releaseReadyProjects = projectPortfolioItems.filter((item) => item.healthTone === "success").length;
+    const averageRequirementCoverage = totalProjects
+      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.coverage.coveragePercent, 0) / totalProjects)
+      : 0;
+    const averageAutomationCoverage = totalProjects
+      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.coveragePercent, 0) / totalProjects)
+      : 0;
+    const overallHealth = totalProjects
+      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.readinessScore, 0) / totalProjects)
+      : 0;
+
+    return {
+      totalProjects,
+      riskyProjects,
+      releaseReadyProjects,
+      averageRequirementCoverage,
+      averageAutomationCoverage,
+      overallHealth
+    };
+  }, [projectPortfolioItems]);
+
   const filteredProjectItems = useMemo(() => {
     const normalizedSearch = projectSearch.trim().toLowerCase();
 
-    return projectItems.filter((project) => {
-      const projectAppTypes = appTypesByProjectId[project.id] || [];
+    return projectPortfolioItems.filter((item) => {
+      const { project } = item;
+      const projectAppTypes = item.appTypes;
       const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
       const searchContent = [
         project.id,
         project.name,
         project.display_id,
         project.description,
+        item.healthLabel,
+        item.readinessLabel,
+        item.appTypeSummary,
+        item.memberNames.join(" "),
         ...projectAppTypes.flatMap((appType) => [appType.name, appType.type]),
         ...Array.from(projectMemberUserIds).map((userId) => userSearchValueById.get(userId))
       ]
@@ -509,9 +817,8 @@ export function ProjectsPage() {
       return true;
     });
   }, [
-    appTypesByProjectId,
     projectAppTypeFilter,
-    projectItems,
+    projectPortfolioItems,
     projectMemberFilter,
     projectMemberUserIdsByProjectId,
     projectSearch,
@@ -846,32 +1153,154 @@ export function ProjectsPage() {
     navigate(path);
   };
 
+  const openPortfolioProject = (item: ProjectPortfolioItem) => {
+    setSelectedProjectId(item.project.id);
+    setFocusedProjectId(item.project.id);
+  };
+
+  const openPortfolioProjectPath = (item: ProjectPortfolioItem, path: string) => {
+    setSelectedProjectId(item.project.id);
+    setFocusedProjectId(item.project.id);
+    navigate(path);
+  };
+
+  const getProjectActionItems = (item: ProjectPortfolioItem) => [
+    {
+      label: "Open project details",
+      icon: <OpenIcon />,
+      onClick: () => openPortfolioProject(item),
+      description: "Open members, app types, integrations, and project summary."
+    },
+    {
+      label: "Open requirements",
+      icon: <TileCardRequirementIcon />,
+      onClick: () => openPortfolioProjectPath(item, "/requirements"),
+      description: "Review requirement scope and coverage links."
+    },
+    {
+      label: "Open test cases",
+      icon: <TileCardCaseIcon />,
+      onClick: () => openPortfolioProjectPath(item, "/test-cases"),
+      description: "Review manual and automated test cases for this project."
+    },
+    {
+      label: "Create run",
+      icon: <PlayIcon />,
+      onClick: () => openPortfolioProjectPath(item, "/executions"),
+      description: "Move to the execution console with this project selected.",
+      tone: "primary" as const
+    },
+    {
+      label: "Delete project",
+      icon: <TrashIcon />,
+      onClick: async () => {
+        setFocusedProjectId(item.project.id);
+        const confirmed = await confirmDelete({ message: `Delete project "${item.project.name}" and all related data?` });
+
+        if (confirmed) {
+          await deleteProject.mutateAsync(item.project.id);
+        }
+      },
+      disabled: !isAdmin || deleteProject.isPending,
+      description: isAdmin ? "Delete this project and related workspace data." : "Only admins can delete projects.",
+      tone: "danger" as const
+    }
+  ];
+
   return (
     <div className="page-content">
       {confirmationDialog}
-      <PageHeader
-        eyebrow="Projects & Scope"
-        title="Projects"
-        description="Define workspace scope, onboard collaborators, and configure the delivery surfaces each team owns."
-        meta={[
-          { label: "Projects", value: projectItems.length },
-          { label: "Members in scope", value: selectedProject ? scopedMembers.length : 0 },
-          { label: "App types", value: selectedProject ? selectedProjectAppTypeCount : 0 }
-        ]}
-        actions={<button className="primary-button" onClick={openCreateProjectModal} type="button"><AddIcon />Create Project</button>}
-      />
-
       <ToastMessage
         message={message}
         onDismiss={() => setMessage("")}
         tone={messageTone}
       />
 
+      <section className="projects-command-card">
+        <div className="projects-command-copy">
+          <span className="eyebrow">Projects Command Center</span>
+          <h2>See quality, risk and release readiness at a glance.</h2>
+          <p>Monitor project health, automation maturity, execution confidence and delivery blockers from one workspace.</p>
+          <div className="projects-command-actions">
+            <button className="primary-button projects-create-button" onClick={openCreateProjectModal} type="button">
+              <AddIcon />
+              Create New Project
+            </button>
+            <button className="ghost-button" onClick={() => navigate("/executions")} type="button">
+              <PlayIcon />
+              View Run Console
+            </button>
+          </div>
+        </div>
+          <div className="projects-command-insight">
+          <span className="projects-ai-chip">AI Insight</span>
+          <h3>{portfolioSummary.riskyProjects || "No"} project{portfolioSummary.riskyProjects === 1 ? "" : "s"} need attention</h3>
+          <p>
+            {portfolioSummary.riskyProjects
+              ? "Review risky projects before release planning. Low pass rate and blocked cases are weighted into readiness."
+              : "Portfolio readiness is stable. Keep execution evidence fresh as project scope changes."}
+          </p>
+          <div className="projects-health-ring" style={{ "--score": `${portfolioSummary.overallHealth}%` } as CSSProperties}>
+            <strong>{portfolioSummary.overallHealth}%</strong>
+            <span>Overall health</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="projects-stats-grid" aria-label="Portfolio summary">
+        <article className="project-stat-card">
+          <span>Total Projects</span>
+          <strong>{portfolioSummary.totalProjects}</strong>
+          <small>{formatCompactCount(projectPortfolioItems.filter((item) => item.appTypeCount > 0).length, "project")} with app types</small>
+        </article>
+        <article className="project-stat-card danger">
+          <span>Risky Projects</span>
+          <strong>{portfolioSummary.riskyProjects}</strong>
+          <small>Needs immediate review</small>
+        </article>
+        <article className="project-stat-card warning">
+          <span>Release Ready</span>
+          <strong>{portfolioSummary.releaseReadyProjects}</strong>
+          <small>Passing health threshold</small>
+        </article>
+        <article className="project-stat-card success">
+          <span>Requirement Coverage</span>
+          <strong>{portfolioSummary.averageRequirementCoverage}%</strong>
+          <small>Average across scope</small>
+        </article>
+        <article className="project-stat-card info">
+          <span>Automation Coverage</span>
+          <strong>{portfolioSummary.averageAutomationCoverage}%</strong>
+          <small>Automation maturity</small>
+        </article>
+      </section>
+
       <WorkspaceMasterDetail
         browseView={(
           <Panel
-            title="Projects list"
+            className="projects-catalog-panel"
+            title="Project Portfolio"
             subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or app types."
+            actions={(
+              <div className="projects-view-toggle" aria-label="Project view options">
+                <button
+                  aria-label="Card view"
+                  className={projectViewMode === "cards" ? "is-active" : ""}
+                  onClick={() => setProjectViewMode("cards")}
+                  type="button"
+                >
+                  <GridIcon />
+                </button>
+                <button
+                  aria-label="List view"
+                  className={projectViewMode === "list" ? "is-active" : ""}
+                  onClick={() => setProjectViewMode("list")}
+                  type="button"
+                >
+                  <ListIcon />
+                </button>
+              </div>
+            )}
           >
             <div className="project-list-toolbar">
               <CatalogSearchFilter
@@ -925,49 +1354,81 @@ export function ProjectsPage() {
             </div>
             {isProjectCatalogLoading ? <TileCardSkeletonGrid className="catalog-grid compact" /> : null}
             {!isProjectCatalogLoading ? (
-              <div className="catalog-grid compact">
-                {filteredProjectItems.map((project) => {
-                  const isSelected = String(selectedProjectId) === String(project.id);
-                  const memberCount = memberCountByProjectId[project.id] || 0;
-                  const appTypeCount = appTypeCountByProjectId[project.id] || 0;
-                  const requirementCount = requirementCountByProjectId[project.id] || 0;
-                  const testCaseCount = testCaseCountByProjectId[project.id] || 0;
-                  const coverage = requirementCoverageByProjectId[project.id] || emptyRequirementCoverage;
-                  const automationCoverage = automationCoverageByProjectId[project.id] || emptyAutomationCoverage;
-                  const passCoverage = passCoverageByProjectId[project.id] || emptyPassCoverage;
-                  const requirementCoverageDetail = coverage.totalRequirements
-                    ? `${coverage.coveredRequirements}/${coverage.totalRequirements} requirements covered`
-                    : "No requirements available to measure coverage";
-                  const automationCoverageDetail = automationCoverage.totalCases
-                    ? `${automationCoverage.automatedCases}/${automationCoverage.totalCases} cases automated`
-                    : "No test cases available to measure automation coverage";
-                  const passCoverageDetail = passCoverage.totalCases
-                    ? `${passCoverage.passedCases}/${passCoverage.totalCases} cases are currently passing`
-                    : "No test cases available to measure pass rate";
+              projectViewMode === "cards" ? (
+                <div className="projects-grid">
+                  {filteredProjectItems.map((item) => {
+                    const { project, coverage, automationCoverage, passCoverage } = item;
+                    const isSelected = String(selectedProjectId) === String(project.id);
+                    const requirementCoverageDetail = coverage.totalRequirements
+                      ? `${coverage.coveredRequirements}/${coverage.totalRequirements} requirements covered`
+                      : "No requirements available to measure coverage";
+                    const automationCoverageDetail = automationCoverage.totalCases
+                      ? `${automationCoverage.automatedCases}/${automationCoverage.totalCases} cases automated`
+                      : "No test cases available to measure automation coverage";
+                    const passCoverageDetail = passCoverage.totalCases
+                      ? `${passCoverage.passedCases}/${passCoverage.totalCases} cases are currently passing`
+                      : "No test cases available to measure pass rate";
 
-                  return (
-                    <button
-                      key={project.id}
-                      aria-pressed={isSelected}
-                      className={isSelected ? "catalog-card tile-card project-catalog-card is-active" : "catalog-card tile-card project-catalog-card"}
-                      onClick={() => {
-                        setSelectedProjectId(project.id);
-                        setFocusedProjectId(project.id);
-                      }}
-                      type="button"
-                    >
-                      <div className="tile-card-main">
-                        <div className="tile-card-header project-card-header">
-                          <div className="project-card-icon-row">
+                    return (
+                      <article
+                        key={project.id}
+                        aria-pressed={isSelected}
+                        className={[
+                          "project-portfolio-card",
+                          `is-${item.healthTone}`,
+                          isSelected ? "is-active" : ""
+                        ].filter(Boolean).join(" ")}
+                        onClick={() => openPortfolioProject(item)}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) {
+                            return;
+                          }
+
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openPortfolioProject(item);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="project-portfolio-topline">
+                          <div className="project-portfolio-title">
                             <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
                               <TileCardProjectIcon />
                             </TileCardIconFrame>
-                            <DisplayIdBadge value={project.display_id || project.id} />
+                            <div>
+                              <DisplayIdBadge value={project.display_id || project.id} />
+                              <h3>{project.name}</h3>
+                              <span>{item.appTypeSummary}</span>
+                            </div>
+                          </div>
+                          <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
+                            <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
+                            <CatalogActionMenu
+                              actions={getProjectActionItems(item)}
+                              label={`${project.name} actions`}
+                            />
                           </div>
                         </div>
-                        <div className="tile-card-title-group project-card-title-group">
-                          <strong>{project.name}</strong>
+
+                        <div className={`project-readiness-row ${item.healthTone}`}>
+                          <div>
+                            <span>Release Readiness</span>
+                            <strong>{item.readinessLabel}</strong>
+                          </div>
+                          <button
+                            className="project-mini-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openPortfolioProject(item);
+                            }}
+                            type="button"
+                          >
+                            Open
+                          </button>
                         </div>
+
                         <div className="project-card-progress-stack" aria-label={`${project.name} coverage summary`}>
                           <ProjectProgressBar
                             detail={requirementCoverageDetail}
@@ -983,30 +1444,83 @@ export function ProjectsPage() {
                           />
                           <ProjectProgressBar
                             detail={passCoverageDetail}
-                            label="Pass rate"
+                            label="Latest pass rate"
                             tone={getMetricTone(passCoverage.passedCases, passCoverage.totalCases)}
                             value={passCoverage.coveragePercent}
                           />
                         </div>
-                        <div className="tile-card-facts" aria-label={`${project.name} facts`}>
-                          <TileCardFact label={String(memberCount)} title={`${memberCount} member${memberCount === 1 ? "" : "s"}`} tone={memberCount ? "info" : "neutral"}>
-                            <TileCardUsersIcon />
-                          </TileCardFact>
-                          <TileCardFact label={String(appTypeCount)} title={`${appTypeCount} app type${appTypeCount === 1 ? "" : "s"}`} tone={appTypeCount ? "success" : "neutral"}>
-                            <TileCardAppTypesIcon />
-                          </TileCardFact>
-                          <TileCardFact label={String(requirementCount)} title={`${requirementCount} requirement${requirementCount === 1 ? "" : "s"}`} tone={requirementCount ? "warning" : "neutral"}>
-                            <TileCardRequirementIcon />
-                          </TileCardFact>
-                          <TileCardFact label={String(testCaseCount)} title={`${testCaseCount} test case${testCaseCount === 1 ? "" : "s"}`} tone={testCaseCount ? "success" : "neutral"}>
-                            <TileCardCaseIcon />
-                          </TileCardFact>
+
+                        {item.latestExecution ? (
+                          <div className="project-execution-strip">
+                            <div><span>Last Run</span><strong>{item.latestRunLabel}</strong></div>
+                            <div><span>Status</span><strong>{item.latestExecution.status || "Unknown"}</strong></div>
+                            <div><span>Failed</span><strong>{item.latestFailedCount}</strong></div>
+                            <div><span>Duration</span><strong>{item.latestDurationLabel}</strong></div>
+                          </div>
+                        ) : null}
+
+                        <div className="project-meta-grid">
+                          <span><b>{item.memberCount}</b> Members</span>
+                          <span><b>{item.suiteCount}</b> Suites</span>
+                          <span><b>{item.testCaseCount}</b> Cases</span>
+                          <span><b>{item.requirementCount}</b> Requirements</span>
                         </div>
+
+                        <div className={`project-risk-note ${item.healthTone}`}>
+                          <span>{item.healthTone === "danger" ? "!" : "AI"}</span>
+                          <p>{item.insight}</p>
+                        </div>
+
+                        <div className="project-card-actions" aria-hidden="true" />
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="projects-list-view" role="table" aria-label="Project relation list">
+                  <div className="projects-list-row projects-list-head" role="row">
+                    <span>Project</span>
+                    <span>Readiness</span>
+                    <span>Scope</span>
+                    <span>Coverage</span>
+                    <span>Latest Run</span>
+                    <span>Actions</span>
+                  </div>
+                  {filteredProjectItems.map((item) => (
+                    <div className="projects-list-row" role="row" key={item.project.id}>
+                      <div className="projects-list-project">
+                        <DisplayIdBadge value={item.project.display_id || item.project.id} />
+                        <strong>{item.project.name}</strong>
+                        <span>{item.project.description || item.appTypeSummary}</span>
+                        <small>{item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"}</small>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
+                      <div>
+                        <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
+                        <strong>{item.readinessScore}%</strong>
+                        <small>{item.readinessLabel}</small>
+                      </div>
+                      <div>
+                        <strong>{item.appTypeCount} app types</strong>
+                        <span>{item.suiteCount} suites · {item.requirementCount} reqs · {item.testCaseCount} cases</span>
+                      </div>
+                      <div className="projects-list-coverage">
+                        <span>Req {item.coverage.coveragePercent}%</span>
+                        <span>Auto {item.automationCoverage.coveragePercent}%</span>
+                        <span>Pass {item.passCoverage.coveragePercent}%</span>
+                      </div>
+                      <div>
+                        <strong>{item.latestRunLabel}</strong>
+                        <span>{item.latestExecution?.status || "No execution"} · {item.latestFailedCount} failed</span>
+                        <small>{item.latestDurationLabel}</small>
+                      </div>
+                      <div className="projects-list-actions">
+                        <button className="ghost-button" onClick={() => openPortfolioProject(item)} type="button">Open</button>
+                        <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
             ) : null}
             {!isProjectCatalogLoading && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, app types, and the initial team in one flow.</div> : null}
             {!isProjectCatalogLoading && projectItems.length > 0 && !filteredProjectItems.length ? <div className="empty-state compact">No projects match the current search or filters.</div> : null}

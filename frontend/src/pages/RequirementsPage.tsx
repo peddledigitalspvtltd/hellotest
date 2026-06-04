@@ -15,6 +15,7 @@ import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { StatusBadge } from "../components/StatusBadge";
 import {
   TileCardFact,
   TileCardLinkIcon,
@@ -1449,23 +1450,65 @@ export function RequirementsPage() {
                     const linkedCaseCount = (linkedCaseIdsByRequirementId[item.id] || []).length;
                     const passCoverage = passCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
                     const automationCoverage = automationCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
+                    const readinessScore = Math.round((passCoverage.percent * 0.55) + (automationCoverage.percent * 0.45));
+                    const isCoverageRisk = !linkedCaseCount || (item.priority ?? 3) <= 2 && readinessScore < 70;
                     const passCoverageTitle = passCoverage.total
                       ? `${passCoverage.covered}/${passCoverage.total} linked test cases passed`
                       : "No linked test cases to measure pass coverage";
                     const automationCoverageTitle = automationCoverage.total
                       ? `${automationCoverage.covered}/${automationCoverage.total} linked test cases automated`
                       : "No linked test cases to measure automation coverage";
+                    const tileActions = [
+                      {
+                        label: "Open requirement",
+                        description: "Open this requirement in the detail workspace.",
+                        icon: <OpenIcon />,
+                        onClick: () => setSelectedRequirementId(item.id)
+                      },
+                      {
+                        label: "AI test cases",
+                        description: "Generate or review AI-designed test cases for this requirement.",
+                        icon: <SparkIcon />,
+                        onClick: () => openRequirementAiStudio(item.id)
+                      },
+                      {
+                        label: "Complete with AI",
+                        description: "Use AI to improve missing or weak requirement details.",
+                        icon: <SparkIcon />,
+                        onClick: () => openRequirementOptimization([item.id])
+                      },
+                      {
+                        label: "Delete requirement",
+                        description: "Delete this requirement while keeping linked test cases in the library.",
+                        icon: <TrashIcon />,
+                        onClick: () => void handleDeleteRequirementItem(item),
+                        disabled: deleteRequirement.isPending,
+                        tone: "danger" as const
+                      }
+                    ];
 
                     return (
-                      <button
+                      <article
                         key={item.id}
                         className={[
                           "record-card tile-card requirement-catalog-card",
+                          isCoverageRisk ? "is-risk" : linkedCaseCount ? "is-healthy" : "is-warning",
                           isActive ? "is-active" : "",
                           isSelectedForDelete ? "is-marked-for-delete" : ""
                         ].filter(Boolean).join(" ")}
                         onClick={() => setSelectedRequirementId(item.id)}
-                        type="button"
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) {
+                            return;
+                          }
+
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedRequirementId(item.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
                       >
                         <div className="tile-card-main">
                           <div className="tile-card-select-row requirement-tile-top-row">
@@ -1481,12 +1524,17 @@ export function RequirementsPage() {
                               />
                               <DisplayIdBadge value={item.display_id || item.id} />
                             </label>
+                            <div className="catalog-inline-actions requirement-top-actions" onClick={(event) => event.stopPropagation()}>
+                              <StatusBadge value={formatTileCardLabel(item.status || defaultRequirementStatus, "Open")} />
+                              <CatalogActionMenu actions={tileActions} label={`${item.title} actions`} />
+                            </div>
                           </div>
                           <div className="tile-card-header requirement-tile-header">
                             <div className="tile-card-title-group">
                               <strong>{item.title}</strong>
                             </div>
                           </div>
+                          <p className="tile-card-description">{item.description || "No requirement description captured yet."}</p>
                           <div className="requirement-progress-stack">
                             <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />
                             <RequirementProgressBar detail={automationCoverageTitle} label="Automation coverage" metric={automationCoverage} />
@@ -1506,9 +1554,16 @@ export function RequirementsPage() {
                             >
                               <TileCardLinkIcon />
                             </TileCardFact>
+                            <TileCardFact
+                              label={`${readinessScore}%`}
+                              title="Release readiness contribution from linked case pass rate and automation coverage"
+                              tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
+                            >
+                              <SparkIcon />
+                            </TileCardFact>
                           </div>
                         </div>
-                      </button>
+                      </article>
                     );
                   })}
                 </div>

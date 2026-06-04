@@ -23,6 +23,12 @@ type FeedbackTone = "success" | "error";
 
 const createEmptyUserDraft = (roleId = "") => ({ name: "", email: "", password_hash: "", role_id: roleId });
 const EMPTY_ROLE_DRAFT = { name: "" };
+const formatPermissionLabel = (code: string) =>
+  code
+    .split(".")
+    .map((part) => part.replace(/_/g, " "))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" / ");
 
 export function PeoplePage() {
   const queryClient = useQueryClient();
@@ -324,7 +330,7 @@ export function PeoplePage() {
   });
 
   const updateUser = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ email: string; password_hash: string; name: string; role_id: string }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ email: string; password: string; name: string; role_id: string }> }) =>
       api.users.update(id, input),
     onSuccess: async () => {
       showFeedback("User updated.", "success");
@@ -403,7 +409,7 @@ export function PeoplePage() {
     event.preventDefault();
     createUser.mutate({
       email: createUserDraft.email,
-      password_hash: createUserDraft.password_hash,
+      password: createUserDraft.password_hash,
       name: createUserDraft.name,
       role_id: createUserDraft.role_id || defaultMemberRoleId
     });
@@ -455,54 +461,19 @@ export function PeoplePage() {
     };
 
     return (
-    <div className="permission-transfer">
-      <div className="permission-transfer-column">
-        <div className="permission-transfer-head">
-          <div>
-            <strong>Not selected</strong>
-            <span>{availablePermissions.length} permission{availablePermissions.length === 1 ? "" : "s"}</span>
-          </div>
+    <div className="permission-designer">
+      <div className="permission-designer-summary">
+        <div>
+          <strong>{selectedPermissions.length} selected</strong>
+          <span>{availablePermissions.length} available to add</span>
+        </div>
+        <div className="permission-designer-actions">
           <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
             Add all
           </button>
-        </div>
-        <div className="permission-transfer-list">
-          {availablePermissions.map((permission) => (
-            <button className="permission-transfer-item" key={permission.code} onClick={() => togglePermission(permission.code, target)} type="button">
-              <span>
-                <strong>{permission.code}</strong>
-                <small>{permission.groupLabel} · {permission.description}</small>
-              </span>
-              <span aria-hidden="true" className="permission-transfer-arrow">→</span>
-            </button>
-          ))}
-          {!availablePermissions.length ? <div className="empty-state compact">Every permission is selected.</div> : null}
-        </div>
-      </div>
-
-      <div aria-hidden="true" className="permission-transfer-bridge">⇄</div>
-
-      <div className="permission-transfer-column is-selected">
-        <div className="permission-transfer-head">
-          <div>
-            <strong>Selected</strong>
-            <span>{selectedPermissions.length} permission{selectedPermissions.length === 1 ? "" : "s"}</span>
-          </div>
           <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
             Clear
           </button>
-        </div>
-        <div className="permission-transfer-list">
-          {selectedPermissions.map((permission) => (
-            <button className="permission-transfer-item is-selected" key={permission.code} onClick={() => togglePermission(permission.code, target)} type="button">
-              <span aria-hidden="true" className="permission-transfer-arrow">←</span>
-              <span>
-                <strong>{permission.code}</strong>
-                <small>{permission.groupLabel} · {permission.description}</small>
-              </span>
-            </button>
-          ))}
-          {!selectedPermissions.length ? <div className="empty-state compact">No permissions selected.</div> : null}
         </div>
       </div>
 
@@ -537,7 +508,8 @@ export function PeoplePage() {
                     type="checkbox"
                   />
                   <span>
-                    <strong>{permission.code}</strong>
+                    <strong>{formatPermissionLabel(permission.code)}</strong>
+                    <code>{permission.code}</code>
                     <small>{permission.description}</small>
                   </span>
                 </label>
@@ -664,7 +636,7 @@ export function PeoplePage() {
   };
 
   return (
-    <div className="page-content">
+    <div className="page-content people-access-page">
       {confirmationDialog}
       <PageHeader
         eyebrow="People & Access"
@@ -704,6 +676,7 @@ export function PeoplePage() {
 
       {view === "users" ? (
         <WorkspaceMasterDetail
+          className="people-roles-workspace"
           browseView={(
             <Panel title="Users" titleVariant="eyebrow" subtitle="Scan the directory in card form first, then open one person into a focused access editor.">
               {isUserCatalogLoading ? <TileCardSkeletonGrid /> : null}
@@ -763,7 +736,7 @@ export function PeoplePage() {
                             name: userDraft.name,
                             email: userDraft.email,
                             role_id: userDraft.role_id,
-                            ...(userDraft.password_hash ? { password_hash: userDraft.password_hash } : {})
+                            ...(userDraft.password_hash ? { password: userDraft.password_hash } : {})
                           }
                         });
                       }}
@@ -796,10 +769,11 @@ export function PeoplePage() {
                           ))}
                         </select>
                       </FormField>
-                      <FormField label="Password hash">
+                      <FormField label="New password">
                         <input
-                          name="password_hash"
-                          placeholder="Leave blank to keep current value"
+                          name="password"
+                          placeholder="Leave blank to keep current password"
+                          type="password"
                           value={userDraft.password_hash}
                           onChange={(event) => setUserDraft((current) => ({ ...current, password_hash: event.target.value }))}
                         />
@@ -937,6 +911,7 @@ export function PeoplePage() {
             </Panel>
           )}
           isDetailOpen={Boolean(selectedRole)}
+          variant="split"
         />
       )}
 
@@ -1001,10 +976,11 @@ export function PeoplePage() {
                       ))}
                     </select>
                   </FormField>
-                  <FormField label="Password hash" required>
+                  <FormField label="Temporary password" required>
                     <input
-                      name="password_hash"
-                      placeholder="Stored password value"
+                      name="password"
+                      placeholder="At least 6 characters"
+                      type="password"
                       value={createUserDraft.password_hash}
                       onChange={(event) => setCreateUserDraft((current) => ({ ...current, password_hash: event.target.value }))}
                     />

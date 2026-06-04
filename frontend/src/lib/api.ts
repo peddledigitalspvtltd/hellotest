@@ -147,7 +147,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const error = (payload || {}) as ApiError;
-    const message = error.message || `Request failed with status ${response.status}`;
+    const message = error.message || (response.status === 403
+      ? "You do not have permission to perform this action."
+      : `Request failed with status ${response.status}`);
 
     if (response.status === 401 && token && isSessionAuthFailure(path, message)) {
       sessionStorage.clear();
@@ -339,7 +341,7 @@ export const api = {
   },
   users: {
     list: () => request<User[]>("/users"),
-    create: (input: { email: string; password_hash: string; name?: string; role_id: string }) =>
+    create: (input: { email: string; password: string; name?: string; role_id: string }) =>
       request<{ id: string }>("/users", { method: "POST", body: JSON.stringify(input) }),
     bulkImport: (input: {
       rows: Array<Record<string, string | number | null | undefined>>;
@@ -349,7 +351,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ email: string; password_hash: string; name: string; role_id: string; avatar_data_url: string | null }>) =>
+    update: (id: string, input: Partial<{ email: string; password: string; password_hash: string; name: string; role_id: string; avatar_data_url: string | null }>) =>
       request<{ updated: boolean }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" })
   },

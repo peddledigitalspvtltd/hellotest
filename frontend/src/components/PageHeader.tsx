@@ -11,7 +11,6 @@ export function PageHeader({
   title,
   description,
   actions,
-  meta,
   className = ""
 }: {
   eyebrow?: string;
@@ -31,16 +30,6 @@ export function PageHeader({
             {description ? <InfoTooltip className="page-description-info" content={description} label="Page information" /> : null}
           </div>
         </div>
-        {meta?.length ? (
-          <div className="page-header-meta">
-            {meta.map((item) => (
-              <div className="page-header-meta-item" key={item.label}>
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
       {actions ? <div className="page-actions">{actions}</div> : null}
     </header>

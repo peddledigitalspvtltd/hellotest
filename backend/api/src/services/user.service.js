@@ -194,8 +194,10 @@ const normalizeAvatarDataUrl = (value) => {
 
 const isAdminRole = (role) => String(role?.name || "").trim().toLowerCase() === "admin";
 
-exports.createUser = async ({ email, password_hash, name, role_id }) => {
-  if (!email || !password_hash || !role_id) {
+exports.createUser = async ({ email, password, password_hash, name, role_id }) => {
+  const resolvedPasswordHash = password ? hashPassword(password) : password_hash;
+
+  if (!email || !resolvedPasswordHash || !role_id) {
     throw new Error("Missing required fields");
   }
 
@@ -226,7 +228,7 @@ exports.createUser = async ({ email, password_hash, name, role_id }) => {
   `);
 
   const transaction = db.transaction(async () => {
-    await createUserStatement.run(id, normalizedEmail, password_hash, normalizeName(name), isAdminRole(role));
+    await createUserStatement.run(id, normalizedEmail, resolvedPasswordHash, normalizeName(name), isAdminRole(role));
 
     for (const project of projects) {
       await createMembership.run(uuid(), project.id, id, role_id);
@@ -318,6 +320,7 @@ exports.updateUser = async (id, data) => {
     data.name !== undefined
       ? normalizeName(data.name)
       : existing.name;
+  const nextPasswordHash = data.password ? hashPassword(data.password) : data.password_hash;
 
   const updateUserStatement = db.prepare(`
     UPDATE users
@@ -334,7 +337,7 @@ exports.updateUser = async (id, data) => {
     const emailToUpdate = data.email ? normalizeEmail(data.email) : existing.email;
     await updateUserStatement.run(
       emailToUpdate,
-      data.password_hash ?? existing.password_hash,
+      nextPasswordHash ?? existing.password_hash,
       nextName,
       nextAvatarDataUrl,
       nextRole ? isAdminRole(nextRole) : existing.is_workspace_admin,

@@ -1,4 +1,5 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
@@ -70,27 +71,86 @@ const INITIAL_FORM_VALUES: FormValues = {
   verificationCode: ""
 };
 
-const authStorySlides = [
+const authFeatureSlides = [
   {
-    eyebrow: "Design",
-    title: "Turn requirements into reusable test intent.",
-    description: "Capture acceptance criteria, author cases, and keep the reasoning connected before automation starts.",
-    metric: "Traceable by design",
-    facts: ["Requirements", "Manual cases", "AI design"]
+    eyebrow: "AI quality command",
+    title: "Ship better software with AI-led quality intelligence.",
+    description: "Connect requirements, test design, automation, execution health and release risks in one focused workspace.",
+    badge: "Release Health",
+    score: 92,
+    status: "Ready for release",
+    statusCopy: "Regression stable. No critical blockers detected.",
+    metrics: [
+      { value: "85%", label: "Automation visibility" },
+      { value: "3x", label: "Faster release decisions" },
+      { value: "AI", label: "Risk insights included" }
+    ],
+    bars: [
+      { label: "Requirement coverage", value: 96 },
+      { label: "Automation coverage", value: 82 },
+      { label: "Latest pass rate", value: 94 }
+    ],
+    insight: "AI insight: Login and checkout modules are stable across the last 5 executions."
   },
   {
-    eyebrow: "Automate",
-    title: "Build keyword automation around stable objects.",
-    description: "Use screen-level object repositories, DOM context, and AI-assisted locator strategy to reduce brittle scripts.",
-    metric: "Locator-aware",
-    facts: ["Keyword steps", "Object repository", "Local capture"]
+    eyebrow: "AI test case generation",
+    title: "Convert requirements into test coverage your teams can trust.",
+    description: "QAira turns business rules and acceptance criteria into review-ready test cases, reducing missed scenarios before sprint work reaches execution.",
+    badge: "Coverage Design",
+    score: 88,
+    status: "Coverage gaps found early",
+    statusCopy: "Critical paths, edge cases, and negative flows are drafted before manual review.",
+    metrics: [
+      { value: "70%", label: "Less authoring effort" },
+      { value: "2x", label: "More scenario depth" },
+      { value: "0", label: "Lost requirement links" }
+    ],
+    bars: [
+      { label: "Requirement traceability", value: 95 },
+      { label: "Scenario completeness", value: 88 },
+      { label: "Review readiness", value: 84 }
+    ],
+    insight: "AI insight: High-risk payment and account flows need boundary and rollback coverage."
   },
   {
-    eyebrow: "Execute",
-    title: "Run with evidence, not guesswork.",
-    description: "Plan local or remote runs, inspect history, and keep defects tied to the cases that produced them.",
-    metric: "Evidence ready",
-    facts: ["Runs", "History", "Defects"]
+    eyebrow: "AI automation authoring",
+    title: "Move from intent to stable automation without brittle handoffs.",
+    description: "Generate keyword steps, locator strategy, and reusable flows from QA intent so automation work starts with context instead of blank scripts.",
+    badge: "Automation Build",
+    score: 84,
+    status: "Automation plan prepared",
+    statusCopy: "Reusable flows, objects, and execution data are aligned before scripting begins.",
+    metrics: [
+      { value: "3x", label: "Faster first draft" },
+      { value: "60%", label: "Less locator rework" },
+      { value: "1", label: "Shared object model" }
+    ],
+    bars: [
+      { label: "Reusable step coverage", value: 86 },
+      { label: "Locator confidence", value: 81 },
+      { label: "Flow maintainability", value: 89 }
+    ],
+    insight: "AI insight: Reuse the authenticated session flow across dashboard, settings, and billing tests."
+  },
+  {
+    eyebrow: "AI run analysis",
+    title: "Turn every failed run into a release decision, not a mystery.",
+    description: "QAira groups failures, explains likely causes, and highlights release risk so teams know what to fix, defer, or rerun with confidence.",
+    badge: "Run Intelligence",
+    score: 90,
+    status: "Root cause signals ready",
+    statusCopy: "Failures are clustered by product area, error pattern, and business impact.",
+    metrics: [
+      { value: "45m", label: "Saved per triage cycle" },
+      { value: "4", label: "Risk clusters detected" },
+      { value: "Live", label: "Release confidence" }
+    ],
+    bars: [
+      { label: "Failure clustering", value: 91 },
+      { label: "Defect signal quality", value: 87 },
+      { label: "Release confidence", value: 90 }
+    ],
+    insight: "AI insight: Checkout failures are environmental; profile updates are product-risk candidates."
   }
 ];
 
@@ -318,14 +378,14 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingVerification, setPendingVerification] = useState<PendingVerification | null>(null);
-  const [activeStorySlide, setActiveStorySlide] = useState(0);
+  const [activeFeatureSlide, setActiveFeatureSlide] = useState(0);
 
   const isSuccessMode = mode === "signup-success" || mode === "reset-success";
   const isCodeMode = mode === "signup-code" || mode === "forgot-code";
   const isEmailVerificationReady = authSetup.emailVerification.enabled;
   const isGoogleReady = authSetup.google.enabled && Boolean(authSetup.google.clientId);
   const currentCopy = getCurrentCopy(mode, pendingVerification, authSetup);
-  const activeStory = authStorySlides[activeStorySlide] || authStorySlides[0];
+  const activeFeature = authFeatureSlides[activeFeatureSlide] || authFeatureSlides[0];
   const isBusy = isSubmitting || isGoogleSubmitting || isResendingCode;
 
   useEffect(() => {
@@ -360,8 +420,8 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setActiveStorySlide((current) => (current + 1) % authStorySlides.length);
-    }, 5200);
+      setActiveFeatureSlide((current) => (current + 1) % authFeatureSlides.length);
+    }, 5600);
 
     return () => window.clearInterval(timer);
   }, []);
@@ -375,7 +435,12 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
   }, [isSuccessMode, mode]);
 
   useEffect(() => {
-    if (mode !== "login" || !isGoogleReady || !authSetup.google.clientId || !googleButtonRef.current) {
+    if (
+      (mode !== "login" && mode !== "signup") ||
+      !isGoogleReady ||
+      !authSetup.google.clientId ||
+      !googleButtonRef.current
+    ) {
       if (googleButtonRef.current) {
         googleButtonRef.current.innerHTML = "";
       }
@@ -699,61 +764,97 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
 
       <div className="container auth-shell">
         <section className="left auth-aside" aria-label="QAira product overview">
-          <div className="auth-simple-carousel">
+          <div className="auth-command-hero">
             <div className="auth-product-brand">
               <div className="brand-mark">Q</div>
               <div>
                 <strong>QAira</strong>
-                <p>AI quality workspace</p>
+                <p>AI Quality Command Center</p>
               </div>
             </div>
 
-            <div className="auth-carousel-stage" key={activeStory.eyebrow}>
+            <div className="auth-feature-carousel" key={activeFeature.eyebrow}>
               <div className="auth-product-copy">
-                <p className="eyebrow">{activeStory.eyebrow}</p>
-                <h1>{activeStory.title}</h1>
-                <p>{activeStory.description}</p>
+                <p className="eyebrow">{activeFeature.eyebrow}</p>
+                <h1>{activeFeature.title}</h1>
+                <p>{activeFeature.description}</p>
               </div>
 
-              <div className="auth-carousel-proof-card">
-                <span>{activeStory.metric}</span>
-                <strong>{activeStory.facts.join(" / ")}</strong>
+              <div className="auth-feature-controls" aria-label="QAira feature carousel">
+                <button
+                  aria-label="Previous feature"
+                  onClick={() => setActiveFeatureSlide((current) => (current + authFeatureSlides.length - 1) % authFeatureSlides.length)}
+                  type="button"
+                >
+                  ‹
+                </button>
+                <div className="auth-feature-dots" role="tablist" aria-label="QAira AI features">
+                  {authFeatureSlides.map((slide, index) => (
+                    <button
+                      aria-label={`Show ${slide.eyebrow}`}
+                      aria-selected={activeFeatureSlide === index}
+                      className={activeFeatureSlide === index ? "auth-feature-dot is-active" : "auth-feature-dot"}
+                      key={slide.eyebrow}
+                      onClick={() => setActiveFeatureSlide(index)}
+                      role="tab"
+                      type="button"
+                    />
+                  ))}
+                </div>
+                <button
+                  aria-label="Next feature"
+                  onClick={() => setActiveFeatureSlide((current) => (current + 1) % authFeatureSlides.length)}
+                  type="button"
+                >
+                  ›
+                </button>
               </div>
             </div>
 
-            <div className="auth-carousel-controls" aria-label="QAira story carousel">
-              <button
-                aria-label="Previous story"
-                onClick={() => setActiveStorySlide((current) => (current + authStorySlides.length - 1) % authStorySlides.length)}
-                type="button"
-              >
-                ‹
-              </button>
-              <div className="auth-carousel-dots" role="tablist" aria-label="QAira story slides">
-                {authStorySlides.map((slide, index) => (
-                  <button
-                    aria-label={`Show ${slide.eyebrow} story`}
-                    aria-selected={activeStorySlide === index}
-                    className={activeStorySlide === index ? "auth-carousel-dot is-active" : "auth-carousel-dot"}
-                    key={slide.eyebrow}
-                    onClick={() => setActiveStorySlide(index)}
-                    role="tab"
-                    type="button"
-                  />
+            <div className="auth-hero-metrics" aria-label="QAira quality metrics">
+              {activeFeature.metrics.map((metric) => (
+                <article key={`${activeFeature.eyebrow}-${metric.label}`}>
+                  <strong>{metric.value}</strong>
+                  <span>{metric.label}</span>
+                </article>
+              ))}
+            </div>
+
+            <div className="auth-release-preview" aria-label="Release health preview">
+              <div className="auth-release-preview-head">
+                <div>
+                  <span className="auth-status-dot" aria-hidden="true" />
+                  <strong>{activeFeature.badge}</strong>
+                </div>
+                <span>Live</span>
+              </div>
+
+              <div className="auth-health-score">
+                <div
+                  className="auth-health-ring"
+                  aria-label={`${activeFeature.badge} score ${activeFeature.score} percent`}
+                  style={{ "--score": `${activeFeature.score}%` } as CSSProperties}
+                >
+                  <span>{activeFeature.score}%</span>
+                </div>
+                <div>
+                  <h2>{activeFeature.status}</h2>
+                  <p>{activeFeature.statusCopy}</p>
+                </div>
+              </div>
+
+              <div className="auth-preview-bars">
+                {activeFeature.bars.map((bar) => (
+                  <div key={`${activeFeature.eyebrow}-${bar.label}`} style={{ "--value": `${bar.value}%` } as CSSProperties}>
+                    <span>{bar.label}</span>
+                    <strong>{bar.value}%</strong>
+                    <i aria-hidden="true" />
+                  </div>
                 ))}
               </div>
-              <button
-                aria-label="Next story"
-                onClick={() => setActiveStorySlide((current) => (current + 1) % authStorySlides.length)}
-                type="button"
-              >
-                ›
-              </button>
-            </div>
 
-            <p className="auth-aside-footer">
-              Built for secure teams that need traceability, automation, and run evidence without noise.
-            </p>
+              <p className="auth-ai-note">{activeFeature.insight}</p>
+            </div>
           </div>
         </section>
 
@@ -825,6 +926,20 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
               </div>
             ) : (
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
+                {(mode === "login" || mode === "signup") && isGoogleReady ? (
+                  <>
+                    <div className="auth-google-section">
+                      <div className="auth-google-button-shell">
+                        <div aria-label="Continue with Google" ref={googleButtonRef} />
+                      </div>
+                    </div>
+
+                    <div className="auth-provider-divider" aria-hidden="true">
+                      <span>or continue with email</span>
+                    </div>
+                  </>
+                ) : null}
+
                 {mode === "signup" && (
                   <FormField label="Full name" inputId="name-input">
                     <input
@@ -987,20 +1102,6 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                       Dismiss
                     </button>
                   </div>
-                ) : null}
-
-                {mode === "login" && isGoogleReady ? (
-                  <>
-                    <div className="auth-google-section">
-                      <div className="auth-google-button-shell">
-                        <div aria-label="Continue with Google" ref={googleButtonRef} />
-                      </div>
-                    </div>
-
-                    <div className="auth-provider-divider" aria-hidden="true">
-                      <span>or continue with email</span>
-                    </div>
-                  </>
                 ) : null}
 
                 <button
