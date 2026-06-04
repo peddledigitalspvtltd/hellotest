@@ -787,9 +787,6 @@ export function OverviewPage() {
     : releaseReadinessScore >= 65
       ? "Production readiness needs hardening"
       : "Not ready for production";
-  const appTypeSummary = appTypesList.length
-    ? appTypesList.map((appType) => appType.is_unified ? `${appType.name} unified` : appType.type.toUpperCase()).slice(0, 3).join(" + ")
-    : "No app type";
   const healthMeterStyle = (value: number) => ({ width: `${Math.max(0, Math.min(100, value))}%` });
   const releaseRingStyle = { "--score": releaseReadinessScore } as CSSProperties;
   const canManageProjects = hasPermission(session, "project.view");
@@ -808,12 +805,6 @@ export function OverviewPage() {
           <p className="page-description">
             Monitor release readiness, requirement coverage, automation confidence, latest execution health, and AI-prioritized risks for the active project.
           </p>
-
-          <div className="page-header-meta">
-            <span className="page-header-meta-item">Project <strong>{selectedProject?.display_id || selectedProject?.id || "None"}</strong></span>
-            <span className="page-header-meta-item">App Type <strong>{appTypeSummary}</strong></span>
-            <span className="page-header-meta-item">Latest Run <strong>{latestExecution?.name || "No run yet"}</strong></span>
-          </div>
         </div>
 
         <div className="page-actions">

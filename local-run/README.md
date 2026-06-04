@@ -7,7 +7,6 @@ not replace or edit the existing root scripts or compose files.
 
 - `.env.example`: local defaults you can copy to `.env`.
 - `docker-compose.yml`: source-build local stack for Postgres, API, frontend, and Test Engine.
-- `agent/`: local LLM automation generator agent that leases generator jobs from QAira.
 - `docker-compose.images.yml`: image-based duplicate of the local stack.
 - `RECORDER_LOCAL_SETUP.md`: local recorder setup and QAira integration checklist.
 - `bin/start.sh`: start the local stack.
@@ -44,7 +43,6 @@ Open:
 - Host recorder: `http://localhost:4311`
 - Test Engine: `http://localhost:4301`
 - Test Engine OPS board: `http://localhost:4301/ops-telemetry`
-- Local LLM API: `http://localhost:11434`
 
 Seed login:
 
@@ -77,10 +75,11 @@ and can be scaled without changing the browser/API URL:
 
 The local Test Engine defaults to:
 
-- `TESTENGINE_API_REPLICAS=1`
-- `TESTENGINE_WEB_REPLICAS=1`
-- `TESTENGINE_ANDROID_REPLICAS=1`
+- `TESTENGINE_API_REPLICAS=0`
+- `TESTENGINE_WEB_REPLICAS=0`
+- `TESTENGINE_ANDROID_REPLICAS=0`
 - `TESTENGINE_AUTOSCALE=true`
+- `TESTENGINE_AUTOSCALE_MAX_WORKERS=3`
 - `TESTENGINE_API_POLL_INTERVAL_MS=1000`
 - `TESTENGINE_WEB_POLL_INTERVAL_MS=1000`
 - `TESTENGINE_ANDROID_POLL_INTERVAL_MS=1000`
@@ -88,11 +87,12 @@ The local Test Engine defaults to:
 - `TESTENGINE_WEB_POLL_CONCURRENCY=2`
 - `TESTENGINE_ANDROID_POLL_CONCURRENCY=1`
 
-That means workers listen for QAira queue work almost immediately while keeping
-browser and device concurrency conservative. The local autoscaler checks queue
-depth every 15 seconds and scales each pool independently. API bursts can scale
-up without starting extra browsers or mobile device sessions. To force API
-workers manually:
+That means the Test Engine gateway stays available while worker containers are
+created only when QAira has queued execution work. The local autoscaler checks
+queue depth every 15 seconds, scales each pool independently from zero, caps each
+pool at 3 workers by default, and removes obsolete stopped containers after
+scale-down. API bursts can scale up without starting extra browsers or mobile
+device sessions. To force API workers manually:
 
 ```bash
 TESTENGINE_API_REPLICAS=3 bin/start.sh
@@ -110,25 +110,15 @@ To run a one-time autoscale decision without the daemon:
 bin/autoscale-testengine.sh once
 ```
 
-The local automation generator agent also polls every 30 seconds. It is separate
-from TestEngine execution jobs: clicking `Automate case with AI` queues a
-generator job, the local agent leases it, asks the local LLM for a build plan,
-then uses QAira/TestEngine automation-building APIs to create the automation.
+Local LLM and local automation-generator agent services are intentionally not
+part of this low-footprint local stack. Use QAira's integration settings for a
+remote LLM provider when AI generation is needed.
 
-Default local LLM settings:
+## AI Generation
 
-- `LLM_BASE_URL=http://llm:11434`
-- `LLM_MODEL=llama3.2`
-- `GENERATOR_POLL_INTERVAL_MS=30000`
-
-The Ollama container starts with an empty model cache. Pull a model once:
-
-```bash
-docker exec qaira-local-llm ollama pull llama3.2
-```
-
-If the model is not available yet, the agent falls back to a deterministic
-build plan so queued generator jobs still move through the lane.
+`Automate case with AI` no longer depends on a Docker-side local LLM or local
+generator agent in this bundle. That keeps local machines from pulling large
+model images or running background generation workers by default.
 
 ## Recorder
 

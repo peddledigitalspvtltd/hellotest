@@ -16,22 +16,23 @@ set +a
 API_URL=${QAIRA_AUTOSCALER_API_URL:-http://localhost:${API_PORT:-3000}}
 SECRET=${TESTENGINE_SHARED_SECRET:-${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}}
 INTERVAL_SECONDS=${TESTENGINE_AUTOSCALE_INTERVAL_SECONDS:-15}
-API_MAX_WORKERS=${TESTENGINE_API_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-10}}
-WEB_MAX_WORKERS=${TESTENGINE_WEB_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-5}}
-ANDROID_MAX_WORKERS=${TESTENGINE_ANDROID_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-2}}
-API_MIN_WORKERS=${TESTENGINE_API_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
-WEB_MIN_WORKERS=${TESTENGINE_WEB_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
-ANDROID_MIN_WORKERS=${TESTENGINE_ANDROID_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-1}}
+API_MAX_WORKERS=${TESTENGINE_API_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}}
+WEB_MAX_WORKERS=${TESTENGINE_WEB_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}}
+ANDROID_MAX_WORKERS=${TESTENGINE_ANDROID_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}}
+API_MIN_WORKERS=${TESTENGINE_API_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-0}}
+WEB_MIN_WORKERS=${TESTENGINE_WEB_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-0}}
+ANDROID_MIN_WORKERS=${TESTENGINE_ANDROID_MIN_WORKERS:-${TESTENGINE_AUTOSCALE_MIN_WORKERS:-0}}
 
 scale_to() {
   service=$1
   desired=$2
   docker compose --env-file .env -f "$COMPOSE_FILE" up -d --scale "$service=$desired" "$service" testengine >/dev/null
+  docker compose --env-file .env -f "$COMPOSE_FILE" rm -f "$service" >/dev/null 2>&1 || true
 }
 
 current_workers() {
   service=$1
-  docker compose --env-file .env -f "$COMPOSE_FILE" ps -q "$service" \
+  docker compose --env-file .env -f "$COMPOSE_FILE" ps --status running -q "$service" \
     | wc -l \
     | tr -d ' '
 }
@@ -45,8 +46,8 @@ recommended_workers() {
     const apiUrl = process.env.API_URL;
     const secret = process.env.SECRET;
     const engineClass = process.env.ENGINE_CLASS;
-    const min = Math.max(1, Number(process.env.MIN_WORKERS || 1));
-    const max = Math.max(min, Number(process.env.MAX_WORKERS || min));
+        const min = Math.max(0, Number(process.env.MIN_WORKERS || 0));
+        const max = Math.max(min, Number(process.env.MAX_WORKERS || min));
     const request = http.get(`${apiUrl}/testengine/internal/jobs/queue-stats`, {
       headers: { "x-qaira-testengine-secret": secret }
     }, (response) => {
@@ -60,7 +61,7 @@ recommended_workers() {
         const stats = JSON.parse(body || "{}");
         const pools = stats.by_orchestration_class || stats.by_engine_class || {};
         const scoped = pools[engineClass] || {};
-        const recommended = Number(scoped.recommended_workers || min);
+        const recommended = Number(scoped.recommended_workers ?? min);
         console.log(String(Math.max(min, Math.min(max, recommended))));
       });
     });

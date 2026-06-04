@@ -135,7 +135,7 @@ const buildRequirementOptimizationPrompt = ({ requirement, linkedTestCases, know
   JSON.stringify(linkedTestCases, null, 2),
   "",
   "Active application knowledge:",
-  JSON.stringify(knowledge.map((item) => ({
+  JSON.stringify((Array.isArray(knowledge) ? knowledge : Array.isArray(knowledge?.knowledge) ? knowledge.knowledge : []).map((item) => ({
     title: item.title,
     type: item.content_type,
     description: item.description,

@@ -97,7 +97,7 @@ export function AiDesignStudioModal({
   isAccepting: boolean;
   onPreview: () => void;
   onSchedule?: () => void;
-  onAccept: () => void;
+  onAccept: (selectedClientIds: string[]) => void;
   onClose: () => void;
   disablePreview: boolean;
   disableSchedule?: boolean;
@@ -119,6 +119,7 @@ export function AiDesignStudioModal({
   const [contextFileSelection, setContextFileSelection] = useState<FileList | null>(null);
   const [isBuildingSmartContext, setIsBuildingSmartContext] = useState(false);
   const [smartContextMessage, setSmartContextMessage] = useState("");
+  const [selectedPreviewCaseIds, setSelectedPreviewCaseIds] = useState<string[]>([]);
 
   const handleRequirementToggle = (requirementId: string, checked: boolean) => {
     if (allowMultipleRequirements) {
@@ -151,6 +152,17 @@ export function AiDesignStudioModal({
     setIsIntegrationWarningDismissed(false);
   }, [integrations.length]);
 
+  useEffect(() => {
+    setSelectedPreviewCaseIds((current) => {
+      const previewIds = previewCases.map((item) => item.client_id);
+      if (!previewIds.length) {
+        return [];
+      }
+      const retained = current.filter((id) => previewIds.includes(id));
+      return retained.length ? retained : previewIds;
+    });
+  }, [previewCases]);
+
   const dismissToasterMessage = () => {
     if (previewMessage) {
       onPreviewMessageDismiss();
@@ -166,6 +178,11 @@ export function AiDesignStudioModal({
       .some((value) => String(value || "").toLowerCase().includes(query));
   });
   const schedulerHelpText = scheduleHelperText || "Queue one AI generation run per selected requirement. Generated cases land back in the library with accept and reject review actions.";
+  const selectedPreviewCount = previewCases.filter((item) => selectedPreviewCaseIds.includes(item.client_id)).length;
+  const isEveryPreviewSelected = Boolean(previewCases.length) && selectedPreviewCount === previewCases.length;
+  const handleTogglePreviewCase = (clientId: string, checked: boolean) => {
+    setSelectedPreviewCaseIds((current) => checked ? [...new Set([...current, clientId])] : current.filter((id) => id !== clientId));
+  };
 
   const handleBuildSmartContext = async () => {
     setIsBuildingSmartContext(true);
@@ -486,20 +503,37 @@ export function AiDesignStudioModal({
                 <div className="panel-head">
                   <div>
                     <p className="eyebrow">AI draft cases</p>
-                    <p>Review the generated drafts, adjust requirement mapping if needed, and remove any drafts you do not want to keep.</p>
+                    <p>Review the generated drafts, select the cases to accept, and adjust requirement mapping if needed.</p>
                   </div>
+                  {previewCases.length ? (
+                    <label className="checkbox-field ai-preview-select-all">
+                      <input
+                        checked={isEveryPreviewSelected}
+                        onChange={(event) => setSelectedPreviewCaseIds(event.target.checked ? previewCases.map((item) => item.client_id) : [])}
+                        type="checkbox"
+                      />
+                      {selectedPreviewCount}/{previewCases.length} selected
+                    </label>
+                  ) : null}
                 </div>
 
                 <div className="ai-case-list">
                   {previewCases.map((item) => (
-                    <article className="ai-case-card" key={item.client_id}>
+                    <article className={selectedPreviewCaseIds.includes(item.client_id) ? "ai-case-card is-selected" : "ai-case-card"} key={item.client_id}>
                       <div className="step-card-top">
-                        <div>
+                        <label className="checkbox-field ai-preview-case-check">
+                          <input
+                            checked={selectedPreviewCaseIds.includes(item.client_id)}
+                            onChange={(event) => handleTogglePreviewCase(item.client_id, event.target.checked)}
+                            type="checkbox"
+                          />
+                          <div>
                           <strong>{item.title}</strong>
                           <span className="ai-case-meta">
                             Priority {item.priority} · {item.step_count} steps{item.applicable_domain ? ` · ${item.applicable_domain}` : ""}
                           </span>
-                        </div>
+                          </div>
+                        </label>
                         <button className="ghost-button danger" onClick={() => onRemovePreviewCase(item.client_id)} type="button">
                           Delete
                         </button>
@@ -562,8 +596,8 @@ export function AiDesignStudioModal({
             </div>
 
             <div className="action-row ai-studio-footer">
-              <button className="primary-button ai-studio-accept-button" disabled={disableAccept} onClick={onAccept} type="button">
-                {isAccepting ? "Accepting…" : acceptLabel}
+              <button className="primary-button ai-studio-accept-button" disabled={disableAccept || !selectedPreviewCount} onClick={() => onAccept(selectedPreviewCaseIds)} type="button">
+                {isAccepting ? "Accepting…" : selectedPreviewCount ? `${acceptLabel} (${selectedPreviewCount})` : "Select cases to accept"}
               </button>
             </div>
           </div>

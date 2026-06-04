@@ -2,7 +2,7 @@ const db = require("../db");
 const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
-const { hashPassword } = require("../utils/token");
+const { hashPassword, verifyPassword } = require("../utils/token");
 
 const normalizeEmail = (email) => {
   return email.toLowerCase().trim();
@@ -38,6 +38,12 @@ const selectRoleByName = db.prepare(`
 
 const selectUserById = db.prepare(`
   SELECT id, email, name, is_workspace_admin
+  FROM users
+  WHERE id = ?
+`);
+
+const selectUserPasswordById = db.prepare(`
+  SELECT id, password_hash, auth_provider
   FROM users
   WHERE id = ?
 `);
@@ -350,6 +356,46 @@ exports.updateUser = async (id, data) => {
   });
 
   await transaction();
+
+  return { updated: true };
+};
+
+exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
+  if (!id) {
+    throw new Error("User is required");
+  }
+
+  if (!current_password || !new_password) {
+    throw new Error("Current password and new password are required");
+  }
+
+  if (new_password.length < 6) {
+    throw new Error("New password must be at least 6 characters");
+  }
+
+  const user = await selectUserPasswordById.get(id);
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  if (user.auth_provider === "google") {
+    const error = new Error("Google Sign-In accounts do not use a local password.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!verifyPassword(current_password, user.password_hash)) {
+    const error = new Error("Current password is incorrect");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await db.prepare(`
+    UPDATE users
+    SET password_hash = ?
+    WHERE id = ?
+  `).run(hashPassword(new_password), id);
 
   return { updated: true };
 };

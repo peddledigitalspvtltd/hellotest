@@ -24,6 +24,16 @@ import type { KeyValueEntry, TestConfiguration, TestDataSet, TestDataSetMode, Te
 
 type TestEnvironmentPageView = "environments" | "data" | "configurations";
 
+const DEFAULT_TEST_DATA_UTILS = [
+  { key: "email", label: "Yopmail email", template: TEST_DATA_GENERATOR_TEMPLATES.yopmail, group: "Default utility" },
+  { key: "run_date", label: "Today's date", template: TEST_DATA_GENERATOR_TEMPLATES.date, group: "Default utility" },
+  { key: "future_date", label: "Tomorrow", template: TEST_DATA_GENERATOR_TEMPLATES.tomorrow, group: "Default utility" },
+  { key: "unique_id", label: "Random text", template: TEST_DATA_GENERATOR_TEMPLATES.randomString, group: "Default utility" },
+  { key: "random_number", label: "Random number", template: TEST_DATA_GENERATOR_TEMPLATES.randomNumber, group: "Default utility" },
+  { key: "timestamp", label: "Timestamp", template: TEST_DATA_GENERATOR_TEMPLATES.timestamp, group: "Default utility" },
+  { key: "ai_data", label: "AI data", template: TEST_DATA_GENERATOR_TEMPLATES.aiData, group: "Default utility" }
+];
+
 type EnvironmentDraft = {
   name: string;
   description: string;
@@ -1089,8 +1099,41 @@ function DataSetForm({
   const [importFeedback, setImportFeedback] = useState("");
   const [importFeedbackTone, setImportFeedbackTone] = useState<"success" | "error">("success");
   const [previewRevision, setPreviewRevision] = useState(0);
+  const [templateSearchTerm, setTemplateSearchTerm] = useState("");
+  const [targetTemplateColumn, setTargetTemplateColumn] = useState("");
   const generatedFieldCount = useMemo(() => countGeneratedTestDataFields(draft.rows), [draft.rows]);
   const generatedPreviewRows = useMemo(() => materializeTestDataRows(draft.rows), [draft.rows, previewRevision]);
+  const templateTargetColumns = draft.mode === "table" ? draft.columns : [];
+  const selectedTemplateColumn = targetTemplateColumn && templateTargetColumns.includes(targetTemplateColumn)
+    ? targetTemplateColumn
+    : templateTargetColumns[0] || "";
+  const savedTemplateUtils = useMemo(() => {
+    const seen = new Set<string>();
+    return draft.rows.flatMap((row) =>
+      Object.entries(row).flatMap(([key, value]) => {
+        const template = String(value ?? "").trim();
+        if (!template || !template.includes("{{") || seen.has(template)) {
+          return [];
+        }
+        seen.add(template);
+        return [{
+          key: String(key || "saved_template").replace(/\s+/g, "_").toLowerCase(),
+          label: String(key || "Saved template"),
+          template,
+          group: "Saved in this data set"
+        }];
+      })
+    );
+  }, [draft.rows]);
+  const filteredTemplateUtils = useMemo(() => {
+    const search = templateSearchTerm.trim().toLowerCase();
+    return [...DEFAULT_TEST_DATA_UTILS, ...savedTemplateUtils].filter((item) => {
+      if (!search) {
+        return true;
+      }
+      return `${item.label} ${item.key} ${item.template} ${item.group}`.toLowerCase().includes(search);
+    });
+  }, [savedTemplateUtils, templateSearchTerm]);
 
   const appendGeneratedField = (requestedKey: string, template: string) => {
     const existingKeys = new Set(
@@ -1119,6 +1162,24 @@ function DataSetForm({
       ...draft,
       columns: [...draft.columns, key],
       rows: sourceRows.map((row) => ({ ...row, [key]: template }))
+    });
+  };
+
+  const applyTemplateUtility = (requestedKey: string, template: string) => {
+    if (draft.mode === "key_value") {
+      appendGeneratedField(requestedKey, template);
+      return;
+    }
+
+    if (!selectedTemplateColumn) {
+      appendGeneratedField(requestedKey, template);
+      return;
+    }
+
+    const sourceRows = draft.rows.length ? draft.rows : [draft.columns.reduce<TestDataSetRow>((row, column) => ({ ...row, [column]: "" }), {})];
+    onChange({
+      ...draft,
+      rows: sourceRows.map((row) => ({ ...row, [selectedTemplateColumn]: template }))
     });
   };
 
@@ -1234,22 +1295,44 @@ function DataSetForm({
               <span className="count-pill">{generatedFieldCount} generated field{generatedFieldCount === 1 ? "" : "s"}</span>
             ) : null}
           </div>
-          <div className="test-data-generator-actions">
-            <button className="ghost-button" onClick={() => appendGeneratedField("email", TEST_DATA_GENERATOR_TEMPLATES.yopmail)} type="button">
-              Add Yopmail email
-            </button>
-            <button className="ghost-button" onClick={() => appendGeneratedField("run_date", TEST_DATA_GENERATOR_TEMPLATES.date)} type="button">
-              Add today's date
-            </button>
-            <button className="ghost-button" onClick={() => appendGeneratedField("future_date", TEST_DATA_GENERATOR_TEMPLATES.tomorrow)} type="button">
-              Add tomorrow
-            </button>
-            <button className="ghost-button" onClick={() => appendGeneratedField("unique_id", TEST_DATA_GENERATOR_TEMPLATES.randomString)} type="button">
-              Add random text
-            </button>
-            <button className="ghost-button" onClick={() => appendGeneratedField("ai_data", TEST_DATA_GENERATOR_TEMPLATES.aiData)} type="button">
-              Add AI data
-            </button>
+          <div className="test-data-generator-picker">
+            <div className="test-data-generator-search-row">
+              <input
+                aria-label="Search test data utilities"
+                onChange={(event) => setTemplateSearchTerm(event.target.value)}
+                placeholder="Search default and saved data utilities"
+                type="search"
+                value={templateSearchTerm}
+              />
+              {draft.mode === "table" ? (
+                <select
+                  aria-label="Target table column"
+                  disabled={!templateTargetColumns.length}
+                  onChange={(event) => setTargetTemplateColumn(event.target.value)}
+                  value={selectedTemplateColumn}
+                >
+                  {!templateTargetColumns.length ? <option value="">Add a column first</option> : null}
+                  {templateTargetColumns.map((column) => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+            <div className="test-data-generator-actions">
+              {filteredTemplateUtils.map((item) => (
+                <button
+                  className="test-data-generator-utility"
+                  key={`${item.group}-${item.key}-${item.template}`}
+                  onClick={() => applyTemplateUtility(item.key, item.template)}
+                  type="button"
+                >
+                  <span>{item.group}</span>
+                  <strong>{item.label}</strong>
+                  <code>{item.template}</code>
+                </button>
+              ))}
+              {!filteredTemplateUtils.length ? <div className="empty-state compact">No data utilities match this search.</div> : null}
+            </div>
           </div>
           <InfoTooltip
             content={(
@@ -1437,44 +1520,51 @@ function DataTableEditor({
 }) {
   const columns = draft.columns;
   const rows = draft.rows;
+  const handleAddColumn = () => {
+    const nextColumnName = `Column ${columns.length + 1}`;
+    onChange({
+      ...draft,
+      columns: [...columns, nextColumnName],
+      rows: rows.map((row) => ({ ...row, [nextColumnName]: "" }))
+    });
+  };
+  const handleAddRow = () => {
+    if (!columns.length) {
+      return;
+    }
+
+    onChange({
+      ...draft,
+      columns,
+      rows: [...rows, columns.reduce<TestDataSetRow>((accumulator, column) => ({ ...accumulator, [column]: "" }), {})]
+    });
+  };
 
   return (
     <div className="resource-table-shell">
       <div className="resource-table-toolbar">
         <strong>Table data</strong>
         <div className="resource-table-actions">
-          <button
-            className="ghost-button"
-            onClick={() => {
-              const nextColumnName = `Column ${columns.length + 1}`;
-              onChange({
-                ...draft,
-                columns: [...columns, nextColumnName],
-                rows: rows.map((row) => ({ ...row, [nextColumnName]: "" }))
-              });
-            }}
-            type="button"
-          >
-            Add column
+          <button className="ghost-button resource-table-add-button" onClick={handleAddColumn} type="button">
+            <AddIcon />
+            <span>Add column</span>
           </button>
-          <button
-            className="ghost-button"
-            disabled={!columns.length}
-            onClick={() =>
-              onChange({
-                ...draft,
-                columns,
-                rows: [...rows, columns.reduce<TestDataSetRow>((accumulator, column) => ({ ...accumulator, [column]: "" }), {})]
-              })
-            }
-            type="button"
-          >
-            Add row
+          <button className="primary-button resource-table-add-button" disabled={!columns.length} onClick={handleAddRow} type="button">
+            <AddIcon />
+            <span>Add row</span>
           </button>
         </div>
       </div>
 
-      {!columns.length ? <div className="empty-state compact resource-table-empty">No columns yet. Import a JSON, CSV, or spreadsheet file, or add a column to start building this table.</div> : null}
+      {!columns.length ? (
+        <div className="empty-state compact resource-table-empty">
+          <span>No columns yet. Import a JSON, CSV, or spreadsheet file, or add a column to start building this table.</span>
+          <button className="primary-button resource-table-add-button" onClick={handleAddColumn} type="button">
+            <AddIcon />
+            <span>Add first column</span>
+          </button>
+        </div>
+      ) : null}
 
       {columns.length ? (
         <div className="table-wrap">
@@ -1578,12 +1668,31 @@ function DataTableEditor({
               {!rows.length ? (
                 <tr>
                   <td colSpan={columns.length + 1}>
-                    <div className="empty-state compact resource-table-empty">No rows yet. Add one row or import a file with data.</div>
+                    <div className="empty-state compact resource-table-empty">
+                      <span>No rows yet. Add one row or import a file with data.</span>
+                      <button className="primary-button resource-table-add-button" onClick={handleAddRow} type="button">
+                        <AddIcon />
+                        <span>Add first row</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {columns.length ? (
+        <div className="resource-table-quick-actions" aria-label="Table editing actions">
+          <button className="primary-button resource-table-add-button" onClick={handleAddRow} type="button">
+            <AddIcon />
+            <span>Add row</span>
+          </button>
+          <button className="ghost-button resource-table-add-button" onClick={handleAddColumn} type="button">
+            <AddIcon />
+            <span>Add column</span>
+          </button>
         </div>
       ) : null}
     </div>

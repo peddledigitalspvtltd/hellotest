@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { InfoTooltip } from "../components/InfoTooltip";
@@ -153,6 +153,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [startUrl, setStartUrl] = useState("");
   const [builderContext, setBuilderContext] = useState("");
   const [builderMessage, setBuilderMessage] = useState("");
+  const watchedBatchStatusesRef = useRef<Map<string, string>>(new Map());
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
   const isAdmin = session?.user.role === "admin";
@@ -258,6 +259,34 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     [batchTransactions]
   );
   const selectedTransaction = batchTransactions.find((transaction) => transaction.id === selectedTransactionId) || null;
+
+  useEffect(() => {
+    if (!batchTransactions.length) {
+      watchedBatchStatusesRef.current.clear();
+      return;
+    }
+
+    const previousStatuses = watchedBatchStatusesRef.current;
+    const nextStatuses = new Map<string, string>();
+    const finishedStatuses = new Set(["completed", "failed"]);
+
+    batchTransactions.forEach((transaction) => {
+      const status = String(transaction.status || "");
+      const previousStatus = previousStatuses.get(transaction.id);
+      nextStatuses.set(transaction.id, status);
+
+      if (
+        previousStatus
+        && ["queued", "running"].includes(previousStatus)
+        && finishedStatuses.has(status)
+      ) {
+        const result = status === "completed" ? "completed" : "failed";
+        setBuilderMessage(`${transaction.title || "Scheduled batch process"} ${result}.`);
+      }
+    });
+
+    watchedBatchStatusesRef.current = nextStatuses;
+  }, [batchTransactions]);
   const testEngineIntegration = resolveScopedIntegration(integrations, "testengine", projectId);
   const llmIntegration = resolveScopedIntegration(integrations, "llm", projectId);
   const opsIntegration = resolveScopedIntegration(integrations, "ops", projectId);
@@ -267,6 +296,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     "recorder_public_base_url",
     "live_view_url"
   ]);
+  const jaegerUrl = typeof window === "undefined" ? "/jaeger/" : new URL("/jaeger/", window.location.origin).toString();
   const runningCount = batchTransactions.filter((transaction) => transaction.status === "queued" || transaction.status === "running").length;
   const failedCount = batchTransactions.filter((transaction) => transaction.status === "failed").length;
   const activeCase = testCases.find((testCase) => testCase.id === selectedCaseId) || manualCases[0] || null;
@@ -953,7 +983,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
           title="Distributed Traces"
           subtitle="View full OpenTelemetry traces from QAira and TestEngine via local Jaeger instance."
           actions={
-            <a className="ghost-button" href="http://localhost:16686" rel="noreferrer" target="_blank">
+            <a className="ghost-button" href={jaegerUrl} rel="noreferrer" target="_blank">
               <OpenIcon />
               <span>Open Jaeger in new tab</span>
             </a>
@@ -961,7 +991,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         >
           <iframe
             className="testops-telemetry-frame"
-            src="http://localhost:16686"
+            src={jaegerUrl}
             title="Jaeger Traces"
           />
         </Panel>

@@ -18,6 +18,12 @@ type ProfileDraft = {
   avatar_data_url: string | null;
 };
 
+type PasswordDraft = {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+};
+
 const toDraft = (user: User): ProfileDraft => ({
   name: user.name || "",
   email: user.email,
@@ -74,6 +80,11 @@ export function UserProfileDialog({
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  const [passwordDraft, setPasswordDraft] = useState<PasswordDraft>({
+    current_password: "",
+    new_password: "",
+    confirm_password: ""
+  });
   const [feedback, setFeedback] = useState<ProfileFeedback | null>(null);
   const [isPreparingAvatar, setIsPreparingAvatar] = useState(false);
 
@@ -85,6 +96,7 @@ export function UserProfileDialog({
     }
 
     setDraft(toDraft(user));
+    setPasswordDraft({ current_password: "", new_password: "", confirm_password: "" });
     setFeedback(null);
     setIsPreparingAvatar(false);
 
@@ -120,20 +132,50 @@ export function UserProfileDialog({
     }
   });
 
+  const changePassword = useMutation({
+    mutationFn: async (input: PasswordDraft) => {
+      if (!user) {
+        throw new Error("You must be signed in to change your password.");
+      }
+
+      if (input.new_password !== input.confirm_password) {
+        throw new Error("New password and confirmation do not match.");
+      }
+
+      return api.users.changePassword(user.id, {
+        current_password: input.current_password,
+        new_password: input.new_password
+      });
+    },
+    onSuccess: () => {
+      setPasswordDraft({ current_password: "", new_password: "", confirm_password: "" });
+      setFeedback({
+        message: "Password changed successfully.",
+        tone: "success"
+      });
+    },
+    onError: (error) => {
+      setFeedback({
+        message: error instanceof Error ? error.message : "Unable to change password.",
+        tone: "error"
+      });
+    }
+  });
+
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !updateProfile.isPending && !isPreparingAvatar) {
+      if (event.key === "Escape" && !updateProfile.isPending && !changePassword.isPending && !isPreparingAvatar) {
         onClose();
       }
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen, isPreparingAvatar, onClose, updateProfile.isPending]);
+  }, [changePassword.isPending, isOpen, isPreparingAvatar, onClose, updateProfile.isPending]);
 
   const hasChanges = useMemo(() => {
     if (!user || !draft) {
@@ -151,7 +193,13 @@ export function UserProfileDialog({
     return null;
   }
 
-  const isBusy = updateProfile.isPending || isPreparingAvatar;
+  const isBusy = updateProfile.isPending || changePassword.isPending || isPreparingAvatar;
+  const hasPasswordDraft = Boolean(passwordDraft.current_password || passwordDraft.new_password || passwordDraft.confirm_password);
+  const canChangePassword =
+    user.auth_provider !== "google"
+    && passwordDraft.current_password.length > 0
+    && passwordDraft.new_password.length >= 6
+    && passwordDraft.new_password === passwordDraft.confirm_password;
 
   const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -306,6 +354,71 @@ export function UserProfileDialog({
               <strong>{formatRoleLabel(user.role)} access is managed from the Users page</strong>
               <span>Use this dialog for your own display details and profile photo. Workspace-wide user and role changes still live under Administration.</span>
             </div>
+
+            <section className="profile-password-panel" aria-label="Change password">
+              <div className="profile-password-panel-head">
+                <div>
+                  <strong>Change password</strong>
+                  <span>{user.auth_provider === "google" ? "Managed by Google Sign-In" : "Update your local sign-in password"}</span>
+                </div>
+              </div>
+              <div className="profile-dialog-grid">
+                <FormField label="Current password">
+                  <input
+                    autoComplete="current-password"
+                    disabled={user.auth_provider === "google" || isBusy}
+                    name="current_password"
+                    onChange={(event) => setPasswordDraft((current) => ({ ...current, current_password: event.target.value }))}
+                    type="password"
+                    value={passwordDraft.current_password}
+                  />
+                </FormField>
+                <FormField label="New password">
+                  <input
+                    autoComplete="new-password"
+                    disabled={user.auth_provider === "google" || isBusy}
+                    name="new_password"
+                    onChange={(event) => setPasswordDraft((current) => ({ ...current, new_password: event.target.value }))}
+                    type="password"
+                    value={passwordDraft.new_password}
+                  />
+                </FormField>
+                <FormField label="Confirm password">
+                  <input
+                    autoComplete="new-password"
+                    disabled={user.auth_provider === "google" || isBusy}
+                    name="confirm_password"
+                    onChange={(event) => setPasswordDraft((current) => ({ ...current, confirm_password: event.target.value }))}
+                    type="password"
+                    value={passwordDraft.confirm_password}
+                  />
+                </FormField>
+                <div className="profile-password-action">
+                  <button
+                    className="ghost-button"
+                    disabled={isBusy || !hasPasswordDraft}
+                    onClick={() => {
+                      setPasswordDraft({ current_password: "", new_password: "", confirm_password: "" });
+                      setFeedback(null);
+                    }}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={isBusy || !canChangePassword}
+                    onClick={() => {
+                      setFeedback(null);
+                      changePassword.mutate(passwordDraft);
+                    }}
+                    type="button"
+                  >
+                    {changePassword.isPending ? "Changing…" : "Change password"}
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
 
           <div className="action-row people-modal-actions">

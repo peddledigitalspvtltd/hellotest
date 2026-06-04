@@ -8,7 +8,6 @@ import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, RecordIco
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
-import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
@@ -4328,8 +4327,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handleAcceptDesignedCases = async () => {
+  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
     if (!appTypeId || !aiRequirementIds.length || !aiPreviewCases.length) {
+      return;
+    }
+    const selectedCaseSet = new Set(selectedClientIds?.length ? selectedClientIds : aiPreviewCases.map((item) => item.client_id));
+    const acceptedPreviewCases = aiPreviewCases.filter((item) => selectedCaseSet.has(item.client_id));
+
+    if (!acceptedPreviewCases.length) {
+      setAiPreviewTone("error");
+      setAiPreviewMessage("Select at least one AI-generated case to accept.");
       return;
     }
 
@@ -4338,7 +4345,7 @@ export function TestCasesPage() {
         app_type_id: appTypeId,
         requirement_ids: aiRequirementIds,
         status: "draft",
-        cases: aiPreviewCases.map((item) => ({
+        cases: acceptedPreviewCases.map((item) => ({
           title: item.title,
           description: item.description,
           priority: item.priority,
@@ -4359,7 +4366,7 @@ export function TestCasesPage() {
         setSelectedTestCaseId(response.created[0].id);
         setIsCreating(false);
       }
-      showSuccess("AI-designed test cases accepted into the library as standard steps.");
+      showSuccess(`${acceptedPreviewCases.length} AI-designed test case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted into the library as standard steps.`);
       await refreshCases();
     } catch (error) {
       setAiPreviewTone("error");
@@ -6015,53 +6022,64 @@ export function TestCasesPage() {
                   </div>
                 </div>
               </CatalogSearchFilter>
-              <button
-                className="ghost-button"
-                disabled={!filteredCases.length || areAllFilteredCasesSelected}
-                onClick={() =>
-                  setSelectedActionTestCaseIds((current) => [...new Set([...current, ...filteredCases.map((item) => item.id)])])
-                }
-                type="button"
-              >
-                <TestCaseSelectAllIcon />
-                <span>Select All</span>
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!selectedActionTestCaseIds.length}
-                onClick={() => setSelectedActionTestCaseIds([])}
-                type="button"
-              >
-                <TestCaseClearIcon />
-                <span>Clear</span>
-              </button>
-              <button className="ghost-button" disabled={!appTypeId} onClick={() => setIsCreateSuiteModalOpen(true)} type="button">
-                <TileCardSuiteIcon />
-                <span>Create suite</span>
-              </button>
-              <CreateRunActionButton
-                disabled={!projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id}
-                selectedTestCaseIds={selectedActionTestCaseIds}
-                source="TEST_CASES"
-                onCreateManualRun={() => {
-                  setExecutionStartMode("manual");
-                  setIsCreateExecutionModalOpen(true);
-                }}
-                onCreateLocalRun={() => {
-                  setExecutionStartMode("local");
-                  setIsCreateExecutionModalOpen(true);
-                }}
-                onCreateRemoteRun={() => {
-                  setExecutionStartMode("remote");
-                  setIsCreateExecutionModalOpen(true);
-                }}
-              />
               <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
                 <TestCaseCreateIcon />
                 <span>New case</span>
               </button>
               <CatalogActionMenu
                 actions={[
+                  {
+                    label: "Select all visible",
+                    description: "Mark every test case currently shown by search and filters.",
+                    icon: <TestCaseSelectAllIcon />,
+                    disabled: !filteredCases.length || areAllFilteredCasesSelected,
+                    onClick: () =>
+                      setSelectedActionTestCaseIds((current) => [...new Set([...current, ...filteredCases.map((item) => item.id)])])
+                  },
+                  {
+                    label: "Clear selection",
+                    description: "Remove all selected test cases from the bulk action set.",
+                    icon: <TestCaseClearIcon />,
+                    disabled: !selectedActionTestCaseIds.length,
+                    onClick: () => setSelectedActionTestCaseIds([])
+                  },
+                  {
+                    label: "Create suite",
+                    description: "Create a suite before adding selected cases.",
+                    icon: <TileCardSuiteIcon />,
+                    disabled: !appTypeId,
+                    onClick: () => setIsCreateSuiteModalOpen(true)
+                  },
+                  {
+                    label: "Create manual run",
+                    description: "Start a manual execution run for selected cases.",
+                    icon: <TestCaseRunIcon />,
+                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+                    onClick: () => {
+                      setExecutionStartMode("manual");
+                      setIsCreateExecutionModalOpen(true);
+                    }
+                  },
+                  {
+                    label: "Create local run",
+                    description: "Start a local execution run for selected cases.",
+                    icon: <TestCaseRunIcon />,
+                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+                    onClick: () => {
+                      setExecutionStartMode("local");
+                      setIsCreateExecutionModalOpen(true);
+                    }
+                  },
+                  {
+                    label: "Create remote run",
+                    description: "Start a remote execution run for selected cases.",
+                    icon: <TestCaseRunIcon />,
+                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+                    onClick: () => {
+                      setExecutionStartMode("remote");
+                      setIsCreateExecutionModalOpen(true);
+                    }
+                  },
                   {
                     label: buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`,
                     description: "Queue selected manual cases for AI automation build.",
@@ -7478,7 +7496,7 @@ export function TestCasesPage() {
           isPreviewing={previewDesignedCases.isPending}
           isScheduling={createGenerationJob.isPending}
           maxCases={maxCases}
-          onAccept={() => void handleAcceptDesignedCases()}
+          onAccept={(selectedClientIds) => void handleAcceptDesignedCases(selectedClientIds)}
           onAddImages={(files) => void handleAddAiReferenceImages(files)}
           onAdditionalContextChange={setAiAdditionalContext}
           onClose={() => {

@@ -34,7 +34,7 @@ export function WorkspaceScopeBar({
     appTypeValueLabel || resolvedAppType?.name || "No app type selected";
 
   return (
-    <div className={disabled ? "design-context-bar is-sticky is-read-only" : "design-context-bar is-sticky"}>
+    <div className={disabled ? "design-context-bar workspace-scope-bar is-sticky is-read-only" : "design-context-bar workspace-scope-bar is-sticky"}>
       <div className="context-field">
         <span>{projectLabel}</span>
         {disabled ? (

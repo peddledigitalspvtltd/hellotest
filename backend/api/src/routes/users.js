@@ -73,6 +73,23 @@ module.exports = async function (fastify) {
     return service.updateUser(req.params.id, req.body);
   });
 
+  fastify.put("/users/:id/password", { preHandler: [fastify.authenticate] }, async (req) => {
+    fastify.validate({
+      current_password: { required: true, type: "string", minLength: 1 },
+      new_password: { required: true, type: "string", minLength: 6 }
+    }, req.body);
+
+    if (req.user?.id !== req.params.id) {
+      throw createError("You can only change your own password.", 403);
+    }
+
+    return service.changeOwnPassword({
+      id: req.params.id,
+      current_password: req.body.current_password,
+      new_password: req.body.new_password
+    });
+  });
+
   fastify.delete("/users/:id", async (req) => {
     return service.deleteUser(req.params.id);
   });

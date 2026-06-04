@@ -382,7 +382,7 @@ const getQueueMaxWorkers = (engineClass) => {
   const specificKey = `TESTENGINE_${normalized.toUpperCase()}_MAX_WORKERS`;
   const configured = normalizeInteger(process.env[specificKey], null)
     ?? normalizeInteger(process.env.TESTENGINE_MAX_WORKERS, null)
-    ?? (normalized === "api" ? 10 : normalized === "android" ? 2 : 5);
+    ?? 3;
 
   return Math.max(1, configured);
 };
@@ -411,7 +411,7 @@ const recommendWorkersForQueue = (queued, engineClass, maxWorkerOverride = null)
   const queuedCount = Number(queued || 0);
 
   if (queuedCount <= 0) {
-    return 1;
+    return 0;
   }
 
   const targetBacklogPerWorker = Math.max(
@@ -419,7 +419,7 @@ const recommendWorkersForQueue = (queued, engineClass, maxWorkerOverride = null)
     normalizeInteger(process.env.TESTENGINE_TARGET_QUEUED_PER_WORKER, engineClass === "api" ? 4 : 1) ?? 1
   );
 
-  return Math.max(1, Math.min(maxWorkers, Math.ceil(queuedCount / targetBacklogPerWorker) || 1));
+  return Math.max(0, Math.min(maxWorkers, Math.ceil(queuedCount / targetBacklogPerWorker) || 0));
 };
 
 const normalizeEngineBrowser = (value, fallback = "chromium") => {

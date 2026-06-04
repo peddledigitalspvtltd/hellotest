@@ -353,6 +353,8 @@ export const api = {
       }),
     update: (id: string, input: Partial<{ email: string; password: string; password_hash: string; name: string; role_id: string; avatar_data_url: string | null }>) =>
       request<{ updated: boolean }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    changePassword: (id: string, input: { current_password: string; new_password: string }) =>
+      request<{ updated: boolean }>(`/users/${id}/password`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" })
   },
   roles: {

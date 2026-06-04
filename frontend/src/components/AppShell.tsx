@@ -359,13 +359,8 @@ export function AppShell() {
                 className="brand-mark"
                 title={shouldCollapseSidebar ? "Qaira Home" : undefined}
               >
-                {shouldCollapseSidebar ? "Q" : "Qaira"}
+                Q
               </div>
-              {!shouldCollapseSidebar ? (
-                <div className="brand-copy">
-                  <strong>Qaira</strong>
-                </div>
-              ) : null}
             </div>
             {isMobileViewport ? (
               <button

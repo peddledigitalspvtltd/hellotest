@@ -117,7 +117,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_API_REPLICAS:-1}
+      replicas: ${TESTENGINE_API_REPLICAS:-0}
 
   testengine-web-worker:
     build:
@@ -151,7 +151,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_WEB_REPLICAS:-1}
+      replicas: ${TESTENGINE_WEB_REPLICAS:-0}
 
   testengine-android-worker:
     build:
@@ -188,7 +188,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_ANDROID_REPLICAS:-1}
+      replicas: ${TESTENGINE_ANDROID_REPLICAS:-0}
 
   testengine:
     image: haproxy:2.9-alpine
@@ -197,9 +197,6 @@ services:
       - "${TESTENGINE_PORT:-4301}:4301"
     volumes:
       - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    depends_on:
-      testengine-web-worker:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -225,36 +222,6 @@ services:
       timeout: 5s
       retries: 10
 
-  llm:
-    image: ollama/ollama:latest
-    container_name: qaira-local-llm
-    ports:
-      - "${LLM_PORT:-11434}:11434"
-    volumes:
-      - qaira-local-ollama:/root/.ollama
-
-  agent:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: qaira-local-agent
-    environment:
-      QAIRA_API_BASE_URL: ${QAIRA_AGENT_API_BASE_URL:-http://api:3000}
-      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
-      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://llm:11434}
-      LLM_MODEL: ${LLM_MODEL:-llama3.2}
-      GENERATOR_POLL_INTERVAL_MS: ${GENERATOR_POLL_INTERVAL_MS:-30000}
-      GENERATOR_WORKER_ID: ${GENERATOR_WORKER_ID:-qaira-local-agent}
-    depends_on:
-      api:
-        condition: service_healthy
-      testengine:
-        condition: service_healthy
-      llm:
-        condition: service_started
-
 volumes:
   qaira-local-postgres-data:
   qaira-local-testengine-artifacts:
-  qaira-local-ollama:

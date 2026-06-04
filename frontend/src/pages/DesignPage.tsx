@@ -3,13 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AddIcon, EyeIcon, LayersIcon } from "../components/AppIcons";
+import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
-import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
@@ -45,6 +45,11 @@ import {
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestStep, TestSuite, User } from "../types";
+
+const SUITE_ACTION_USAGE_STORAGE_KEY = "qaira:suite-toolbar-action-usage:v1";
+
+type SuiteToolbarActionKey = "create-suite" | "manual-run" | "local-run" | "remote-run" | "select-visible" | "clear-selection" | "delete-selected";
+type SuiteToolbarActionUsage = Record<string, { count: number; lastUsedAt: number }>;
 
 type CaseDraft = {
   suite_id: string;
@@ -1952,6 +1957,134 @@ function SuiteSidebar({
   viewMode: "tile" | "list";
   onViewModeChange: (value: "tile" | "list") => void;
 }) {
+  const [suiteActionUsage, setSuiteActionUsage] = useState<SuiteToolbarActionUsage>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    try {
+      const raw = window.localStorage.getItem(SUITE_ACTION_USAGE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) as SuiteToolbarActionUsage : {};
+    } catch {
+      return {};
+    }
+  });
+  const recordSuiteActionUse = (key: SuiteToolbarActionKey) => {
+    setSuiteActionUsage((current) => {
+      const next = {
+        ...current,
+        [key]: {
+          count: (current[key]?.count || 0) + 1,
+          lastUsedAt: Date.now()
+        }
+      };
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(SUITE_ACTION_USAGE_STORAGE_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+  const runSuiteAction = (key: SuiteToolbarActionKey, action: () => void) => {
+    recordSuiteActionUse(key);
+    action();
+  };
+  const smartSuiteActions: Array<{
+    key: SuiteToolbarActionKey;
+    label: string;
+    className: string;
+    disabled: boolean;
+    onClick: () => void;
+  }> = [
+    {
+      key: "create-suite",
+      label: "Create Suite",
+      className: "primary-button suite-smart-action",
+      disabled: !canCreateSuite,
+      onClick: () => runSuiteAction("create-suite", onCreateSuite)
+    },
+    {
+      key: "manual-run",
+      label: "Create Manual Run",
+      className: "ghost-button suite-smart-action",
+      disabled: !canCreateExecution,
+      onClick: () => runSuiteAction("manual-run", onCreateManualRun)
+    },
+    {
+      key: "select-visible",
+      label: "Select all visible",
+      className: "ghost-button suite-smart-action",
+      disabled: !suites.length || areAllVisibleSuitesSelected,
+      onClick: () => runSuiteAction("select-visible", onSelectAllVisibleSuites)
+    },
+    {
+      key: "clear-selection",
+      label: "Clear selection",
+      className: "ghost-button suite-smart-action",
+      disabled: !selectedSuiteActionIds.length,
+      onClick: () => runSuiteAction("clear-selection", onClearSuiteSelection)
+    }
+  ];
+  const inlineSuiteActions = smartSuiteActions
+    .map((action) => {
+      const usage = suiteActionUsage[action.key];
+      const score = (usage?.lastUsedAt || 0) + (usage?.count || 0) * 1000 * 60 * 60 * 24;
+      return { ...action, score };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 2);
+  const shouldShowDefaultCreateSuite = !inlineSuiteActions.some((action) => action.score > 0);
+  const visibleInlineSuiteActions = shouldShowDefaultCreateSuite ? smartSuiteActions.slice(0, 1) : inlineSuiteActions;
+  const moreSuiteActions: CatalogActionMenuItem[] = [
+    {
+      label: "Create Suite",
+      icon: <AddIcon />,
+      description: "Create a suite in the current project and app type.",
+      disabled: !canCreateSuite,
+      tone: "primary",
+      onClick: () => runSuiteAction("create-suite", onCreateSuite)
+    },
+    {
+      label: "Create Manual Run",
+      icon: <LayersIcon />,
+      description: "Create a manual run from the selected suites.",
+      disabled: !canCreateExecution,
+      onClick: () => runSuiteAction("manual-run", onCreateManualRun)
+    },
+    {
+      label: "Create Local Run",
+      icon: <LayersIcon />,
+      description: "Use local Test Engine execution for the selected suites.",
+      disabled: !canCreateExecution,
+      onClick: () => runSuiteAction("local-run", onCreateLocalRun)
+    },
+    {
+      label: "Create Remote Run",
+      icon: <LayersIcon />,
+      description: "Use the configured remote Test Engine for the selected suites.",
+      disabled: !canCreateExecution,
+      onClick: () => runSuiteAction("remote-run", onCreateRemoteRun)
+    },
+    {
+      label: "Select all visible",
+      icon: <LayersIcon />,
+      disabled: !suites.length || areAllVisibleSuitesSelected,
+      onClick: () => runSuiteAction("select-visible", onSelectAllVisibleSuites)
+    },
+    {
+      label: "Clear selection",
+      icon: <LayersIcon />,
+      disabled: !selectedSuiteActionIds.length,
+      onClick: () => runSuiteAction("clear-selection", onClearSuiteSelection)
+    },
+    {
+      label: isDeletingSelectedSuites ? "Deleting selected…" : `Delete selected${selectedSuiteActionIds.length ? ` (${selectedSuiteActionIds.length})` : ""}`,
+      icon: <LayersIcon />,
+      disabled: !selectedSuiteActionIds.length || isDeletingSelectedSuites,
+      tone: "danger",
+      onClick: () => runSuiteAction("delete-selected", onDeleteSelectedSuites)
+    }
+  ];
+
   return (
     <Panel
       className="execution-panel suite-design-panel suite-design-panel--list"
@@ -1961,18 +2094,6 @@ function SuiteSidebar({
       subtitle={selectedAppType ? "Browse suites as tiles first, then open one to manage its mapped test cases." : "Select a project and app type first."}
     >
       <div className="suite-design-panel-stack">
-        <div className="design-sidebar-actions">
-          <button className="primary-button" disabled={!canCreateSuite} onClick={onCreateSuite} type="button">Create Suite</button>
-          <CreateRunActionButton
-            disabled={!canCreateExecution}
-            selectedSuiteIds={selectedSuiteActionIds}
-            source="TEST_SUITES"
-            onCreateManualRun={onCreateManualRun}
-            onCreateLocalRun={onCreateLocalRun}
-            onCreateRemoteRun={onCreateRemoteRun}
-          />
-        </div>
-
         <div className="design-list-toolbar suite-sidebar-toolbar">
           <CatalogViewToggle onChange={onViewModeChange} value={viewMode} />
           <CatalogSearchFilter
@@ -2028,20 +2149,14 @@ function SuiteSidebar({
               </div>
             </div>
           </CatalogSearchFilter>
-          <button className="ghost-button" disabled={!suites.length || areAllVisibleSuitesSelected} onClick={onSelectAllVisibleSuites} type="button">
-            Select all visible
-          </button>
-          <button className="ghost-button" disabled={!selectedSuiteActionIds.length} onClick={onClearSuiteSelection} type="button">
-            Clear selection
-          </button>
-          <button
-            className="ghost-button danger"
-            disabled={!selectedSuiteActionIds.length || isDeletingSelectedSuites}
-            onClick={onDeleteSelectedSuites}
-            type="button"
-          >
-            {isDeletingSelectedSuites ? "Deleting…" : `Delete selected${selectedSuiteActionIds.length ? ` (${selectedSuiteActionIds.length})` : ""}`}
-          </button>
+          <div className="suite-toolbar-smart-actions" aria-label="Smart suite actions">
+            {visibleInlineSuiteActions.map((action) => (
+              <button className={action.className} disabled={action.disabled} key={action.key} onClick={action.onClick} type="button">
+                {action.label}
+              </button>
+            ))}
+            <CatalogActionMenu actions={moreSuiteActions} label="More suite actions" />
+          </div>
         </div>
 
         {selectedSuiteCount ? (

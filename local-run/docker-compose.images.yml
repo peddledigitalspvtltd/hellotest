@@ -82,7 +82,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_API_REPLICAS:-1}
+      replicas: ${TESTENGINE_API_REPLICAS:-0}
 
   testengine-web-worker:
     image: ${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}
@@ -111,7 +111,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_WEB_REPLICAS:-1}
+      replicas: ${TESTENGINE_WEB_REPLICAS:-0}
 
   testengine-android-worker:
     image: ${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}
@@ -143,7 +143,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_ANDROID_REPLICAS:-1}
+      replicas: ${TESTENGINE_ANDROID_REPLICAS:-0}
 
   testengine:
     image: haproxy:2.9-alpine
@@ -152,9 +152,6 @@ services:
       - "${TESTENGINE_PORT:-4301}:4301"
     volumes:
       - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    depends_on:
-      testengine-web-worker:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
       interval: 15s

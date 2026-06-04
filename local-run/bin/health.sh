@@ -42,10 +42,3 @@ else
   echo "SKIP host-recorder http://localhost:$LOCAL_HOST_RECORDER_PORT/health"
   echo "     Optional visible local recorder is not running. Start it with: bin/start-host-recorder.sh"
 fi
-
-if curl -fsS "http://localhost:${LLM_PORT:-11434}/api/tags" >/dev/null; then
-  echo "OK   local-llm http://localhost:${LLM_PORT:-11434}/api/tags"
-else
-  echo "SKIP local-llm http://localhost:${LLM_PORT:-11434}/api/tags"
-  echo "     Optional local LLM is not ready yet. Start the stack and pull a model with: docker exec qaira-local-llm ollama pull ${LLM_MODEL:-llama3.2}"
-fi

@@ -67,9 +67,9 @@ Recommended integration config keys:
 
 ```json
 {
-  "max_api_workers": 10,
-  "max_web_workers": 5,
-  "max_android_workers": 2,
+  "max_api_workers": 3,
+  "max_web_workers": 3,
+  "max_android_workers": 3,
   "active_web_engine": "playwright",
   "headless": true
 }
@@ -79,7 +79,8 @@ For Kubernetes, use `testengine/k8s/testengine-workers.yaml` as the base
 deployment shape. In production, pair these deployments with KEDA or an external
 metrics adapter that reads QAira's `/testengine/internal/jobs/queue-stats`
 endpoint and scales each deployment from the matching `by_orchestration_class`
-value.
+value. Idle pools should scale to zero; queued/running work keeps the matching
+pool alive until execution settles.
 
 ## Current QAira API Mapping
 

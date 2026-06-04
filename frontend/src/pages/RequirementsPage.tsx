@@ -1076,8 +1076,16 @@ export function RequirementsPage() {
     }
   };
 
-  const handleAcceptDesignedCases = async () => {
+  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
     if (!aiRequirement || !appTypeId || !previewCases.length) {
+      return;
+    }
+    const selectedCaseSet = new Set(selectedClientIds?.length ? selectedClientIds : previewCases.map((item) => item.client_id));
+    const acceptedPreviewCases = previewCases.filter((item) => selectedCaseSet.has(item.client_id));
+
+    if (!acceptedPreviewCases.length) {
+      setPreviewTone("error");
+      setPreviewMessage("Select at least one AI-generated case to accept.");
       return;
     }
 
@@ -1087,7 +1095,7 @@ export function RequirementsPage() {
         input: {
           app_type_id: appTypeId,
           status: "draft",
-          cases: previewCases.map((item) => ({
+          cases: acceptedPreviewCases.map((item) => ({
             title: item.title,
             description: item.description,
             priority: item.priority,
@@ -1104,7 +1112,7 @@ export function RequirementsPage() {
       setIsAiStudioOpen(false);
       setPreviewCases([]);
       setPreviewMessage("");
-      showSuccess("AI-designed cases accepted as standard steps and linked to the requirement.");
+      showSuccess(`${acceptedPreviewCases.length} AI-designed case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted as standard steps and linked to the requirement.`);
       await refresh();
       navigate("/test-cases");
     } catch (error) {
@@ -1395,41 +1403,41 @@ export function RequirementsPage() {
                   </div>
                 </div>
               </CatalogSearchFilter>
-              <button
-                className="ghost-button"
-                disabled={!filteredRequirements.length || areAllFilteredRequirementsSelected}
-                onClick={() =>
-                  setDeleteSelectedRequirementIds((current) => [...new Set([...current, ...filteredRequirements.map((item) => item.id)])])
-                }
-                type="button"
-              >
-                Select all visible
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!deleteSelectedRequirementIds.length}
-                onClick={() => setDeleteSelectedRequirementIds([])}
-                type="button"
-              >
-                Clear selection
-              </button>
-              <button
-                className="ghost-button danger"
-                disabled={!deleteSelectedRequirementIds.length || isDeletingSelectedRequirements}
-                onClick={() => void handleDeleteSelectedRequirements()}
-                type="button"
-              >
-                {isDeletingSelectedRequirements ? "Deleting…" : `Delete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!deleteSelectedRequirementIds.length}
-                onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
-                type="button"
-              >
-                <SparkIcon />
-                {`Complete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}
-              </button>
+              <CatalogActionMenu
+                actions={[
+                  {
+                    label: "Select all visible",
+                    description: "Mark every requirement currently shown by search and filters.",
+                    icon: <AddIcon />,
+                    disabled: !filteredRequirements.length || areAllFilteredRequirementsSelected,
+                    onClick: () =>
+                      setDeleteSelectedRequirementIds((current) => [...new Set([...current, ...filteredRequirements.map((item) => item.id)])])
+                  },
+                  {
+                    label: "Clear selection",
+                    description: "Remove all selected requirements from the bulk action set.",
+                    icon: <ImportIcon />,
+                    disabled: !deleteSelectedRequirementIds.length,
+                    onClick: () => setDeleteSelectedRequirementIds([])
+                  },
+                  {
+                    label: `Complete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`,
+                    description: "Use AI to improve missing or weak requirement details.",
+                    icon: <SparkIcon />,
+                    disabled: !deleteSelectedRequirementIds.length,
+                    onClick: () => openRequirementOptimization(deleteSelectedRequirementIds)
+                  },
+                  {
+                    label: isDeletingSelectedRequirements ? "Deleting selected" : `Delete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`,
+                    description: "Delete selected requirements while keeping linked test cases in the library.",
+                    icon: <TrashIcon />,
+                    disabled: !deleteSelectedRequirementIds.length || isDeletingSelectedRequirements,
+                    onClick: () => void handleDeleteSelectedRequirements(),
+                    tone: "danger"
+                  }
+                ]}
+                label="More requirement actions"
+              />
             </div>
 
             {deleteSelectedRequirementIds.length ? (
@@ -1579,7 +1587,12 @@ export function RequirementsPage() {
                   storageKey="qaira:requirements:list-columns"
                 />
               ) : null}
-              {!isRequirementCatalogLoading && !requirements.length ? <div className="empty-state compact">No requirements yet for this project.</div> : null}
+              {!isRequirementCatalogLoading && !requirements.length ? (
+                <div className="empty-state compact">
+                  <div>No requirements yet for this project.</div>
+                  <button className="primary-button" disabled={!projectId} onClick={openCreateRequirementModal} type="button">Create first requirement</button>
+                </div>
+              ) : null}
               {!isRequirementCatalogLoading && requirements.length && !filteredRequirements.length ? <div className="empty-state compact">No requirements match the current search.</div> : null}
             </TileBrowserPane>
           </Panel>
@@ -2112,7 +2125,7 @@ export function RequirementsPage() {
           isAccepting={acceptDesignedCases.isPending}
           isPreviewing={previewDesignedCases.isPending}
           maxCases={maxCases}
-          onAccept={() => void handleAcceptDesignedCases()}
+          onAccept={(selectedClientIds) => void handleAcceptDesignedCases(selectedClientIds)}
           onAddImages={(files) => void handleAddAiReferenceImages(files)}
           onAdditionalContextChange={setAiAdditionalContext}
           onClose={() => {

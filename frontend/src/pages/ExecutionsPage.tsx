@@ -113,6 +113,31 @@ type ExecutionRunSummary = {
   totalDurationMs: number;
 };
 
+type ExecutionRunImpactSummary = {
+  failedCases: Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: number | null;
+    suiteId: string | null;
+    suiteName: string | null;
+    requirementIds: string[];
+    requirementTitles: string[];
+    error: string | null;
+  }>;
+  impactedRequirements: Array<{
+    id: string;
+    title: string;
+    priority: number | null;
+    totalCases: number;
+    failedCases: number;
+    failureRate: number;
+  }>;
+  totalRequirements: number;
+  failedRequirementCount: number;
+  failureRate: number;
+};
+
 type ExecutionStepBlock = {
   key: string;
   groupId: string | null;
@@ -215,6 +240,61 @@ const EMPTY_EXECUTION_RUN_SUMMARY: ExecutionRunSummary = {
   latestActivityAt: null,
   totalDurationMs: 0
 };
+
+const EMPTY_EXECUTION_RUN_IMPACT_SUMMARY: ExecutionRunImpactSummary = {
+  failedCases: [],
+  impactedRequirements: [],
+  totalRequirements: 0,
+  failedRequirementCount: 0,
+  failureRate: 0
+};
+
+function getExecutionRiskTone(summary: ExecutionRunSummary, impactSummary: ExecutionRunImpactSummary): "success" | "info" | "warning" | "danger" {
+  if (summary.failed > 0 || impactSummary.failureRate >= 30 || impactSummary.failedRequirementCount >= 3) {
+    return "danger";
+  }
+
+  if (summary.blocked > 0 || impactSummary.failedRequirementCount > 0 || impactSummary.failureRate >= 12) {
+    return "warning";
+  }
+
+  if (summary.total > 0 && summary.passRate >= 90) {
+    return "success";
+  }
+
+  return "info";
+}
+
+function getExecutionRiskLabel(summary: ExecutionRunSummary, impactSummary: ExecutionRunImpactSummary) {
+  const tone = getExecutionRiskTone(summary, impactSummary);
+  if (tone === "danger") return "High risk";
+  if (tone === "warning") return "Watch";
+  if (tone === "success") return "Healthy";
+  return "Learning";
+}
+
+function getExecutionRiskInsight(summary: ExecutionRunSummary, impactSummary: ExecutionRunImpactSummary, scopedCaseCount: number) {
+  const affectedRequirements = impactSummary.failedRequirementCount;
+  const topRequirement = impactSummary.impactedRequirements.find((requirement) => requirement.failedCases > 0) || impactSummary.impactedRequirements[0] || null;
+
+  if (summary.failed > 0 && topRequirement) {
+    return `AI risk analysis: ${summary.failed} failed case${summary.failed === 1 ? "" : "s"} are touching ${affectedRequirements || 1} requirement${(affectedRequirements || 1) === 1 ? "" : "s"}; start with ${topRequirement.title}.`;
+  }
+
+  if (summary.blocked > 0) {
+    return `AI risk analysis: ${summary.blocked} blocked case${summary.blocked === 1 ? "" : "s"} can hide release confidence until the affected requirement coverage is cleared.`;
+  }
+
+  if (!summary.total && scopedCaseCount) {
+    return `AI risk analysis: ${scopedCaseCount} scoped case${scopedCaseCount === 1 ? "" : "s"} are queued; requirement impact will sharpen as evidence arrives.`;
+  }
+
+  if (summary.passRate >= 90 && summary.total) {
+    return `AI risk analysis: pass confidence is strong across touched coverage; keep an eye on high-priority linked requirements.`;
+  }
+
+  return `AI risk analysis: run evidence is still forming; linked requirements and references are ready for trace review.`;
+}
 
 const DEFAULT_CATALOG_VIEW_MODE_BY_RUN_VIEW: Record<TestRunsView, CatalogViewMode> = {
   "test-case-runs": "tile",
@@ -1437,6 +1517,14 @@ export function ExecutionsPage() {
     () => filteredWorkspaceTransactions.find((transaction) => transaction.id === selectedOperationId) || workspaceTransactions.find((transaction) => transaction.id === selectedOperationId) || null,
     [filteredWorkspaceTransactions, selectedOperationId, workspaceTransactions]
   );
+  const smartExecutionLibraryCaseById = useMemo(
+    () => new Map(smartExecutionLibraryCases.map((testCase) => [testCase.id, testCase])),
+    [smartExecutionLibraryCases]
+  );
+  const requirementById = useMemo(
+    () => new Map(requirements.map((requirement) => [requirement.id, requirement])),
+    [requirements]
+  );
   const smartExecutionRequirementOptions = useMemo<SmartExecutionRequirementOption[]>(() => {
     const linkedCaseIdsByRequirementId = smartExecutionLibraryCases.reduce<Map<string, Set<string>>>((accumulator, testCase) => {
       const requirementIds = [...new Set([...(testCase.requirement_ids || []), testCase.requirement_id].filter(Boolean))] as string[];
@@ -1936,8 +2024,8 @@ export function ExecutionsPage() {
   }, [selectedExecutionId, selectedTestCaseId]);
 
   useEffect(() => {
-    setIsExecutionInputParamsExpanded(true);
-    setIsExecutionOutputParamsExpanded(true);
+    setIsExecutionInputParamsExpanded(false);
+    setIsExecutionOutputParamsExpanded(false);
     setIsExecutionReferencesExpanded(false);
     setIsExecutionAiAnalysisExpanded(false);
   }, [selectedExecutionId, selectedTestCaseId]);
@@ -2226,6 +2314,156 @@ export function ExecutionsPage() {
     return summary;
   }, [allExecutionResults]);
 
+  const executionImpactSummaryById = useMemo(() => {
+    const resultByExecutionCaseId = new Map<string, ExecutionResult>();
+
+    allExecutionResults.forEach((result) => {
+      const key = `${result.execution_id}:${result.test_case_id}`;
+      if (!resultByExecutionCaseId.has(key)) {
+        resultByExecutionCaseId.set(key, result);
+      }
+    });
+
+    return executions.reduce<Record<string, ExecutionRunImpactSummary>>((summary, execution) => {
+      const requirementStats = new Map<string, { totalCases: Set<string>; failedCases: Set<string> }>();
+      const failedCases: ExecutionRunImpactSummary["failedCases"] = [];
+
+      (execution.case_snapshots || []).forEach((snapshot) => {
+        const linkedCase = smartExecutionLibraryCaseById.get(snapshot.test_case_id);
+        const requirementIds = [...new Set([...(linkedCase?.requirement_ids || []), linkedCase?.requirement_id].filter(Boolean))] as string[];
+        const result = resultByExecutionCaseId.get(`${execution.id}:${snapshot.test_case_id}`);
+        const status = result?.status || "queued";
+
+        requirementIds.forEach((requirementId) => {
+          const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
+          stats.totalCases.add(snapshot.test_case_id);
+          if (["failed", "blocked"].includes(status)) {
+            stats.failedCases.add(snapshot.test_case_id);
+          }
+          requirementStats.set(requirementId, stats);
+        });
+
+        if (["failed", "blocked"].includes(status)) {
+          failedCases.push({
+            id: snapshot.test_case_id,
+            title: snapshot.test_case_title,
+            status,
+            priority: snapshot.priority,
+            suiteId: snapshot.suite_id,
+            suiteName: snapshot.suite_name,
+            requirementIds,
+            requirementTitles: requirementIds.map((requirementId) => requirementById.get(requirementId)?.title || requirementId),
+            error: result?.error || null
+          });
+        }
+      });
+
+      const impactedRequirements = Array.from(requirementStats.entries())
+        .map(([requirementId, stats]) => {
+          const totalCases = stats.totalCases.size;
+          const failedRequirementCases = stats.failedCases.size;
+          return {
+            id: requirementId,
+            title: requirementById.get(requirementId)?.title || requirementId,
+            priority: requirementById.get(requirementId)?.priority ?? null,
+            totalCases,
+            failedCases: failedRequirementCases,
+            failureRate: totalCases ? Math.round((failedRequirementCases / totalCases) * 100) : 0
+          };
+        })
+        .sort((left, right) => {
+          if (right.failedCases !== left.failedCases) return right.failedCases - left.failedCases;
+          if ((left.priority || 99) !== (right.priority || 99)) return (left.priority || 99) - (right.priority || 99);
+          return left.title.localeCompare(right.title);
+        });
+
+      const totalCases = execution.case_snapshots?.length || 0;
+      summary[execution.id] = {
+        failedCases,
+        impactedRequirements,
+        totalRequirements: impactedRequirements.length,
+        failedRequirementCount: impactedRequirements.filter((requirement) => requirement.failedCases > 0).length,
+        failureRate: totalCases ? Math.round((failedCases.length / totalCases) * 100) : 0
+      };
+
+      return summary;
+    }, {});
+  }, [allExecutionResults, executions, requirementById, smartExecutionLibraryCaseById]);
+
+  const selectedExecutionImpactSummary = selectedExecution
+    ? executionImpactSummaryById[selectedExecution.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY
+    : EMPTY_EXECUTION_RUN_IMPACT_SUMMARY;
+
+  const selectedSuiteImpactSummaryById = useMemo(() => {
+    if (!selectedExecution) {
+      return {};
+    }
+
+    return executionSuites.reduce<Record<string, ExecutionRunImpactSummary>>((summary, suite) => {
+      const requirementStats = new Map<string, { totalCases: Set<string>; failedCases: Set<string> }>();
+      const failedCases: ExecutionRunImpactSummary["failedCases"] = [];
+      const suiteCases = displayCasesBySuiteId[suite.id] || [];
+
+      suiteCases.forEach((testCase) => {
+        const linkedCase = smartExecutionLibraryCaseById.get(testCase.id);
+        const requirementIds = [...new Set([...(linkedCase?.requirement_ids || []), linkedCase?.requirement_id].filter(Boolean))] as string[];
+        const status = caseDerivedStatus(testCase);
+
+        requirementIds.forEach((requirementId) => {
+          const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
+          stats.totalCases.add(testCase.id);
+          if (["failed", "blocked"].includes(status)) {
+            stats.failedCases.add(testCase.id);
+          }
+          requirementStats.set(requirementId, stats);
+        });
+
+        if (["failed", "blocked"].includes(status)) {
+          failedCases.push({
+            id: testCase.id,
+            title: testCase.title,
+            status,
+            priority: testCase.priority,
+            suiteId: suite.id,
+            suiteName: suite.name,
+            requirementIds,
+            requirementTitles: requirementIds.map((requirementId) => requirementById.get(requirementId)?.title || requirementId),
+            error: resultByCaseId[testCase.id]?.error || null
+          });
+        }
+      });
+
+      const impactedRequirements = Array.from(requirementStats.entries())
+        .map(([requirementId, stats]) => {
+          const totalCases = stats.totalCases.size;
+          const failedRequirementCases = stats.failedCases.size;
+          return {
+            id: requirementId,
+            title: requirementById.get(requirementId)?.title || requirementId,
+            priority: requirementById.get(requirementId)?.priority ?? null,
+            totalCases,
+            failedCases: failedRequirementCases,
+            failureRate: totalCases ? Math.round((failedRequirementCases / totalCases) * 100) : 0
+          };
+        })
+        .sort((left, right) => {
+          if (right.failedCases !== left.failedCases) return right.failedCases - left.failedCases;
+          if ((left.priority || 99) !== (right.priority || 99)) return (left.priority || 99) - (right.priority || 99);
+          return left.title.localeCompare(right.title);
+        });
+
+      summary[suite.id] = {
+        failedCases,
+        impactedRequirements,
+        totalRequirements: impactedRequirements.length,
+        failedRequirementCount: impactedRequirements.filter((requirement) => requirement.failedCases > 0).length,
+        failureRate: suiteCases.length ? Math.round((failedCases.length / suiteCases.length) * 100) : 0
+      };
+
+      return summary;
+    }, {});
+  }, [displayCasesBySuiteId, executionSuites, requirementById, resultByCaseId, selectedExecution, smartExecutionLibraryCaseById]);
+
   const executionById = useMemo(
     () =>
       executions.reduce<Record<string, Execution>>((accumulator, execution) => {
@@ -2402,9 +2640,9 @@ export function ExecutionsPage() {
       return;
     }
 
-    if (!smartExecutionReleaseScope.trim() && !smartExecutionAdditionalContext.trim()) {
+    if (!smartExecutionReleaseScope.trim() && !smartExecutionAdditionalContext.trim() && !selectedSmartRequirementIds.length) {
       setSmartExecutionPreviewTone("error");
-      setSmartExecutionPreviewMessage("Add release scope or additional context so AI can identify impacted test coverage.");
+      setSmartExecutionPreviewMessage("Select impacted requirements, add release scope, or add context so AI can identify impacted test coverage.");
       return;
     }
 
@@ -2422,7 +2660,11 @@ export function ExecutionsPage() {
       });
 
       setSmartExecutionPreview(response);
-      setSelectedSmartExecutionCaseIds(response.cases.map((testCase) => testCase.test_case_id));
+      setSelectedSmartExecutionCaseIds(
+        response.cases
+          .filter((testCase) => executionStartMode === "manual" || smartExecutionLibraryCaseById.get(testCase.test_case_id)?.automated === "yes")
+          .map((testCase) => testCase.test_case_id)
+      );
       setExecutionName(response.execution_name || executionName);
       setSmartExecutionPreviewTone("success");
       setSmartExecutionPreviewMessage(
@@ -2446,11 +2688,15 @@ export function ExecutionsPage() {
       return;
     }
 
-    const selectedSmartCaseIds = selectedSmartExecutionCases.map((testCase) => testCase.test_case_id);
+    const selectedSmartCaseIds = selectedSmartExecutableCaseIds;
 
     if (executionCreateMode === "smart" && !selectedSmartCaseIds.length) {
       setMessageTone("error");
-      setMessage("Select at least one impacted test case before creating an AI smart run.");
+      setMessage(
+        executionStartMode === "manual"
+          ? "Select at least one impacted test case before creating an AI smart run."
+          : "Select at least one automated impacted case before creating a Test Engine smart run."
+      );
       return;
     }
 
@@ -3823,9 +4069,29 @@ export function ExecutionsPage() {
     () => smartPreviewCases.filter((testCase) => selectedSmartExecutionCaseIds.includes(testCase.test_case_id)),
     [selectedSmartExecutionCaseIds, smartPreviewCases]
   );
+  const selectedSmartExecutableCaseIds = useMemo(
+    () =>
+      selectedSmartExecutionCases
+        .filter((testCase) => executionStartMode === "manual" || smartExecutionLibraryCaseById.get(testCase.test_case_id)?.automated === "yes")
+        .map((testCase) => testCase.test_case_id),
+    [executionStartMode, selectedSmartExecutionCases, smartExecutionLibraryCaseById]
+  );
+
+  useEffect(() => {
+    if (executionCreateMode !== "smart" || executionStartMode === "manual" || !selectedSmartExecutionCaseIds.length) {
+      return;
+    }
+
+    const automatedSelectedIds = selectedSmartExecutionCaseIds.filter((testCaseId) => smartExecutionLibraryCaseById.get(testCaseId)?.automated === "yes");
+
+    if (automatedSelectedIds.length !== selectedSmartExecutionCaseIds.length) {
+      setSelectedSmartExecutionCaseIds(automatedSelectedIds);
+    }
+  }, [executionCreateMode, executionStartMode, selectedSmartExecutionCaseIds, smartExecutionLibraryCaseById]);
+
   const canCreateExecution =
     executionCreateMode === "smart"
-      ? Boolean(projectId && appTypeId && selectedSmartExecutionCases.length)
+      ? Boolean(projectId && appTypeId && selectedSmartExecutableCaseIds.length)
       : Boolean(projectId && appTypeId && selectedSuiteIds.length);
 
   const persistCaseOutcomeOnly = async (testCaseId: string, status: "passed" | "failed") => {
@@ -4172,6 +4438,7 @@ export function ExecutionsPage() {
                         isActive={selectedExecution?.id === execution.id}
                         liveNow={liveNow}
                         onSelect={() => focusExecution(execution.id)}
+                        impactSummary={executionImpactSummaryById[execution.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY}
                         summary={executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY}
                       />
                     ))
@@ -5131,7 +5398,68 @@ export function ExecutionsPage() {
                         <strong>{blockingCases.length}</strong>
                         <span>Blocking cases</span>
                       </div>
+                      <div className="mini-card">
+                        <strong>{selectedExecutionImpactSummary.failedRequirementCount}/{selectedExecutionImpactSummary.totalRequirements}</strong>
+                        <span>Impacted requirements</span>
+                      </div>
 
+                    </div>
+
+                    <div className="execution-run-impact-panel">
+                      <div className="execution-run-impact-head">
+                        <div>
+                          <strong>Run impact areas</strong>
+                          <span>
+                            {selectedExecutionImpactSummary.failedCases.length
+                              ? `${selectedExecutionImpactSummary.failedCases.length} failed or blocked case${selectedExecutionImpactSummary.failedCases.length === 1 ? "" : "s"} mapped to ${selectedExecutionImpactSummary.failedRequirementCount} requirement${selectedExecutionImpactSummary.failedRequirementCount === 1 ? "" : "s"}.`
+                              : selectedExecutionImpactSummary.totalRequirements
+                                ? `${selectedExecutionImpactSummary.totalRequirements} linked requirement${selectedExecutionImpactSummary.totalRequirements === 1 ? "" : "s"} in this run. No failed requirement impact yet.`
+                                : "No linked requirement impact detected for this run yet."}
+                          </span>
+                        </div>
+                        <span className={selectedExecutionImpactSummary.failureRate ? "count-pill warning" : "count-pill success"}>
+                          {selectedExecutionImpactSummary.failureRate}% case failure rate
+                        </span>
+                      </div>
+
+                      {selectedExecutionImpactSummary.impactedRequirements.length ? (
+                        <div className="execution-run-impact-grid">
+                          {selectedExecutionImpactSummary.impactedRequirements.slice(0, 6).map((requirement) => (
+                            <article className={requirement.failedCases ? "execution-run-impact-card is-impacted" : "execution-run-impact-card"} key={requirement.id}>
+                              <div>
+                                <strong>{requirement.title}</strong>
+                                <span>P{requirement.priority || 3} · {requirement.failedCases}/{requirement.totalCases} failed or blocked</span>
+                              </div>
+                              <span className={requirement.failureRate ? "count-pill warning" : "count-pill success"}>{requirement.failureRate}%</span>
+                            </article>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {selectedExecutionImpactSummary.failedCases.length ? (
+                        <div className="execution-run-failure-list">
+                          {selectedExecutionImpactSummary.failedCases.slice(0, 8).map((testCase) => (
+                            <button
+                              className="execution-run-failure-row"
+                              key={testCase.id}
+                              onClick={() => focusExecutionCase(testCase.id)}
+                              type="button"
+                            >
+                              <StatusBadge value={testCase.status} />
+                              <div>
+                                <strong>{testCase.title}</strong>
+                                <span>
+                                  {[
+                                    testCase.suiteName || "Direct case",
+                                    testCase.requirementTitles.length ? `Requirements: ${testCase.requirementTitles.join(" · ")}` : "No linked requirement",
+                                    testCase.error || null
+                                  ].filter(Boolean).join(" · ")}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
 
                     <ExecutionContextSnapshotSummary execution={selectedExecution} onViewFull={() => setIsExecutionContextModalOpen(true)} />
@@ -5269,6 +5597,27 @@ export function ExecutionsPage() {
                           (suiteMetric?.passedCount || 0) +
                           (suiteMetric?.failedCount || 0) +
                           (suiteMetric?.blockedCount || 0);
+                        const suiteImpactSummary = selectedSuiteImpactSummaryById[suite.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY;
+                        const suiteSummaryForRisk: ExecutionRunSummary = {
+                          passed: suiteMetric?.passedCount || 0,
+                          failed: suiteMetric?.failedCount || 0,
+                          blocked: suiteMetric?.blockedCount || 0,
+                          total: suiteResolvedCount,
+                          passRate: suiteResolvedCount ? Math.round(((suiteMetric?.passedCount || 0) / suiteResolvedCount) * 100) : 0,
+                          avgDurationMs: null,
+                          timedCount: 0,
+                          latestActivityAt: null,
+                          totalDurationMs: 0
+                        };
+                        const suiteRiskTone = getExecutionRiskTone(suiteSummaryForRisk, suiteImpactSummary);
+                        const suiteRiskLabel = getExecutionRiskLabel(suiteSummaryForRisk, suiteImpactSummary);
+                        const suiteRiskInsight = getExecutionRiskInsight(suiteSummaryForRisk, suiteImpactSummary, suiteCases.length).replace("run evidence", "suite evidence");
+                        const suiteReferenceCount = new Set(
+                          suiteCases
+                            .flatMap((testCase) => testCase.external_references || [])
+                            .map((reference) => String(reference).trim())
+                            .filter(Boolean)
+                        ).size;
                         const isExpanded = expandedExecutionSuiteIds.includes(suite.id);
                         const isFocusedSuite = focusedSuiteId === suite.id;
 
@@ -5333,6 +5682,22 @@ export function ExecutionsPage() {
                                         <ExecutionRiskIcon />
                                       </ExecutionCardFact>
                                       <ExecutionCardFact
+                                        ariaLabel={`${suiteImpactSummary.failedRequirementCount} impacted requirements with failed or blocked cases`}
+                                        label={suiteImpactSummary.totalRequirements ? `${suiteImpactSummary.failedRequirementCount}/${suiteImpactSummary.totalRequirements}` : "0"}
+                                        title={suiteImpactSummary.impactedRequirements[0] ? `${suiteImpactSummary.impactedRequirements[0].title} · ${suiteImpactSummary.impactedRequirements[0].failureRate}% failure rate` : "No requirement impact detected in this suite"}
+                                        tone={suiteImpactSummary.failedRequirementCount ? "warning" : "neutral"}
+                                      >
+                                        <ExecutionRequirementImpactIcon />
+                                      </ExecutionCardFact>
+                                      <ExecutionCardFact
+                                        ariaLabel={`${suiteReferenceCount} external references in suite cases`}
+                                        label={String(suiteReferenceCount)}
+                                        title={suiteReferenceCount ? `${suiteReferenceCount} linked reference${suiteReferenceCount === 1 ? "" : "s"}` : "No linked external references in this suite"}
+                                        tone={suiteReferenceCount ? "info" : "neutral"}
+                                      >
+                                        <ExecutionReferenceIcon />
+                                      </ExecutionCardFact>
+                                      <ExecutionCardFact
                                         ariaLabel={`Suite duration ${formatDuration(suiteDurationById[suite.id], DEFAULT_DURATION_LABEL)}`}
                                         label={formatDuration(suiteDurationById[suite.id], DEFAULT_DURATION_LABEL)}
                                         title={`Total recorded suite duration ${formatDuration(suiteDurationById[suite.id], DEFAULT_DURATION_LABEL)}`}
@@ -5341,6 +5706,22 @@ export function ExecutionsPage() {
                                         <ExecutionTimeIcon />
                                       </ExecutionCardFact>
                                     </div>
+
+                                    <div className={`execution-card-risk-note ${suiteRiskTone}`}>
+                                      <span>{suiteRiskLabel}</span>
+                                      <p>{suiteRiskInsight}</p>
+                                    </div>
+
+                                    {suiteImpactSummary.impactedRequirements.length ? (
+                                      <div className="execution-suite-impact-row" aria-label={`${suite.name} impacted requirements`}>
+                                        {suiteImpactSummary.impactedRequirements.slice(0, 4).map((requirement) => (
+                                          <span className={requirement.failedCases ? "execution-impact-chip is-impacted" : "execution-impact-chip"} key={requirement.id}>
+                                            <b>{requirement.title}</b>
+                                            <small>P{requirement.priority ?? 3} · {requirement.failedCases}/{requirement.totalCases} failed</small>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
 
                                     <ProgressMeter
                                       detail={`${suiteMetric?.passedCount || 0} passed · ${suiteMetric?.failedCount || 0} failed · ${suiteMetric?.blockedCount || 0} blocked`}
@@ -5531,7 +5912,13 @@ export function ExecutionsPage() {
           onPreviewSmartExecution={() => void handlePreviewSmartExecution()}
           onProjectChange={handleExecutionProjectChange}
           onSuiteSelectionChange={setSelectedSuiteIds}
-          onSelectAllSmartExecutionCases={() => setSelectedSmartExecutionCaseIds(smartPreviewCases.map((testCase) => testCase.test_case_id))}
+          onSelectAllSmartExecutionCases={() =>
+            setSelectedSmartExecutionCaseIds(
+              smartPreviewCases
+                .filter((testCase) => executionStartMode === "manual" || smartExecutionLibraryCaseById.get(testCase.test_case_id)?.automated === "yes")
+                .map((testCase) => testCase.test_case_id)
+            )
+          }
           onClearSmartExecutionCases={() => setSelectedSmartExecutionCaseIds([])}
           onClearSmartExecutionRequirements={handleClearSmartExecutionRequirements}
           onSmartExecutionAdditionalContextChange={handleSmartExecutionAdditionalContextChange}
@@ -6085,12 +6472,14 @@ function ExecutionAssigneeChip({
 function ExecutionListCard({
   execution,
   summary,
+  impactSummary,
   liveNow,
   isActive,
   onSelect
 }: {
   execution: Execution;
   summary: ExecutionRunSummary;
+  impactSummary: ExecutionRunImpactSummary;
   liveNow: number;
   isActive: boolean;
   onSelect: () => void;
@@ -6100,6 +6489,17 @@ function ExecutionListCard({
   const executionStatus = normalizeExecutionStatus(execution.status);
   const isTestCaseRun = execution.suite_ids.length === 0;
   const issueCount = summary.failed + summary.blocked;
+  const topImpactedRequirement = impactSummary.impactedRequirements[0] || null;
+  const visibleImpactedRequirements = impactSummary.impactedRequirements.slice(0, 3);
+  const referenceCount = new Set(
+    (execution.case_snapshots || [])
+      .flatMap((snapshot) => snapshot.external_references || [])
+      .map((reference) => String(reference).trim())
+      .filter(Boolean)
+  ).size;
+  const riskTone = getExecutionRiskTone(summary, impactSummary);
+  const riskLabel = getExecutionRiskLabel(summary, impactSummary);
+  const riskInsight = getExecutionRiskInsight(summary, impactSummary, resolvedTotal);
   const createdLabel = formatExecutionTimestamp(execution.created_at, "Not recorded");
   const durationLabel = formatDuration(
     computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow),
@@ -6172,6 +6572,22 @@ function ExecutionListCard({
             <ExecutionRiskIcon />
           </ExecutionCardFact>
           <ExecutionCardFact
+            ariaLabel={`${impactSummary.failedRequirementCount} impacted requirements with failed or blocked cases`}
+            label={impactSummary.totalRequirements ? `${impactSummary.failedRequirementCount}/${impactSummary.totalRequirements}` : "0"}
+            title={topImpactedRequirement ? `${topImpactedRequirement.title} · ${topImpactedRequirement.failureRate}% failure rate` : "No requirement impact detected"}
+            tone={impactSummary.failedRequirementCount ? "warning" : "neutral"}
+          >
+            <ExecutionRequirementImpactIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact
+            ariaLabel={`${referenceCount} external references in scoped cases`}
+            label={referenceCount ? String(referenceCount) : "0"}
+            title={referenceCount ? `${referenceCount} linked external reference${referenceCount === 1 ? "" : "s"}` : "No external references linked to scoped cases"}
+            tone={referenceCount ? "info" : "neutral"}
+          >
+            <ExecutionReferenceIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact
             ariaLabel={`Run duration ${durationLabel}`}
             label={durationLabel}
             title={`Started: ${startedLabel}${summary.latestActivityAt ? ` • Latest evidence: ${latestEvidenceLabel}` : executionStatus === "aborted" ? " • Run stopped before completion" : ""}`}
@@ -6180,6 +6596,31 @@ function ExecutionListCard({
             <ExecutionTimeIcon />
           </ExecutionCardFact>
         </div>
+
+        <div className={`execution-card-risk-note ${riskTone}`}>
+          <span>{riskLabel}</span>
+          <p>{riskInsight}</p>
+        </div>
+
+        {visibleImpactedRequirements.length ? (
+          <div className="execution-card-impact-strip" aria-label="Run impacted requirements">
+            <div className="execution-card-impact-strip-head">
+              <strong>Impacted requirements</strong>
+              <span>{impactSummary.failedRequirementCount}/{impactSummary.totalRequirements} with failures</span>
+            </div>
+            <div className="execution-impact-chip-row">
+              {visibleImpactedRequirements.map((requirement) => (
+                <span className={requirement.failedCases ? "execution-impact-chip is-impacted" : "execution-impact-chip"} key={requirement.id}>
+                  <b>{requirement.title}</b>
+                  <small>P{requirement.priority ?? 3} · {requirement.failedCases}/{requirement.totalCases} failed</small>
+                </span>
+              ))}
+              {impactSummary.impactedRequirements.length > visibleImpactedRequirements.length ? (
+                <span className="execution-impact-chip is-more">+{impactSummary.impactedRequirements.length - visibleImpactedRequirements.length} more</span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <ProgressMeter
           detail={progressDetail}
@@ -6573,6 +7014,26 @@ function ExecutionRiskIcon() {
       <path d="m12 4 8 14H4z" />
       <path d="M12 9v4" />
       <path d="M12 17h.01" />
+    </ExecutionIconShell>
+  );
+}
+
+function ExecutionRequirementImpactIcon() {
+  return (
+    <ExecutionIconShell>
+      <path d="M5 5h14v14H5z" />
+      <path d="M8 9h8" />
+      <path d="M8 13h5" />
+      <path d="m15 14 2 2 3-4" />
+    </ExecutionIconShell>
+  );
+}
+
+function ExecutionReferenceIcon() {
+  return (
+    <ExecutionIconShell>
+      <path d="M10 13a4 4 0 0 0 5.7.1l2-2a4 4 0 0 0-5.6-5.6l-1.1 1.1" />
+      <path d="M14 11a4 4 0 0 0-5.7-.1l-2 2a4 4 0 0 0 5.6 5.6l1.1-1.1" />
     </ExecutionIconShell>
   );
 }
@@ -7474,6 +7935,7 @@ function ExecutionStructuredLogView({
   const hasApiDetails = parsed.stepApiDetails && Object.keys(parsed.stepApiDetails).length > 0;
   const hasAutomationDetails = parsed.stepAutomationDetails && Object.keys(parsed.stepAutomationDetails).length > 0;
   const hasAiAnalysis = Boolean(parsed.aiAnalysis?.response);
+  const formatTraceJson = (value: unknown) => JSON.stringify(value, null, 2);
 
   if (!hasNotes && !hasStatuses && !hasEvidence && !hasCaptures && !hasWebDetails && !hasApiDetails && !hasAutomationDetails && !hasAiAnalysis && !logsJson?.trim()) {
     return <span className="execution-log-empty">No structured step data recorded yet.</span>;
@@ -7511,9 +7973,88 @@ function ExecutionStructuredLogView({
             </div>
           ) : null}
           {st || nt || evidence || captures.length || apiDetail || webDetail || automationDetail ? (
-            <div className="execution-structured-log-row">
-              <strong>Step {step.step_order}</strong>
-              {st ? <StatusBadge value={st} /> : null}
+            <article className="execution-structured-log-row execution-structured-log-row--verbose">
+              <div className="execution-verbose-log-head">
+                <div>
+                  <strong>Step {step.step_order}</strong>
+                  <span>{step.action || "No step action snapshot"}</span>
+                </div>
+                {st ? <StatusBadge value={st} /> : null}
+              </div>
+              {step.expected_result ? (
+                <div className="execution-verbose-log-block">
+                  <small>Expected result</small>
+                  <span>{step.expected_result}</span>
+                </div>
+              ) : null}
+              {nt ? (
+                <div className="execution-verbose-log-block">
+                  <small>Runtime note</small>
+                  <span>{nt}</span>
+                </div>
+              ) : null}
+              {captures.length ? (
+                <div className="execution-verbose-log-block">
+                  <small>Captured output params</small>
+                  <div className="execution-structured-capture-list">
+                    {captures.map(([key, value]) => (
+                      <span className="execution-structured-capture-chip" key={key}>
+                        <strong>{formatExecutionParameterToken(key)}</strong>
+                        <span>{value || "—"}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {apiDetail ? (
+                <details className="execution-verbose-log-details" open={apiFailedAssertions > 0 || Number(apiStatus || 0) >= 400}>
+                  <summary>
+                    <span>API trace</span>
+                    <small>
+                      {[
+                        apiDetail.request?.method || "API",
+                        apiDetail.request?.url || null,
+                        apiStatus ? `HTTP ${apiStatus}` : "no response",
+                        apiAssertions.length ? `${apiAssertions.length} assertion${apiAssertions.length === 1 ? "" : "s"}` : null,
+                        apiFailedAssertions ? `${apiFailedAssertions} failed` : null
+                      ].filter(Boolean).join(" · ")}
+                    </small>
+                  </summary>
+                  <pre>{formatTraceJson(apiDetail)}</pre>
+                </details>
+              ) : null}
+              {webDetail ? (
+                <details className="execution-verbose-log-details" open={networkIssueCount > 0}>
+                  <summary>
+                    <span>Browser trace</span>
+                    <small>
+                      {[
+                        webDetail.provider || "web",
+                        webDetail.url || null,
+                        `${webDetail.console?.length || 0} console`,
+                        `${webDetail.network?.length || 0} network`
+                      ].filter(Boolean).join(" · ")}
+                    </small>
+                  </summary>
+                  <pre>{formatTraceJson(webDetail)}</pre>
+                </details>
+              ) : null}
+              {automationDetail ? (
+                <details className="execution-verbose-log-details" open={Boolean(automationDetail.error_message)}>
+                  <summary>
+                    <span>Automation trace</span>
+                    <small>
+                      {[
+                        automationDetail.engine || automationDetail.provider || "automation",
+                        automationDetail.status || null,
+                        typeof automationDetail.active_line === "number" ? `line ${automationDetail.active_line}` : null,
+                        automationDetail.error_message || null
+                      ].filter(Boolean).join(" · ")}
+                    </small>
+                  </summary>
+                  <pre>{formatTraceJson(automationDetail)}</pre>
+                </details>
+              ) : null}
               {evidence ? (
                 <button
                   className="execution-structured-evidence-button"
@@ -7524,49 +8065,7 @@ function ExecutionStructuredLogView({
                   <span>{evidence.fileName || "View image evidence"}</span>
                 </button>
               ) : null}
-              {nt ? <span className="execution-structured-note">{nt}</span> : null}
-              {apiDetail ? (
-                <span className="execution-structured-note">
-                  {[
-                    apiDetail.request?.method || "API",
-                    apiDetail.request?.url || null,
-                    apiStatus ? `HTTP ${apiStatus}` : "no response status",
-                    apiAssertions.length ? `${apiAssertions.length} assertion${apiAssertions.length === 1 ? "" : "s"}` : null,
-                    apiFailedAssertions ? `${apiFailedAssertions} failed` : null
-                  ].filter(Boolean).join(" · ")}
-                </span>
-              ) : null}
-              {webDetail ? (
-                <span className="execution-structured-note">
-                  {[
-                    webDetail.provider || "web",
-                    webDetail.url || null,
-                    `${webDetail.console?.length || 0} console`,
-                    `${webDetail.network?.length || 0} network`
-                  ].filter(Boolean).join(" · ")}
-                </span>
-              ) : null}
-              {automationDetail ? (
-                <span className="execution-structured-note">
-                  {[
-                    automationDetail.engine || automationDetail.provider || "automation",
-                    automationDetail.status || null,
-                    typeof automationDetail.active_line === "number" ? `line ${automationDetail.active_line}` : null,
-                    automationDetail.error_message || null
-                  ].filter(Boolean).join(" · ")}
-                </span>
-              ) : null}
-              {captures.length ? (
-                <div className="execution-structured-capture-list">
-                  {captures.map(([key, value]) => (
-                    <span className="execution-structured-capture-chip" key={key}>
-                      <strong>{formatExecutionParameterToken(key)}</strong>
-                      <span>{value || "—"}</span>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            </article>
           ) : null}
         </Fragment>
       );
@@ -7790,7 +8289,11 @@ function ExecutionCreateModal({
 }) {
   const isSmartMode = executionCreateMode === "smart";
   const smartPreviewCases = smartExecutionPreview?.cases || [];
-  const hasSmartPlanningInput = Boolean(smartExecutionReleaseScope.trim() || smartExecutionAdditionalContext.trim());
+  const hasSmartPlanningInput = Boolean(smartExecutionReleaseScope.trim() || smartExecutionAdditionalContext.trim() || selectedSmartRequirementIds.length);
+  const libraryCaseById = useMemo(() => new Map(libraryCases.map((testCase) => [testCase.id, testCase])), [libraryCases]);
+  const isEngineSmartMode = isSmartMode && executionStartMode !== "manual";
+  const automatedSmartPreviewCount = smartPreviewCases.filter((testCase) => libraryCaseById.get(testCase.test_case_id)?.automated === "yes").length;
+  const manualSmartPreviewCount = smartPreviewCases.length - automatedSmartPreviewCount;
   const normalizedRequirementSearch = smartExecutionRequirementSearch.trim().toLowerCase();
   const filteredSmartRequirementOptions = normalizedRequirementSearch
     ? smartExecutionRequirementOptions.filter((requirement) =>
@@ -7801,7 +8304,12 @@ function ExecutionCreateModal({
     Boolean(filteredSmartRequirementOptions.length)
     && filteredSmartRequirementOptions.every((requirement) => selectedSmartRequirementIds.includes(requirement.id));
   const selectedSmartCaseCount = selectedSmartExecutionCaseIds.length;
-  const areAllSmartCasesSelected = Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
+  const selectedSmartExecutableCaseCount = isEngineSmartMode
+    ? selectedSmartExecutionCaseIds.filter((testCaseId) => libraryCaseById.get(testCaseId)?.automated === "yes").length
+    : selectedSmartCaseCount;
+  const areAllSmartCasesSelected = isEngineSmartMode
+    ? Boolean(automatedSmartPreviewCount) && selectedSmartExecutableCaseCount === automatedSmartPreviewCount
+    : Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && onClose()} role="presentation">
       <div
@@ -8092,11 +8600,13 @@ function ExecutionCreateModal({
 
                 <div className="ai-studio-main">
                   <div className="detail-summary">
-                    <strong>{smartExecutionPreview ? `${selectedSmartCaseCount} impacted cases selected` : "AI Smart Run"}</strong>
-                    <span>{smartExecutionPreview ? smartExecutionPreview.summary : "Generate an impact-based run plan from release scope, additional context, or both."}</span>
+                    <strong>{smartExecutionPreview ? `${selectedSmartExecutableCaseCount} impacted cases selected` : "AI Smart Run"}</strong>
+                    <span>{smartExecutionPreview ? smartExecutionPreview.summary : "Generate an impact-based run plan from impacted requirements, release scope, context, or all three."}</span>
                     <span>
                       {smartExecutionPreview
-                        ? `${smartExecutionPreview.source_case_count} existing cases were screened and ${smartExecutionPreview.matched_case_count} cases were suggested for this run.`
+                        ? isEngineSmartMode
+                          ? `${smartExecutionPreview.source_case_count} cases were screened. ${automatedSmartPreviewCount} automated cases can run through Test Engine; ${manualSmartPreviewCount} manual cases stay out of engine execution.`
+                          : `${smartExecutionPreview.source_case_count} existing cases were screened and ${smartExecutionPreview.matched_case_count} cases were suggested for this run.`
                         : selectedSmartRequirementIds.length
                           ? `AI will use the selected project, app type, run context, and only the cases linked to ${selectedSmartRequirementIds.length} selected requirement${selectedSmartRequirementIds.length === 1 ? "" : "s"}.`
                           : "AI uses the selected project, app type, run context, and existing cases exported as CSV."}
@@ -8149,7 +8659,7 @@ function ExecutionCreateModal({
                           <strong>{smartExecutionPreview.execution_name}</strong>
                           <span>{smartExecutionPreview.summary}</span>
                         </div>
-                        <span className="count-pill">{selectedSmartCaseCount}/{smartExecutionPreview.matched_case_count} selected</span>
+                        <span className="count-pill">{selectedSmartExecutableCaseCount}/{isEngineSmartMode ? automatedSmartPreviewCount : smartExecutionPreview.matched_case_count} selected</span>
                       </div>
                     </div>
                   ) : null}
@@ -8157,14 +8667,21 @@ function ExecutionCreateModal({
                   <div className="execution-smart-impact-list">
                     {smartPreviewCases.map((testCase) => {
                       const isSelected = selectedSmartExecutionCaseIds.includes(testCase.test_case_id);
+                      const isAutomatedSmartCase = libraryCaseById.get(testCase.test_case_id)?.automated === "yes";
+                      const isDisabledForEngine = isEngineSmartMode && !isAutomatedSmartCase;
 
                       return (
                         <label
-                          className={isSelected ? "execution-smart-impact-card is-selected" : "execution-smart-impact-card"}
+                          className={[
+                            "execution-smart-impact-card",
+                            isSelected ? "is-selected" : "",
+                            isDisabledForEngine ? "is-disabled" : ""
+                          ].filter(Boolean).join(" ")}
                           key={testCase.test_case_id}
                         >
                           <input
                             checked={isSelected}
+                            disabled={isDisabledForEngine}
                             onChange={() => onToggleSmartExecutionCase(testCase.test_case_id)}
                             type="checkbox"
                           />
@@ -8180,6 +8697,9 @@ function ExecutionCreateModal({
                                 </span>
                                 <span className="count-pill">
                                   {testCase.step_count} step{testCase.step_count === 1 ? "" : "s"}
+                                </span>
+                                <span className={isAutomatedSmartCase ? "count-pill success" : "count-pill"}>
+                                  {isAutomatedSmartCase ? "Automated" : "Manual"}
                                 </span>
                               </div>
                             </div>
