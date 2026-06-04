@@ -47,15 +47,15 @@ const selectKnowledgeWithFilters = db.prepare(`
   SELECT * FROM ai_knowledge_repo
   WHERE project_id = ?
     AND is_active = TRUE
-    AND (? IS NULL OR app_type_id = ? OR app_type_id IS NULL)
-    AND (? IS NULL OR asset_type = ?)
-    AND (? IS NULL OR module_name = ?)
-    AND (? IS NULL OR feature_name = ?)
-    AND (? IS NULL OR item_status = ?)
-    AND (? IS NULL OR source = ?)
-    AND (? IS NULL OR priority = ?)
-    AND (? IS NULL OR item_version = ?)
-    AND (? IS NULL OR content ILIKE '%' || ? || '%' OR title ILIKE '%' || ? || '%')
+    AND (?::text IS NULL OR app_type_id = ?::text OR app_type_id IS NULL)
+    AND (?::text IS NULL OR asset_type = ?::text)
+    AND (?::text IS NULL OR module_name = ?::text)
+    AND (?::text IS NULL OR feature_name = ?::text)
+    AND (?::text IS NULL OR item_status = ?::text)
+    AND (?::text IS NULL OR source = ?::text)
+    AND (?::text IS NULL OR priority = ?::text)
+    AND (?::text IS NULL OR item_version = ?::text)
+    AND (?::text IS NULL OR content ILIKE '%' || ?::text || '%' OR title ILIKE '%' || ?::text || '%')
   ORDER BY
     CASE
       WHEN priority = 'high' THEN 1

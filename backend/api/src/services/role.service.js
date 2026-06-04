@@ -151,11 +151,18 @@ exports.updateRole = async (id, data) => {
     if (duplicate) throw new Error("Role already exists");
   }
 
-  await db.prepare(`
-    UPDATE roles
-    SET name = ?
-    WHERE id = ?
-  `).run(data.name ?? existing.name, id);
+  await db.transaction(async () => {
+    await db.prepare(`
+      UPDATE roles
+      SET name = ?
+      WHERE id = ?
+    `).run(data.name ?? existing.name, id);
+
+    if (Array.isArray(data.permission_codes)) {
+      const permissions = await resolvePermissionsByCode(data.permission_codes);
+      await assignRolePermissions(id, permissions);
+    }
+  })();
 
   return { updated: true };
 };

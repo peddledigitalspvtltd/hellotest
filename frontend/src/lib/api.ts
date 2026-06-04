@@ -361,7 +361,7 @@ export const api = {
     rolePermissions: (id: string) => request<Permission[]>(`/roles/${id}/permissions`),
     create: (input: { name: string; permission_codes?: string[] }) =>
       request<{ id: string }>("/roles", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string }>) =>
+    update: (id: string, input: Partial<{ name: string; permission_codes: string[] }>) =>
       request<{ updated: boolean }>(`/roles/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     replacePermissions: (id: string, permission_codes: string[]) =>
       request<{ updated: boolean; permission_codes: string[] }>(`/roles/${id}/permissions`, {

@@ -376,7 +376,7 @@ export function PeoplePage() {
   });
 
   const updateRole = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: { name: string } }) => api.roles.update(id, input),
+    mutationFn: ({ id, input }: { id: string; input: { name: string; permission_codes?: string[] } }) => api.roles.update(id, input),
     onSuccess: async () => {
       showFeedback("Role updated.", "success");
       await invalidate();
@@ -855,7 +855,7 @@ export function PeoplePage() {
                         className="form-grid"
                         onSubmit={(event) => {
                           event.preventDefault();
-                          updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name } });
+                          updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name, permission_codes: rolePermissionDraft } });
                         }}
                       >
                         <FormField label="Role name">
@@ -884,7 +884,7 @@ export function PeoplePage() {
                         <div className="action-row">
                           <button
                             className="primary-button"
-                            disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                            disabled={replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
                             onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
                             type="button"
                           >

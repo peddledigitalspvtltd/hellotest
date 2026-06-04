@@ -36,7 +36,8 @@ module.exports = async function (fastify) {
 
   fastify.put("/roles/:id", async (req) => {
     fastify.validate({
-      name: { required: false, type: "string", minLength: 2 }
+      name: { required: false, type: "string", minLength: 2 },
+      permission_codes: { required: false, type: "array", items: "string" }
     }, req.body);
 
     return service.updateRole(req.params.id, req.body);

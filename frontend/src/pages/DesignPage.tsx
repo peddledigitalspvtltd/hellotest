@@ -2061,6 +2061,8 @@ function SuiteSidebar({
                 const history = (historyBySuiteId[suite.id] || []).slice(0, 5);
                 const runCount = (historyBySuiteId[suite.id] || []).length;
                 const latestRun = history[0];
+                const suiteDataCount = Object.keys(suite.parameter_values || {}).length;
+                const latestRunLabel = latestRun ? formatTileCardLabel(latestRun.status, "Run") : "No run";
 
                 return (
                   <button
@@ -2104,6 +2106,20 @@ function SuiteSidebar({
                           tone={runCount ? getTileCardTone(latestRun?.status || "neutral") : "neutral"}
                         >
                           <TileCardRunsIcon />
+                        </TileCardFact>
+                        <TileCardFact
+                          label={suiteDataCount ? String(suiteDataCount) : "0"}
+                          title={`${suiteDataCount} suite test data value${suiteDataCount === 1 ? "" : "s"}`}
+                          tone={suiteDataCount ? "info" : "neutral"}
+                        >
+                          <TileCardStepsIcon />
+                        </TileCardFact>
+                        <TileCardFact
+                          label={latestRunLabel}
+                          title={latestRun ? `Latest suite run: ${latestRunLabel}` : "No suite run has been recorded yet"}
+                          tone={latestRun ? getTileCardTone(latestRun.status) : "neutral"}
+                        >
+                          <TileCardStatusIndicator title={latestRunLabel} tone={latestRun ? getTileCardTone(latestRun.status) : "neutral"} />
                         </TileCardFact>
                       </div>
                       <div className="tile-card-footer">

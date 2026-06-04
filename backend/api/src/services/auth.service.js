@@ -120,13 +120,19 @@ const ensureMemberRole = async () => {
     `).run(roleId);
   }
 
-  await db.prepare(`
-    INSERT INTO role_permissions (role_id, permission_id)
-    SELECT ?, permissions.id
-    FROM permissions
-    WHERE permissions.code = ANY(?::text[])
-    ON CONFLICT (role_id, permission_id) DO NOTHING
-  `).run(roleId, DEFAULT_ROLE_PERMISSIONS.member || []);
+  const memberPermissionCodes = DEFAULT_ROLE_PERMISSIONS.member || [];
+
+  if (memberPermissionCodes.length) {
+    const placeholders = memberPermissionCodes.map(() => "?").join(", ");
+
+    await db.prepare(`
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT ?, permissions.id
+      FROM permissions
+      WHERE permissions.code IN (${placeholders})
+      ON CONFLICT (role_id, permission_id) DO NOTHING
+    `).run(roleId, ...memberPermissionCodes);
+  }
 
   return roleId;
 };

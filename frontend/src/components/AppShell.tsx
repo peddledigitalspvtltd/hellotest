@@ -364,7 +364,6 @@ export function AppShell() {
               {!shouldCollapseSidebar ? (
                 <div className="brand-copy">
                   <strong>Qaira</strong>
-                  <span>Command Center</span>
                 </div>
               ) : null}
             </div>

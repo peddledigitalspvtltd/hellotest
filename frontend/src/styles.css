@@ -28093,3 +28093,351 @@ textarea:focus-visible,
 :root[data-theme="dark"] .permission-designer-summary strong {
   color: #eef5ff;
 }
+
+/* Qaira unified polish pass: access, navigation, headers, cards, filters, and actions */
+.sidebar .brand-copy {
+  align-self: center;
+}
+
+.sidebar .brand-copy strong {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sidebar:not(.is-collapsed) .nav-group-label {
+  margin-top: 0.35rem;
+  color: #6b7a90;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.sidebar:not(.is-collapsed) .nav-link,
+.sidebar:not(.is-collapsed) .nav-branch-link {
+  min-height: 2.62rem;
+  font-size: 0.91rem;
+  font-weight: 760;
+}
+
+.sidebar:not(.is-collapsed) .nav-sublink {
+  min-height: 2.12rem;
+  font-size: 0.84rem;
+  font-weight: 730;
+}
+
+.sidebar-collapse-button,
+.sidebar-collapse-button-compact,
+.catalog-filter-button {
+  will-change: transform, box-shadow;
+}
+
+.sidebar-collapse-button:active,
+.sidebar-collapse-button-compact:active,
+.catalog-filter-button:active,
+.catalog-filter-button.is-active {
+  transform: translateY(0) scale(0.96);
+  box-shadow:
+    inset 0 2px 8px rgba(37, 99, 235, 0.18),
+    0 8px 18px rgba(31, 60, 116, 0.08);
+}
+
+.page-header,
+.page-header.card,
+.projects-command-card {
+  border-radius: 18px;
+  border: 1px solid rgba(126, 149, 188, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92)),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 34%);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+}
+
+.page-header {
+  align-items: center;
+  padding: 1.05rem 1.15rem;
+}
+
+.page-header-copy {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.page-header-eyebrow {
+  margin: 0;
+  color: #2563eb;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.page-header-title,
+.projects-command-copy .page-header-title {
+  margin: 0;
+  color: #10203a;
+  font-size: clamp(1.38rem, 1.8vw, 1.85rem);
+  font-weight: 880;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.page-header-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.page-header-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-height: 1.9rem;
+  padding: 0.32rem 0.55rem;
+  border: 1px solid rgba(126, 149, 188, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.page-header-meta-item strong {
+  color: #17233c;
+  font-weight: 900;
+}
+
+.primary-button,
+.ghost-button,
+.danger-button,
+.run-action-main,
+.run-action-toggle,
+.page-actions > button,
+.panel-head-actions > button,
+.action-row > button {
+  min-height: 2.62rem;
+  border-radius: 12px;
+  padding-inline: 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 820;
+  line-height: 1.1;
+}
+
+.primary-button,
+.projects-create-button {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  border-color: rgba(29, 78, 216, 0.32);
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.18);
+}
+
+.primary-button:hover:not(:disabled),
+.projects-create-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #1d4ed8, #1e40af);
+  color: #ffffff;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.84);
+  border-color: rgba(126, 149, 188, 0.2);
+  color: #1f2f46;
+}
+
+.ghost-button:hover:not(:disabled) {
+  border-color: rgba(37, 99, 235, 0.26);
+  background: rgba(239, 246, 255, 0.96);
+  color: #1d4ed8;
+}
+
+.create-run-action-button,
+.test-case-run-button,
+.automation-run-button,
+.run-related-button,
+button[title*="Run"],
+button[aria-label*="Run manually"] {
+  border-color: rgba(13, 157, 108, 0.28) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 26px rgba(13, 157, 108, 0.2) !important;
+}
+
+.create-run-action-button .run-action-main,
+.create-run-action-button .run-action-toggle,
+.test-case-run-button,
+.automation-run-button,
+.run-related-button {
+  color: #ffffff !important;
+}
+
+.create-run-action-button:hover,
+.test-case-run-button:hover:not(:disabled),
+.automation-run-button:hover:not(:disabled),
+.run-related-button:hover:not(:disabled),
+button[title*="Run"]:hover:not(:disabled),
+button[aria-label*="Run manually"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+  color: #ffffff !important;
+}
+
+.catalog-search-field {
+  align-items: stretch;
+}
+
+.catalog-search-field input {
+  min-height: 2.62rem;
+}
+
+.catalog-filter-button {
+  position: relative;
+  flex: 0 0 2.62rem;
+  width: 2.62rem;
+  min-width: 2.62rem;
+  min-height: 2.62rem;
+  padding: 0;
+}
+
+.catalog-filter-button.is-active {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.catalog-filter-popover {
+  border-radius: 16px;
+  border-color: rgba(126, 149, 188, 0.18);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.14);
+}
+
+.section-switch-bar.subnav-tabs,
+.subnav-tabs {
+  border-color: rgba(37, 99, 235, 0.12);
+}
+
+.subnav-tab-icon,
+.subnav-tab.is-active .subnav-tab-icon {
+  color: #2563eb;
+}
+
+.subnav-tab.is-active .subnav-tab-indicator,
+.section-switch-bar .subnav-tab.is-active .subnav-tab-indicator {
+  background: #2563eb;
+}
+
+.tile-browser-grid .record-card.tile-card,
+.tile-browser-grid .tile-card,
+.requirement-catalog-card,
+.test-case-catalog-card,
+.project-portfolio-card,
+.test-suite-card,
+.execution-card,
+.execution-suite-card,
+.execution-board-case-card,
+.workspace-transaction-card {
+  border-radius: 18px;
+  border: 1px solid rgba(126, 149, 188, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.94));
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+}
+
+.tile-browser-grid .record-card.tile-card:hover,
+.tile-browser-grid .tile-card:hover,
+.requirement-catalog-card:hover,
+.test-case-catalog-card:hover,
+.project-portfolio-card:hover,
+.test-suite-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.24);
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.12);
+}
+
+.tile-card-fact,
+.execution-card-fact,
+.test-case-card-stats span,
+.project-meta-card,
+.project-stat-card {
+  border-radius: 13px;
+  border: 1px solid rgba(126, 149, 188, 0.16);
+  background: rgba(248, 250, 252, 0.88);
+}
+
+.test-suite-card .tile-card-facts,
+.suite-sidebar-list .test-suite-card .tile-card-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.people-modal-card {
+  border-radius: 18px;
+  border: 1px solid rgba(126, 149, 188, 0.18);
+  box-shadow: 0 28px 72px rgba(15, 23, 42, 0.18);
+}
+
+.people-modal-header {
+  align-items: flex-start;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(126, 149, 188, 0.14);
+}
+
+.people-modal-title .eyebrow:first-child {
+  color: #2563eb;
+}
+
+.people-modal-body {
+  padding-top: 0.95rem;
+}
+
+@media (max-width: 768px) {
+  .page-header,
+  .projects-command-card {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 0.95rem;
+  }
+
+  .page-header-title,
+  .projects-command-copy .page-header-title {
+    font-size: 1.35rem;
+  }
+
+  .test-suite-card .tile-card-facts,
+  .suite-sidebar-list .test-suite-card .tile-card-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root[data-theme="dark"] .page-header,
+:root[data-theme="dark"] .page-header.card,
+:root[data-theme="dark"] .projects-command-card,
+:root[data-theme="dark"] .tile-browser-grid .record-card.tile-card,
+:root[data-theme="dark"] .tile-browser-grid .tile-card,
+:root[data-theme="dark"] .requirement-catalog-card,
+:root[data-theme="dark"] .test-case-catalog-card,
+:root[data-theme="dark"] .project-portfolio-card,
+:root[data-theme="dark"] .test-suite-card,
+:root[data-theme="dark"] .execution-card,
+:root[data-theme="dark"] .execution-suite-card,
+:root[data-theme="dark"] .execution-board-case-card,
+:root[data-theme="dark"] .workspace-transaction-card,
+:root[data-theme="dark"] .people-modal-card {
+  border-color: rgba(126, 149, 188, 0.18);
+  background: linear-gradient(180deg, rgba(20, 30, 48, 0.96), rgba(15, 23, 42, 0.94));
+}
+
+:root[data-theme="dark"] .page-header-title,
+:root[data-theme="dark"] .projects-command-copy .page-header-title,
+:root[data-theme="dark"] .page-header-meta-item strong {
+  color: #eef5ff;
+}
+
+:root[data-theme="dark"] .page-header-meta-item,
+:root[data-theme="dark"] .ghost-button,
+:root[data-theme="dark"] .tile-card-fact,
+:root[data-theme="dark"] .execution-card-fact,
+:root[data-theme="dark"] .test-case-card-stats span,
+:root[data-theme="dark"] .project-meta-card,
+:root[data-theme="dark"] .project-stat-card {
+  border-color: rgba(126, 149, 188, 0.16);
+  background: rgba(15, 23, 42, 0.66);
+}
