@@ -15,7 +15,9 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
+import { hasPermission } from "../lib/permissions";
 import { parseUserCsv, type ImportedUserRow } from "../lib/userImport";
+import { resolveVisibleEmail } from "../lib/userDisplay";
 import type { PermissionGroup, Role, User } from "../types";
 
 type PeopleView = "users" | "roles";
@@ -77,6 +79,8 @@ export function PeoplePage() {
     [selectedRoleId, roleItems]
   );
   const isAdmin = session?.user.role === "admin";
+  const canManageUsers = hasPermission(session, "user.manage");
+  const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const permissionGroups = permissions.data || [];
   const allPermissionCodes = useMemo(
     () => permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
@@ -645,10 +649,10 @@ export function PeoplePage() {
         meta={[
           { label: "Users", value: userItems.length },
           { label: "Roles", value: roleItems.length },
-          { label: "Your access", value: isAdmin ? "Admin" : "Member" }
+          { label: "Your access", value: canManageUsers ? "User manager" : isAdmin ? "Admin" : "Member" }
         ]}
         actions={
-          isAdmin ? (
+          canManageUsers ? (
             view === "users" ? (
               <>
                 <button className="ghost-button" onClick={openImportUsersModal} type="button"><ImportIcon />Bulk Import users</button>
@@ -696,7 +700,7 @@ export function PeoplePage() {
                           </TileCardIconFrame>
                           <div className="tile-card-title-group">
                             <strong>{user.name || "Unnamed user"}</strong>
-                            <span className="tile-card-kicker">{user.email}</span>
+                            <span className="tile-card-kicker">{visibleUserEmail(user.email)}</span>
                           </div>
                           <TileCardStatusIndicator title={user.role === "admin" ? "Admin access" : "Member access"} tone={user.role === "admin" ? "info" : "success"} />
                         </div>
@@ -722,10 +726,10 @@ export function PeoplePage() {
                 <div className="detail-stack">
                   <div className="detail-summary">
                     <strong>{selectedUser.name || "Unnamed user"}</strong>
-                    <span>{selectedUser.email}</span>
+                    <span>{visibleUserEmail(selectedUser.email)}</span>
                     <span>{selectedUser.role === "admin" ? "Admin access" : "Member access"}</span>
                   </div>
-                  {isAdmin ? (
+                  {canManageUsers ? (
                     <form
                       className="form-grid"
                       onSubmit={(event) => {
@@ -1092,7 +1096,7 @@ export function PeoplePage() {
                     <tbody>
                       {importUserRows.slice(0, 5).map((row, index) => (
                         <tr key={`${row.email}-${index}`}>
-                          <td>{row.email}</td>
+                          <td>{visibleUserEmail(row.email)}</td>
                           <td>{row.name || "—"}</td>
                           <td>{row.role || row.role_id || "Default role"}</td>
                           <td>{row.password_hash ? "Password hash" : row.password ? "Plain password" : "Missing"}</td>

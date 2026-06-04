@@ -364,6 +364,15 @@ export function OpenIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function EyeIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.75" />
+    </IconFrame>
+  );
+}
+
 export function MoveIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

@@ -6,14 +6,18 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const DEFAULT_CASES_PER_REQUIREMENT = 3;
-const DEFAULT_PARALLEL_REQUIREMENTS = 5;
+const DEFAULT_PARALLEL_REQUIREMENTS = Math.max(1, Number(process.env.AI_GENERATION_DEFAULT_PARALLEL_REQUIREMENTS || 2));
 const MAX_CASES_PER_REQUIREMENT = 3;
-const MAX_PARALLEL_REQUIREMENTS = 5;
-const REQUIREMENT_BATCH_LIMIT = 5;
+const MAX_PARALLEL_REQUIREMENTS = Math.max(1, Number(process.env.AI_GENERATION_MAX_PARALLEL_REQUIREMENTS || 3));
+const REQUIREMENT_BATCH_LIMIT = Math.max(1, Number(process.env.AI_GENERATION_REQUIREMENT_BATCH_LIMIT || 3));
 const MAX_LLM_RETRY_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 1_500;
 const MAX_RETRY_DELAY_MS = 60_000;
-const INTER_BATCH_COOLDOWN_MS = 1_000;
+const AI_CAPACITY_RECOVERY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMIT_RECOVERY_MS || 60 * 60 * 1000));
+const MAX_JOB_ATTEMPTS = Math.max(1, Number(process.env.AI_GENERATION_MAX_JOB_ATTEMPTS || 5));
+const INTER_BATCH_COOLDOWN_MS = Math.max(0, Number(process.env.AI_GENERATION_INTER_BATCH_COOLDOWN_MS || 5_000));
+const QUEUED_AI_JOB_LIMIT = Math.max(1, Number(process.env.AI_GENERATION_DUE_JOB_LIMIT || 1));
+const STALE_RUNNING_JOB_MS = Math.max(30 * 60 * 1000, Number(process.env.AI_GENERATION_STALE_RUNNING_MS || 2 * 60 * 60 * 1000));
 
 const processingJobIds = new Set();
 let isQueueProcessing = false;
@@ -46,7 +50,19 @@ const selectQueuedJobs = db.prepare(`
   SELECT id
   FROM ai_test_case_generation_jobs
   WHERE status = 'queued'
+    AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
   ORDER BY created_at ASC, id ASC
+  LIMIT ?
+`);
+
+const requeueStaleRunningJobs = db.prepare(`
+  UPDATE ai_test_case_generation_jobs
+  SET status = 'queued',
+      error = 'Recovered after the previous worker stopped before completing this AI generation job.',
+      next_run_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'running'
+    AND updated_at <= ?
 `);
 
 const insertJob = db.prepare(`
@@ -74,9 +90,19 @@ const insertJob = db.prepare(`
 const markJobRunning = db.prepare(`
   UPDATE ai_test_case_generation_jobs
   SET status = 'running',
+      attempts = attempts + 1,
       error = NULL,
       started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
       completed_at = NULL,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
+const requeueJobForRetry = db.prepare(`
+  UPDATE ai_test_case_generation_jobs
+  SET status = 'queued',
+      error = ?,
+      next_run_at = ?,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
@@ -182,11 +208,27 @@ const isRetryableLlmError = (error) => {
   return message.includes("rate limit") || message.includes("temporarily") || message.includes("timeout");
 };
 
+const isAiCapacityError = (error) => {
+  const statusCode = Number(error?.statusCode || 0);
+  const message = String(error?.message || "").toLowerCase();
+  return statusCode === 429
+    || message.includes("rate limit")
+    || message.includes("too many requests")
+    || message.includes("token")
+    || message.includes("quota");
+};
+
 const resolveRetryDelayMs = (error, attempt) => {
   const retryAfterMs = Number(error?.retryAfterMs || 0);
 
   if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
-    return Math.min(retryAfterMs, MAX_RETRY_DELAY_MS);
+    return isAiCapacityError(error)
+      ? Math.max(retryAfterMs, AI_CAPACITY_RECOVERY_MS)
+      : Math.min(retryAfterMs, MAX_RETRY_DELAY_MS);
+  }
+
+  if (isAiCapacityError(error)) {
+    return AI_CAPACITY_RECOVERY_MS;
   }
 
   const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, attempt - 1));
@@ -208,8 +250,60 @@ async function hydrateJob(job) {
     processed_requirements: Number(job.processed_requirements || 0),
     generated_cases_count: Number(job.generated_cases_count || 0),
     max_cases_per_requirement: Number(job.max_cases_per_requirement || DEFAULT_CASES_PER_REQUIREMENT),
-    parallel_requirement_limit: Number(job.parallel_requirement_limit || DEFAULT_PARALLEL_REQUIREMENTS)
+    parallel_requirement_limit: Number(job.parallel_requirement_limit || DEFAULT_PARALLEL_REQUIREMENTS),
+    attempts: Number(job.attempts || 0),
+    max_attempts: Number(job.max_attempts || MAX_JOB_ATTEMPTS),
+    next_run_at: job.next_run_at || null
   };
+}
+
+async function requeueAiJobAfterCapacityError({ job, jobId, linkedTransaction, error }) {
+  const message = error instanceof Error ? error.message : "AI provider capacity is temporarily unavailable";
+  const nextAttempt = Number(job.attempts || 0) + 1;
+  const maxAttempts = Number(job.max_attempts || MAX_JOB_ATTEMPTS);
+
+  if (nextAttempt >= maxAttempts || !isRetryableLlmError(error)) {
+    return false;
+  }
+
+  const retryDelayMs = resolveRetryDelayMs(error, nextAttempt);
+  const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
+
+  await requeueJobForRetry.run(message, nextRunAt, jobId);
+
+  if (linkedTransaction) {
+    await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
+      status: "queued",
+      description: isAiCapacityError(error)
+        ? "Waiting for AI provider capacity before retrying generation."
+        : "Waiting to retry AI generation after a temporary failure.",
+      metadata: {
+        current_phase: isAiCapacityError(error) ? "waiting_for_ai_capacity" : "waiting_for_retry",
+        error: message,
+        retry_attempt: nextAttempt,
+        max_attempts: maxAttempts,
+        next_run_at: nextRunAt,
+        retry_after_ms: retryDelayMs
+      }
+    });
+    await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
+      level: "warning",
+      phase: isAiCapacityError(error) ? "ai-capacity-wait" : "retry-wait",
+      message: isAiCapacityError(error)
+        ? `AI token or rate capacity is exhausted. QAira will retry around ${nextRunAt}.`
+        : `Temporary AI generation failure. QAira will retry around ${nextRunAt}.`,
+      details: {
+        job_id: jobId,
+        error: message,
+        retry_attempt: nextAttempt,
+        max_attempts: maxAttempts,
+        next_run_at: nextRunAt,
+        retry_after_ms: retryDelayMs
+      }
+    });
+  }
+
+  return true;
 }
 
 async function resolveScopedRequirements(requirementIds = [], projectId) {
@@ -386,6 +480,7 @@ async function runJob(jobId) {
     let processedRequirements = 0;
     let generatedCasesCount = 0;
     const errors = [];
+    let retryableJobError = null;
     const requirementBatches = chunkRequirements(requirements, REQUIREMENT_BATCH_LIMIT);
 
     for (const [batchIndex, requirementBatch] of requirementBatches.entries()) {
@@ -460,6 +555,9 @@ async function runJob(jobId) {
                 });
               }
             } catch (error) {
+              if (!retryableJobError && isRetryableLlmError(error)) {
+                retryableJobError = error;
+              }
               errors.push(
                 `${requirement.title}: ${error instanceof Error ? error.message : "Unable to generate test cases"}`
               );
@@ -505,6 +603,19 @@ async function runJob(jobId) {
     const finalStatus = errors.length && !generatedCasesCount ? "failed" : "completed";
     const finalError = buildJobErrorMessage(errors);
 
+    if (finalStatus === "failed" && retryableJobError) {
+      const didRequeue = await requeueAiJobAfterCapacityError({
+        job: queuedJob,
+        jobId,
+        linkedTransaction,
+        error: retryableJobError
+      });
+
+      if (didRequeue) {
+        return exports.getJob(jobId);
+      }
+    }
+
     await finishJob.run(finalStatus, processedRequirements, generatedCasesCount, finalError, jobId);
 
     if (linkedTransaction) {
@@ -546,11 +657,26 @@ async function runJob(jobId) {
 
     return exports.getJob(jobId);
   } catch (error) {
-    await finishJob.run("failed", 0, 0, error instanceof Error ? error.message : "Unable to process AI generation job", jobId);
+    const failedJob = await exports.getJob(jobId);
     const linkedTransaction = await workspaceTransactionService.findTransactionByRelated({
       related_kind: "ai_test_case_generation_job",
       related_id: jobId
     });
+
+    if (failedJob && isRetryableLlmError(error)) {
+      const didRequeue = await requeueAiJobAfterCapacityError({
+        job: { ...failedJob, attempts: Math.max(0, Number(failedJob.attempts || 0) - 1) },
+        jobId,
+        linkedTransaction,
+        error
+      });
+
+      if (didRequeue) {
+        return exports.getJob(jobId);
+      }
+    }
+
+    await finishJob.run("failed", 0, 0, error instanceof Error ? error.message : "Unable to process AI generation job", jobId);
 
     if (linkedTransaction) {
       await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
@@ -710,7 +836,8 @@ exports.processQueuedJobs = async () => {
   isQueueProcessing = true;
 
   try {
-    const queuedJobs = await selectQueuedJobs.all();
+    await requeueStaleRunningJobs.run(new Date(Date.now() - STALE_RUNNING_JOB_MS).toISOString());
+    const queuedJobs = await selectQueuedJobs.all(QUEUED_AI_JOB_LIMIT);
 
     for (const row of queuedJobs) {
       await runJob(row.id);

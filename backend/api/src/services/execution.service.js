@@ -1427,6 +1427,7 @@ exports.startExecution = async (id, options = {}) => {
 
   let dispatchPlan = null;
   let testEngineIntegration = null;
+  let localEngineBaseUrl = null;
   let shouldMarkAsCi = false;
 
   if (!skipTestEngineDispatch) {
@@ -1434,7 +1435,7 @@ exports.startExecution = async (id, options = {}) => {
 
     if (dispatchPlan.eligible_automated_case_count > 0) {
       testEngineIntegration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
-      const localEngineBaseUrl = options.execution_mode === "local"
+      localEngineBaseUrl = options.execution_mode === "local"
         ? await resolveLocalEngineBaseUrl(options.engine_base_url)
         : null;
 
@@ -1506,11 +1507,18 @@ exports.startExecution = async (id, options = {}) => {
 
   if (!skipTestEngineDispatch && dispatchPlan) {
     try {
-      dispatchSummary = await testEngineDispatchService.queueExecutionDispatch({
-        plan: dispatchPlan,
-        integration: testEngineIntegration,
-        initiatedBy: options.initiated_by || null
-      });
+      dispatchSummary = options.execution_mode === "local"
+        ? await testEngineDispatchService.runExecutionDirectLocal({
+            plan: dispatchPlan,
+            integration: testEngineIntegration,
+            initiatedBy: options.initiated_by || null,
+            engineBaseUrl: localEngineBaseUrl || options.engine_base_url
+          })
+        : await testEngineDispatchService.queueExecutionDispatch({
+            plan: dispatchPlan,
+            integration: testEngineIntegration,
+            initiatedBy: options.initiated_by || null
+          });
     } catch (error) {
       dispatchSummary = {
         automated_case_count: dispatchPlan.automated_case_count,

@@ -4,7 +4,10 @@ const { v4: uuid } = require("uuid");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
-const QUEUED_BATCH_LIMIT = 1;
+const QUEUED_BATCH_LIMIT = Math.max(1, Number(process.env.BATCH_PROCESS_CONCURRENCY || 1));
+const DEFAULT_MAX_ATTEMPTS = Math.max(1, Number(process.env.BATCH_PROCESS_MAX_ATTEMPTS || 5));
+const AI_RECOVERY_DELAY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMIT_RECOVERY_MS || 60 * 60 * 1000));
+const MAX_RETRY_DELAY_MS = Math.max(60_000, Number(process.env.BATCH_PROCESS_MAX_RETRY_DELAY_MS || 60 * 60 * 1000));
 
 const insertJob = obsDb.prepare(`
   INSERT INTO batch_process_jobs (
@@ -21,8 +24,21 @@ const selectQueuedJobs = obsDb.prepare(`
   SELECT *
   FROM batch_process_jobs
   WHERE status = 'queued'
+    AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
   ORDER BY created_at ASC, id ASC
   LIMIT ?
+`);
+
+const requeueExpiredLeases = obsDb.prepare(`
+  UPDATE batch_process_jobs
+  SET status = 'queued',
+      next_run_at = CURRENT_TIMESTAMP,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'running'
+    AND lease_expires_at IS NOT NULL
+    AND lease_expires_at <= CURRENT_TIMESTAMP
 `);
 
 const markJobRunning = obsDb.prepare(`
@@ -30,6 +46,19 @@ const markJobRunning = obsDb.prepare(`
   SET status = 'running',
       attempts = attempts + 1,
       started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+      lease_owner = ?,
+      lease_expires_at = ?,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
+const markJobRetryQueued = obsDb.prepare(`
+  UPDATE batch_process_jobs
+  SET status = 'queued',
+      next_run_at = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      last_error = ?,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
@@ -38,6 +67,8 @@ const markJobCompleted = obsDb.prepare(`
   UPDATE batch_process_jobs
   SET status = 'completed',
       result = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
       completed_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
@@ -48,6 +79,8 @@ const markJobFailed = obsDb.prepare(`
   SET status = 'failed',
       result = ?,
       last_error = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
       completed_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
@@ -116,6 +149,61 @@ const normalizePayload = (value) => {
   }
 
   return value;
+};
+
+const isRetryableBatchError = (error) => {
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+
+  if ([408, 409, 425, 429, 500, 502, 503, 504].includes(statusCode)) {
+    return true;
+  }
+
+  const message = String(error?.message || error || "").toLowerCase();
+  return [
+    "rate limit",
+    "too many requests",
+    "token",
+    "quota",
+    "temporarily",
+    "timeout",
+    "timed out",
+    "econnreset",
+    "socket hang up",
+    "service unavailable"
+  ].some((token) => message.includes(token));
+};
+
+const isAiCapacityError = (error) => {
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+  const message = String(error?.message || error || "").toLowerCase();
+  return statusCode === 429
+    || message.includes("rate limit")
+    || message.includes("too many requests")
+    || message.includes("token")
+    || message.includes("quota");
+};
+
+const resolveRetryDelayMs = (error, attempt) => {
+  const retryAfterMs = Number(error?.retryAfterMs || 0);
+
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return isAiCapacityError(error)
+      ? Math.min(Math.max(retryAfterMs, AI_RECOVERY_DELAY_MS), MAX_RETRY_DELAY_MS)
+      : Math.min(retryAfterMs, MAX_RETRY_DELAY_MS);
+  }
+
+  if (isAiCapacityError(error)) {
+    return AI_RECOVERY_DELAY_MS;
+  }
+
+  const exponentialDelay = 30_000 * (2 ** Math.max(0, attempt - 1));
+  const jitter = Math.round(Math.random() * 5_000);
+  return Math.min(exponentialDelay + jitter, MAX_RETRY_DELAY_MS);
+};
+
+const resolveJobMaxAttempts = (job) => {
+  const numeric = Number(job?.max_attempts || 0);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : DEFAULT_MAX_ATTEMPTS;
 };
 
 const safeFileLabel = (value) =>
@@ -566,7 +654,9 @@ exports.processQueuedJobs = async () => {
   isProcessing = true;
 
   try {
+    await requeueExpiredLeases.run();
     const jobs = await selectQueuedJobs.all(QUEUED_BATCH_LIMIT);
+    const workerId = `api-${process.pid}`;
 
     for (const job of jobs) {
       const operation = normalizeText(job.operation);
@@ -577,7 +667,8 @@ exports.processQueuedJobs = async () => {
           throw new Error(`Unsupported batch operation: ${operation || "unknown"}`);
         }
 
-        await markJobRunning.run(job.id);
+        const leaseExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        await markJobRunning.run(workerId, leaseExpiresAt, job.id);
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
           status: "running",
           started_at: new Date().toISOString(),
@@ -589,7 +680,53 @@ exports.processQueuedJobs = async () => {
         await markJobCompleted.run(result || {}, job.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Batch process failed";
-        const result = { error: message };
+        const nextAttempt = Number(job.attempts || 0) + 1;
+        const maxAttempts = resolveJobMaxAttempts(job);
+        const shouldRetry = nextAttempt < maxAttempts && isRetryableBatchError(error);
+
+        if (shouldRetry) {
+          const retryDelayMs = resolveRetryDelayMs(error, nextAttempt);
+          const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
+
+          await markJobRetryQueued.run(nextRunAt, message, job.id);
+          await workspaceTransactionService.updateTransaction(job.transaction_id, {
+            status: "queued",
+            description: isAiCapacityError(error)
+              ? "Waiting for AI provider capacity before retrying this background task."
+              : "Waiting to retry this background task after a temporary failure.",
+            metadata: {
+              current_phase: isAiCapacityError(error) ? "waiting_for_ai_capacity" : "waiting_for_retry",
+              error: message,
+              retry_attempt: nextAttempt,
+              max_attempts: maxAttempts,
+              next_run_at: nextRunAt,
+              retry_after_ms: retryDelayMs
+            }
+          });
+          await workspaceTransactionService.appendTransactionEvent(job.transaction_id, {
+            level: "warning",
+            phase: isAiCapacityError(error) ? "ai-capacity-wait" : "retry-wait",
+            message: isAiCapacityError(error)
+              ? `AI provider capacity is exhausted. QAira will retry around ${nextRunAt}.`
+              : `Temporary failure. QAira will retry around ${nextRunAt}.`,
+            details: {
+              job_id: job.id,
+              operation: operation || "unknown",
+              error: message,
+              retry_attempt: nextAttempt,
+              max_attempts: maxAttempts,
+              next_run_at: nextRunAt,
+              retry_after_ms: retryDelayMs
+            }
+          });
+          continue;
+        }
+
+        const result = {
+          error: message,
+          attempts: nextAttempt,
+          max_attempts: maxAttempts
+        };
 
         await markJobFailed.run(result, message, job.id);
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
@@ -597,7 +734,9 @@ exports.processQueuedJobs = async () => {
           description: message,
           metadata: {
             current_phase: "failed",
-            error: message
+            error: message,
+            attempts: nextAttempt,
+            max_attempts: maxAttempts
           },
           completed_at: new Date().toISOString()
         });

@@ -2,7 +2,7 @@ import { FormEvent, Fragment, useDeferredValue, useEffect, useMemo, useRef, useS
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ActivityIcon, ArchiveIcon, CalendarIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
+import { ActivityIcon, ArchiveIcon, CalendarIcon, EyeIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
 import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -185,7 +185,7 @@ type SmartExecutionRequirementOption = {
   linkedCaseCount: number;
 };
 
-type ExecutionScheduleCadence = "once" | "daily" | "weekly" | "monthly";
+type ExecutionScheduleCadence = "once" | "daily" | "weekly" | "monthly" | "interval_minutes";
 
 type ExecutionParameterDisplayEntry = {
   key: string;
@@ -231,6 +231,20 @@ const DEFAULT_RUN_LIBRARY_SEARCH_BY_VIEW: Record<TestRunsView, string> = {
   "scheduled-runs": "",
   "batch-process": ""
 };
+
+const buildIntervalCadence = (minutes: number) => `every:${Math.max(1, Math.floor(minutes || 5))}:minutes`;
+
+const parseIntervalCadenceMinutes = (cadence?: string | null) => {
+  const match = String(cadence || "").match(/^every:(\d+):minutes$/);
+  return match ? Math.max(1, Number(match[1]) || 5) : 5;
+};
+
+const isIntervalCadence = (cadence?: string | null) => /^every:\d+:minutes$/.test(String(cadence || ""));
+
+const formatScheduleCadence = (cadence?: string | null) =>
+  isIntervalCadence(cadence)
+    ? `Every ${parseIntervalCadenceMinutes(cadence)} mins`
+    : String(cadence || "once").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 const EXECUTION_POLL_INTERVAL_MS = 20_000;
 
@@ -1130,6 +1144,7 @@ export function ExecutionsPage() {
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
   const [scheduleCadence, setScheduleCadence] = useState<ExecutionScheduleCadence>("weekly");
+  const [scheduleIntervalMinutes, setScheduleIntervalMinutes] = useState(5);
   const [scheduleNextRunAt, setScheduleNextRunAt] = useState("");
   const [smartExecutionIntegrationId, setSmartExecutionIntegrationId] = useState("");
   const [smartExecutionReleaseScope, setSmartExecutionReleaseScope] = useState("");
@@ -1526,6 +1541,7 @@ export function ExecutionsPage() {
     setSelectedSuiteIds([]);
     setSelectedExecutionAssigneeId("");
     setScheduleCadence("weekly");
+    setScheduleIntervalMinutes(5);
     setScheduleNextRunAt("");
     setEditingScheduleId("");
     setScheduleModalMode("create");
@@ -1585,10 +1601,13 @@ export function ExecutionsPage() {
     setSelectedExecutionDataSetId(schedule.test_data_set_id || "");
     setSelectedExecutionAssigneeId(schedule.assigned_to || "");
     setScheduleCadence(
-      schedule.cadence === "daily" || schedule.cadence === "weekly" || schedule.cadence === "monthly" || schedule.cadence === "once"
-        ? schedule.cadence
-        : "weekly"
+      isIntervalCadence(schedule.cadence)
+        ? "interval_minutes"
+        : schedule.cadence === "daily" || schedule.cadence === "weekly" || schedule.cadence === "monthly" || schedule.cadence === "once"
+          ? schedule.cadence
+          : "weekly"
     );
+    setScheduleIntervalMinutes(parseIntervalCadenceMinutes(schedule.cadence));
     setScheduleNextRunAt(toDateTimeLocalValue(schedule.next_run_at));
     setIsCreateScheduleModalOpen(true);
   };
@@ -2520,6 +2539,10 @@ export function ExecutionsPage() {
       return;
     }
 
+    const cadencePayload = scheduleCadence === "interval_minutes"
+      ? buildIntervalCadence(scheduleIntervalMinutes)
+      : scheduleCadence;
+
     try {
       if (scheduleModalMode === "edit") {
         if (!editingScheduleId) {
@@ -2532,7 +2555,7 @@ export function ExecutionsPage() {
             project_id: projectId,
             app_type_id: appTypeId,
             name: executionName || undefined,
-            cadence: scheduleCadence,
+            cadence: cadencePayload,
             next_run_at: new Date(scheduleNextRunAt).toISOString(),
             suite_ids: selectedSuiteIds,
             test_environment_id: selectedExecutionEnvironmentId || "",
@@ -2546,7 +2569,7 @@ export function ExecutionsPage() {
           project_id: projectId,
           app_type_id: appTypeId,
           name: executionName || undefined,
-          cadence: scheduleCadence,
+          cadence: cadencePayload,
           next_run_at: new Date(scheduleNextRunAt).toISOString(),
           suite_ids: selectedSuiteIds,
           test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -3622,7 +3645,7 @@ export function ExecutionsPage() {
     {
       key: "cadence",
       label: "Cadence",
-      render: (schedule) => schedule.cadence
+      render: (schedule) => formatScheduleCadence(schedule.cadence)
     },
     {
       key: "assignee",
@@ -4408,7 +4431,7 @@ export function ExecutionsPage() {
                 <div className="detail-stack">
                   <div className="detail-summary">
                     <strong>{selectedSchedule.name}</strong>
-                    <span>{selectedSchedule.is_active ? "Active schedule" : "Inactive schedule"} · {selectedSchedule.cadence}</span>
+                    <span>{selectedSchedule.is_active ? "Active schedule" : "Inactive schedule"} · {formatScheduleCadence(selectedSchedule.cadence)}</span>
                     <span>Next run: {formatExecutionTimestamp(selectedSchedule.next_run_at, "Not set")}</span>
                   </div>
                   <div className="metric-strip compact">
@@ -5552,12 +5575,14 @@ export function ExecutionsPage() {
           appTypeName={selectedAppType?.name || ""}
           assigneeOptions={assigneeOptions}
           cadence={scheduleCadence}
+          intervalMinutes={scheduleIntervalMinutes}
           executionName={executionName}
           isSubmitting={createExecutionSchedule.isPending || updateExecutionSchedule.isPending}
           mode={scheduleModalMode}
           nextRunAt={scheduleNextRunAt}
           onAssigneeChange={setSelectedExecutionAssigneeId}
           onCadenceChange={setScheduleCadence}
+          onIntervalMinutesChange={setScheduleIntervalMinutes}
           onClose={closeScheduleBuilder}
           onConfigurationChange={setSelectedExecutionConfigurationId}
           onDataSetChange={setSelectedExecutionDataSetId}
@@ -6200,7 +6225,7 @@ function ExecutionScheduleCard({
           </div>
           <div className="tile-card-title-group">
             <strong>{schedule.name}</strong>
-            <span className="execution-card-assignee">{schedule.is_active ? `${schedule.cadence} cadence` : "Inactive schedule"}</span>
+            <span className="execution-card-assignee">{schedule.is_active ? `${formatScheduleCadence(schedule.cadence)} cadence` : "Inactive schedule"}</span>
           </div>
           <ExecutionStatusIndicator status={schedule.is_active ? "queued" : "aborted"} />
         </div>
@@ -6717,15 +6742,39 @@ function ExecutionSuiteCaseCard({
   onSelect: () => void;
 }) {
   return (
-    <button
+    <div
+      aria-pressed={isActive}
       className={[
         "record-card tile-card test-case-card execution-case-card execution-board-case-card",
         isActive ? "is-active" : "",
         !isActive && isNext ? "is-next" : ""
       ].filter(Boolean).join(" ")}
       onClick={onSelect}
-      type="button"
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
+      <button
+        aria-label={`View ${testCase.title}`}
+        className="ghost-button test-case-card-eye-action execution-case-eye-action"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+        title="View test case"
+        type="button"
+      >
+        <EyeIcon size={16} />
+      </button>
       <div className="tile-card-main">
         <div className="tile-card-header">
           <div
@@ -6769,7 +6818,7 @@ function ExecutionSuiteCaseCard({
           </ExecutionCardFact>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -8216,6 +8265,7 @@ function CreateExecutionScheduleModal({
   selectedAssigneeId,
   assigneeOptions,
   cadence,
+  intervalMinutes,
   nextRunAt,
   isSubmitting,
   onExecutionNameChange,
@@ -8225,6 +8275,7 @@ function CreateExecutionScheduleModal({
   onAssigneeChange,
   onSuiteSelectionChange,
   onCadenceChange,
+  onIntervalMinutesChange,
   onNextRunAtChange,
   onClose,
   onSubmit
@@ -8243,6 +8294,7 @@ function CreateExecutionScheduleModal({
   selectedAssigneeId: string;
   assigneeOptions: ExecutionAssigneeOption[];
   cadence: ExecutionScheduleCadence;
+  intervalMinutes: number;
   nextRunAt: string;
   isSubmitting: boolean;
   onExecutionNameChange: (value: string) => void;
@@ -8252,6 +8304,7 @@ function CreateExecutionScheduleModal({
   onAssigneeChange: (value: string) => void;
   onSuiteSelectionChange: (nextIds: string[]) => void;
   onCadenceChange: (value: ExecutionScheduleCadence) => void;
+  onIntervalMinutesChange: (value: number) => void;
   onNextRunAtChange: (value: string) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -8315,9 +8368,35 @@ function CreateExecutionScheduleModal({
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
+                  <option value="interval_minutes">Run every N minutes</option>
                 </select>
               </FormField>
-              <FormField label="First run" required>
+              <FormField label={cadence === "interval_minutes" ? "Run every" : "First run"} required>
+                {cadence === "interval_minutes" ? (
+                  <div className="execution-interval-control">
+                    <input
+                      aria-label="Run every minutes"
+                      min={1}
+                      max={1440}
+                      onChange={(event) => onIntervalMinutesChange(Math.max(1, Number(event.target.value) || 5))}
+                      type="number"
+                      value={intervalMinutes}
+                    />
+                    <span>minutes</span>
+                    <div className="execution-interval-presets" aria-label="Common schedule intervals">
+                      {[5, 10, 15].map((minutes) => (
+                        <button
+                          className={intervalMinutes === minutes ? "ghost-button is-active" : "ghost-button"}
+                          key={minutes}
+                          onClick={() => onIntervalMinutesChange(minutes)}
+                          type="button"
+                        >
+                          {minutes} mins
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <input type="datetime-local" value={nextRunAt} onChange={(event) => onNextRunAtChange(event.target.value)} />
               </FormField>
             </div>

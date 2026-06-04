@@ -449,6 +449,10 @@ export const api = {
   },
   knowledgeRepo: {
     list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
+    contextPackage: (projectId: string, query?: { app_type_id?: string; query?: string; asset_type?: string; priority?: string }) =>
+      request<{ project_id: string; knowledge: any[]; related_context?: any[] }>(
+        `/projects/${projectId}/knowledge/context-package${toQueryString(query)}`
+      ),
     create: (projectId: string, input: any) => request<any>(`/projects/${projectId}/knowledge`, { method: "POST", body: JSON.stringify(input) }),
     update: (projectId: string, id: string, input: any) => request<any>(`/projects/${projectId}/knowledge/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" })

@@ -2,7 +2,7 @@ import { DragEvent, FormEvent, useEffect, useMemo, useState, type ReactNode } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, LayersIcon } from "../components/AppIcons";
+import { AddIcon, EyeIcon, LayersIcon } from "../components/AppIcons";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -19,15 +19,8 @@ import { SharedGroupLevelIcon } from "../components/StepAutomationEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   TileCardCaseIcon,
-  TileCardFact,
-  TileCardIconFrame,
   TileCardLinkIcon,
-  TileCardPriorityIcon,
-  TileCardRunsIcon,
-  TileCardStatusIndicator,
-  TileCardStepsIcon,
-  formatTileCardLabel,
-  getTileCardTone
+  formatTileCardLabel
 } from "../components/TileCardPrimitives";
 import { RunHooksBuilder, type RunHookSelection } from "../components/RunHooksBuilder";
 import { SuiteCasePicker, SuiteScopePicker } from "../components/SuiteCasePicker";
@@ -1038,11 +1031,18 @@ export function DesignPage() {
     navigate(`/test-cases?${params.toString()}`);
   };
 
-  const openSelectedCaseEditor = () => {
-    if (!selectedTestCase && !isCreatingCase) {
+  const openSelectedCaseEditor = (testCaseId?: string) => {
+    const targetTestCase = testCaseId
+      ? appTypeCases.find((testCase) => testCase.id === testCaseId)
+      : selectedTestCase;
+
+    if (!targetTestCase && !isCreatingCase) {
       return;
     }
 
+    if (testCaseId) {
+      setSelectedTestCaseId(testCaseId);
+    }
     setIsCreatingCase(false);
     setIsTestCaseEditorModalOpen(true);
   };
@@ -1676,7 +1676,9 @@ export function DesignPage() {
             activeSuiteId={selectedSuiteId}
             counts={suiteCounts}
             childCounts={childSuiteCounts}
+            cases={appTypeCases}
             historyBySuiteId={historyBySuiteId}
+            stepCountByCaseId={stepCountByCaseId}
             suiteSearchTerm={suiteSearchTerm}
             suitePlacementFilter={suitePlacementFilter}
             suiteMappedCasesFilter={suiteMappedCasesFilter}
@@ -1877,7 +1879,9 @@ function SuiteSidebar({
   activeSuiteId,
   counts,
   childCounts,
+  cases,
   historyBySuiteId,
+  stepCountByCaseId,
   suiteSearchTerm,
   suitePlacementFilter,
   suiteMappedCasesFilter,
@@ -1914,7 +1918,9 @@ function SuiteSidebar({
   activeSuiteId: string;
   counts: Record<string, number>;
   childCounts: Record<string, number>;
+  cases: TestCase[];
   historyBySuiteId: Record<string, Array<{ execution_id: string; status: ExecutionResult["status"]; created_at?: string }>>;
+  stepCountByCaseId: Record<string, number>;
   suiteSearchTerm: string;
   suitePlacementFilter: SuitePlacementFilter;
   suiteMappedCasesFilter: SuiteMappedCasesFilter;
@@ -2058,17 +2064,38 @@ function SuiteSidebar({
             <div className="tile-browser-grid">
               {suites.map((suite) => {
                 const mappedCaseCount = counts[suite.id] || 0;
-                const history = (historyBySuiteId[suite.id] || []).slice(0, 5);
+                const suiteCases = cases.filter((testCase) => (testCase.suite_ids || []).includes(suite.id));
+                const history = (historyBySuiteId[suite.id] || []).slice(0, 10);
                 const runCount = (historyBySuiteId[suite.id] || []).length;
                 const latestRun = history[0];
                 const suiteDataCount = Object.keys(suite.parameter_values || {}).length;
                 const latestRunLabel = latestRun ? formatTileCardLabel(latestRun.status, "Run") : "No run";
+                const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
+                const passedRuns = history.filter((result) => result.status === "passed").length;
+                const stabilityScore = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
+                const suiteStepCount = suiteCases.reduce((total, testCase) => total + (stepCountByCaseId[testCase.id] || 0), 0);
+                const automatedCount = suiteCases.filter((testCase) => testCase.automated === "yes").length;
+                const linkedRequirementCount = suiteCases.filter((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).some(Boolean)).length;
+                const coverageScore = mappedCaseCount ? Math.round((linkedRequirementCount / mappedCaseCount) * 100) : 0;
+                const automationScore = mappedCaseCount ? Math.round((automatedCount / mappedCaseCount) * 100) : 0;
+                const suiteTone = failedRunCount ? "is-risk" : !mappedCaseCount || coverageScore < 70 ? "is-warning" : "is-healthy";
+                const suiteInsightTone = failedRunCount ? "danger" : !mappedCaseCount || coverageScore < 70 ? "warning" : "success";
+                const suiteInsight = failedRunCount
+                  ? "AI: Recent suite runs show failed or blocked evidence. Review the unstable cases before release gating."
+                  : !mappedCaseCount
+                    ? "AI: This suite is empty. Add reusable cases so the suite can become executable release coverage."
+                    : coverageScore < 70
+                      ? "AI: Requirement coverage is thin. Link more mapped cases to requirements to improve traceability."
+                      : automationScore >= 70
+                        ? "AI: Strong suite candidate for scheduled regression because most mapped cases are automated."
+                        : "AI: Suite coverage is traceable. Automate the highest-repeat cases next to reduce manual run effort.";
 
                 return (
                   <button
                     key={suite.id}
                     className={[
-                      "record-card tile-card test-suite-card",
+                      "record-card tile-card test-suite-card test-case-catalog-card",
+                      suiteTone,
                       activeSuiteId === suite.id ? "is-active" : "",
                       selectedSuiteActionIds.includes(suite.id) ? "is-marked-for-delete" : ""
                     ].filter(Boolean).join(" ")}
@@ -2076,7 +2103,7 @@ function SuiteSidebar({
                     type="button"
                   >
                     <div className="tile-card-main">
-                      <div className="tile-card-select-row">
+                      <div className="tile-card-select-row test-case-card-header">
                         <label className="checkbox-field suite-card-action-checkbox" onClick={(event) => event.stopPropagation()}>
                           <input
                             checked={selectedSuiteActionIds.includes(suite.id)}
@@ -2085,52 +2112,67 @@ function SuiteSidebar({
                           />
                           <DisplayIdBadge value={suite.display_id || suite.id} />
                         </label>
-                      </div>
-                      <div className="tile-card-header">
-                        <div className="tile-card-title-group">
-                          <strong>{suite.name}</strong>
+                        <div className="catalog-inline-actions test-case-top-actions">
+                          <StatusBadge value={latestRunLabel} />
                         </div>
                       </div>
-                      <p className="tile-card-description">{selectedAppType ? `${selectedAppType.name} workspace suite` : "No app type selected"}</p>
-                      <div className="tile-card-facts" aria-label={`${suite.name} facts`}>
-                        <TileCardFact
-                          label={String(mappedCaseCount)}
-                          title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}
-                          tone={mappedCaseCount ? "success" : "neutral"}
-                        >
+                      <div className="tile-card-title-group test-case-card-title-group">
+                        <div className="test-case-card-badge-row">
+                          <span className="test-case-source-badge">Suite</span>
+                          {childCounts[suite.id] ? <span className="test-case-source-badge is-api">{childCounts[suite.id]} child</span> : null}
+                        </div>
+                        <strong>{suite.name}</strong>
+                      </div>
+                      <div className="test-case-requirement-block suite-coverage-block">
+                        <span className="test-case-requirement-label">
                           <TileCardCaseIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={String(runCount)}
-                          title={`${runCount} suite run${runCount === 1 ? "" : "s"}`}
-                          tone={runCount ? getTileCardTone(latestRun?.status || "neutral") : "neutral"}
-                        >
-                          <TileCardRunsIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={suiteDataCount ? String(suiteDataCount) : "0"}
-                          title={`${suiteDataCount} suite test data value${suiteDataCount === 1 ? "" : "s"}`}
-                          tone={suiteDataCount ? "info" : "neutral"}
-                        >
-                          <TileCardStepsIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={latestRunLabel}
-                          title={latestRun ? `Latest suite run: ${latestRunLabel}` : "No suite run has been recorded yet"}
-                          tone={latestRun ? getTileCardTone(latestRun.status) : "neutral"}
-                        >
-                          <TileCardStatusIndicator title={latestRunLabel} tone={latestRun ? getTileCardTone(latestRun.status) : "neutral"} />
-                        </TileCardFact>
+                          Suite coverage
+                        </span>
+                        <p>{selectedAppType ? `${selectedAppType.name} workspace suite with ${mappedCaseCount} mapped reusable case${mappedCaseCount === 1 ? "" : "s"}.` : "No app type selected"}</p>
+                      </div>
+                      <p className="tile-card-description">{suite.parent_id ? "Nested suite. Cases remain reusable and can participate in other suites." : "Root suite. Use it to curate reusable test cases into a release-ready run scope."}</p>
+                      <div className="test-case-card-stats suite-card-stats" aria-label={`${suite.name} facts`}>
+                        <span title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}>
+                          <strong>{mappedCaseCount}</strong>
+                          <small>Cases</small>
+                        </span>
+                        <span title={`${suiteStepCount} cumulative step${suiteStepCount === 1 ? "" : "s"}`}>
+                          <strong>{suiteStepCount}</strong>
+                          <small>Steps</small>
+                        </span>
+                        <span title={`${automatedCount} automated case${automatedCount === 1 ? "" : "s"}`}>
+                          <strong>{automationScore}%</strong>
+                          <small>Auto</small>
+                        </span>
+                        <span title={`${failedRunCount} failed or blocked recent suite run${failedRunCount === 1 ? "" : "s"}`}>
+                          <strong>{failedRunCount ? `${failedRunCount}x` : "0x"}</strong>
+                          <small>Failed</small>
+                        </span>
                       </div>
                       <div className="tile-card-footer">
-                        <div className="history-bars" aria-label="Suite run history">
-                          {history.length ? history.map((result) => (
-                            <span
-                              key={`${suite.id}-${result.execution_id}`}
-                              className={result.status === "passed" ? "history-bar is-passed" : result.status === "failed" ? "history-bar is-failed" : "history-bar is-blocked"}
-                              title={`${result.status} · ${result.created_at || "recent"}`}
-                            />
-                          )) : <span className="history-bar" />}
+                        <div className="test-case-readiness-grid">
+                          <div className="test-case-card-progress-row" aria-label={`${coverageScore}% requirement coverage`}>
+                            <div>
+                              <span>Requirement coverage</span>
+                              <strong>{mappedCaseCount ? `${coverageScore}%` : "No cases"}</strong>
+                            </div>
+                            <div className={["test-case-card-progress-track", coverageScore < 70 ? "danger" : ""].filter(Boolean).join(" ")}>
+                              <span style={{ width: `${mappedCaseCount ? coverageScore : 8}%` }} />
+                            </div>
+                          </div>
+                          <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent suite stability` : "No recent suite stability"}>
+                            <div>
+                              <span>Suite stability</span>
+                              <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
+                            </div>
+                            <div className={["test-case-card-progress-track", stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}>
+                              <span style={{ width: `${history.length ? stabilityScore : 8}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`test-case-ai-note ${suiteInsightTone}`}>
+                          <span aria-hidden="true">{failedRunCount ? "!" : "AI"}</span>
+                          <p>{suiteInsight}</p>
                         </div>
                       </div>
                     </div>
@@ -2247,7 +2289,7 @@ function TestCaseList({
   onCaseRunFilter: (value: SuiteCaseRunFilter) => void;
   onSelectCase: (testCaseId: string) => void;
   onCreateCase: () => void;
-  onOpenCaseEditor: () => void;
+  onOpenCaseEditor: (testCaseId?: string) => void;
   canOpenCaseEditor: boolean;
   onReorderCases: (fromCaseId: string, toCaseId: string) => void;
   viewMode: "tile" | "list";
@@ -2439,7 +2481,6 @@ function TestCaseList({
             </div>
           </CatalogSearchFilter>
           <button className="primary-button" onClick={onCreateCase} type="button"><AddIcon />New Test Case</button>
-          <button className="ghost-button" disabled={!canOpenCaseEditor} onClick={onOpenCaseEditor} type="button">View Test Case</button>
         </div>
 
         {selectedSuite ? (
@@ -2476,14 +2517,31 @@ function TestCaseList({
                 const stepCount = stepCountByCaseId[testCase.id] || 0;
                 const caseStatusValue = latest?.status || testCase.status || defaultCaseStatus;
                 const caseStatusLabel = formatTileCardLabel(caseStatusValue, "Active");
-                const caseStatusTone = getTileCardTone(caseStatusValue);
                 const suiteCount = (testCase.suite_ids || []).length || 0;
+                const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
+                const passedRuns = history.filter((result) => result.status === "passed").length;
+                const stabilityScore = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
+                const automationReadiness = testCase.automated === "yes"
+                  ? 100
+                  : Math.min(96, Math.max(26, 36 + stepCount * 4 + (requirement ? 14 : 0) + (history.length ? 8 : 0) - failedRunCount * 6));
+                const caseTypeLabel = testCase.automated === "yes" ? "Auto" : "Manual";
+                const isRiskCase = failedRunCount > 0;
+                const isWarningCase = !requirement || stabilityScore < 60;
+                const aiInsightTone = isRiskCase ? "danger" : isWarningCase ? "warning" : "success";
+                const aiInsight = isRiskCase
+                  ? "AI: Recent suite evidence includes failed or blocked runs. Review this case before the suite is promoted."
+                  : !requirement
+                    ? "AI: Link this case to a requirement so the suite can report traceable coverage."
+                    : testCase.automated !== "yes" && automationReadiness >= 70
+                      ? "AI: This suite case is a strong automation candidate because its scope and steps are ready."
+                      : "AI: This case is healthy within the suite. Keep it ordered near related validation coverage.";
 
                 return (
                   <button
                     key={testCase.id}
                     className={[
                       "record-card tile-card test-case-card test-case-catalog-card suite-case-workspace-card",
+                      isRiskCase ? "is-risk" : isWarningCase ? "is-warning" : "is-healthy",
                       activeCaseId === testCase.id ? "is-active" : ""
                     ].filter(Boolean).join(" ")}
                     onClick={() => onSelectCase(testCase.id)}
@@ -2501,59 +2559,82 @@ function TestCaseList({
                   >
                     {selectedSuite ? <span className="drag-handle" aria-hidden="true">::</span> : null}
                     <div className="tile-card-main">
-                      <div className="tile-card-header">
-                        <TileCardIconFrame tone={caseStatusTone}>
-                          <TileCardCaseIcon />
-                        </TileCardIconFrame>
-                        <div className="tile-card-title-group">
-                          <strong>{testCase.title}</strong>
-                          <span className="tile-card-kicker">{requirement?.title || "No requirement linked"}</span>
+                      <div className="tile-card-select-row test-case-card-header">
+                        <DisplayIdBadge value={testCase.display_id || testCase.id} />
+                        <div className="catalog-inline-actions test-case-top-actions">
+                          <button
+                            aria-label={`View ${testCase.title}`}
+                            className="ghost-button test-case-card-eye-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelectCase(testCase.id);
+                              onOpenCaseEditor(testCase.id);
+                            }}
+                            title="View test case"
+                            type="button"
+                          >
+                            <EyeIcon size={16} />
+                          </button>
+                          <StatusBadge value={caseStatusLabel} />
                         </div>
-                        <div className="tile-card-header-meta">
-                          <DisplayIdBadge value={testCase.display_id || testCase.id} />
-                          <TileCardStatusIndicator title={caseStatusLabel} tone={caseStatusTone} />
+                      </div>
+                      <div className="tile-card-title-group test-case-card-title-group">
+                        <div className="test-case-card-badge-row">
+                          <span className="test-case-source-badge">{caseTypeLabel}</span>
+                          {selectedSuite ? <span className="test-case-source-badge is-api">Suite case</span> : null}
                         </div>
+                        <strong>{testCase.title}</strong>
+                      </div>
+                      <div className="test-case-requirement-block">
+                        <span className="test-case-requirement-label">
+                          <TileCardLinkIcon />
+                          Requirement
+                        </span>
+                        <p>{requirement?.title || "No requirement linked"}</p>
                       </div>
                       <p className="tile-card-description">{testCase.description || "No description yet for this test case."}</p>
-                      <div className="tile-card-facts" aria-label={`${testCase.title} facts`}>
-                        <TileCardFact
-                          label={`P${testCase.priority || 3}`}
-                          title={`Priority P${testCase.priority || 3}`}
-                          tone={(testCase.priority || 3) <= 2 ? "danger" : "info"}
-                        >
-                          <TileCardPriorityIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={String(stepCount)}
-                          title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}
-                          tone={stepCount ? "info" : "neutral"}
-                        >
-                          <TileCardStepsIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={String(suiteCount)}
-                          title={`${suiteCount} linked suite${suiteCount === 1 ? "" : "s"}`}
-                          tone={suiteCount ? "success" : "neutral"}
-                        >
-                          <TileCardLinkIcon />
-                        </TileCardFact>
-                        <TileCardFact
-                          label={String(history.length)}
-                          title={`${history.length} recent run${history.length === 1 ? "" : "s"}`}
-                          tone={history.length ? getTileCardTone(latest?.status || caseStatusValue) : "neutral"}
-                        >
-                          <TileCardRunsIcon />
-                        </TileCardFact>
+                      <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
+                        <span title={requirement?.title || "No requirement linked"}>
+                          <strong>{requirement ? "Linked" : "Open"}</strong>
+                          <small>Requirement</small>
+                        </span>
+                        <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
+                          <strong>{stepCount}</strong>
+                          <small>Steps</small>
+                        </span>
+                        <span title={`${caseTypeLabel} execution`}>
+                          <strong>{caseTypeLabel}</strong>
+                          <small>Type</small>
+                        </span>
+                        <span title={`${suiteCount} linked suite${suiteCount === 1 ? "" : "s"}`}>
+                          <strong>{suiteCount}</strong>
+                          <small>Suites</small>
+                        </span>
                       </div>
                       <div className="tile-card-footer">
-                        <div className="history-bars" aria-label="Run history">
-                          {history.length ? history.map((result) => (
-                            <span
-                              key={result.id}
-                              className={result.status === "passed" ? "history-bar is-passed" : result.status === "failed" ? "history-bar is-failed" : "history-bar is-blocked"}
-                              title={`${result.status} · ${result.created_at || "recent"}`}
-                            />
-                          )) : <span className="history-bar" />}
+                        <div className="test-case-readiness-grid">
+                          <div className="test-case-card-progress-row" aria-label={`${automationReadiness}% automation readiness`}>
+                            <div>
+                              <span>Automation readiness</span>
+                              <strong>{`${automationReadiness}%`}</strong>
+                            </div>
+                            <div className="test-case-card-progress-track">
+                              <span style={{ width: `${automationReadiness}%` }} />
+                            </div>
+                          </div>
+                          <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent stability` : "No recent run stability"}>
+                            <div>
+                              <span>Stability</span>
+                              <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
+                            </div>
+                            <div className={["test-case-card-progress-track", stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}>
+                              <span style={{ width: `${history.length ? stabilityScore : 8}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`test-case-ai-note ${aiInsightTone}`}>
+                          <span aria-hidden="true">{isRiskCase ? "!" : "AI"}</span>
+                          <p>{aiInsight}</p>
                         </div>
                       </div>
                     </div>

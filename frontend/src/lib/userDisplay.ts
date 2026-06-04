@@ -27,6 +27,14 @@ export function resolveUserSecondaryLabel(user?: DisplayUser) {
   return null;
 }
 
+export function maskEmailAddress(email?: string | null) {
+  return email ? "Email hidden" : "";
+}
+
+export function resolveVisibleEmail(email: string | null | undefined, canViewEmail: boolean) {
+  return canViewEmail ? email || "" : maskEmailAddress(email);
+}
+
 export function resolveUserInitials(user?: DisplayUser) {
   const source = user?.name?.trim() || user?.email || "U";
 

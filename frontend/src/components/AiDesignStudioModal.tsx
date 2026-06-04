@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { api } from "../lib/api";
+import {
+  buildFileContextSection,
+  buildKnowledgeContextSection,
+  buildRequirementContextSection,
+  mergeAiContextPack
+} from "../lib/aiDesignStudio";
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
@@ -109,6 +116,9 @@ export function AiDesignStudioModal({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRequirementDialogOpen, setIsRequirementDialogOpen] = useState(false);
   const [requirementSearchTerm, setRequirementSearchTerm] = useState("");
+  const [contextFileSelection, setContextFileSelection] = useState<FileList | null>(null);
+  const [isBuildingSmartContext, setIsBuildingSmartContext] = useState(false);
+  const [smartContextMessage, setSmartContextMessage] = useState("");
 
   const handleRequirementToggle = (requirementId: string, checked: boolean) => {
     if (allowMultipleRequirements) {
@@ -156,6 +166,47 @@ export function AiDesignStudioModal({
       .some((value) => String(value || "").toLowerCase().includes(query));
   });
   const schedulerHelpText = scheduleHelperText || "Queue one AI generation run per selected requirement. Generated cases land back in the library with accept and reject review actions.";
+
+  const handleBuildSmartContext = async () => {
+    setIsBuildingSmartContext(true);
+    setSmartContextMessage("");
+
+    try {
+      const selectedRequirements = scopedPreviewRequirements;
+      const requirementSection = buildRequirementContextSection(selectedRequirements);
+      const query = selectedRequirements
+        .slice(0, 8)
+        .map((requirement) => requirement.title)
+        .filter(Boolean)
+        .join(" ");
+      const knowledgePackage = promptTemplateProjectId
+        ? await api.knowledgeRepo.contextPackage(promptTemplateProjectId, {
+            app_type_id: promptTemplateAppTypeId,
+            query
+          })
+        : { knowledge: [] };
+      const knowledgeSection = buildKnowledgeContextSection(knowledgePackage.knowledge || []);
+      const fileContext = await buildFileContextSection(contextFileSelection);
+      const sections = [
+        "QAira smart context pack: use this as supporting evidence only; generated test cases must still map to the selected requirements.",
+        requirementSection,
+        knowledgeSection,
+        fileContext.section
+      ];
+
+      onAdditionalContextChange(mergeAiContextPack(additionalContext, sections));
+      setSmartContextMessage([
+        `Added ${selectedRequirements.length} requirement${selectedRequirements.length === 1 ? "" : "s"}`,
+        `${(knowledgePackage.knowledge || []).length} knowledge item${(knowledgePackage.knowledge || []).length === 1 ? "" : "s"}`,
+        fileContext.section ? "file context" : "",
+        fileContext.skipped.length ? `Skipped: ${fileContext.skipped.join(", ")}` : ""
+      ].filter(Boolean).join(" · "));
+    } catch (error) {
+      setSmartContextMessage(error instanceof Error ? error.message : "Unable to build smart context.");
+    } finally {
+      setIsBuildingSmartContext(false);
+    }
+  };
 
   return (
     <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
@@ -281,6 +332,34 @@ export function AiDesignStudioModal({
                       onApply={(prompt) => onAdditionalContextChange(prompt)}
                       projectId={promptTemplateProjectId}
                     />
+                  </div>
+                  <div className="ai-smart-context-card">
+                    <div>
+                      <strong>Smart context</strong>
+                      <span>Pull selected requirements, relevant AI Knowledge, and safe text files into a size-limited prompt pack.</span>
+                    </div>
+                    <div className="ai-smart-context-actions">
+                      <label className="ghost-button compact ai-context-file-button">
+                        <input
+                          accept=".txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.feature,.log,text/*,application/json,application/xml"
+                          multiple
+                          onChange={(event) => setContextFileSelection(event.target.files)}
+                          type="file"
+                        />
+                        <AiAttachIcon />
+                        <span>{contextFileSelection?.length ? `${contextFileSelection.length} file${contextFileSelection.length === 1 ? "" : "s"}` : "Add files"}</span>
+                      </label>
+                      <button
+                        className="primary-button compact ai-smart-context-button"
+                        disabled={isBuildingSmartContext || isPreviewing || isScheduling || isAccepting}
+                        onClick={() => void handleBuildSmartContext()}
+                        type="button"
+                      >
+                        <AiSparkSmallIcon />
+                        <span>{isBuildingSmartContext ? "Packing..." : "Add smart context"}</span>
+                      </button>
+                    </div>
+                    {smartContextMessage ? <span className="ai-smart-context-note">{smartContextMessage}</span> : null}
                   </div>
                   <FormField label="Prompt copy">
                     <textarea
@@ -591,6 +670,24 @@ function AiViewIcon() {
     <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
       <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function AiAttachIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
+      <path d="m21.4 11.6-8.7 8.7a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.4 9.4a2 2 0 0 1-2.8-2.8l8.7-8.7" />
+    </svg>
+  );
+}
+
+function AiSparkSmallIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
+      <path d="m12 3 1.6 4.7L18 10l-4.4 2.3L12 17l-1.6-4.7L6 10l4.4-2.3Z" />
+      <path d="M19 14v4" />
+      <path d="M21 16h-4" />
     </svg>
   );
 }

@@ -31,6 +31,8 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { useAuth } from "../auth/AuthContext";
 import { formatAuditTimestamp } from "../lib/auditDisplay";
+import { hasPermission } from "../lib/permissions";
+import { resolveVisibleEmail } from "../lib/userDisplay";
 import type { AppType, Execution, ExecutionResult, Project, WorkspaceTransaction } from "../types";
 
 type ProjectSection = "members" | "appTypes";
@@ -308,6 +310,8 @@ export function ProjectsPage() {
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
   const isAdmin = session?.user.role === "admin";
+  const canManageUsers = hasPermission(session, "user.manage");
+  const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
   const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData();
   const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
@@ -662,7 +666,7 @@ export function ProjectsPage() {
       const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
       const memberNames = Array.from(projectMemberUserIds)
         .map((userId) => users.data?.find((user) => user.id === userId))
-        .map((user) => user?.name || user?.email || "")
+        .map((user) => user?.name || visibleUserEmail(user?.email) || "")
         .filter(Boolean);
       const coverage = requirementCoverageByProjectId[project.id] || emptyRequirementCoverage;
       const automationCoverage = automationCoverageByProjectId[project.id] || emptyAutomationCoverage;
@@ -1331,7 +1335,7 @@ export function ProjectsPage() {
                       <option value="with-members">Has members</option>
                       <option value="without-members">No members</option>
                       {projectMemberOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{user.name || user.email}</option>
+                        <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>
                       ))}
                     </select>
                   </label>
@@ -1674,7 +1678,7 @@ export function ProjectsPage() {
               >
                 <select name="user_id" required defaultValue="">
                   <option value="" disabled>Select user</option>
-                  {(users.data || []).map((user) => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}
+                  {(users.data || []).map((user) => <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>)}
                 </select>
                 <select name="role_id" required defaultValue="">
                   <option value="" disabled>Select role</option>
@@ -1693,7 +1697,7 @@ export function ProjectsPage() {
 
                   return (
                     <article className="mini-card" key={member.id}>
-                      <strong>{user?.name || user?.email || member.user_id}</strong>
+                      <strong>{user?.name || visibleUserEmail(user?.email) || member.user_id}</strong>
                       <span>{role?.name || member.role_id}</span>
                       {isCurrentUser ? <span className="text-muted project-member-note">You</span> : null}
                       <button
@@ -1874,14 +1878,6 @@ export function ProjectsPage() {
                               value={appType.type}
                             />
                           </FormField>
-                          <label className="checkbox-field project-app-type-checkbox">
-                            <input
-                              checked={appType.is_unified}
-                              onChange={(event) => updateProjectAppType(appType.id, { is_unified: event.target.checked })}
-                              type="checkbox"
-                            />
-                            Unified
-                          </label>
                           <button className="ghost-button danger" onClick={() => removeProjectAppType(appType.id)} type="button">
                             Remove
                           </button>
@@ -1932,8 +1928,8 @@ export function ProjectsPage() {
                               type="checkbox"
                             />
                             <div>
-                              <strong>{user.name || user.email}</strong>
-                              <span>{user.email}</span>
+                              <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
+                              <span>{visibleUserEmail(user.email)}</span>
                               <span className="project-member-option-meta">
                                 {isAutoIncluded ? (user.id === session?.user.id ? "Project creator • auto-added as member" : "Admin • auto-added") : "Selectable member"}
                               </span>

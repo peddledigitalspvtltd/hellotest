@@ -154,6 +154,12 @@ function addCadence(dateValue, cadence) {
     return baseDate.toISOString();
   }
 
+  const intervalMatch = String(cadence || "").match(/^every:(\d+):minutes$/);
+  if (intervalMatch) {
+    baseDate.setMinutes(baseDate.getMinutes() + Math.max(1, Number(intervalMatch[1]) || 5));
+    return baseDate.toISOString();
+  }
+
   return null;
 }
 
@@ -374,6 +380,8 @@ exports.runExecutionSchedule = async (id, created_by) => {
     test_data_set_id: schedule.test_data_set_id || undefined,
     assigned_to: schedule.assigned_to || undefined,
     name: `${schedule.name} Run`,
+    trigger: "ci",
+    execution_mode: "remote",
     created_by: created_by || schedule.created_by
   });
 

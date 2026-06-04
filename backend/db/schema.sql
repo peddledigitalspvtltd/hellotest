@@ -750,6 +750,9 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   external_links JSONB NOT NULL DEFAULT '[]'::jsonb,
   images JSONB NOT NULL DEFAULT '[]'::jsonb,
   status TEXT NOT NULL DEFAULT 'queued',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  next_run_at TIMESTAMPTZ,
   total_requirements INTEGER NOT NULL DEFAULT 0,
   processed_requirements INTEGER NOT NULL DEFAULT 0,
   generated_cases_count INTEGER NOT NULL DEFAULT 0,
@@ -767,7 +770,7 @@ ALTER TABLE ai_test_case_generation_jobs
   CHECK (status IN ('queued', 'running', 'completed', 'failed'));
 
 CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_scope_status
-  ON ai_test_case_generation_jobs (app_type_id, status, created_at DESC);
+  ON ai_test_case_generation_jobs (app_type_id, status, next_run_at, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_project_created
   ON ai_test_case_generation_jobs (project_id, created_at DESC);
@@ -810,6 +813,10 @@ CREATE TABLE IF NOT EXISTS batch_process_jobs (
   result JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
   attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  next_run_at TIMESTAMPTZ,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   last_error TEXT,
@@ -822,7 +829,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_batch_process_jobs_transaction
   ON batch_process_jobs (transaction_id);
 
 CREATE INDEX IF NOT EXISTS idx_batch_process_jobs_queue
-  ON batch_process_jobs (status, created_at ASC);
+  ON batch_process_jobs (status, next_run_at, created_at ASC);
 
 CREATE TABLE IF NOT EXISTS workspace_transaction_events (
   id TEXT PRIMARY KEY,
