@@ -1260,7 +1260,7 @@ export function RequirementsPage() {
       {confirmationDialog}
       <PageHeader
         eyebrow="Requirements"
-        title="Requirements Workspace"
+        title="Requirements"
         description="Organize reusable requirement scope, keep coverage visible, and hand selected requirements into AI-assisted case design."
         meta={[
           { label: "Requirements", value: metrics.total },

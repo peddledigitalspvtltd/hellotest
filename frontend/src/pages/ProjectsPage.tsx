@@ -1218,8 +1218,7 @@ export function ProjectsPage() {
 
       <section className="projects-command-card">
         <div className="projects-command-copy">
-          <span className="eyebrow">Projects Command Center</span>
-          <h2>See quality, risk and release readiness at a glance.</h2>
+          <h2 className="page-header-title">Projects</h2>
           <p>Monitor project health, automation maturity, execution confidence and delivery blockers from one workspace.</p>
           <div className="projects-command-actions">
             <button className="primary-button projects-create-button" onClick={openCreateProjectModal} type="button">

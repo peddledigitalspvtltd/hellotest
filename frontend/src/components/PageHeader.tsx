@@ -7,7 +7,6 @@ type PageHeaderMetaItem = {
 };
 
 export function PageHeader({
-  eyebrow,
   title,
   description,
   actions,
@@ -24,7 +23,6 @@ export function PageHeader({
     <header className={["page-header", "card", actions ? "" : "page-header--no-actions", className].filter(Boolean).join(" ")}>
       <div className="page-header-text">
         <div className="page-header-copy">
-          {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
           <div className="page-header-title-row">
             <h1 className="page-header-title">{title}</h1>
             {description ? <InfoTooltip className="page-description-info" content={description} label="Page information" /> : null}

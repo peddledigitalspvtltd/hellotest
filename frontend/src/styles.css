@@ -26624,6 +26624,12 @@ textarea:focus-visible,
   font-size: 0.76rem;
 }
 
+.sidebar:not(.is-collapsed) .sidebar-project-picker span {
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
 .sidebar:not(.is-collapsed) .brand-copy strong {
   font-size: 1.12rem;
 }
@@ -27827,6 +27833,14 @@ textarea:focus-visible,
 .create-run-action-button .run-action-main:disabled,
 .create-run-action-button .run-action-toggle:disabled {
   opacity: 0.62;
+}
+
+.test-case-catalog-toolbar .create-run-action-button {
+  flex: 0 0 auto;
+}
+
+.test-case-catalog-toolbar .create-run-action-button .run-action-main {
+  min-width: 0;
 }
 
 .run-action-dropdown {
