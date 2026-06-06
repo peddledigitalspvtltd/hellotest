@@ -31,6 +31,20 @@ const BATCH_PROCESS_CATEGORIES = new Set([
   "reporting"
 ]);
 
+function buildLocalServiceUrl(port: string, path = "/") {
+  if (typeof window === "undefined") {
+    return path;
+  }
+
+  const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+
+  if (!isLocalHost) {
+    return new URL(path, window.location.origin).toString();
+  }
+
+  return new URL(path, `${window.location.protocol}//${window.location.hostname}:${port}`).toString();
+}
+
 function isBatchProcessTransaction(transaction: WorkspaceTransaction) {
   return BATCH_PROCESS_CATEGORIES.has(transaction.category)
     || transaction.action === "testengine_run"
@@ -296,7 +310,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     "recorder_public_base_url",
     "live_view_url"
   ]);
-  const jaegerUrl = typeof window === "undefined" ? "/jaeger/" : new URL("/jaeger/", window.location.origin).toString();
+  const jaegerUrl = buildLocalServiceUrl("16686", "/");
   const runningCount = batchTransactions.filter((transaction) => transaction.status === "queued" || transaction.status === "running").length;
   const failedCount = batchTransactions.filter((transaction) => transaction.status === "failed").length;
   const activeCase = testCases.find((testCase) => testCase.id === selectedCaseId) || manualCases[0] || null;

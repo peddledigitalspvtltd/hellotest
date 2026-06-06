@@ -28,6 +28,8 @@ services:
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
       SESSION_SECRET: ${SESSION_SECRET:-qaira-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-qaira-api}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,5 +56,56 @@ services:
       timeout: 5s
       retries: 10
     restart: always
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: qaira-jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    restart: always
+
+  testengine:
+    image: ${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}
+    container_name: qaira-testengine
+    ports:
+      - "${TESTENGINE_PORT:-4301}:4301"
+    environment:
+      PORT: 4301
+      NODE_ENV: production
+      ENGINE_NAME: QAira Test Engine
+      TESTENGINE_WORKER_CLASS: web
+      ARTIFACT_ROOT: /artifacts
+      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
+      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_TESTENGINE:-qaira-testengine}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES_TESTENGINE:-service.name=qaira-testengine}
+      OPS_TELEMETRY_ENABLED: ${OPS_TELEMETRY_ENABLED:-true}
+      OPS_TELEMETRY_EVENTS_PATH: ${OPS_TELEMETRY_EVENTS_PATH:-/api/v1/events}
+      OPS_TELEMETRY_BOARD_PATH: ${OPS_TELEMETRY_BOARD_PATH:-/ops-telemetry}
+      OPS_TELEMETRY_SERVICE_NAME: ${OPS_TELEMETRY_SERVICE_NAME:-qaira-testengine}
+      OPS_TELEMETRY_ENVIRONMENT: ${OPS_TELEMETRY_ENVIRONMENT:-local}
+      OPS_TELEMETRY_STORE_PATH: ${OPS_TELEMETRY_STORE_PATH:-/artifacts/ops-telemetry-events.ndjson}
+      OPS_TELEMETRY_MAX_EVENTS: ${OPS_TELEMETRY_MAX_EVENTS:-2000}
+    volumes:
+      - qaira-testengine-artifacts:/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4301/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: always
 volumes:
   qaira-postgres-data:
+  qaira-testengine-artifacts:

@@ -13,7 +13,8 @@ export function WorkspaceScopeBar({
   appTypeLabel = "App Type",
   disabled = false,
   projectValueLabel,
-  appTypeValueLabel
+  appTypeValueLabel,
+  sticky = true
 }: {
   projects: Project[];
   projectId: string;
@@ -26,6 +27,7 @@ export function WorkspaceScopeBar({
   disabled?: boolean;
   projectValueLabel?: string;
   appTypeValueLabel?: string;
+  sticky?: boolean;
 }) {
   const resolvedProjectLabel =
     projectValueLabel || projects.find((project) => String(project.id) === String(projectId))?.name || "No project selected";
@@ -33,8 +35,15 @@ export function WorkspaceScopeBar({
   const resolvedAppTypeLabel =
     appTypeValueLabel || resolvedAppType?.name || "No app type selected";
 
+  const className = [
+    "design-context-bar",
+    "workspace-scope-bar",
+    sticky ? "is-sticky" : "is-modal-field",
+    disabled ? "is-read-only" : ""
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={disabled ? "design-context-bar workspace-scope-bar is-sticky is-read-only" : "design-context-bar workspace-scope-bar is-sticky"}>
+    <div className={className}>
       <div className="context-field">
         <span>{projectLabel}</span>
         {disabled ? (
