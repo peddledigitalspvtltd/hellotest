@@ -14,7 +14,7 @@ export function WorkspaceScopeBar({
   disabled = false,
   projectValueLabel,
   appTypeValueLabel,
-  sticky = true
+  sticky = false
 }: {
   projects: Project[];
   projectId: string;

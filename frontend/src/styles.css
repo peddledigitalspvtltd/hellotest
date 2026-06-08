@@ -30695,3 +30695,261 @@ body > .modal-backdrop {
 .workspace-scope-bar.is-modal-field::before {
   display: none;
 }
+
+/* 2026-06-08 live layout repair: this block is intentionally last. */
+:root {
+  --qaira-layout-fix-revision: "20260608-sidebar-scope-modal";
+  --app-shell-frame-size: 0px;
+}
+
+.app-shell,
+.app-shell.app-layout {
+  gap: 0 !important;
+  padding: 0 !important;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+:root[data-sidebar="collapsed"] .app-shell,
+:root[data-sidebar="collapsed"] .app-shell.app-layout,
+.app-shell.app-layout {
+  grid-template-columns: var(--sidebar-expanded-width, 18rem) minmax(0, 1fr);
+}
+
+:root[data-sidebar="collapsed"] .app-shell,
+:root[data-sidebar="collapsed"] .app-shell.app-layout {
+  grid-template-columns: var(--sidebar-collapsed-width, 4.5rem) minmax(0, 1fr);
+}
+
+.app-layout .sidebar,
+.sidebar {
+  position: relative !important;
+  top: auto !important;
+  height: 100dvh !important;
+  min-height: 0 !important;
+  max-height: 100dvh !important;
+  border-width: 0 1px 0 0 !important;
+  border-style: solid !important;
+  border-color: var(--line, rgba(148, 163, 184, 0.32)) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sidebar-top,
+.sidebar-footer,
+.nav-list {
+  min-height: auto;
+}
+
+.nav-list {
+  max-height: none !important;
+  overflow: visible !important;
+  scrollbar-gutter: auto;
+}
+
+.workspace-main,
+.workspace-main.main,
+.workspace-main.main--library-fill {
+  height: 100dvh !important;
+  min-height: 0 !important;
+  border-radius: 0 !important;
+}
+
+.workspace-scope-bar.design-context-bar.is-sticky,
+.workspace-main > .page-content > .workspace-scope-bar.design-context-bar.is-sticky {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+}
+
+.workspace-scope-bar::before,
+.workspace-main > .page-content > .workspace-scope-bar::before {
+  display: none !important;
+}
+
+.modal-card .workspace-scope-bar.design-context-bar,
+.resource-modal-card .workspace-scope-bar.design-context-bar,
+.requirement-create-modal .workspace-scope-bar.design-context-bar,
+.people-modal-card .workspace-scope-bar.design-context-bar,
+.workspace-scope-bar.design-context-bar.is-modal-field {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+}
+
+.modal-backdrop,
+body > .modal-backdrop {
+  z-index: 1000;
+}
+
+.modal-card,
+.resource-modal-card,
+.requirement-create-modal,
+.people-modal-card,
+.step-parameter-dialog,
+.object-repository-usage-dialog {
+  z-index: 1001;
+}
+
+.nested-modal-backdrop,
+body > .nested-modal-backdrop {
+  z-index: 1100 !important;
+}
+
+.nested-modal-backdrop .requirement-selection-dialog {
+  z-index: 1101 !important;
+}
+
+@media (max-width: 768px) {
+  .app-shell,
+  .app-shell.app-layout,
+  :root[data-sidebar="collapsed"] .app-shell,
+  :root[data-sidebar="collapsed"] .app-shell.app-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-layout .sidebar,
+  .sidebar {
+    position: fixed !important;
+    top: max(0.5rem, env(safe-area-inset-top)) !important;
+    bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+    left: 0.625rem !important;
+    width: min(22rem, calc(100vw - 1.25rem)) !important;
+    height: auto !important;
+    max-height: none !important;
+    border: 1px solid var(--line, rgba(148, 163, 184, 0.32)) !important;
+    border-radius: 22px !important;
+    transform: translateX(calc(-100% - 1.5rem));
+  }
+
+  .app-layout .sidebar.is-mobile-open,
+  .sidebar.is-mobile-open {
+    transform: translateX(0);
+  }
+}
+
+/* 2026-06-08 live layout repair v2: make the rail itself the scroll flow. */
+:root {
+  --qaira-layout-fix-revision: "20260608-sidebar-scope-modal-v2";
+  --sidebar-collapsed-width: 4.5rem;
+}
+
+:root[data-sidebar="collapsed"] .app-shell,
+:root[data-sidebar="collapsed"] .app-shell.app-layout {
+  grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr) !important;
+}
+
+.app-layout .sidebar,
+.sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 0.65rem !important;
+  width: var(--sidebar-expanded-width, 18rem) !important;
+  min-width: var(--sidebar-expanded-width, 18rem) !important;
+  max-width: var(--sidebar-expanded-width, 18rem) !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.sidebar.is-collapsed {
+  width: var(--sidebar-collapsed-width) !important;
+  min-width: var(--sidebar-collapsed-width) !important;
+  max-width: var(--sidebar-collapsed-width) !important;
+  padding: 0.55rem 0.35rem !important;
+  gap: 0.35rem !important;
+}
+
+.sidebar-top,
+.nav-list,
+.sidebar-footer {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  align-self: stretch !important;
+}
+
+.nav-list {
+  display: grid !important;
+  overflow: visible !important;
+}
+
+.sidebar-footer {
+  margin-top: 0 !important;
+  padding-top: 0.35rem !important;
+}
+
+.sidebar.is-collapsed .sidebar-top,
+.sidebar.is-collapsed .nav-list,
+.sidebar.is-collapsed .sidebar-footer,
+.sidebar.is-collapsed .nav-group,
+.sidebar.is-collapsed .nav-group-items,
+.sidebar.is-collapsed .nav-item-stack {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.sidebar.is-collapsed .nav-link,
+.sidebar.is-collapsed .nav-branch-link,
+.sidebar.is-collapsed .nav-link--icon-only,
+.sidebar.is-collapsed .sidebar-collapse-button-compact,
+.sidebar.is-collapsed .sidebar-icon-button,
+.sidebar.is-collapsed .sidebar-signout,
+.sidebar.is-collapsed .user-chip {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 2.65rem !important;
+  min-height: 2.65rem !important;
+}
+
+.sidebar.is-collapsed .nav-group + .nav-group {
+  padding-top: 0.25rem !important;
+}
+
+.workspace-scope-bar.design-context-bar,
+.workspace-scope-bar.design-context-bar.is-sticky,
+.workspace-main > .page-content > .workspace-scope-bar.design-context-bar,
+.workspace-main > .page-content > .workspace-scope-bar.design-context-bar.is-sticky {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.nested-modal-backdrop,
+body > .nested-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483000 !important;
+  isolation: isolate;
+}
+
+.nested-modal-backdrop .requirement-selection-dialog {
+  position: relative !important;
+  z-index: 2147483001 !important;
+}
+
+@media (max-width: 768px) {
+  .app-layout .sidebar,
+  .sidebar {
+    width: min(22rem, calc(100vw - 1.25rem)) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+}

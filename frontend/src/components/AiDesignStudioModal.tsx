@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
@@ -225,17 +226,92 @@ export function AiDesignStudioModal({
     }
   };
 
-  return (
-    <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
+  const requirementDialog = isRequirementDialogOpen ? (
+    <div
+      className="modal-backdrop nested-modal-backdrop"
+      onClick={(event) => {
+        event.stopPropagation();
+        setIsRequirementDialogOpen(false);
+      }}
+      role="presentation"
+    >
       <div
-        aria-label="AI test case generation"
+        aria-label="Select requirements"
         aria-modal="true"
-        className={dialogClassName ? `modal-card ai-modal-card ai-design-modal ${dialogClassName}` : "modal-card ai-modal-card ai-design-modal"}
+        className="modal-card requirement-selection-dialog"
         onClick={(event) => event.stopPropagation()}
-        ref={dialogRef}
         role="dialog"
-        tabIndex={-1}
       >
+        <div className="ai-studio-header">
+          <div className="ai-studio-header-copy">
+            <p className="eyebrow">Requirements</p>
+            <p className="eyebrow">{requirementLabel}</p>
+            <p>{selectedRequirementCount} of {requirements.length} selected</p>
+          </div>
+          <button className="ghost-button" onClick={() => setIsRequirementDialogOpen(false)} type="button">
+            Done
+          </button>
+        </div>
+        <FormField label="Search requirements">
+          <input
+            autoFocus
+            placeholder="Search title, description, status, or priority"
+            value={requirementSearchTerm}
+            onChange={(event) => setRequirementSearchTerm(event.target.value)}
+          />
+        </FormField>
+        <div className="requirement-selection-dialog-actions">
+          <button className="ghost-button compact" onClick={() => onRequirementSelectionChange(filteredRequirements.map((requirement) => requirement.id))} type="button">
+            Select visible
+          </button>
+          <button className="ghost-button compact" onClick={() => onRequirementSelectionChange([])} type="button">
+            Clear
+          </button>
+        </div>
+        <div className="modal-case-picker ai-studio-requirement-picker requirement-selection-dialog-list">
+          {filteredRequirements.map((requirement) => (
+            <label className="modal-case-option requirement-link-option" key={requirement.id}>
+              <input
+                checked={selectedRequirementIds.includes(requirement.id)}
+                onChange={(event) => handleRequirementToggle(requirement.id, event.target.checked)}
+                type="checkbox"
+              />
+              <div>
+                <strong>{requirement.title}</strong>
+                <span>{requirement.description || "No description available."}</span>
+                <span className="requirement-link-option-meta">Priority P{requirement.priority ?? 3} · {requirement.status || "open"}</span>
+              </div>
+            </label>
+          ))}
+          {!filteredRequirements.length ? <div className="empty-state compact">No requirements match the current search.</div> : null}
+        </div>
+        <div className="action-row ai-studio-footer">
+          <button className="ghost-button" onClick={() => onRequirementSelectionChange(requirements.map((requirement) => requirement.id))} type="button">
+            Select all
+          </button>
+          <button className="ghost-button" onClick={() => onRequirementSelectionChange([])} type="button">
+            Clear
+          </button>
+          <button className="primary-button" onClick={() => setIsRequirementDialogOpen(false)} type="button">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <div className="modal-backdrop" onClick={() => !closeDisabled && onClose()} role="presentation">
+        <div
+          aria-label="AI test case generation"
+          aria-modal="true"
+          className={dialogClassName ? `modal-card ai-modal-card ai-design-modal ${dialogClassName}` : "modal-card ai-modal-card ai-design-modal"}
+          onClick={(event) => event.stopPropagation()}
+          ref={dialogRef}
+          role="dialog"
+          tabIndex={-1}
+        >
         <div className="ai-studio-header">
           <div className="ai-studio-header-copy">
             <p className="eyebrow">{eyebrow}</p>
@@ -602,81 +678,10 @@ export function AiDesignStudioModal({
             </div>
           </div>
         </div>
-      </div>
-      {isRequirementDialogOpen ? (
-        <div
-          className="modal-backdrop nested-modal-backdrop"
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsRequirementDialogOpen(false);
-          }}
-          role="presentation"
-        >
-          <div
-            aria-label="Select requirements"
-            aria-modal="true"
-            className="modal-card requirement-selection-dialog"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="ai-studio-header">
-              <div className="ai-studio-header-copy">
-                <p className="eyebrow">Requirements</p>
-                <p className="eyebrow">{requirementLabel}</p>
-                <p>{selectedRequirementCount} of {requirements.length} selected</p>
-              </div>
-              <button className="ghost-button" onClick={() => setIsRequirementDialogOpen(false)} type="button">
-                Done
-              </button>
-            </div>
-            <FormField label="Search requirements">
-              <input
-                autoFocus
-                placeholder="Search title, description, status, or priority"
-                value={requirementSearchTerm}
-                onChange={(event) => setRequirementSearchTerm(event.target.value)}
-              />
-            </FormField>
-            <div className="requirement-selection-dialog-actions">
-              <button className="ghost-button compact" onClick={() => onRequirementSelectionChange(filteredRequirements.map((requirement) => requirement.id))} type="button">
-                Select visible
-              </button>
-              <button className="ghost-button compact" onClick={() => onRequirementSelectionChange([])} type="button">
-                Clear
-              </button>
-            </div>
-            <div className="modal-case-picker ai-studio-requirement-picker requirement-selection-dialog-list">
-              {filteredRequirements.map((requirement) => (
-                <label className="modal-case-option requirement-link-option" key={requirement.id}>
-                  <input
-                    checked={selectedRequirementIds.includes(requirement.id)}
-                    onChange={(event) => handleRequirementToggle(requirement.id, event.target.checked)}
-                    type="checkbox"
-                  />
-                  <div>
-                    <strong>{requirement.title}</strong>
-                    <span>{requirement.description || "No description available."}</span>
-                    <span className="requirement-link-option-meta">Priority P{requirement.priority ?? 3} · {requirement.status || "open"}</span>
-                  </div>
-                </label>
-              ))}
-              {!filteredRequirements.length ? <div className="empty-state compact">No requirements match the current search.</div> : null}
-            </div>
-            <div className="action-row ai-studio-footer">
-              <button className="ghost-button" onClick={() => onRequirementSelectionChange(requirements.map((requirement) => requirement.id))} type="button">
-                Select all
-              </button>
-              <button className="ghost-button" onClick={() => onRequirementSelectionChange([])} type="button">
-                Clear
-              </button>
-              <button className="primary-button" onClick={() => setIsRequirementDialogOpen(false)} type="button">
-                Done
-              </button>
-            </div>
-          </div>
         </div>
-      ) : null}
-    </div>
+      </div>
+      {requirementDialog && typeof document !== "undefined" ? createPortal(requirementDialog, document.body) : requirementDialog}
+    </>
   );
 }
 
