@@ -1781,17 +1781,6 @@ export function RequirementsPage() {
                   </FormField>
                 </div>
 
-                <div className="metric-strip compact">
-                  <div className="mini-card short">
-                    <strong>{createSelectedTestCaseIds.length}</strong>
-                    <span>Linked test cases</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{currentAppTypeName}</strong>
-                    <span>Coverage source</span>
-                  </div>
-                </div>
-
                 <section className="requirement-link-section">
                   <div className="panel-head">
                     <div>
