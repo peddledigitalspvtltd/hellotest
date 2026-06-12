@@ -1242,6 +1242,7 @@ input, select, textarea {
 .app-type-dropdown {
   width: 100%;
   min-width: 0;
+  position: relative;
 }
 
 .project-dropdown-trigger,
@@ -1287,8 +1288,10 @@ input, select, textarea {
 
 .project-dropdown-menu,
 .app-type-dropdown-menu {
-  position: fixed;
-  z-index: 80;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 1002;
   display: grid;
   gap: 0.35rem;
   padding: 0.45rem;
@@ -1298,6 +1301,8 @@ input, select, textarea {
   background: var(--panel-strong);
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
+  width: 100%;
+  max-width: 100%;
 }
 
 .project-dropdown-option,
@@ -28896,6 +28901,11 @@ button[aria-label*="Run manually"]:hover:not(:disabled) {
   cursor: pointer;
 }
 
+.primary-button.compact.ai-smart-context-button {
+  color: #ffffff;
+  font-weight: 900;
+}
+
 .ai-context-file-button input {
   position: absolute;
   inset: 0;
@@ -30850,18 +30860,16 @@ body > .nested-modal-backdrop {
 
 .app-layout .sidebar,
 .sidebar {
-  display: flex !important;
-  flex-direction: column !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
   align-items: stretch !important;
-  justify-content: flex-start !important;
   gap: 0.65rem !important;
   width: var(--sidebar-expanded-width, 18rem) !important;
   min-width: var(--sidebar-expanded-width, 18rem) !important;
   max-width: var(--sidebar-expanded-width, 18rem) !important;
   height: 100dvh !important;
   max-height: 100dvh !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow: hidden !important;
 }
 
 .sidebar.is-collapsed {
@@ -30884,7 +30892,9 @@ body > .nested-modal-backdrop {
 
 .nav-list {
   display: grid !important;
-  overflow: visible !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  max-height: 100% !important;
 }
 
 .sidebar-footer {
@@ -30930,6 +30940,17 @@ body > .nested-modal-backdrop {
   z-index: auto !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
+}
+
+.workspace-main,
+.workspace-main.main,
+.workspace-main.main--library-fill {
+  padding: 0.6rem 0.75rem 1rem !important;
+}
+
+.app-layout .sidebar,
+.sidebar {
+  padding: 0.9rem 0.9rem 1rem !important;
 }
 
 .nested-modal-backdrop,

@@ -1723,7 +1723,6 @@ export function RequirementsPage() {
           >
             <div className="requirement-create-header">
               <div className="requirement-create-title">
-                <p className="eyebrow">Requirements</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="create-requirement-title">Create requirement</p>
                   <InfoTooltip
@@ -1797,7 +1796,7 @@ export function RequirementsPage() {
                   <div className="panel-head">
                     <div>
                       <div className="panel-title-row">
-                        <p className="eyebrow">Existing test cases</p>
+                        <p>Existing test cases</p>
                         <InfoTooltip
                           content={appTypeId ? `Select reusable cases from ${currentAppTypeName} to link immediately.` : "Select an app type first to link existing reusable test cases."}
                           label="Existing test cases information"

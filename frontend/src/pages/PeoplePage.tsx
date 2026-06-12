@@ -930,7 +930,6 @@ export function PeoplePage() {
           >
             <div className="people-modal-header">
               <div className="people-modal-title">
-                <p className="eyebrow">People & Access</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="create-user-title">Create user</p>
                   <InfoTooltip content="Add a workspace user without leaving the directory view." label="Create user information" />
@@ -1016,7 +1015,7 @@ export function PeoplePage() {
           >
             <div className="people-modal-header">
               <div className="people-modal-title">
-                <p className="eyebrow">People & Access</p>
+                <p>People & Access</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="import-users-title">Import users from CSV</p>
                   <InfoTooltip
@@ -1140,7 +1139,7 @@ export function PeoplePage() {
           >
             <div className="people-modal-header">
               <div className="people-modal-title">
-                <p className="eyebrow">People & Access</p>
+                <p>People & Access</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="create-role-title">Create role</p>
                   <InfoTooltip content="Keep the role library concise and reusable across assignments." label="Create role information" />

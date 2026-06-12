@@ -7104,7 +7104,7 @@ export function TestCasesPage() {
           >
             <div className="resource-modal-header">
               <div className="resource-modal-title">
-                <p className="eyebrow">Inspect step {inspectingStep.step_order}</p>
+                <p>Inspect step {inspectingStep.step_order}</p>
                 <p>{inspectingStep.action || inspectingStep.expected_result || "Record an action for this step."}</p>
               </div>
               <button className="ghost-button" disabled={Boolean(recorderSession)} onClick={() => setInspectingStepId("")} type="button">

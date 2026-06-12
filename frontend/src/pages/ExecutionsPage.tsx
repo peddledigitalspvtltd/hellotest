@@ -5816,7 +5816,6 @@ export function ExecutionsPage() {
           >
             <div className="execution-evidence-modal-header">
               <div className="execution-evidence-modal-copy">
-                <p className="eyebrow">Execution Evidence</p>
                 <p className="eyebrow" id="execution-evidence-modal-title">{executionEvidencePreview.fileName || "Evidence image"}</p>
                 <p>{executionEvidencePreview.stepLabel}</p>
               </div>

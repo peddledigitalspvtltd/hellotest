@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import type { AppType } from "../types";
 import { LayersIcon } from "./AppIcons";
@@ -28,14 +27,11 @@ type AppTypeDropdownProps = {
 };
 
 type MenuPosition = {
-  top: number;
-  left: number;
   width: number;
   maxHeight: number;
 };
 
 const VIEWPORT_PADDING = 12;
-const MENU_OFFSET = 8;
 const APP_TYPE_KIND_SET = new Set<AppType["type"]>(["web", "api", "android", "ios", "unified"]);
 
 export function normalizeAppTypeKind(
@@ -152,16 +148,9 @@ export function AppTypeDropdown({
 
     const triggerBounds = triggerRef.current.getBoundingClientRect();
     const width = Math.min(triggerBounds.width, window.innerWidth - VIEWPORT_PADDING * 2);
-    const left = Math.min(
-      Math.max(triggerBounds.left, VIEWPORT_PADDING),
-      window.innerWidth - width - VIEWPORT_PADDING
-    );
-    const top = triggerBounds.bottom + MENU_OFFSET;
-    const maxHeight = Math.max(168, window.innerHeight - top - VIEWPORT_PADDING);
+    const maxHeight = Math.max(168, window.innerHeight - triggerBounds.bottom - VIEWPORT_PADDING);
 
     setMenuPosition({
-      top,
-      left,
       width,
       maxHeight
     });
@@ -288,8 +277,9 @@ export function AppTypeDropdown({
 
   const menuStyle: CSSProperties | undefined = menuPosition
     ? {
-        top: `${menuPosition.top}px`,
-        left: `${menuPosition.left}px`,
+        position: "absolute",
+        top: "calc(100% + 0.35rem)",
+        left: 0,
         width: `${menuPosition.width}px`,
         maxHeight: `${menuPosition.maxHeight}px`
       }
@@ -332,57 +322,54 @@ export function AppTypeDropdown({
         </span>
       </button>
 
-      {isOpen && menuStyle && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              ref={menuRef}
-              aria-label={ariaLabel}
-              className="app-type-dropdown-menu"
-              id={listboxId}
-              role="listbox"
-              style={menuStyle}
-            >
-              {options.map((option, optionIndex) => {
-                const isSelected = option.value === selectedOption?.value;
-                const isHighlighted = optionIndex === highlightedIndex;
+      {isOpen && menuStyle ? (
+        <div
+          ref={menuRef}
+          aria-label={ariaLabel}
+          className="app-type-dropdown-menu"
+          id={listboxId}
+          role="listbox"
+          style={menuStyle}
+        >
+          {options.map((option, optionIndex) => {
+            const isSelected = option.value === selectedOption?.value;
+            const isHighlighted = optionIndex === highlightedIndex;
 
-                return (
-                  <button
-                    aria-selected={isSelected}
-                    className={[
-                      "app-type-dropdown-option",
-                      isSelected ? "is-selected" : "",
-                      isHighlighted ? "is-highlighted" : ""
-                    ].filter(Boolean).join(" ")}
-                    key={option.value}
-                    onClick={() => selectOption(option.value)}
-                    onFocus={() => setHighlightedIndex(optionIndex)}
-                    onKeyDown={(event) => handleOptionKeyDown(event, optionIndex)}
-                    onMouseEnter={() => setHighlightedIndex(optionIndex)}
-                    ref={(node) => {
-                      optionRefs.current[optionIndex] = node;
-                    }}
-                    role="option"
-                    tabIndex={isHighlighted ? 0 : -1}
-                    type="button"
-                  >
-                    <span className="app-type-dropdown-option-main">
-                      <span aria-hidden="true" className="app-type-inline-icon">
-                        <AppTypeIcon isUnified={option.isUnified} size={16} type={option.type} />
-                      </span>
-                      <span className="app-type-dropdown-option-copy">
-                        <span>{option.label}</span>
-                        {option.description ? <small>{option.description}</small> : null}
-                      </span>
-                    </span>
-                    {isSelected ? <strong>Current</strong> : null}
-                  </button>
-                );
-              })}
-            </div>,
-            document.body
-          )
-        : null}
+            return (
+              <button
+                aria-selected={isSelected}
+                className={[
+                  "app-type-dropdown-option",
+                  isSelected ? "is-selected" : "",
+                  isHighlighted ? "is-highlighted" : ""
+                ].filter(Boolean).join(" ")}
+                key={option.value}
+                onClick={() => selectOption(option.value)}
+                onFocus={() => setHighlightedIndex(optionIndex)}
+                onKeyDown={(event) => handleOptionKeyDown(event, optionIndex)}
+                onMouseEnter={() => setHighlightedIndex(optionIndex)}
+                ref={(node) => {
+                  optionRefs.current[optionIndex] = node;
+                }}
+                role="option"
+                tabIndex={isHighlighted ? 0 : -1}
+                type="button"
+              >
+                <span className="app-type-dropdown-option-main">
+                  <span aria-hidden="true" className="app-type-inline-icon">
+                    <AppTypeIcon isUnified={option.isUnified} size={16} type={option.type} />
+                  </span>
+                  <span className="app-type-dropdown-option-copy">
+                    <span>{option.label}</span>
+                    {option.description ? <small>{option.description}</small> : null}
+                  </span>
+                </span>
+                {isSelected ? <strong>Current</strong> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

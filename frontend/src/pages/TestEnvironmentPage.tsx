@@ -952,7 +952,6 @@ function ResourceModalShell({
       >
         <div className="resource-modal-header">
           <div className="resource-modal-title">
-            <p className="eyebrow">Test Environment</p>
             <p className="eyebrow">{title}</p>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">Close</button>
@@ -1530,6 +1529,12 @@ function DataTableEditor({
   };
   const handleAddRow = () => {
     if (!columns.length) {
+      const nextColumnName = "Column 1";
+      onChange({
+        ...draft,
+        columns: [nextColumnName],
+        rows: [{ [nextColumnName]: "" }]
+      });
       return;
     }
 
@@ -1549,7 +1554,7 @@ function DataTableEditor({
             <AddIcon />
             <span>Add column</span>
           </button>
-          <button className="primary-button resource-table-add-button" disabled={!columns.length} onClick={handleAddRow} type="button">
+          <button className="primary-button resource-table-add-button" onClick={handleAddRow} type="button">
             <AddIcon />
             <span>Add row</span>
           </button>

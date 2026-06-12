@@ -1593,7 +1593,7 @@ function SharedStepUsageDialog({
       >
         <div className="import-modal-header">
           <div className="import-modal-title">
-            <p className="eyebrow">Linked Cases</p>
+            <p>Linked Cases</p>
             <div className="modal-title-info-row">
               <p className="eyebrow" id="shared-step-usage-title">{groupName}</p>
               <InfoTooltip

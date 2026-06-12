@@ -1886,7 +1886,6 @@ export function ProjectsPage() {
           >
             <div className="project-create-header">
               <div className="project-create-title">
-                <p className="eyebrow">Projects & Scope</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="create-project-title">Create project</p>
                   <InfoTooltip

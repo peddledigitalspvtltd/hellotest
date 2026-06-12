@@ -2890,7 +2890,6 @@ function SuiteCaseEditorModal({
       >
         <div className="suite-test-case-editor-header">
           <div className="suite-test-case-editor-title">
-            <p className="eyebrow">Test Suites</p>
             <div className="modal-title-info-row">
               <p className="eyebrow" id="suite-case-editor-title">{isCreatingCase ? "Create test case" : selectedTestCase ? `Edit ${selectedTestCase.title}` : "Test case editor"}</p>
               <InfoTooltip
@@ -3450,7 +3449,7 @@ function SuiteExecutionModal({
         <form className="execution-create-form" onSubmit={onSubmit}>
           <div className="execution-create-header">
             <div className="execution-create-title">
-              <p className="eyebrow">Test Runs</p>
+              <p>Test Runs</p>
               <div className="modal-title-info-row">
                 <p className="eyebrow" id="create-suite-execution-title">Create Manual Run</p>
                 <InfoTooltip

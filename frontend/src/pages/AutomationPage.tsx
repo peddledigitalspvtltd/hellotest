@@ -3629,7 +3629,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	              >
 	                <div className="import-modal-header">
 	                  <div className="import-modal-title">
-	                    <p className="eyebrow">Object Repository Import</p>
+	                    <p>Object Repository Import</p>
 	                    <div className="modal-title-info-row">
 	                      <p className="eyebrow" id="object-repository-import-title">Import screens and fields</p>
 	                      <InfoTooltip
