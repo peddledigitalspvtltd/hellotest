@@ -244,7 +244,6 @@ export function AiDesignStudioModal({
       >
         <div className="ai-studio-header">
           <div className="ai-studio-header-copy">
-            <p className="eyebrow">Requirements</p>
             <p className="eyebrow">{requirementLabel}</p>
             <p>{selectedRequirementCount} of {requirements.length} selected</p>
           </div>

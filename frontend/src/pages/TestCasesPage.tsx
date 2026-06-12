@@ -7285,7 +7285,6 @@ export function TestCasesPage() {
           >
             <div className="import-modal-header">
               <div className="import-modal-title">
-                <p className="eyebrow">Bulk Import</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="bulk-import-title">Import test cases from external sources</p>
                   <InfoTooltip

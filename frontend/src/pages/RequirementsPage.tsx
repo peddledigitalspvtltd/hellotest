@@ -1782,7 +1782,7 @@ export function RequirementsPage() {
                 </div>
 
                 <div className="metric-strip compact">
-                  <div className="mini-card">
+                  <div className="mini-card short">
                     <strong>{createSelectedTestCaseIds.length}</strong>
                     <span>Linked test cases</span>
                   </div>
@@ -1858,7 +1858,6 @@ export function RequirementsPage() {
           >
             <div className="import-modal-header">
               <div className="import-modal-title">
-                <p className="eyebrow">Bulk Import</p>
                 <div className="modal-title-info-row">
                   <p className="eyebrow" id="bulk-requirement-import-title">Import requirements from CSV</p>
                   <InfoTooltip
@@ -1980,7 +1979,6 @@ export function RequirementsPage() {
           >
             <div className="requirement-create-header">
               <div className="requirement-create-title">
-                <p className="eyebrow">AI Product Owner</p>
                 <p className="eyebrow">Complete requirement</p>
                 <p>
                   {optimizeTargets.length > 1
