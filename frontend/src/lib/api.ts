@@ -18,7 +18,7 @@ import type {
   Execution,
   ExecutionResult,
   ExecutionSchedule,
-  Feedback,
+  Issue,
   Integration,
   KeyValueEntry,
   Permission,
@@ -459,14 +459,14 @@ export const api = {
     update: (projectId: string, id: string, input: any) => request<any>(`/projects/${projectId}/knowledge/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" })
   },
-  feedback: {
+  issues: {
     list: (query?: { user_id?: string; status?: string }) =>
-      request<Feedback[]>(`/feedback${toQueryString(query)}`),
+      request<Issue[]>(`/issues${toQueryString(query)}`),
     create: (input: { user_id: string; title: string; message: string; status?: string }) =>
-      request<{ id: string }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
+      request<{ id: string }>("/issues", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ user_id: string; title: string; message: string; status: string }>) =>
-      request<{ updated: boolean }>(`/feedback/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    delete: (id: string) => request<{ deleted: boolean }>(`/feedback/${id}`, { method: "DELETE" })
+      request<{ updated: boolean }>(`/issues/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/issues/${id}`, { method: "DELETE" })
   },
   integrations: {
     list: (query?: { type?: Integration["type"]; is_active?: boolean }) =>

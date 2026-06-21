@@ -18,20 +18,29 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { parseTestDataFile, toKeyValueRows } from "../lib/testDataImport";
-import { countGeneratedTestDataFields, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import { countGeneratedTestDataFields, hasTestDataGeneratorTemplate, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import { TEST_ENVIRONMENT_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { KeyValueEntry, TestConfiguration, TestDataSet, TestDataSetMode, TestDataSetRow, TestEnvironment } from "../types";
 
 type TestEnvironmentPageView = "environments" | "data" | "configurations";
 
-const DEFAULT_TEST_DATA_UTILS = [
-  { key: "email", label: "Yopmail email", template: TEST_DATA_GENERATOR_TEMPLATES.yopmail, group: "Default utility" },
-  { key: "run_date", label: "Today's date", template: TEST_DATA_GENERATOR_TEMPLATES.date, group: "Default utility" },
-  { key: "future_date", label: "Tomorrow", template: TEST_DATA_GENERATOR_TEMPLATES.tomorrow, group: "Default utility" },
-  { key: "unique_id", label: "Random text", template: TEST_DATA_GENERATOR_TEMPLATES.randomString, group: "Default utility" },
-  { key: "random_number", label: "Random number", template: TEST_DATA_GENERATOR_TEMPLATES.randomNumber, group: "Default utility" },
-  { key: "timestamp", label: "Timestamp", template: TEST_DATA_GENERATOR_TEMPLATES.timestamp, group: "Default utility" },
-  { key: "ai_data", label: "AI data", template: TEST_DATA_GENERATOR_TEMPLATES.aiData, group: "Default utility" }
+type TestDataUtilityOption = {
+  id: string;
+  key: string;
+  label: string;
+  template: string;
+  group: "Data utility" | "Saved template";
+  source?: string;
+};
+
+const DEFAULT_TEST_DATA_UTILS: TestDataUtilityOption[] = [
+  { id: "default-yopmail", key: "email", label: "Yopmail email", template: TEST_DATA_GENERATOR_TEMPLATES.yopmail, group: "Data utility" },
+  { id: "default-date", key: "run_date", label: "Today's date", template: TEST_DATA_GENERATOR_TEMPLATES.date, group: "Data utility" },
+  { id: "default-tomorrow", key: "future_date", label: "Tomorrow", template: TEST_DATA_GENERATOR_TEMPLATES.tomorrow, group: "Data utility" },
+  { id: "default-random-string", key: "unique_id", label: "Random text", template: TEST_DATA_GENERATOR_TEMPLATES.randomString, group: "Data utility" },
+  { id: "default-random-number", key: "random_number", label: "Random number", template: TEST_DATA_GENERATOR_TEMPLATES.randomNumber, group: "Data utility" },
+  { id: "default-timestamp", key: "timestamp", label: "Timestamp", template: TEST_DATA_GENERATOR_TEMPLATES.timestamp, group: "Data utility" },
+  { id: "default-ai-data", key: "ai_data", label: "AI data", template: TEST_DATA_GENERATOR_TEMPLATES.aiData, group: "Data utility" }
 ];
 
 type EnvironmentDraft = {
@@ -88,6 +97,28 @@ function TestDataUtilityIcon() {
       <path d="M20.3 16h1.2" />
       <path d="m13.1 18.3.9-.8" />
       <path d="m20 14.5.9-.8" />
+    </svg>
+  );
+}
+
+function TableExpandIcon({ isExpanded }: { isExpanded: boolean }) {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
+      {isExpanded ? (
+        <>
+          <path d="M8 3v5H3" />
+          <path d="M16 3v5h5" />
+          <path d="M8 21v-5H3" />
+          <path d="M16 21v-5h5" />
+        </>
+      ) : (
+        <>
+          <path d="M8 3H3v5" />
+          <path d="M16 3h5v5" />
+          <path d="M8 21H3v-5" />
+          <path d="M16 21h5v-5" />
+        </>
+      )}
     </svg>
   );
 }
@@ -195,6 +226,77 @@ const dataSetToDraft = (dataSet: TestDataSet): DataSetDraft => ({
   rows: dataSet.rows
 });
 
+const createTemplateKey = (value: unknown) =>
+  String(value || "template")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "template";
+
+const collectTemplateUtilitiesFromRows = ({
+  rows,
+  source,
+  columns = []
+}: {
+  rows: TestDataSetRow[];
+  source: string;
+  columns?: string[];
+}) => {
+  const seen = new Set<string>();
+
+  return rows.flatMap((row, rowIndex) =>
+    Object.entries(row).flatMap(([field, value]) => {
+      const template = String(value ?? "").trim();
+
+      if (!template || !hasTestDataGeneratorTemplate(template) || seen.has(template)) {
+        return [];
+      }
+
+      seen.add(template);
+      const fieldLabel = field === "value" && row.key ? String(row.key) : field;
+      const columnLabel = columns.includes(field) ? field : fieldLabel;
+
+      return [{
+        id: `saved-${createTemplateKey(source)}-${createTemplateKey(columnLabel)}-${rowIndex}`,
+        key: createTemplateKey(columnLabel),
+        label: columnLabel || "Saved template",
+        template,
+        group: "Saved template" as const,
+        source
+      }];
+    })
+  );
+};
+
+const buildDataUtilityOptions = (draft: DataSetDraft, dataSets: TestDataSet[] = []): TestDataUtilityOption[] => {
+  const defaultTemplateValues = new Set(DEFAULT_TEST_DATA_UTILS.map((item) => item.template));
+  const seenTemplates = new Set(defaultTemplateValues);
+  const savedOptions = [
+    ...collectTemplateUtilitiesFromRows({
+      rows: draft.rows,
+      columns: draft.columns,
+      source: draft.name.trim() || "Current draft"
+    }),
+    ...dataSets.flatMap((dataSet) =>
+      collectTemplateUtilitiesFromRows({
+        rows: dataSet.rows,
+        columns: dataSet.columns,
+        source: dataSet.name
+      })
+    )
+  ].filter((item) => {
+    if (seenTemplates.has(item.template)) {
+      return false;
+    }
+
+    seenTemplates.add(item.template);
+    return true;
+  });
+
+  return [...DEFAULT_TEST_DATA_UTILS, ...savedOptions];
+};
+
 const convertDraftToKeyValueRows = (draft: DataSetDraft) => {
   if (draft.mode === "key_value") {
     return draft.rows.map((row) => ({
@@ -235,6 +337,30 @@ const switchDataSetDraftMode = (draft: DataSetDraft, nextMode: TestDataSetMode):
     columns: nextRows.length ? ["key", "value"] : [],
     rows: nextRows
   };
+};
+
+const moveArrayItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= items.length || toIndex >= items.length) {
+    return items;
+  }
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, movedItem);
+  return nextItems;
+};
+
+const getSpreadsheetColumnLabel = (index: number) => {
+  let label = "";
+  let value = index + 1;
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return label;
 };
 
 const draftHasInvalidDataSetChars = (draft: DataSetDraft) => {
@@ -844,6 +970,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                   onChange={setDataSetDraft}
                   onDelete={handleDeleteDataSet}
                   onSubmit={handleUpdateDataSet}
+                  savedDataSets={dataSets}
                   submitLabel={updateDataSet.isPending ? "Saving…" : "Save test data"}
                 />
               ) : (
@@ -898,6 +1025,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
             isSubmitting={createDataSet.isPending}
             onChange={setCreateDataSetDraft}
             onSubmit={handleCreateDataSet}
+            savedDataSets={dataSets}
             submitLabel={createDataSet.isPending ? "Creating…" : "Create test data"}
           />
         </ResourceModalShell>
@@ -1084,6 +1212,7 @@ function DataSetForm({
   onChange,
   onSubmit,
   onDelete,
+  savedDataSets = [],
   submitLabel,
   isSubmitting
 }: {
@@ -1092,95 +1221,16 @@ function DataSetForm({
   onChange: (draft: DataSetDraft) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete?: () => void;
+  savedDataSets?: TestDataSet[];
   submitLabel: string;
   isSubmitting: boolean;
 }) {
   const [importFeedback, setImportFeedback] = useState("");
   const [importFeedbackTone, setImportFeedbackTone] = useState<"success" | "error">("success");
   const [previewRevision, setPreviewRevision] = useState(0);
-  const [templateSearchTerm, setTemplateSearchTerm] = useState("");
-  const [targetTemplateColumn, setTargetTemplateColumn] = useState("");
   const generatedFieldCount = useMemo(() => countGeneratedTestDataFields(draft.rows), [draft.rows]);
   const generatedPreviewRows = useMemo(() => materializeTestDataRows(draft.rows), [draft.rows, previewRevision]);
-  const templateTargetColumns = draft.mode === "table" ? draft.columns : [];
-  const selectedTemplateColumn = targetTemplateColumn && templateTargetColumns.includes(targetTemplateColumn)
-    ? targetTemplateColumn
-    : templateTargetColumns[0] || "";
-  const savedTemplateUtils = useMemo(() => {
-    const seen = new Set<string>();
-    return draft.rows.flatMap((row) =>
-      Object.entries(row).flatMap(([key, value]) => {
-        const template = String(value ?? "").trim();
-        if (!template || !template.includes("{{") || seen.has(template)) {
-          return [];
-        }
-        seen.add(template);
-        return [{
-          key: String(key || "saved_template").replace(/\s+/g, "_").toLowerCase(),
-          label: String(key || "Saved template"),
-          template,
-          group: "Saved in this data set"
-        }];
-      })
-    );
-  }, [draft.rows]);
-  const filteredTemplateUtils = useMemo(() => {
-    const search = templateSearchTerm.trim().toLowerCase();
-    return [...DEFAULT_TEST_DATA_UTILS, ...savedTemplateUtils].filter((item) => {
-      if (!search) {
-        return true;
-      }
-      return `${item.label} ${item.key} ${item.template} ${item.group}`.toLowerCase().includes(search);
-    });
-  }, [savedTemplateUtils, templateSearchTerm]);
-
-  const appendGeneratedField = (requestedKey: string, template: string) => {
-    const existingKeys = new Set(
-      (draft.mode === "key_value" ? draft.rows.map((row) => String(row.key ?? "")) : draft.columns)
-        .map((key) => key.toLowerCase())
-    );
-    let key = requestedKey;
-    let suffix = 2;
-
-    while (existingKeys.has(key.toLowerCase())) {
-      key = `${requestedKey}_${suffix}`;
-      suffix += 1;
-    }
-
-    if (draft.mode === "key_value") {
-      onChange({
-        ...draft,
-        columns: ["key", "value"],
-        rows: [...draft.rows, { key, value: template }]
-      });
-      return;
-    }
-
-    const sourceRows = draft.rows.length ? draft.rows : [{}];
-    onChange({
-      ...draft,
-      columns: [...draft.columns, key],
-      rows: sourceRows.map((row) => ({ ...row, [key]: template }))
-    });
-  };
-
-  const applyTemplateUtility = (requestedKey: string, template: string) => {
-    if (draft.mode === "key_value") {
-      appendGeneratedField(requestedKey, template);
-      return;
-    }
-
-    if (!selectedTemplateColumn) {
-      appendGeneratedField(requestedKey, template);
-      return;
-    }
-
-    const sourceRows = draft.rows.length ? draft.rows : [draft.columns.reduce<TestDataSetRow>((row, column) => ({ ...row, [column]: "" }), {})];
-    onChange({
-      ...draft,
-      rows: sourceRows.map((row) => ({ ...row, [selectedTemplateColumn]: template }))
-    });
-  };
+  const utilityOptions = useMemo(() => buildDataUtilityOptions(draft, savedDataSets), [draft, savedDataSets]);
 
   const handleDataFileImport = async (file?: File | null) => {
     if (!file) {
@@ -1265,83 +1315,20 @@ function DataSetForm({
 
         {importFeedback ? <p className={importFeedbackTone === "error" ? "form-error resource-import-feedback" : "form-success resource-import-feedback"}>{importFeedback}</p> : null}
 
-        <div className="detail-summary">
-          <strong>
-            {draft.mode === "table"
-              ? `${draft.columns.length} column${draft.columns.length === 1 ? "" : "s"} · ${draft.rows.length} row${draft.rows.length === 1 ? "" : "s"}`
-              : `${draft.rows.length} key/value pair${draft.rows.length === 1 ? "" : "s"}`}
-          </strong>
-          <InfoTooltip
-            content={draft.mode === "table"
-              ? "Import a JSON, CSV, or spreadsheet file, or add columns first and then add rows."
-              : "Switch back to spreadsheet mode anytime. Existing key/value entries will stay convertible."}
-            label="Test data editor information"
-          />
-        </div>
-
-        <section className="test-data-generator-panel">
-          <div className="test-data-generator-header">
-            <div>
-              <div className="panel-title-row">
-                <strong>Dynamic values per run</strong>
-                <InfoTooltip
-                  content="Keep templates in this data set. Each new run and rerun resolves fresh values and stores its resolved snapshot."
-                  label="Dynamic test data information"
-                />
+        {generatedFieldCount ? (
+          <section className="test-data-generator-panel">
+            <div className="test-data-generator-header">
+              <div>
+                <div className="panel-title-row">
+                  <strong>Run data resolution</strong>
+                  <InfoTooltip
+                    content="Generator templates stay in the saved test data set. Runs resolve them into fresh values and retain the resolved run snapshot."
+                    label="Dynamic test data information"
+                  />
+                </div>
               </div>
-            </div>
-            {generatedFieldCount ? (
               <span className="count-pill">{generatedFieldCount} generated field{generatedFieldCount === 1 ? "" : "s"}</span>
-            ) : null}
-          </div>
-          <div className="test-data-generator-picker">
-            <div className="test-data-generator-search-row">
-              <input
-                aria-label="Search test data utilities"
-                onChange={(event) => setTemplateSearchTerm(event.target.value)}
-                placeholder="Search default and saved data utilities"
-                type="search"
-                value={templateSearchTerm}
-              />
-              {draft.mode === "table" ? (
-                <select
-                  aria-label="Target table column"
-                  disabled={!templateTargetColumns.length}
-                  onChange={(event) => setTargetTemplateColumn(event.target.value)}
-                  value={selectedTemplateColumn}
-                >
-                  {!templateTargetColumns.length ? <option value="">Add a column first</option> : null}
-                  {templateTargetColumns.map((column) => (
-                    <option key={column} value={column}>{column}</option>
-                  ))}
-                </select>
-              ) : null}
             </div>
-            <div className="test-data-generator-actions">
-              {filteredTemplateUtils.map((item) => (
-                <button
-                  className="test-data-generator-utility"
-                  key={`${item.group}-${item.key}-${item.template}`}
-                  onClick={() => applyTemplateUtility(item.key, item.template)}
-                  type="button"
-                >
-                  <span>{item.group}</span>
-                  <strong>{item.label}</strong>
-                  <code>{item.template}</code>
-                </button>
-              ))}
-              {!filteredTemplateUtils.length ? <div className="empty-state compact">No data utilities match this search.</div> : null}
-            </div>
-          </div>
-          <InfoTooltip
-            content={(
-              <>
-                You can type templates in any value cell, for example <code>{"{{yopmail:signup}}"}</code>, <code>{"{{date:YYYY-MM-DD|+7d}}"}</code>, or <code>{"ORD-{{randomNumber:6}}"}</code>.
-              </>
-            )}
-            label="Template syntax information"
-          />
-          {generatedFieldCount ? (
             <div className="test-data-generator-preview">
               <div className="test-data-generator-preview-header">
                 <strong>Sample before run</strong>
@@ -1366,8 +1353,8 @@ function DataSetForm({
                 label="Generated data preview information"
               />
             </div>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
         {draft.mode === "key_value" ? (
           <KeyValueEditor
@@ -1375,6 +1362,7 @@ function DataSetForm({
             heading="Test data pairs"
             emptyMessage="No test data pairs added yet."
             multilineValue
+            utilityOptions={utilityOptions}
             onChange={(entries) =>
               onChange({
                 ...draft,
@@ -1384,7 +1372,7 @@ function DataSetForm({
             }
           />
         ) : (
-          <DataTableEditor draft={draft} onChange={onChange} />
+          <DataTableEditor draft={draft} onChange={onChange} utilityOptions={utilityOptions} />
         )}
       </div>
 
@@ -1396,13 +1384,119 @@ function DataSetForm({
   );
 }
 
+function DataUtilityPicker({
+  options,
+  onSelect
+}: {
+  options: TestDataUtilityOption[];
+  onSelect: (template: string) => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const filteredOptions = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+
+    if (!search) {
+      return options;
+    }
+
+    return options.filter((option) =>
+      [
+        option.label,
+        option.template,
+        option.group,
+        option.source || "",
+        option.key
+      ].join(" ").toLowerCase().includes(search)
+    );
+  }, [options, searchTerm]);
+
+  return (
+    <div className="test-data-utility-panel">
+      <input
+        aria-label="Search data utilities"
+        onChange={(event) => setSearchTerm(event.target.value)}
+        placeholder="Search data utilities"
+        type="search"
+        value={searchTerm}
+      />
+      <div className="test-data-utility-list">
+        {filteredOptions.map((option) => (
+          <button
+            className="test-data-utility-option"
+            key={option.id}
+            onClick={() => onSelect(option.template)}
+            type="button"
+          >
+            <span className="test-data-utility-option-meta">
+              {option.group}{option.source ? ` · ${option.source}` : ""}
+            </span>
+            <strong>{option.label}</strong>
+            <code>{option.template}</code>
+          </button>
+        ))}
+        {!filteredOptions.length ? <div className="empty-state compact test-data-utility-empty">No matching utilities.</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function TestDataCellValueEditor({
+  value,
+  onChange,
+  utilityOptions,
+  isUtilityOpen,
+  onToggleUtility,
+  onApplyUtility,
+  utilityLabel
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  utilityOptions: TestDataUtilityOption[];
+  isUtilityOpen: boolean;
+  onToggleUtility: () => void;
+  onApplyUtility: (template: string) => void;
+  utilityLabel: string;
+}) {
+  return (
+    <div className="test-data-cell-editor">
+      <div className="test-data-cell-input-row">
+        <textarea
+          className="resource-data-cell"
+          rows={Math.min(Math.max(String(value || "").split("\n").length, 2), 5)}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          aria-expanded={isUtilityOpen}
+          aria-label={utilityLabel}
+          className={isUtilityOpen ? "test-data-cell-utility-trigger is-active" : "test-data-cell-utility-trigger"}
+          onClick={onToggleUtility}
+          title="Data utilities"
+          type="button"
+        >
+          <TestDataUtilityIcon />
+        </button>
+      </div>
+      {isUtilityOpen ? (
+        <DataUtilityPicker
+          options={utilityOptions}
+          onSelect={(template) => {
+            onApplyUtility(template);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function KeyValueEditor({
   heading,
   entries,
   onChange,
   emptyMessage,
   allowSecret = false,
-  multilineValue = false
+  multilineValue = false,
+  utilityOptions
 }: {
   heading: string;
   entries: KeyValueEntry[];
@@ -1410,7 +1504,10 @@ function KeyValueEditor({
   emptyMessage: string;
   allowSecret?: boolean;
   multilineValue?: boolean;
+  utilityOptions?: TestDataUtilityOption[];
 }) {
+  const [activeUtilityRow, setActiveUtilityRow] = useState<number | null>(null);
+
   return (
     <div className="resource-table-shell">
       <div className="resource-table-toolbar">
@@ -1445,7 +1542,32 @@ function KeyValueEditor({
                   />
                 </td>
                 <td>
-                  {multilineValue && !entry.is_secret ? (
+                  {multilineValue && !entry.is_secret && utilityOptions ? (
+                    <TestDataCellValueEditor
+                      isUtilityOpen={activeUtilityRow === index}
+                      onApplyUtility={(template) => {
+                        setActiveUtilityRow(null);
+                        onChange(
+                          entries.map((current, currentIndex) =>
+                            currentIndex === index
+                              ? { ...current, value: template, has_stored_value: current.has_stored_value || Boolean(template) }
+                              : current
+                          )
+                        );
+                      }}
+                      onChange={(value) =>
+                        onChange(
+                          entries.map((current, currentIndex) =>
+                            currentIndex === index ? { ...current, value, has_stored_value: current.has_stored_value || Boolean(value) } : current
+                          )
+                        )
+                      }
+                      onToggleUtility={() => setActiveUtilityRow((current) => (current === index ? null : index))}
+                      utilityLabel={`Open data utilities for ${entry.key || `pair ${index + 1}`}`}
+                      utilityOptions={utilityOptions}
+                      value={entry.value}
+                    />
+                  ) : multilineValue && !entry.is_secret ? (
                     <textarea
                       rows={Math.min(Math.max(String(entry.value || "").split("\n").length, 2), 5)}
                       value={entry.value}
@@ -1512,13 +1634,19 @@ function KeyValueEditor({
 
 function DataTableEditor({
   draft,
-  onChange
+  onChange,
+  utilityOptions
 }: {
   draft: DataSetDraft;
   onChange: (draft: DataSetDraft) => void;
+  utilityOptions: TestDataUtilityOption[];
 }) {
   const columns = draft.columns;
   const rows = draft.rows;
+  const [activeUtilityCell, setActiveUtilityCell] = useState("");
+  const [activeUtilityColumn, setActiveUtilityColumn] = useState<number | null>(null);
+  const [dragState, setDragState] = useState<{ type: "column" | "row"; index: number } | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const handleAddColumn = () => {
     const nextColumnName = `Column ${columns.length + 1}`;
     onChange({
@@ -1544,12 +1672,123 @@ function DataTableEditor({
       rows: [...rows, columns.reduce<TestDataSetRow>((accumulator, column) => ({ ...accumulator, [column]: "" }), {})]
     });
   };
+  const updateCellValue = (rowIndex: number, column: string, value: string) => {
+    onChange({
+      ...draft,
+      columns,
+      rows: rows.map((currentRow, currentIndex) =>
+        currentIndex === rowIndex ? { ...currentRow, [column]: value } : currentRow
+      )
+    });
+  };
+  const applyUtilityToColumn = (column: string, template: string) => {
+    const nextRows = rows.length
+      ? rows.map((row) => ({ ...row, [column]: template }))
+      : [columns.reduce<TestDataSetRow>((accumulator, currentColumn) => ({ ...accumulator, [currentColumn]: currentColumn === column ? template : "" }), {})];
+
+    onChange({
+      ...draft,
+      columns,
+      rows: nextRows
+    });
+  };
+  const handleRenameColumn = (columnIndex: number, value: string) => {
+    const column = columns[columnIndex];
+    const baseColumn = value || `Column ${columnIndex + 1}`;
+    let nextColumn = baseColumn;
+    let duplicateCount = 2;
+
+    while (columns.some((currentColumn, currentIndex) => currentIndex !== columnIndex && currentColumn === nextColumn)) {
+      nextColumn = `${baseColumn} ${duplicateCount}`;
+      duplicateCount += 1;
+    }
+
+    const nextColumns = [...columns];
+    nextColumns[columnIndex] = nextColumn;
+    onChange({
+      ...draft,
+      columns: nextColumns,
+      rows: rows.map((row) => {
+        const nextRow = { ...row, [nextColumn]: row[column] ?? "" };
+        if (nextColumn !== column) {
+          delete nextRow[column];
+        }
+        return nextRow;
+      })
+    });
+  };
+  const handleRemoveColumn = (columnIndex: number) => {
+    const column = columns[columnIndex];
+    const nextColumns = columns.filter((_, currentIndex) => currentIndex !== columnIndex);
+
+    onChange({
+      ...draft,
+      columns: nextColumns,
+      rows: nextColumns.length
+        ? rows.map((row) => {
+            const nextRow = { ...row };
+            delete nextRow[column];
+            return nextRow;
+          })
+        : []
+    });
+  };
+  const handleMoveColumn = (fromIndex: number, toIndex: number) => {
+    const nextColumns = moveArrayItem(columns, fromIndex, toIndex);
+
+    if (nextColumns === columns) {
+      return;
+    }
+
+    onChange({
+      ...draft,
+      columns: nextColumns,
+      rows
+    });
+  };
+  const handleMoveRow = (fromIndex: number, toIndex: number) => {
+    const nextRows = moveArrayItem(rows, fromIndex, toIndex);
+
+    if (nextRows === rows) {
+      return;
+    }
+
+    onChange({
+      ...draft,
+      columns,
+      rows: nextRows
+    });
+  };
+  const handleColumnDrop = (columnIndex: number) => {
+    if (dragState?.type === "column") {
+      handleMoveColumn(dragState.index, columnIndex);
+    }
+
+    setDragState(null);
+  };
+  const handleRowDrop = (rowIndex: number) => {
+    if (dragState?.type === "row") {
+      handleMoveRow(dragState.index, rowIndex);
+    }
+
+    setDragState(null);
+  };
 
   return (
-    <div className="resource-table-shell">
+    <div className={isExpanded ? "resource-table-shell is-expanded" : "resource-table-shell"}>
       <div className="resource-table-toolbar">
         <strong>Table data</strong>
         <div className="resource-table-actions">
+          <button
+            aria-pressed={isExpanded}
+            className="ghost-button resource-table-add-button"
+            onClick={() => setIsExpanded((current) => !current)}
+            title={isExpanded ? "Collapse table editor" : "Expand table editor"}
+            type="button"
+          >
+            <TableExpandIcon isExpanded={isExpanded} />
+            <span>{isExpanded ? "Collapse" : "Expand"}</span>
+          </button>
           <button className="ghost-button resource-table-add-button" onClick={handleAddColumn} type="button">
             <AddIcon />
             <span>Add column</span>
@@ -1572,88 +1811,135 @@ function DataTableEditor({
       ) : null}
 
       {columns.length ? (
-        <div className="table-wrap">
-          <table className="data-table resource-data-table">
+        <div className="table-wrap resource-sheet-wrap">
+          <table className="data-table resource-data-table resource-sheet-table">
             <thead>
               <tr>
+                <th className="resource-sheet-corner" aria-label="Row controls" />
                 {columns.map((column, columnIndex) => (
-                  <th key={`${column}-${columnIndex}`}>
+                  <th
+                    className={dragState?.type === "column" && dragState.index === columnIndex ? "resource-sheet-column is-dragging" : "resource-sheet-column"}
+                    key={`${column}-${columnIndex}`}
+                    onDragOver={(event) => {
+                      if (dragState?.type === "column") {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                      }
+                    }}
+                    onDrop={() => handleColumnDrop(columnIndex)}
+                  >
                     <div className="resource-column-header">
-                      <input
-                        value={column}
-                        onChange={(event) => {
-                          const baseColumn = event.target.value || `Column ${columnIndex + 1}`;
-                          let nextColumn = baseColumn;
-                          let duplicateCount = 2;
-
-                          while (columns.some((currentColumn, currentIndex) => currentIndex !== columnIndex && currentColumn === nextColumn)) {
-                            nextColumn = `${baseColumn} ${duplicateCount}`;
-                            duplicateCount += 1;
-                          }
-
-                          const nextColumns = [...columns];
-                          nextColumns[columnIndex] = nextColumn;
-                          onChange({
-                            ...draft,
-                            columns: nextColumns,
-                            rows: rows.map((row) => {
-                              const nextRow = { ...row, [nextColumn]: row[column] ?? "" };
-                              if (nextColumn !== column) {
-                                delete nextRow[column];
-                              }
-                              return nextRow;
-                            })
-                          });
+                      <span className="resource-column-letter">{getSpreadsheetColumnLabel(columnIndex)}</span>
+                      <button
+                        aria-label={`Move column ${getSpreadsheetColumnLabel(columnIndex)}`}
+                        className="resource-column-drag-handle"
+                        draggable
+                        onDragEnd={() => setDragState(null)}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", `column:${columnIndex}`);
+                          setDragState({ type: "column", index: columnIndex });
                         }}
+                        title="Drag column"
+                        type="button"
+                      >
+                        <span aria-hidden="true">::</span>
+                      </button>
+                      <input
+                        aria-label={`Column ${getSpreadsheetColumnLabel(columnIndex)} name`}
+                        value={column}
+                        onChange={(event) => handleRenameColumn(columnIndex, event.target.value)}
                       />
                       <button
-                        className="ghost-button danger resource-column-remove"
+                        aria-expanded={activeUtilityColumn === columnIndex}
+                        aria-label={`Open data utilities for column ${column}`}
+                        className={activeUtilityColumn === columnIndex ? "test-data-cell-utility-trigger is-active resource-column-utility-trigger" : "test-data-cell-utility-trigger resource-column-utility-trigger"}
                         onClick={() => {
-                          const nextColumns = columns.filter((_, currentIndex) => currentIndex !== columnIndex);
-                          onChange({
-                            ...draft,
-                            columns: nextColumns,
-                            rows: nextColumns.length
-                              ? rows.map((row) => {
-                                  const nextRow = { ...row };
-                                  delete nextRow[column];
-                                  return nextRow;
-                                })
-                              : []
-                          });
+                          setActiveUtilityCell("");
+                          setActiveUtilityColumn((current) => (current === columnIndex ? null : columnIndex));
                         }}
+                        title="Data utilities"
+                        type="button"
+                      >
+                        <TestDataUtilityIcon />
+                      </button>
+                      <button
+                        className="ghost-button danger resource-column-remove"
+                        onClick={() => handleRemoveColumn(columnIndex)}
+                        title="Remove column"
                         type="button"
                       >
                         x
                       </button>
+                      {activeUtilityColumn === columnIndex ? (
+                        <div className="resource-column-utility-popover">
+                          <DataUtilityPicker
+                            options={utilityOptions}
+                            onSelect={(template) => {
+                              applyUtilityToColumn(column, template);
+                              setActiveUtilityColumn(null);
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </th>
                 ))}
-                <th />
+                <th className="resource-sheet-action-header" aria-label="Row actions" />
               </tr>
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
-                <tr key={`row-${rowIndex}`}>
+                <tr
+                  className={dragState?.type === "row" && dragState.index === rowIndex ? "is-row-dragging" : ""}
+                  key={`row-${rowIndex}`}
+                  onDragOver={(event) => {
+                    if (dragState?.type === "row") {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }
+                  }}
+                  onDrop={() => handleRowDrop(rowIndex)}
+                >
+                  <td className="resource-row-header">
+                    <button
+                      aria-label={`Move row ${rowIndex + 1}`}
+                      className="resource-row-drag-handle"
+                      draggable
+                      onDragEnd={() => setDragState(null)}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", `row:${rowIndex}`);
+                        setDragState({ type: "row", index: rowIndex });
+                      }}
+                      title="Drag row"
+                      type="button"
+                    >
+                      <span className="resource-row-number">{rowIndex + 1}</span>
+                      <span aria-hidden="true" className="resource-row-drag-glyph">::</span>
+                    </button>
+                  </td>
                   {columns.map((column, columnIndex) => (
                     <td key={`${rowIndex}-${columnIndex}`}>
-                      <textarea
-                        className="resource-data-cell"
-                        rows={Math.min(Math.max(String(row[column] ?? "").split("\n").length, 2), 5)}
+                      <TestDataCellValueEditor
+                        isUtilityOpen={activeUtilityCell === `${rowIndex}:${columnIndex}`}
+                        onApplyUtility={(template) => {
+                          updateCellValue(rowIndex, column, template);
+                          setActiveUtilityCell("");
+                        }}
+                        onChange={(value) => updateCellValue(rowIndex, column, value)}
+                        onToggleUtility={() => {
+                          const cellId = `${rowIndex}:${columnIndex}`;
+                          setActiveUtilityColumn(null);
+                          setActiveUtilityCell((current) => (current === cellId ? "" : cellId));
+                        }}
+                        utilityLabel={`Open data utilities for row ${rowIndex + 1}, ${column}`}
+                        utilityOptions={utilityOptions}
                         value={row[column] ?? ""}
-                        onChange={(event) =>
-                          onChange({
-                            ...draft,
-                            columns,
-                            rows: rows.map((currentRow, currentIndex) =>
-                              currentIndex === rowIndex ? { ...currentRow, [column]: event.target.value } : currentRow
-                            )
-                          })
-                        }
                       />
                     </td>
                   ))}
-                  <td>
+                  <td className="resource-sheet-action-cell">
                     <button
                       className="ghost-button danger resource-table-remove"
                       onClick={() =>
@@ -1672,6 +1958,9 @@ function DataTableEditor({
               ))}
               {!rows.length ? (
                 <tr>
+                  <td className="resource-row-header">
+                    <span className="resource-row-number">1</span>
+                  </td>
                   <td colSpan={columns.length + 1}>
                     <div className="empty-state compact resource-table-empty">
                       <span>No rows yet. Add one row or import a file with data.</span>
@@ -1685,19 +1974,6 @@ function DataTableEditor({
               ) : null}
             </tbody>
           </table>
-        </div>
-      ) : null}
-
-      {columns.length ? (
-        <div className="resource-table-quick-actions" aria-label="Table editing actions">
-          <button className="primary-button resource-table-add-button" onClick={handleAddRow} type="button">
-            <AddIcon />
-            <span>Add row</span>
-          </button>
-          <button className="ghost-button resource-table-add-button" onClick={handleAddColumn} type="button">
-            <AddIcon />
-            <span>Add column</span>
-          </button>
         </div>
       ) : null}
     </div>

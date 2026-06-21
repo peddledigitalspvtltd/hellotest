@@ -14562,21 +14562,67 @@ button.execution-activity-card {
   height: 1rem;
 }
 
-.resource-table-quick-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  padding: 0.65rem 0;
-  background: linear-gradient(180deg, transparent, var(--panel-strong) 28%);
-}
-
 .resource-data-table {
   min-width: max-content;
+}
+
+.resource-sheet-wrap {
+  max-height: min(62vh, 40rem);
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.resource-sheet-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.resource-sheet-table th,
+.resource-sheet-table td {
+  min-width: 18rem;
+}
+
+.resource-sheet-table .resource-sheet-corner,
+.resource-sheet-table .resource-row-header {
+  width: 3.8rem;
+  min-width: 3.8rem;
+  max-width: 3.8rem;
+  padding: 0;
+  text-align: center;
+}
+
+.resource-sheet-table .resource-sheet-action-header,
+.resource-sheet-table .resource-sheet-action-cell {
+  width: 7.5rem;
+  min-width: 7.5rem;
+  max-width: 7.5rem;
+}
+
+.resource-sheet-corner,
+.resource-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--panel-strong);
+  box-shadow: 10px 0 18px rgba(15, 23, 42, 0.05);
+}
+
+.resource-sheet-corner {
+  z-index: 8;
+}
+
+.resource-sheet-action-header,
+.resource-sheet-action-cell {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--panel-strong);
+  box-shadow: -10px 0 18px rgba(15, 23, 42, 0.06);
+}
+
+.resource-sheet-action-header {
+  z-index: 7;
 }
 
 .resource-data-table input {
@@ -14609,10 +14655,106 @@ button.execution-activity-card {
 }
 
 .resource-column-header {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1.9rem minmax(10rem, 1fr) 2.25rem 2rem;
   align-items: center;
-  gap: 0.5rem;
-  min-width: 11rem;
+  gap: 0.35rem;
+  min-width: 18rem;
+}
+
+.resource-column-header input {
+  width: 100%;
+  min-width: 0;
+}
+
+.resource-column-letter {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid rgba(33, 104, 243, 0.12);
+  border-radius: 8px;
+  background: rgba(33, 104, 243, 0.08);
+  color: var(--primary-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.resource-column-drag-handle,
+.resource-row-drag-handle {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: grab;
+}
+
+.resource-column-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.resource-column-drag-handle:active,
+.resource-row-drag-handle:active {
+  cursor: grabbing;
+}
+
+.resource-column-drag-handle:hover,
+.resource-column-drag-handle:focus-visible,
+.resource-row-drag-handle:hover,
+.resource-row-drag-handle:focus-visible {
+  border-color: rgba(33, 104, 243, 0.18);
+  background: rgba(33, 104, 243, 0.08);
+  color: var(--primary-strong);
+}
+
+.resource-column-utility-trigger {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+}
+
+.resource-column-utility-popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 2.45rem;
+  z-index: 30;
+}
+
+.resource-row-drag-handle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 4.4rem;
+  padding: 0.45rem;
+  border-radius: 0;
+  font: inherit;
+}
+
+.resource-row-number {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.resource-row-drag-glyph {
+  opacity: 0.62;
+}
+
+.resource-sheet-column.is-dragging,
+.resource-sheet-table tr.is-row-dragging > td {
+  opacity: 0.68;
+  background: rgba(33, 104, 243, 0.08);
 }
 
 .resource-column-remove {
@@ -18017,6 +18159,7 @@ textarea:focus-visible,
 
 .integration-type-badge,
 .resource-card-badge,
+.issue-card-badge,
 .feedback-card-badge,
 .people-card-badge {
   min-width: 2.35rem;
@@ -18069,6 +18212,7 @@ textarea:focus-visible,
 }
 
 .integration-card-footer,
+.issue-card-footer,
 .feedback-card-footer,
 .people-card-footer,
 .resource-card-footer {
@@ -18192,6 +18336,7 @@ textarea:focus-visible,
 
 :root[data-theme="dark"] .integration-type-badge,
 :root[data-theme="dark"] .resource-card-badge,
+:root[data-theme="dark"] .issue-card-badge,
 :root[data-theme="dark"] .feedback-card-badge,
 :root[data-theme="dark"] .people-card-badge {
   background: linear-gradient(135deg, rgba(108, 167, 255, 0.16), rgba(108, 167, 255, 0.3));
@@ -18295,7 +18440,7 @@ textarea:focus-visible,
 /* 2026 sidebar alignment and scrollbar polish */
 :root {
   --sidebar-expanded-width: 16.35rem;
-  --sidebar-collapsed-width: 5rem;
+  --sidebar-collapsed-width: 5.5rem;
   --sidebar-collapsed-slot-size: 3.55rem;
   --app-shell-frame-size: clamp(0.75rem, 1vw, 1.25rem);
   --app-scrollbar-size: 0.52rem;
@@ -19609,7 +19754,7 @@ html {
 /* 2026 responsive workspace navigation refresh */
 :root {
   --sidebar-expanded-width: clamp(14.25rem, 15.8vw, 15.9rem);
-  --sidebar-collapsed-width: clamp(4.75rem, 5vw, 5rem);
+  --sidebar-collapsed-width: 5.5rem;
   --sidebar-collapsed-slot-size: clamp(3.3rem, 3.8vw, 3.55rem);
 }
 
@@ -25423,7 +25568,7 @@ body > .modal-backdrop {
   --focus-ring: #1d4ed8;
   --radius: 8px;
   --sidebar-expanded-width: 17.5rem;
-  --sidebar-collapsed-width: 5.25rem;
+  --sidebar-collapsed-width: 5.5rem;
   background: var(--shell-bg);
 }
 
@@ -25695,6 +25840,7 @@ body {
 
 .tile-card-footer,
 .integration-card-footer,
+.issue-card-footer,
 .feedback-card-footer,
 .people-card-footer,
 .resource-card-footer {
@@ -29674,6 +29820,32 @@ button[aria-label*="Run manually"]:hover:not(:disabled) {
   overflow: hidden;
 }
 
+.resource-table-shell.is-expanded {
+  position: fixed;
+  inset: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  z-index: 3200;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.85rem;
+  max-height: none;
+  padding: 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 30px 80px rgba(8, 18, 32, 0.3), inset 0 1px 0 var(--glass-highlight);
+}
+
+.resource-table-shell.is-expanded .resource-table-toolbar {
+  position: static;
+}
+
+.resource-table-shell.is-expanded .table-wrap,
+.resource-table-shell.is-expanded .resource-sheet-wrap {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+}
+
 .resource-table-shell .table-wrap {
   max-height: min(58vh, 38rem);
   overflow: auto;
@@ -29705,6 +29877,283 @@ button[aria-label*="Run manually"]:hover:not(:disabled) {
 .resource-data-cell {
   min-width: 14rem;
   resize: vertical;
+}
+
+.resource-sheet-wrap {
+  max-height: min(62vh, 40rem);
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  border-radius: 8px;
+  background: var(--shell-panel, var(--panel-strong));
+}
+
+.resource-sheet-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.resource-sheet-table th,
+.resource-sheet-table td {
+  min-width: 18rem;
+}
+
+.resource-sheet-table .resource-sheet-corner,
+.resource-sheet-table .resource-row-header {
+  width: 3.8rem;
+  min-width: 3.8rem;
+  max-width: 3.8rem;
+  padding: 0;
+  text-align: center;
+}
+
+.resource-sheet-table .resource-sheet-action-header,
+.resource-sheet-table .resource-sheet-action-cell {
+  width: 7.5rem;
+  min-width: 7.5rem;
+  max-width: 7.5rem;
+}
+
+.resource-sheet-table thead th {
+  top: 0;
+  z-index: 5;
+}
+
+.resource-data-table .resource-sheet-corner,
+.resource-data-table .resource-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--data-grid-header-bg, var(--panel-strong));
+  box-shadow: 10px 0 18px rgba(15, 23, 42, 0.05);
+}
+
+.resource-data-table .resource-sheet-corner {
+  z-index: 8;
+}
+
+.resource-data-table .resource-sheet-action-header,
+.resource-data-table .resource-sheet-action-cell {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--panel-strong);
+  box-shadow: -10px 0 18px rgba(15, 23, 42, 0.06);
+}
+
+.resource-data-table .resource-sheet-action-header {
+  z-index: 7;
+}
+
+.resource-column-header {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1.9rem minmax(10rem, 1fr) 2.25rem 2rem;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 18rem;
+}
+
+.resource-column-header input {
+  width: 100%;
+  min-width: 0;
+}
+
+.resource-column-letter {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--primary-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.resource-column-drag-handle,
+.resource-row-drag-handle {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: grab;
+}
+
+.resource-column-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.resource-column-drag-handle:active,
+.resource-row-drag-handle:active {
+  cursor: grabbing;
+}
+
+.resource-column-drag-handle:hover,
+.resource-column-drag-handle:focus-visible,
+.resource-row-drag-handle:hover,
+.resource-row-drag-handle:focus-visible {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary-strong);
+}
+
+.resource-column-utility-trigger {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+}
+
+.resource-column-utility-popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 2.45rem;
+  z-index: 30;
+}
+
+.resource-row-drag-handle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 4.4rem;
+  padding: 0.45rem;
+  border-radius: 0;
+  font: inherit;
+}
+
+.resource-row-number {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.resource-row-drag-glyph {
+  opacity: 0.62;
+}
+
+.resource-sheet-column.is-dragging,
+.resource-sheet-table tr.is-row-dragging > td {
+  opacity: 0.68;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.resource-sheet-table .test-data-cell-editor {
+  min-width: 16rem;
+}
+
+.test-data-cell-editor {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 17rem;
+}
+
+.test-data-cell-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.45rem;
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.test-data-cell-input-row .resource-data-cell {
+  width: 100%;
+  min-width: 0;
+}
+
+.test-data-cell-utility-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 2.45rem;
+  min-width: 2.45rem;
+  height: 2.45rem;
+  padding: 0;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--primary-strong);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.test-data-cell-utility-trigger svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.test-data-cell-utility-trigger:hover,
+.test-data-cell-utility-trigger:focus-visible,
+.test-data-cell-utility-trigger.is-active {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.test-data-utility-panel {
+  display: grid;
+  gap: 0.55rem;
+  width: min(22rem, calc(100vw - 3rem));
+  padding: 0.65rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+}
+
+.test-data-utility-panel input {
+  min-height: 2.35rem;
+}
+
+.test-data-utility-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 17rem;
+  overflow: auto;
+}
+
+.test-data-utility-option {
+  display: grid;
+  gap: 0.2rem;
+  min-height: 4.35rem;
+  padding: 0.6rem 0.65rem;
+  border: 1px solid rgba(133, 154, 189, 0.2);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.test-data-utility-option:hover,
+.test-data-utility-option:focus-visible {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: rgba(239, 246, 255, 0.92);
+}
+
+.test-data-utility-option-meta {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.test-data-utility-option strong,
+.test-data-utility-option code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.test-data-utility-empty {
+  margin: 0;
 }
 
 :root[data-theme="dark"] .profile-password-panel,
@@ -29839,15 +30288,25 @@ button[aria-label*="Run manually"]:hover:not(:disabled) {
 }
 
 :root[data-theme="dark"] .test-data-generator-utility,
+:root[data-theme="dark"] .test-data-utility-option,
 :root[data-theme="dark"] .execution-structured-log-row--verbose,
 :root[data-theme="dark"] .execution-verbose-log-details {
   background: rgba(15, 23, 42, 0.72);
+}
+
+:root[data-theme="dark"] .test-data-utility-panel {
+  background: rgba(15, 23, 42, 0.96);
 }
 
 @media (max-width: 720px) {
   .test-data-generator-search-row,
   .execution-verbose-log-details summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resource-table-shell.is-expanded {
+    inset: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
+    padding: 0.65rem;
   }
 }
 
@@ -30750,7 +31209,7 @@ body > .modal-backdrop {
 
 :root[data-sidebar="collapsed"] .app-shell,
 :root[data-sidebar="collapsed"] .app-shell.app-layout {
-  grid-template-columns: var(--sidebar-collapsed-width, 4.5rem) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-collapsed-width, 5.5rem) minmax(0, 1fr);
 }
 
 .app-layout .sidebar,
@@ -30870,7 +31329,7 @@ body > .nested-modal-backdrop {
 /* 2026-06-08 live layout repair v2: make the rail itself the scroll flow. */
 :root {
   --qaira-layout-fix-revision: "20260608-sidebar-scope-modal-v2";
-  --sidebar-collapsed-width: 4.5rem;
+  --sidebar-collapsed-width: 5.5rem;
 }
 
 :root[data-sidebar="collapsed"] .app-shell,
@@ -30915,6 +31374,10 @@ body > .nested-modal-backdrop {
   overflow-x: hidden !important;
   overflow-y: auto !important;
   max-height: 100% !important;
+}
+
+.sidebar.is-collapsed .nav-list {
+  justify-content: center;
 }
 
 .sidebar-footer {

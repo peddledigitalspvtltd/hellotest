@@ -69,7 +69,7 @@ export type Requirement = {
   updated_at?: string;
 };
 
-export type Feedback = {
+export type Issue = {
   id: string;
   user_id: string;
   user_name?: string | null;
@@ -151,7 +151,11 @@ export type DomainMetadata = {
     result_statuses: DomainOption[];
     impact_levels: DomainOption[];
   };
-  feedback: {
+  issues: {
+    default_status: string;
+    statuses: DomainOption[];
+  };
+  feedback?: {
     default_status: string;
     statuses: DomainOption[];
   };

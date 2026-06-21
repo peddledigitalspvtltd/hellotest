@@ -194,6 +194,7 @@ const FEEDBACK_STATUS_OPTIONS = freezeOptions([
   { value: "planned", label: "Planned" },
   { value: "closed", label: "Closed" }
 ]);
+const ISSUE_STATUS_OPTIONS = FEEDBACK_STATUS_OPTIONS;
 
 const PRIORITY_SCALE = Object.freeze([1, 2, 3, 4, 5]);
 
@@ -235,9 +236,13 @@ const DOMAIN_METADATA = Object.freeze({
     result_statuses: EXECUTION_RESULT_STATUS_OPTIONS,
     impact_levels: EXECUTION_IMPACT_LEVEL_OPTIONS
   },
+  issues: {
+    default_status: "open",
+    statuses: ISSUE_STATUS_OPTIONS
+  },
   feedback: {
     default_status: "open",
-    statuses: FEEDBACK_STATUS_OPTIONS
+    statuses: ISSUE_STATUS_OPTIONS
   }
 });
 
@@ -266,6 +271,8 @@ module.exports = {
   EXECUTION_FINAL_STATUS_VALUES: optionValues(EXECUTION_FINAL_STATUS_OPTIONS),
   EXECUTION_RESULT_STATUS_OPTIONS,
   EXECUTION_RESULT_STATUS_VALUES: optionValues(EXECUTION_RESULT_STATUS_OPTIONS),
+  ISSUE_STATUS_OPTIONS,
+  ISSUE_STATUS_VALUES: optionValues(ISSUE_STATUS_OPTIONS),
   FEEDBACK_STATUS_OPTIONS,
   FEEDBACK_STATUS_VALUES: optionValues(FEEDBACK_STATUS_OPTIONS),
   PRIORITY_SCALE

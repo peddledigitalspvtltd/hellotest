@@ -1,28 +1,28 @@
 const db = require("../db");
 const { v4: uuid } = require("uuid");
-const { FEEDBACK_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
+const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 
-const DEFAULT_FEEDBACK_STATUS = DOMAIN_METADATA.feedback.default_status;
+const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
 const normalizeStatus = (value) => {
   if (value === undefined || value === null || value === "") {
-    return DEFAULT_FEEDBACK_STATUS;
+    return DEFAULT_ISSUE_STATUS;
   }
 
   const normalized = String(value).trim();
 
   if (!normalized) {
-    return DEFAULT_FEEDBACK_STATUS;
+    return DEFAULT_ISSUE_STATUS;
   }
 
-  if (!FEEDBACK_STATUS_VALUES.includes(normalized)) {
-    throw new Error("Invalid feedback status");
+  if (!ISSUE_STATUS_VALUES.includes(normalized)) {
+    throw new Error("Invalid issue status");
   }
 
   return normalized;
 };
 
-exports.createFeedback = async ({ user_id, title, message, status }) => {
+exports.createIssue = async ({ user_id, title, message, status }) => {
   if (!user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
@@ -47,7 +47,7 @@ exports.createFeedback = async ({ user_id, title, message, status }) => {
   return { id };
 };
 
-exports.getFeedback = async ({ user_id, status } = {}) => {
+exports.getIssues = async ({ user_id, status } = {}) => {
   let query = `
     SELECT feedback.*, users.name AS user_name, users.email AS user_email
     FROM feedback
@@ -71,7 +71,7 @@ exports.getFeedback = async ({ user_id, status } = {}) => {
   return db.prepare(query).all(...params);
 };
 
-exports.getFeedbackItem = async (id) => {
+exports.getIssueItem = async (id) => {
   const item = await db.prepare(`
     SELECT feedback.*, users.name AS user_name, users.email AS user_email
     FROM feedback
@@ -80,14 +80,14 @@ exports.getFeedbackItem = async (id) => {
   `).get(id);
 
   if (!item) {
-    throw new Error("Feedback not found");
+    throw new Error("Issue not found");
   }
 
   return item;
 };
 
-exports.updateFeedback = async (id, data) => {
-  const existing = await exports.getFeedbackItem(id);
+exports.updateIssue = async (id, data) => {
+  const existing = await exports.getIssueItem(id);
 
   if (data.user_id && data.user_id !== existing.user_id) {
     const user = await db.prepare(`
@@ -116,8 +116,8 @@ exports.updateFeedback = async (id, data) => {
   return { updated: true };
 };
 
-exports.deleteFeedback = async (id) => {
-  await exports.getFeedbackItem(id);
+exports.deleteIssue = async (id) => {
+  await exports.getIssueItem(id);
 
   await db.prepare(`
     DELETE FROM feedback

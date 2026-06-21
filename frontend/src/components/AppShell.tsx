@@ -65,6 +65,7 @@ const navigation = [
         matchPaths: ["/executions"],
         disabledWhenNoProjects: true
       },
+      { id: "issues", to: "/issues", label: "Report Issue", shortLabel: "Issue", icon: ChatIcon },
       {
         id: "testops",
         to: "/testops",
@@ -100,8 +101,7 @@ const navigation = [
     items: [
       { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon },
       { id: "settings", to: "/settings", label: "Settings", shortLabel: "Settings", icon: CogIcon },
-      { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon },
-      { id: "feedback", to: "/feedback", label: "Feedback", shortLabel: "Feedback", icon: ChatIcon }
+      { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon }
     ]
   }
 ] as const;
@@ -317,8 +317,8 @@ export function AppShell() {
         return t("nav.notifications", defaultLabel);
       case "settings":
         return t("nav.settings", defaultLabel);
-      case "feedback":
-        return t("nav.feedback", defaultLabel);
+      case "issues":
+        return t("nav.reportIssue", defaultLabel);
       default:
         return defaultLabel;
     }

@@ -77,6 +77,7 @@ const PATH_PERMISSIONS: Record<string, string[]> = {
   "/test-configurations": ["configuration.view"],
   "/test-data": ["data.view"],
   "/knowledge-repo": ["knowledge.view"],
+  "/issues": ["feedback.view"],
   "/feedback": ["feedback.view"],
   "/settings": ["settings.manage"],
   "/support": ["workspace.view"],

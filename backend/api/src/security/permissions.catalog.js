@@ -109,8 +109,8 @@ const PERMISSION_GROUPS = [
     permissions: [
       ["transaction.view", "View background transactions, events, and artifacts"],
       ["transaction.manage", "Delete background transactions"],
-      ["feedback.view", "View feedback"],
-      ["feedback.manage", "Create, update, and delete feedback"],
+      ["feedback.view", "View reported issues"],
+      ["feedback.manage", "Create, update, and delete reported issues"],
       ["ops.view", "View operational metadata, metrics, and local agent status"],
       ["ops.manage", "Manage operational telemetry"]
     ]
@@ -356,6 +356,11 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/workspace-transactions/:id/artifacts", "transaction.view"],
   ["GET", "/workspace-transactions/:id/artifacts/:artifactId/download", "transaction.view"],
   ["DELETE", "/workspace-transactions/:id", "transaction.manage"],
+  ["GET", "/issues", "feedback.view"],
+  ["GET", "/issues/:id", "feedback.view"],
+  ["POST", "/issues", "feedback.manage"],
+  ["PUT", "/issues/:id", "feedback.manage"],
+  ["DELETE", "/issues/:id", "feedback.manage"],
   ["GET", "/feedback", "feedback.view"],
   ["GET", "/feedback/:id", "feedback.view"],
   ["POST", "/feedback", "feedback.manage"],

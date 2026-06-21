@@ -25,7 +25,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { RequirementsPage } from "./pages/RequirementsPage";
-import { FeedbackPage } from "./pages/FeedbackPage";
+import { IssuesPage } from "./pages/IssuesPage";
 import { TestCasesPage } from "./pages/TestCasesPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { SupportPage } from "./pages/SupportPage";
@@ -47,7 +47,8 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/integrations": { key: "page.integrations", fallback: "Integrations" },
   "/design": { key: "page.design", fallback: "Test Design" },
   "/requirements": { key: "page.requirements", fallback: "Requirements" },
-  "/feedback": { key: "page.feedback", fallback: "Feedback" },
+  "/issues": { key: "page.issues", fallback: "Report Issue" },
+  "/feedback": { key: "page.issues", fallback: "Report Issue" },
   "/support": { key: "page.support", fallback: "Support" },
   "/notifications": { key: "page.notifications", fallback: "Notifications" },
   "/settings": { key: "page.settings", fallback: "Settings" },
@@ -183,7 +184,8 @@ const router = createBrowserRouter([
       { path: "integrations", element: <IntegrationsPage /> },
       { path: "design", element: <DesignPage /> },
       { path: "requirements", element: <RequirementsPage /> },
-      { path: "feedback", element: <FeedbackPage /> },
+      { path: "issues", element: <IssuesPage /> },
+      { path: "feedback", element: <Navigate to="/issues" replace /> },
       { path: "support", element: <SupportPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "settings", element: <SettingsPage /> },

@@ -1,8 +1,8 @@
 import { FormEvent, Fragment, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ActivityIcon, ArchiveIcon, CalendarIcon, EyeIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
+import { ActivityIcon, ArchiveIcon, CalendarIcon, EyeIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, MailIcon, MessageIcon, OpenIcon, PlayIcon, SearchIcon, SparkIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
 import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -1193,6 +1193,7 @@ function isBatchProcessTransaction(transaction: WorkspaceTransaction) {
 
 export function ExecutionsPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
@@ -2905,6 +2906,36 @@ export function ExecutionsPage() {
   const handleOpenReportEmailModal = () => {
     setReportEmailDraft(session?.user.email || "");
     setIsReportEmailModalOpen(true);
+  };
+
+  const handleReportSelectedExecutionIssue = () => {
+    if (!selectedExecution) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("create", "1");
+    params.set("run", selectedExecution.id);
+    params.set("status", currentExecutionStatus);
+    params.set("title", `Run issue: ${selectedExecution.name || selectedExecution.id}`);
+
+    if (selectedExecution.name) {
+      params.set("runName", selectedExecution.name);
+    }
+
+    params.set("message", [
+      "Reported from run details.",
+      "",
+      `Run ID: ${selectedExecution.id}`,
+      selectedExecution.name ? `Run name: ${selectedExecution.name}` : "",
+      `Run status: ${currentExecutionStatus}`,
+      `Run trigger: ${selectedExecution.trigger || "manual"}`,
+      `Run totals: ${executionProgress.totalCases} cases, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked`,
+      "",
+      "Issue details:"
+    ].filter(Boolean).join("\n"));
+
+    navigate(`/issues?${params.toString()}`);
   };
 
   const handleShareExecutionReport = async (event: FormEvent<HTMLFormElement>) => {
@@ -5529,6 +5560,15 @@ export function ExecutionsPage() {
                         >
                           <MailIcon />
                           <span>Email report</span>
+                        </button>
+                        <button
+                          className="ghost-button"
+                          disabled={!selectedExecution}
+                          onClick={handleReportSelectedExecutionIssue}
+                          type="button"
+                        >
+                          <MessageIcon />
+                          <span>Report Issue</span>
                         </button>
 
                         <button

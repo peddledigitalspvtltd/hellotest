@@ -122,7 +122,7 @@ export function OverviewPage() {
   const [projectId] = useCurrentProject();
   const {
     users,
-    feedback,
+    issues,
     projects,
     projectMembers,
     requirements,
@@ -135,7 +135,7 @@ export function OverviewPage() {
   } = useWorkspaceData();
 
   const usersListRaw = users.data || [];
-  const feedbackList = feedback.data || [];
+  const issuesList = issues.data || [];
   const projectsList = projects.data || [];
   const projectMembersList = projectMembers.data || [];
   const appTypesListRaw = appTypes.data || [];
@@ -305,13 +305,13 @@ export function OverviewPage() {
     [usersList]
   );
 
-  const openFeedbackCount = useMemo(
+  const openIssueCount = useMemo(
     () =>
-      feedbackList.filter((item) => {
+      issuesList.filter((item) => {
         const normalizedStatus = String(item.status || "open").trim().toLowerCase();
         return normalizedStatus !== "closed" && normalizedStatus !== "resolved";
       }).length,
-    [feedbackList]
+    [issuesList]
   );
 
   const readinessTone = resolveScoreTone(releaseReadinessScore);
@@ -468,14 +468,14 @@ export function OverviewPage() {
         id: "team",
         eyebrow: "People and intake",
         value: compactNumberFormatter.format(usersList.length),
-        title: "Access control and workspace feedback stay visible alongside delivery work.",
-        description: "The tool already covers admin access, user management, and feedback intake, so the dashboard should acknowledge them.",
-        tone: openFeedbackCount ? "info" as const : "neutral" as const,
-        chipLabel: `${openFeedbackCount} open feedback`,
+        title: "Access control and reported issues stay visible alongside delivery work.",
+        description: "The tool already covers admin access, user management, and issue intake, so the dashboard should acknowledge them.",
+        tone: openIssueCount ? "info" as const : "neutral" as const,
+        chipLabel: `${openIssueCount} open issues`,
         stats: [
           `${adminUserCount} admin${adminUserCount === 1 ? "" : "s"}`,
           `${Math.max(usersList.length - adminUserCount, 0)} member${usersList.length - adminUserCount === 1 ? "" : "s"}`,
-          `${feedbackList.length} total feedback`
+          `${issuesList.length} total issues`
         ]
       }
     ];
@@ -488,8 +488,8 @@ export function OverviewPage() {
     coverageGapCount,
     executionStatusCounts.running,
     executionsList.length,
-    feedbackList.length,
-    openFeedbackCount,
+    issuesList.length,
+    openIssueCount,
     passRate,
     projectsList.length,
     requirementCoverage,
