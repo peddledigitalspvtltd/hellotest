@@ -21010,10 +21010,17 @@ html {
   align-items: end;
 }
 
-.projects-catalog-panel .panel-heading {
-  font-family: Outfit, Inter, sans-serif;
-  font-size: 1.8rem;
-  line-height: 1;
+.projects-catalog-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.projects-catalog-create-button {
+  min-height: 2.75rem;
+  white-space: nowrap;
 }
 
 .projects-view-toggle {
@@ -27115,9 +27122,20 @@ textarea:focus-visible,
 
   .projects-command-actions > button,
   .projects-catalog-panel .panel-head-actions,
+  .projects-catalog-actions,
+  .projects-catalog-actions .catalog-view-toggle,
+  .projects-catalog-create-button,
   .projects-view-toggle,
   .project-card-top-actions {
     width: 100%;
+  }
+
+  .projects-catalog-actions {
+    justify-content: stretch;
+  }
+
+  .projects-catalog-create-button {
+    justify-content: center;
   }
 
   .project-card-top-actions {
@@ -31456,4 +31474,169 @@ body > .nested-modal-backdrop {
     min-width: 0 !important;
     max-width: none !important;
   }
+}
+
+.sidebar:not(.is-collapsed) .nav-link-label,
+.sidebar:not(.is-collapsed) .nav-sublink-label {
+  font-family: Outfit, Inter, "Segoe UI", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.sidebar:not(.is-collapsed) .nav-link-label {
+  font-size: 0.88rem;
+}
+
+.sidebar:not(.is-collapsed) .nav-sublink-label {
+  font-size: 0.8rem;
+}
+
+:root {
+  --workspace-section-separator: rgba(126, 149, 188, 0.24);
+  --workspace-section-separator-strong: rgba(126, 149, 188, 0.32);
+  --workspace-top-header-surface: rgba(255, 255, 255, 0.84);
+}
+
+.workspace-main > .page-content,
+.workspace-main > .page-content.page-content--library-full,
+.workspace-main > .page-content.page-content--executions-full,
+.workspace-main > .page-content--automation,
+.workspace-main > .page-content--testops,
+.workspace-main > .workspace-content {
+  gap: 0 !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script),
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) + :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script),
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) + :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) {
+  border-top: 1px solid var(--workspace-section-separator) !important;
+}
+
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .page-header,
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .page-header.card,
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .projects-command-card,
+:root:not([data-theme="dark"]) .workspace-main > .workspace-content > .page-header,
+:root:not([data-theme="dark"]) .workspace-main > .workspace-content > .page-header.card {
+  border-color: rgba(126, 149, 188, 0.14);
+  border-bottom-color: var(--workspace-section-separator-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 251, 255, 0.66)),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.055), transparent 36%);
+  box-shadow:
+    0 12px 30px rgba(15, 23, 42, 0.045),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.58);
+}
+
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .page-header:first-of-type,
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .page-header.card:first-of-type,
+:root:not([data-theme="dark"]) .workspace-main > .page-content > .projects-command-card:first-of-type,
+:root:not([data-theme="dark"]) .workspace-main > .workspace-content > .page-header:first-of-type,
+:root:not([data-theme="dark"]) .workspace-main > .workspace-content > .page-header.card:first-of-type {
+  border-radius: 18px 18px 0 0;
+}
+
+:root[data-theme="dark"] {
+  --workspace-section-separator: rgba(145, 176, 231, 0.18);
+  --workspace-section-separator-strong: rgba(145, 176, 231, 0.24);
+}
+
+:root {
+  --workspace-main-edge-space: 0.5rem;
+  --workspace-master-radius: 22px;
+  --workspace-master-border: rgba(126, 149, 188, 0.24);
+  --workspace-master-surface: rgba(255, 255, 255, 0.68);
+}
+
+.workspace-main,
+.workspace-main.main,
+.workspace-main.main--library-fill {
+  padding: var(--workspace-main-edge-space) !important;
+}
+
+.workspace-main > .page-content,
+.workspace-main > .workspace-content {
+  border: 1px solid var(--workspace-master-border);
+  border-radius: var(--workspace-master-radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(248, 251, 255, 0.58)),
+    var(--workspace-master-surface);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.055);
+  padding: 0 !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script),
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) {
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) + :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script),
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) + :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script) {
+  border-top: 1px solid var(--workspace-section-separator) !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script):first-child,
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script):first-child {
+  border-top-width: 0 !important;
+  border-top-left-radius: calc(var(--workspace-master-radius) - 1px) !important;
+  border-top-right-radius: calc(var(--workspace-master-radius) - 1px) !important;
+}
+
+.workspace-main > .page-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script):last-child,
+.workspace-main > .workspace-content > :not(.toast-message):not(.modal-backdrop):not(.nested-modal-backdrop):not(script):last-child {
+  border-bottom-width: 0 !important;
+  border-bottom-left-radius: calc(var(--workspace-master-radius) - 1px) !important;
+  border-bottom-right-radius: calc(var(--workspace-master-radius) - 1px) !important;
+}
+
+.workspace-main > .page-content > .workspace-master-detail,
+.workspace-main > .workspace-content > .workspace-master-detail {
+  border-left-width: 0 !important;
+  border-right-width: 0 !important;
+}
+
+.workspace-main > .page-content > .workspace-master-detail > .workspace-master-detail-panel > .panel,
+.workspace-main > .workspace-content > .workspace-master-detail > .workspace-master-detail-panel > .panel {
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] {
+  --workspace-master-border: rgba(145, 176, 231, 0.2);
+  --workspace-master-surface: rgba(8, 17, 31, 0.7);
+}
+
+.app-layout .sidebar,
+.sidebar {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-weight: 500;
+}
+
+.sidebar .brand-copy strong,
+.sidebar .brand-copy span,
+.sidebar .nav-group-label,
+.sidebar .nav-link,
+.sidebar .nav-branch-link,
+.sidebar .nav-sublink,
+.sidebar .nav-link-label,
+.sidebar .nav-sublink-label,
+.sidebar .sidebar-project-picker span,
+.sidebar .sidebar-context-card,
+.sidebar .sidebar-context-card strong,
+.sidebar .sidebar-context-card span,
+.sidebar .theme-toggle strong,
+.sidebar .theme-toggle span,
+.sidebar .user-chip-copy strong,
+.sidebar .user-chip-copy span,
+.sidebar .sidebar-signout {
+  font-family: inherit !important;
+  font-weight: 500 !important;
+  letter-spacing: 0;
 }

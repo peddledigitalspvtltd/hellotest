@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, GithubIcon, GoogleDriveIcon, GridIcon, ListIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
@@ -398,7 +399,7 @@ export function ProjectsPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
   const [projectMemberFilter, setProjectMemberFilter] = useState("all");
-  const [projectViewMode, setProjectViewMode] = useState<"cards" | "list">("cards");
+  const [projectViewMode, setProjectViewMode] = useState<"tile" | "list">("tile");
   const defaultAppTypeValue = domainMetadataQuery.data?.app_types.default_type || "web";
   const appTypeTypeOptions = domainMetadataQuery.data?.app_types.types || [];
   const appTypeDropdownOptions = useMemo(
@@ -1358,25 +1359,19 @@ export function ProjectsPage() {
           <Panel
             className="projects-catalog-panel"
             title="Project Portfolio"
+            titleVariant="eyebrow"
             subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or app types."
             actions={(
-              <div className="projects-view-toggle" aria-label="Project view options">
+              <div className="projects-catalog-actions">
                 <button
-                  aria-label="Card view"
-                  className={projectViewMode === "cards" ? "is-active" : ""}
-                  onClick={() => setProjectViewMode("cards")}
+                  className="ghost-button projects-catalog-create-button"
+                  onClick={openCreateProjectModal}
                   type="button"
                 >
-                  <GridIcon />
+                  <AddIcon />
+                  <span>Create New Project</span>
                 </button>
-                <button
-                  aria-label="List view"
-                  className={projectViewMode === "list" ? "is-active" : ""}
-                  onClick={() => setProjectViewMode("list")}
-                  type="button"
-                >
-                  <ListIcon />
-                </button>
+                <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
               </div>
             )}
           >
@@ -1432,7 +1427,7 @@ export function ProjectsPage() {
             </div>
             {isProjectCatalogLoading ? <TileCardSkeletonGrid className="catalog-grid compact" /> : null}
             {!isProjectCatalogLoading ? (
-              projectViewMode === "cards" ? (
+              projectViewMode === "tile" ? (
                 <div className="projects-grid">
                   {filteredProjectItems.map((item) => {
                     const { project, coverage, automationCoverage, passCoverage } = item;

@@ -461,12 +461,12 @@ export const api = {
   },
   issues: {
     list: (query?: { user_id?: string; status?: string }) =>
-      request<Issue[]>(`/issues${toQueryString(query)}`),
+      request<Issue[]>(`/feedback${toQueryString(query)}`),
     create: (input: { user_id: string; title: string; message: string; status?: string }) =>
-      request<{ id: string }>("/issues", { method: "POST", body: JSON.stringify(input) }),
+      request<{ id: string }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ user_id: string; title: string; message: string; status: string }>) =>
-      request<{ updated: boolean }>(`/issues/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    delete: (id: string) => request<{ deleted: boolean }>(`/issues/${id}`, { method: "DELETE" })
+      request<{ updated: boolean }>(`/feedback/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/feedback/${id}`, { method: "DELETE" })
   },
   integrations: {
     list: (query?: { type?: Integration["type"]; is_active?: boolean }) =>
