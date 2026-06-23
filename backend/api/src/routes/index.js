@@ -23,6 +23,7 @@ module.exports = async function (fastify) {
     fastify.register(require("./executions.routes"));
     fastify.register(require("./executionSchedules.routes"));
     fastify.register(require("./executionResults.routes"));
+    fastify.register(require("./agenticWorkflows.routes"));
     fastify.register(require("./testEngineCallbacks.routes"));
     fastify.register(require("./testEngineInternal.routes"));
     fastify.register(require("./engine.routes"));

@@ -803,6 +803,86 @@ export type ExecutionSchedule = {
   updated_at?: string;
 };
 
+export type AgenticWorkflowStatus = "draft" | "active" | "paused" | "archived";
+
+export type AgenticWorkflowTriggerKind = "manual" | "webhook" | "schedule" | "release" | "event";
+
+export type AgenticWorkflowNodeData = {
+  label?: string;
+  name?: string;
+  kind?: "trigger" | "agent" | "tool" | "condition" | "transform" | "output" | string;
+  summary?: string;
+  prompt?: string;
+  inputKey?: string;
+  outputKey?: string;
+  sampleOutput?: string;
+  model?: string;
+  tool?: string;
+  [key: string]: unknown;
+};
+
+export type AgenticWorkflowNode = {
+  id: string;
+  type?: string;
+  position: {
+    x: number;
+    y: number;
+  };
+  data: AgenticWorkflowNodeData;
+};
+
+export type AgenticWorkflowEdge = {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  animated?: boolean;
+  type?: string;
+  label?: string;
+  [key: string]: unknown;
+};
+
+export type AgenticWorkflow = {
+  id: string;
+  project_id: string;
+  app_type_id: string | null;
+  name: string;
+  description: string | null;
+  status: AgenticWorkflowStatus;
+  trigger_kind: AgenticWorkflowTriggerKind;
+  nodes: AgenticWorkflowNode[];
+  edges: AgenticWorkflowEdge[];
+  settings: Record<string, unknown>;
+  n8n_payload: Record<string, unknown>;
+  run_count?: number;
+  latest_run_at?: string | null;
+  latest_run_status?: AgenticWorkflowRun["status"] | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AgenticWorkflowRun = {
+  id: string;
+  workflow_id: string | null;
+  project_id: string;
+  app_type_id: string | null;
+  workflow_name: string;
+  status: ExecutionStatus;
+  trigger_kind: AgenticWorkflowTriggerKind;
+  input_payload: Record<string, unknown>;
+  output_payload: Record<string, unknown> | null;
+  workflow_snapshot: Record<string, unknown>;
+  node_results: Array<Record<string, unknown>>;
+  created_by?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type ExecutionCaseSnapshot = {
   execution_id: string;
   test_case_id: string;

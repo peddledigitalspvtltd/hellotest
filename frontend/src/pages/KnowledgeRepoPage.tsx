@@ -332,7 +332,7 @@ export function KnowledgeRepoPage() {
             </button>
           )}
           eyebrow="Administration"
-          title="AI Knowledge Base"
+          title="Knowledge Repo"
           description="Educate QAira's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal."
         />
 

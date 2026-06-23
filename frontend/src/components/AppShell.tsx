@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { ProjectDropdown } from "./ProjectDropdown";
+import { BrandWordmark } from "./BrandWordmark";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
@@ -41,7 +42,6 @@ const navigation = [
         label: "Library",
         shortLabel: "Library",
         icon: FlaskIcon,
-        subItems: TEST_AUTHORING_SECTION_ITEMS,
         matchPaths: TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
       },
@@ -51,8 +51,15 @@ const navigation = [
         label: "Automation",
         shortLabel: "Auto",
         icon: AutomationIcon,
-        subItems: AUTOMATION_SECTION_ITEMS,
         matchPaths: AUTOMATION_SECTION_ITEMS.map((item) => item.to),
+        disabledWhenNoProjects: true
+      },
+      {
+        id: "agentic-workflows",
+        to: "/agentic-workflows",
+        label: "Agentic Workflows",
+        shortLabel: "Agents",
+        icon: WorkflowIcon,
         disabledWhenNoProjects: true
       },
       {
@@ -61,7 +68,6 @@ const navigation = [
         label: "Runs",
         shortLabel: "Runs",
         icon: PlayIcon,
-        subItems: [{ to: "/executions", label: "Run Console", shortLabel: "Console", icon: "executions" }],
         matchPaths: ["/executions"],
         disabledWhenNoProjects: true
       },
@@ -69,10 +75,9 @@ const navigation = [
       {
         id: "testops",
         to: "/testops",
-        label: "Operations",
-        shortLabel: "Ops",
+        label: "TestOps",
+        shortLabel: "TestOps",
         icon: ActivityIcon,
-        subItems: TESTOPS_SECTION_ITEMS,
         matchPaths: TESTOPS_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
       },
@@ -82,25 +87,29 @@ const navigation = [
         label: "Environments",
         shortLabel: "Env",
         icon: ServerIcon,
-        subItems: TEST_ENVIRONMENT_SECTION_ITEMS,
         matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
-      }
+      },
+      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon }
     ]
   },
   {
     label: "Connect",
     items: [
-      { id: "people", to: "/people", label: "People", shortLabel: "People", icon: UsersIcon },
-      { id: "integrations", to: "/integrations", label: "Integrations", shortLabel: "Connect", icon: PlugIcon },
-      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge", shortLabel: "Knowledge", icon: DocumentIcon }
+      {
+        id: "admin-space",
+        to: "/admin-space",
+        label: "Admin Space",
+        shortLabel: "Admin",
+        icon: UsersIcon,
+        matchPaths: ["/admin-space", "/people", "/integrations", "/settings"]
+      }
     ]
   },
   {
     label: "Settings",
     items: [
       { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon },
-      { id: "settings", to: "/settings", label: "Settings", shortLabel: "Settings", icon: CogIcon },
       { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon }
     ]
   }
@@ -299,6 +308,10 @@ export function AppShell() {
         return t("nav.testAuthoring", defaultLabel);
       case "runs":
         return t("nav.testRuns", defaultLabel);
+      case "agentic-workflows":
+        return t("nav.agenticWorkflows", defaultLabel);
+      case "admin-space":
+        return t("nav.adminSpace", defaultLabel);
       case "automation":
         return defaultLabel;
       case "testops":
@@ -354,13 +367,7 @@ export function AppShell() {
         <div className="sidebar-top">
           <div className="sidebar-brand-row">
             <div className="sidebar-brand-lockup">
-              <div
-                aria-label="Qaira Home"
-                className="brand-mark"
-                title={shouldCollapseSidebar ? "Qaira Home" : undefined}
-              >
-                Q
-              </div>
+              <BrandWordmark className="sidebar-brand-mark" variant={shouldCollapseSidebar ? "mark" : "wordmark"} />
             </div>
             {isMobileViewport ? (
               <button
@@ -372,7 +379,7 @@ export function AppShell() {
                 <CloseIcon />
               </button>
             ) : null}
-            {!shouldCollapseSidebar && !isMobileViewport ? (
+            {!isMobileViewport ? (
               <button
                 aria-label={shouldCollapseSidebar ? "Expand sidebar" : "Collapse sidebar"}
                 className="sidebar-collapse-button ghost-button"
@@ -383,18 +390,6 @@ export function AppShell() {
               </button>
             ) : null}
           </div>
-
-          {shouldCollapseSidebar ? (
-          <button
-            aria-label="Expand sidebar"
-            className="sidebar-collapse-button sidebar-collapse-button-compact ghost-button"
-            onClick={toggleSidebarCollapse}
-            title="Expand sidebar"
-            type="button"
-          >
-            <MenuIcon />
-          </button>
-          ) : null}
 
           {!shouldCollapseSidebar ? (
             hasNoProjects ? (
@@ -448,9 +443,6 @@ export function AppShell() {
                   const isDisabled = Boolean("disabledWhenNoProjects" in item && item.disabledWhenNoProjects && hasNoProjects);
                   const badgeCount = "countKey" in item ? navCounts[item.countKey as keyof typeof navCounts] : undefined;
                   const isActive = isNavigationItemActive(item, location.pathname);
-                  const subItems = "subItems" in item
-                    ? item.subItems.filter((subItem) => canAccessPath(session, subItem.to))
-                    : undefined;
 
                   return (
                     <div className="nav-item-stack" key={item.to}>
@@ -473,32 +465,6 @@ export function AppShell() {
                         <span className="nav-link-label">{resolveNavLabel(item)}</span>
                         {!shouldCollapseSidebar && typeof badgeCount === "number" ? <span className="nav-link-badge">{badgeCount}</span> : null}
                       </NavLink>
-
-                      {!shouldCollapseSidebar && subItems?.length ? (
-                        <div className="nav-subgroup">
-                          {subItems.map((subItem) => {
-                            const isSubItemActive = location.pathname === subItem.to;
-                            const SubItemIcon = getWorkspaceSubItemIcon(subItem.icon);
-
-                            return (
-                              <NavLink
-                                aria-current={isSubItemActive ? "page" : undefined}
-                                className={isSubItemActive ? "nav-sublink is-active" : "nav-sublink"}
-                                key={subItem.to}
-                                replace={isActive && location.pathname !== subItem.to}
-                                to={subItem.to}
-                              >
-                                <span className="nav-sublink-icon" aria-hidden="true">
-                                  <SubItemIcon />
-                                </span>
-                                <span className="nav-sublink-label">
-                                  {resolveSubItemLabel(subItem)}
-                                </span>
-                              </NavLink>
-                            );
-                          })}
-                        </div>
-                      ) : null}
                     </div>
                   );
                 })}
@@ -662,6 +628,19 @@ function DocumentIcon() {
   return <IconFrame><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M14 3v6h6" /><path d="M9 13h6" /><path d="M9 17h6" /></IconFrame>;
 }
 
+function OpenBookIcon() {
+  return (
+    <IconFrame>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a2 2 0 0 1 2 2v16a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 1 4 16.5z" />
+      <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13a2 2 0 0 0-2 2v16a2 2 0 0 1 2-2h4.5a2.5 2.5 0 0 0 2.5-2.5z" />
+      <path d="M8 7h2" />
+      <path d="M15 7h2" />
+      <path d="M8 11h2" />
+      <path d="M15 11h2" />
+    </IconFrame>
+  );
+}
+
 function PencilIcon() {
   return <IconFrame><path d="M4 20l4.5-1 9-9-3.5-3.5-9 9z" /><path d="M13.5 6.5l3.5 3.5" /></IconFrame>;
 }
@@ -723,6 +702,19 @@ function RunIcon() {
 
 function ActivityIcon() {
   return <IconFrame><path d="M4 12h3l2-6 4 12 2-6h5" /></IconFrame>;
+}
+
+function WorkflowIcon() {
+  return (
+    <IconFrame>
+      <circle cx="6" cy="7" r="2.5" />
+      <circle cx="18" cy="7" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M8.3 8.5 11 15.7" />
+      <path d="M15.7 8.5 13 15.7" />
+      <path d="M8.5 7h7" />
+    </IconFrame>
+  );
 }
 
 function AutomationIcon() {

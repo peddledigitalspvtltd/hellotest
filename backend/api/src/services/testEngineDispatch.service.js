@@ -81,6 +81,13 @@ const selectLatestResultsForExecution = db.prepare(`
   ORDER BY test_case_id ASC, created_at DESC, id DESC
 `);
 
+const selectLatestJobStatusesForExecution = obsDb.prepare(`
+  SELECT DISTINCT ON (test_case_id) test_case_id, status
+  FROM test_engine_jobs
+  WHERE execution_id = ?
+  ORDER BY test_case_id ASC, created_at DESC, id DESC
+`);
+
 const selectLatestLogsForExecution = db.prepare(`
   SELECT DISTINCT ON (test_case_id) test_case_id, logs
   FROM execution_results
@@ -315,10 +322,22 @@ const normalizeBoolean = (value, fallback = false) => {
   return fallback;
 };
 
-const resolveExecutionPolicy = (execution, caseSnapshot) => {
+const toRowArray = (value) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (Array.isArray(value?.rows)) {
+    return value.rows;
+  }
+
+  return [];
+};
+
+const resolveExecutionPolicy = async (execution, caseSnapshot) => {
   const runParallelEnabled = normalizeBoolean(execution?.parallel_enabled, false);
   const runParallelCount = Math.max(1, normalizeInteger(execution?.parallel_count, 1) ?? 1);
-  const suiteConfig = caseSnapshot?.suite_id ? selectSuiteParallelConfig.get(caseSnapshot.suite_id) : null;
+  const suiteConfig = caseSnapshot?.suite_id ? await selectSuiteParallelConfig.get(caseSnapshot.suite_id) : null;
   const hasSuiteOverride = suiteConfig && suiteConfig.parallel_enabled !== null && suiteConfig.parallel_enabled !== undefined;
   const parallelEnabled = hasSuiteOverride ? normalizeBoolean(suiteConfig.parallel_enabled, false) : runParallelEnabled;
   const parallelCount = parallelEnabled
@@ -915,7 +934,7 @@ const buildManualSpec = ({ caseSnapshot, steps, execution }) => {
   };
 };
 
-const buildEngineEnvelope = ({
+const buildEngineEnvelope = async ({
   engineRunId,
   execution,
   project,
@@ -936,7 +955,7 @@ const buildEngineEnvelope = ({
     || "chromium",
     "chromium"
   );
-  const executionPolicy = resolveExecutionPolicy(execution, caseSnapshot);
+  const executionPolicy = await resolveExecutionPolicy(execution, caseSnapshot);
 
   return {
     engine_run_id: engineRunId,
@@ -1386,7 +1405,7 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         appTypeId: plan.execution.app_type_id,
         testCaseId: item.case_snapshot.test_case_id
       });
-      const envelope = buildEngineEnvelope({
+      const envelope = await buildEngineEnvelope({
         engineRunId: item.engine_run_id,
         execution: plan.execution,
         project: plan.project,
@@ -1521,17 +1540,18 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       appTypeId: plan.execution.app_type_id,
       testCaseId: item.case_snapshot.test_case_id
     });
+    const baseEnvelope = await buildEngineEnvelope({
+      engineRunId: item.engine_run_id,
+      execution: plan.execution,
+      project: plan.project,
+      appType: plan.appType,
+      caseSnapshot: item.case_snapshot,
+      steps: item.steps,
+      integration: directIntegration,
+      objectRepository
+    });
     const envelope = {
-      ...buildEngineEnvelope({
-        engineRunId: item.engine_run_id,
-        execution: plan.execution,
-        project: plan.project,
-        appType: plan.appType,
-        caseSnapshot: item.case_snapshot,
-        steps: item.steps,
-        integration: directIntegration,
-        objectRepository
-      }),
+      ...baseEnvelope,
       callback
     };
     const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
@@ -1676,7 +1696,7 @@ async function queueSingleStepDispatch({
     appTypeId: execution.app_type_id,
     testCaseId
   });
-  const envelope = buildEngineEnvelope({
+  const envelope = await buildEngineEnvelope({
     engineRunId,
     execution,
     project,
@@ -1792,9 +1812,10 @@ async function getQueuedJob(id) {
 }
 
 const isFinalResultStatus = (status) => ["passed", "failed", "blocked"].includes(normalizeText(status));
+const isFinalJobStatus = (status) => ["completed", "failed", "aborted"].includes(normalizeText(status));
 
-const collectPriorExecutionCaptures = (executionId, testCaseId, suiteId, suiteScoped) => {
-  const orderRows = selectExecutionCaseOrder.all(executionId);
+const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, suiteScoped) => {
+  const orderRows = toRowArray(await selectExecutionCaseOrder.all(executionId));
   const current = orderRows.find((row) => row.test_case_id === testCaseId);
 
   if (!current) {
@@ -1815,22 +1836,20 @@ const collectPriorExecutionCaptures = (executionId, testCaseId, suiteId, suiteSc
   }
 
   const captures = {};
-  orderRows
-    .filter((row) =>
-      priorIds.has(row.test_case_id)
-      && (!suiteScoped || (row.suite_id || null) === (suiteId || null))
-    )
-    .forEach((row) => {
-      const caseSnapshot = selectExecutionCaseRuntimeParameters.get(executionId, row.test_case_id) || {};
-      Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.suite_parameter_values, {}))).forEach(([key, value]) => {
-        captures[`s.${key.replace(/^s\./, "")}`] = value;
-      });
-      Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.parameter_values, {}))).forEach(([key, value]) => {
-        captures[`t.${key.replace(/^t\./, "")}`] = value;
-      });
+  for (const row of orderRows.filter((candidate) =>
+    priorIds.has(candidate.test_case_id)
+    && (!suiteScoped || (candidate.suite_id || null) === (suiteId || null))
+  )) {
+    const caseSnapshot = await selectExecutionCaseRuntimeParameters.get(executionId, row.test_case_id) || {};
+    Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.suite_parameter_values, {}))).forEach(([key, value]) => {
+      captures[`s.${key.replace(/^s\./, "")}`] = value;
     });
+    Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.parameter_values, {}))).forEach(([key, value]) => {
+      captures[`t.${key.replace(/^t\./, "")}`] = value;
+    });
+  }
 
-  for (const row of selectLatestLogsForExecution.all(executionId)) {
+  for (const row of toRowArray(await selectLatestLogsForExecution.all(executionId))) {
     if (!priorIds.has(row.test_case_id)) {
       continue;
     }
@@ -1841,8 +1860,8 @@ const collectPriorExecutionCaptures = (executionId, testCaseId, suiteId, suiteSc
   return captures;
 };
 
-const arePriorCasesComplete = (executionId, testCaseId, suiteId, suiteScoped) => {
-  const orderRows = selectExecutionCaseOrder.all(executionId);
+const arePriorCasesComplete = async (executionId, testCaseId, suiteId, suiteScoped) => {
+  const orderRows = toRowArray(await selectExecutionCaseOrder.all(executionId));
   const current = orderRows.find((row) => row.test_case_id === testCaseId);
 
   if (!current) {
@@ -1861,10 +1880,27 @@ const arePriorCasesComplete = (executionId, testCaseId, suiteId, suiteScoped) =>
   }
 
   const latestStatuses = new Map(
-    selectLatestResultsForExecution.all(executionId).map((row) => [row.test_case_id, row.status])
+    toRowArray(await selectLatestResultsForExecution.all(executionId)).map((row) => [row.test_case_id, row.status])
+  );
+  const latestJobStatuses = new Map(
+    toRowArray(await selectLatestJobStatusesForExecution.all(executionId)).map((row) => [row.test_case_id, row.status])
   );
 
-  return priorIds.every((priorId) => isFinalResultStatus(latestStatuses.get(priorId)));
+  return priorIds.every((priorId) => {
+    const resultStatus = latestStatuses.get(priorId);
+
+    if (resultStatus) {
+      return isFinalResultStatus(resultStatus);
+    }
+
+    const jobStatus = latestJobStatuses.get(priorId);
+
+    if (jobStatus) {
+      return isFinalJobStatus(jobStatus);
+    }
+
+    return true;
+  });
 };
 
 const getActiveJobCountForPolicy = async (candidate) => {
@@ -1905,7 +1941,7 @@ const isQueuedJobLeaseEligible = async (candidate) => {
     return false;
   }
 
-  if (!parallelEnabled && !arePriorCasesComplete(candidate.execution_id, candidate.test_case_id, policy.suite_id || null, suiteScoped)) {
+  if (!parallelEnabled && !(await arePriorCasesComplete(candidate.execution_id, candidate.test_case_id, policy.suite_id || null, suiteScoped))) {
     return false;
   }
 
@@ -1915,7 +1951,7 @@ const isQueuedJobLeaseEligible = async (candidate) => {
 const attachPriorCapturesForLease = async (job) => {
   const policy = job.payload?.execution_policy || {};
   const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
-  const priorCaptures = collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped);
+  const priorCaptures = await collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped);
 
   if (!Object.keys(priorCaptures).length) {
     return job;

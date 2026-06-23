@@ -55,7 +55,10 @@ const PERMISSION_GROUPS = [
       ["automation.repository.manage", "Create, import, update, improve, and delete object repository entries"],
       ["automation.build", "Generate or queue automation from manual cases"],
       ["automation.recorder", "Start and finish local recorder sessions"],
-      ["automation.preview", "Run local API/request previews"]
+      ["automation.preview", "Run local API/request previews"],
+      ["agentic_workflow.view", "View agentic workflows and workflow run snapshots"],
+      ["agentic_workflow.manage", "Create, update, and delete agentic workflows"],
+      ["agentic_workflow.run", "Launch agentic workflow runs"]
     ]
   },
   {
@@ -157,6 +160,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     "automation.build",
     "automation.recorder",
     "automation.preview",
+    "agentic_workflow.view",
+    "agentic_workflow.manage",
+    "agentic_workflow.run",
     "run.view",
     "run.create",
     "run.update",
@@ -284,6 +290,14 @@ const ROUTE_PERMISSION_RULES = [
   ["POST", "/test-cases/:id/automation/generator-jobs", "automation.build"],
   ["POST", "/test-cases/:id/automation/recorder-session", "automation.recorder"],
   ["POST", "/test-cases/:id/automation/recorder-session/:sessionId/finish", "automation.recorder"],
+  ["GET", "/agentic-workflows", "agentic_workflow.view"],
+  ["GET", "/agentic-workflows/:id", "agentic_workflow.view"],
+  ["POST", "/agentic-workflows", "agentic_workflow.manage"],
+  ["PUT", "/agentic-workflows/:id", "agentic_workflow.manage"],
+  ["DELETE", "/agentic-workflows/:id", "agentic_workflow.manage"],
+  ["POST", "/agentic-workflows/:id/runs", "agentic_workflow.run"],
+  ["GET", "/agentic-workflow-runs", "agentic_workflow.view"],
+  ["GET", "/agentic-workflow-runs/:id", "agentic_workflow.view"],
   ["GET", "/executions", "run.view"],
   ["GET", "/executions/:id", "run.view"],
   ["GET", "/executions/:id/report.pdf", "run.view"],

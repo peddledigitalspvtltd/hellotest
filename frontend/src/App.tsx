@@ -36,6 +36,8 @@ import { TestEnvironmentPage } from "./pages/TestEnvironmentPage";
 import { TestOpsPage } from "./pages/TestOpsPage";
 import { KnowledgeRepoPage } from "./pages/KnowledgeRepoPage";
 import { AutomationPage } from "./pages/AutomationPage";
+import { AgenticWorkflowsPage } from "./pages/AgenticWorkflowsPage";
+import { AdminSpacePage } from "./pages/AdminSpacePage";
 
 const queryClient = new QueryClient();
 const THEME_KEY = "app_theme";
@@ -43,6 +45,7 @@ const THEME_KEY = "app_theme";
 const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/": { key: "page.overview", fallback: "Overview" },
   "/people": { key: "page.people", fallback: "People" },
+  "/admin-space": { key: "page.adminSpace", fallback: "Admin Space" },
   "/projects": { key: "page.projects", fallback: "Projects" },
   "/integrations": { key: "page.integrations", fallback: "Integrations" },
   "/design": { key: "page.design", fallback: "Test Design" },
@@ -57,14 +60,14 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/executions": { key: "page.executions", fallback: "Test Runs" },
   "/automation": { fallback: "Automation Cases" },
   "/object-repository": { fallback: "Object Repository" },
-  "/local-playwright": { fallback: "Local Playwright" },
+  "/agentic-workflows": { key: "page.agenticWorkflows", fallback: "Agentic Workflows" },
   "/testops": { fallback: "Batch Process" },
   "/ops-telemetry": { fallback: "OPS Telemetry" },
   "/traces": { fallback: "Distributed Traces" },
   "/test-environments": { key: "page.testEnvironments", fallback: "Test Environments" },
   "/test-data": { key: "page.testData", fallback: "Test Data" },
   "/test-configurations": { key: "page.testConfigurations", fallback: "Test Configurations" },
-  "/knowledge-repo": { fallback: "AI Knowledge" },
+  "/knowledge-repo": { key: "page.knowledgeRepo", fallback: "Knowledge Repo" },
   "/auth": { fallback: "Sign In" },
   "/signup": { fallback: "Sign Up" }
 };
@@ -90,7 +93,7 @@ function PageTitleUpdater() {
 
   useEffect(() => {
     const meta = PAGE_TITLES[location.pathname];
-    document.title = meta ? `${meta.key ? t(meta.key, meta.fallback) : meta.fallback} · QAIra` : "QAIra";
+    document.title = meta ? `${meta.key ? t(meta.key, meta.fallback) : meta.fallback} · QAira` : "QAira";
   }, [location.pathname, t]);
 
   return null;
@@ -179,6 +182,7 @@ const router = createBrowserRouter([
     element: <ProtectedLayout />,
     children: [
       { index: true, element: <OverviewPage /> },
+      { path: "admin-space", element: <AdminSpacePage /> },
       { path: "people", element: <PeoplePage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "integrations", element: <IntegrationsPage /> },
@@ -194,7 +198,8 @@ const router = createBrowserRouter([
       { path: "executions", element: <ExecutionsPage /> },
       { path: "automation", element: <AutomationPage initialView="cases" /> },
       { path: "object-repository", element: <AutomationPage initialView="repository" /> },
-      { path: "local-playwright", element: <AutomationPage initialView="local-playwright" /> },
+      { path: "agentic-workflows", element: <AgenticWorkflowsPage /> },
+      { path: "local-playwright", element: <Navigate to="/automation" replace /> },
       { path: "testops", element: <TestOpsPage initialView="batch-process" /> },
       { path: "ops-telemetry", element: <TestOpsPage initialView="ops-telemetry" /> },
       { path: "traces", element: <TestOpsPage initialView="traces" /> },

@@ -1,5 +1,7 @@
 import type {
   ApiRequestPreview,
+  AgenticWorkflow,
+  AgenticWorkflowRun,
   AiCaseAuthoringPreviewResponse,
   AiDesignImageInput,
   AiDesignPreviewResponse,
@@ -1006,6 +1008,55 @@ export const api = {
     run: (id: string) =>
       request<{ id: string }>(`/execution-schedules/${id}/run`, { method: "POST" }),
     delete: (id: string) => request<{ deleted: boolean }>(`/execution-schedules/${id}`, { method: "DELETE" })
+  },
+  agenticWorkflows: {
+    list: (query?: { project_id?: string; app_type_id?: string; status?: string }) =>
+      request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`),
+    get: (id: string) =>
+      request<AgenticWorkflow>(`/agentic-workflows/${id}`),
+    create: (input: {
+      project_id: string;
+      app_type_id?: string;
+      name: string;
+      description?: string;
+      status?: AgenticWorkflow["status"];
+      trigger_kind?: AgenticWorkflow["trigger_kind"];
+      nodes?: AgenticWorkflow["nodes"];
+      edges?: AgenticWorkflow["edges"];
+      settings?: Record<string, unknown>;
+      n8n_payload?: Record<string, unknown>;
+    }) =>
+      request<AgenticWorkflow>("/agentic-workflows", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
+    update: (id: string, input: Partial<{
+      project_id: string;
+      app_type_id: string;
+      name: string;
+      description: string | null;
+      status: AgenticWorkflow["status"];
+      trigger_kind: AgenticWorkflow["trigger_kind"];
+      nodes: AgenticWorkflow["nodes"];
+      edges: AgenticWorkflow["edges"];
+      settings: Record<string, unknown>;
+      n8n_payload: Record<string, unknown>;
+    }>) =>
+      request<AgenticWorkflow>(`/agentic-workflows/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input)
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/agentic-workflows/${id}`, { method: "DELETE" }),
+    run: (id: string, input?: { trigger_kind?: AgenticWorkflow["trigger_kind"]; input_payload?: Record<string, unknown> }) =>
+      request<AgenticWorkflowRun>(`/agentic-workflows/${id}/runs`, {
+        method: "POST",
+        body: JSON.stringify(input || {})
+      }),
+    listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string }) =>
+      request<AgenticWorkflowRun[]>(`/agentic-workflow-runs${toQueryString(query)}`),
+    getRun: (id: string) =>
+      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${id}`)
   },
   executionResults: {
     list: (query?: { execution_id?: string; test_case_id?: string; app_type_id?: string }) =>

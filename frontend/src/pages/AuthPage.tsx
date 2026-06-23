@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
+import { BrandWordmark } from "../components/BrandWordmark";
+import { EyeIcon } from "../components/AppIcons";
 import { ToastMessage } from "../components/ToastMessage";
 import { api } from "../lib/api";
 import { getPostAuthRoute } from "../lib/routeHistory";
@@ -378,7 +380,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingVerification, setPendingVerification] = useState<PendingVerification | null>(null);
-  const [activeFeatureSlide, setActiveFeatureSlide] = useState(0);
+  const [activeFeatureSlide, setActiveFeatureSlide] = useState(2);
 
   const isSuccessMode = mode === "signup-success" || mode === "reset-success";
   const isCodeMode = mode === "signup-code" || mode === "forgot-code";
@@ -486,10 +488,10 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
           }
         });
         window.google.accounts.id.renderButton(googleButtonRef.current, {
-          theme: "outline",
+          theme: "filled_blue",
           size: "large",
           text: "continue_with",
-          shape: "pill",
+          shape: "rectangular",
           width: 360,
           logo_alignment: "left"
         });
@@ -765,49 +767,10 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
       <div className="container auth-shell">
         <section className="left auth-aside" aria-label="QAira product overview">
           <div className="auth-command-hero">
-            <div className="auth-product-brand">
-              <div className="brand-mark">Q</div>
-              <div>
-                <strong>QAira</strong>
-                <p>AI Quality Command Center</p>
-              </div>
-            </div>
-
             <div className="auth-feature-carousel" key={activeFeature.eyebrow}>
               <div className="auth-product-copy">
-                <p className="eyebrow">{activeFeature.eyebrow}</p>
                 <h1>{activeFeature.title}</h1>
                 <p>{activeFeature.description}</p>
-              </div>
-
-              <div className="auth-feature-controls" aria-label="QAira feature carousel">
-                <button
-                  aria-label="Previous feature"
-                  onClick={() => setActiveFeatureSlide((current) => (current + authFeatureSlides.length - 1) % authFeatureSlides.length)}
-                  type="button"
-                >
-                  ‹
-                </button>
-                <div className="auth-feature-dots" role="tablist" aria-label="QAira AI features">
-                  {authFeatureSlides.map((slide, index) => (
-                    <button
-                      aria-label={`Show ${slide.eyebrow}`}
-                      aria-selected={activeFeatureSlide === index}
-                      className={activeFeatureSlide === index ? "auth-feature-dot is-active" : "auth-feature-dot"}
-                      key={slide.eyebrow}
-                      onClick={() => setActiveFeatureSlide(index)}
-                      role="tab"
-                      type="button"
-                    />
-                  ))}
-                </div>
-                <button
-                  aria-label="Next feature"
-                  onClick={() => setActiveFeatureSlide((current) => (current + 1) % authFeatureSlides.length)}
-                  type="button"
-                >
-                  ›
-                </button>
               </div>
             </div>
 
@@ -820,13 +783,10 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
               ))}
             </div>
 
-            <div className="auth-release-preview" aria-label="Release health preview">
+            <div className="auth-release-preview" aria-label="Automation build preview">
               <div className="auth-release-preview-head">
-                <div>
-                  <span className="auth-status-dot" aria-hidden="true" />
-                  <strong>{activeFeature.badge}</strong>
-                </div>
-                <span>Live</span>
+                <strong>{activeFeature.badge}</strong>
+                <span><span className="auth-status-dot" aria-hidden="true" />Live</span>
               </div>
 
               <div className="auth-health-score">
@@ -842,66 +802,22 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   <p>{activeFeature.statusCopy}</p>
                 </div>
               </div>
-
-              <div className="auth-preview-bars">
-                {activeFeature.bars.map((bar) => (
-                  <div key={`${activeFeature.eyebrow}-${bar.label}`} style={{ "--value": `${bar.value}%` } as CSSProperties}>
-                    <span>{bar.label}</span>
-                    <strong>{bar.value}%</strong>
-                    <i aria-hidden="true" />
-                  </div>
-                ))}
-              </div>
-
-              <p className="auth-ai-note">{activeFeature.insight}</p>
             </div>
           </div>
         </section>
 
         <main className="right auth-main">
           <div className="login-card" aria-live="polite">
-            <div className="auth-card-brand">
-              <div className="brand-mark">Q</div>
-              <div>
-                <strong>QAira</strong>
-                <p>Secure workspace access</p>
-              </div>
-            </div>
+            <BrandWordmark className="auth-card-brand" subtitle="Secure workspace access" />
 
             {isSuccessMode ? null : (
               <>
                 <header className="auth-card-header">
-                  <p className="eyebrow">{currentCopy.eyebrow}</p>
                   <div className="auth-card-title" role="heading" aria-level={2}>
                     {currentCopy.title}
                   </div>
                   <p>{currentCopy.description}</p>
                 </header>
-
-                {(mode === "login" || mode === "signup") && (
-                  <div className="tab-row" role="tablist" aria-label="Authentication options">
-                    <button
-                      className={mode === "login" ? "tab-button is-active" : "tab-button"}
-                      onClick={() => resetFormState("login")}
-                      type="button"
-                      role="tab"
-                      aria-selected={mode === "login"}
-                      disabled={isBusy}
-                    >
-                      Login
-                    </button>
-                    <button
-                      className={mode === "signup" ? "tab-button is-active" : "tab-button"}
-                      onClick={() => resetFormState("signup")}
-                      type="button"
-                      role="tab"
-                      aria-selected={mode === "signup"}
-                      disabled={isBusy}
-                    >
-                      Sign up
-                    </button>
-                  </div>
-                )}
               </>
             )}
 
@@ -926,20 +842,6 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
               </div>
             ) : (
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
-                {(mode === "login" || mode === "signup") && isGoogleReady ? (
-                  <>
-                    <div className="auth-google-section">
-                      <div className="auth-google-button-shell">
-                        <div aria-label="Continue with Google" ref={googleButtonRef} />
-                      </div>
-                    </div>
-
-                    <div className="auth-provider-divider" aria-hidden="true">
-                      <span>or continue with email</span>
-                    </div>
-                  </>
-                ) : null}
-
                 {mode === "signup" && (
                   <FormField label="Full name" inputId="name-input">
                     <input
@@ -970,6 +872,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                       name="email"
                       onBlur={handleFieldBlur("email")}
                       onChange={handleFieldChange("email")}
+                      placeholder="Email*"
                       ref={emailInputRef}
                       type="email"
                       value={formValues.email}
@@ -993,7 +896,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                     label="Password"
                     required
                   >
-                    <div className={fieldErrors.password ? "password-field is-error" : "password-field"}>
+                    <div className={fieldErrors.password ? "password-field is-error" : "password-field"} id="password-input-shell">
                       <input
                         aria-describedby={loginPasswordDescribedBy}
                         aria-invalid={Boolean(fieldErrors.password)}
@@ -1004,6 +907,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                         onBlur={handleFieldBlur("password")}
                         onChange={handleFieldChange("password")}
                         onKeyDown={handlePasswordShortcut("password")}
+                        placeholder="Password*"
                         aria-keyshortcuts="Alt+V"
                         type={showPassword ? "text" : "password"}
                         value={formValues.password}
@@ -1016,11 +920,31 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                         tabIndex={-1}
                         type="button"
                       >
-                        {showPassword ? "Hide" : "Show"}
+                        <EyeIcon size={16} />
                       </button>
                     </div>
                   </FormField>
                 )}
+
+                {(mode === "login" || mode === "signup") ? (
+                  <div className="auth-google-section">
+                    {isGoogleReady ? (
+                      <div className="auth-google-button-shell">
+                        <div aria-label="Continue with Google" ref={googleButtonRef} />
+                      </div>
+                    ) : (
+                      <button
+                        className="auth-google-fallback-button"
+                        disabled={isBusy}
+                        onClick={() => setError("Google sign-in is not configured yet.")}
+                        type="button"
+                      >
+                        <span aria-hidden="true">G</span>
+                        Continue with Google
+                      </button>
+                    )}
+                  </div>
+                ) : null}
 
                 {mode === "forgot" && (
                   <FormField
@@ -1030,7 +954,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                     label="New password"
                     required
                   >
-                    <div className={fieldErrors.newPassword ? "password-field is-error" : "password-field"}>
+                    <div className={fieldErrors.newPassword ? "password-field is-error" : "password-field"} id="new-password-input-shell">
                       <input
                         aria-describedby={resetPasswordDescribedBy}
                         aria-invalid={Boolean(fieldErrors.newPassword)}
@@ -1116,6 +1040,12 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   <span>{isSubmitting ? currentCopy.loadingLabel : currentCopy.submitLabel}</span>
                 </button>
 
+                {(mode === "login" || mode === "signup") ? (
+                  <div className="auth-provider-divider" aria-hidden="true">
+                    <span>OR CONTINUE WITH EMAIL</span>
+                  </div>
+                ) : null}
+
                 {mode === "login" || mode === "forgot" || isCodeMode ? (
                   <div className="auth-secondary-actions">
                     {mode === "login" ? (
@@ -1162,10 +1092,24 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                     ) : null}
                   </div>
                 ) : null}
+
+                {(mode === "login" || mode === "signup") ? (
+                  <div className="auth-account-switch">
+                    {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+                    <button
+                      className="link-button"
+                      disabled={isBusy}
+                      onClick={() => resetFormState(mode === "login" ? "signup" : "login")}
+                      type="button"
+                    >
+                      {mode === "login" ? "Sign up" : "Sign in"}
+                    </button>
+                  </div>
+                ) : null}
               </form>
             )}
 
-            <footer className="auth-card-footer">Secure login • QAira</footer>
+            <footer className="auth-card-footer" />
           </div>
         </main>
       </div>

@@ -117,7 +117,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_API_REPLICAS:-0}
+      replicas: ${TESTENGINE_API_REPLICAS:-1}
 
   testengine-web-worker:
     build:
@@ -151,7 +151,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_WEB_REPLICAS:-0}
+      replicas: ${TESTENGINE_WEB_REPLICAS:-1}
 
   testengine-android-worker:
     build:
@@ -188,7 +188,7 @@ services:
       timeout: 5s
       retries: 10
     deploy:
-      replicas: ${TESTENGINE_ANDROID_REPLICAS:-0}
+      replicas: ${TESTENGINE_ANDROID_REPLICAS:-1}
 
   testengine:
     image: haproxy:2.9-alpine

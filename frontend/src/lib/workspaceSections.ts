@@ -34,8 +34,7 @@ export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 
 export const AUTOMATION_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: "/automation", label: "Automation", shortLabel: "Auto", icon: "automation" },
-  { to: "/object-repository", label: "Objects", shortLabel: "Objects", icon: "repository" },
-  { to: "/local-playwright", label: "Recorder", shortLabel: "Record", icon: "playwright" }
+  { to: "/object-repository", label: "Objects", shortLabel: "Objects", icon: "repository" }
 ];
 
 export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
@@ -54,13 +53,13 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/executions": "Runs",
   "/automation": "Automation",
   "/object-repository": "Objects",
-  "/local-playwright": "Recorder",
   "/testops": "Jobs",
   "/ops-telemetry": "Telemetry",
   "/traces": "Traces",
   "/test-environments": "Environments",
   "/test-data": "Test Data",
   "/test-configurations": "Configurations",
+  "/admin-space": "Admin Space",
   "/people": "People",
   "/integrations": "Integrations",
   "/support": "Support",
@@ -78,7 +77,6 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
   "/executions": "workspace.executions",
   "/automation": "workspace.automationCases",
   "/object-repository": "workspace.objectRepository",
-  "/local-playwright": "workspace.localPlaywright",
   "/testops": "workspace.batchProcess",
   "/ops-telemetry": "workspace.opsTelemetry",
   "/traces": "workspace.traces",

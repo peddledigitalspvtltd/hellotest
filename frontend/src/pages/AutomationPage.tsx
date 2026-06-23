@@ -39,7 +39,7 @@ import {
 } from "../lib/stepParameters";
 import type { AutomationLearningCacheEntry, ExecutionResult, Integration, RecorderSessionResponse, TestCase, TestStep, TestSuite } from "../types";
 
-type AutomationView = "cases" | "repository" | "local-playwright";
+type AutomationView = "cases" | "repository";
 type AutomationCaseSectionKey = "case" | "steps" | "history";
 type AutomationStepView = "keyword" | "code";
 type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions";
@@ -3972,66 +3972,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               </div>
             </div>
           ) : null}
-        </div>
-      ) : null}
-
-      {view === "local-playwright" ? (
-        <div className="automation-workspace-grid automation-workspace-grid--capture">
-          <Panel title="Build repository with local Playwright" subtitle="Pick the original test case, open a local browser, and QAira maps captured actions back to that case's keyword steps and repository objects.">
-            <div className="record-grid testops-builder-form">
-              <label className="form-field">
-                <span>Test case to automate</span>
-                <select value={activeManualCase?.id || ""} onChange={(event) => setSelectedManualCaseId(event.target.value)}>
-                  {testCases.map((testCase) => (
-                    <option key={testCase.id} value={testCase.id}>{testCase.title}{testCase.automated === "yes" ? " (automated)" : ""}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="form-field">
-                <span>Start URL</span>
-                <input onChange={(event) => setStartUrl(event.target.value)} placeholder="https://app.example.com/login" value={startUrl} />
-              </label>
-              <label className="form-field">
-                <span>Variables and locator guidance</span>
-                <textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Example: use @t.userEmail, @s.basePath, prefer data-testid locators, keep checkout screen names stable." rows={4} value={builderContext} />
-              </label>
-            </div>
-            <div className="testops-action-row">
-              <button className="ghost-button" disabled={!activeManualCase || buildSingleAutomation.isPending} onClick={() => buildSingleAutomation.mutate()} type="button">
-                <SparkIcon />
-                <span>{buildSingleAutomation.isPending ? "Queueing..." : "Queue AI automation"}</span>
-              </button>
-            </div>
-            <RecorderStartControls
-              disabled={!activeManualCase}
-              hasSession={Boolean(recorderSession)}
-              isStarting={startRecorder.isPending}
-              localLabel="Build with Local Playwright"
-              onStart={(options) => startRecorder.mutate(options)}
-              primaryAction={(
-                <button className="primary-button recorder-stop-button" disabled={!recorderSession || finishRecorder.isPending} onClick={() => finishRecorder.mutate()} type="button">
-                  <PauseIcon />
-                  <span>{finishRecorder.isPending ? "Saving..." : "Stop and save repository"}</span>
-                </button>
-              )}
-            />
-          </Panel>
-
-          <Panel className="automation-detail-panel" title="Capture monitor" subtitle={recorderSession ? `Session ${recorderSession.id.slice(0, 8)} · ${formatRecorderDisplayMode(recorderSession.display_mode)}` : "Start local Playwright to see captured actions, network calls, and live view."}>
-            {recorderSession ? (
-              <div className="stack-list">
-                <div className="stack-item">
-                  <div>
-                    <strong>{recorderSession.action_count || 0} actions · {recorderSession.network_count || 0} API candidates</strong>
-                    <span>{recorderSession.start_url || startUrl || "No start URL supplied."}</span>
-                  </div>
-                  <StatusBadge value={recorderSession.status} />
-                </div>
-              </div>
-            ) : null}
-            {recorderLiveUrl ? <iframe allow="clipboard-read; clipboard-write" className="recorder-live-frame" src={recorderLiveUrl} title="QAira local Playwright live view" /> : null}
-            <RecorderSessionInsights session={recorderSession} />
-          </Panel>
         </div>
       ) : null}
 

@@ -32,7 +32,13 @@ const formatPermissionLabel = (code: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" / ");
 
-export function PeoplePage() {
+export function PeoplePage({
+  forcedView,
+  embedded = false
+}: {
+  forcedView?: PeopleView;
+  embedded?: boolean;
+} = {}) {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
@@ -44,7 +50,7 @@ export function PeoplePage() {
     enabled: Boolean(session)
   });
   const [feedback, setFeedback] = useState<{ message: string; tone: FeedbackTone } | null>(null);
-  const [view, setView] = useState<PeopleView>(searchParams.get("view") === "roles" ? "roles" : "users");
+  const [view, setView] = useState<PeopleView>(forcedView || (searchParams.get("view") === "roles" ? "roles" : "users"));
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [userDraft, setUserDraft] = useState(createEmptyUserDraft());
@@ -155,11 +161,18 @@ export function PeoplePage() {
   }, [selectedRolePermissions.data]);
 
   useEffect(() => {
+    if (forcedView) {
+      if (view !== forcedView) {
+        setView(forcedView);
+      }
+      return;
+    }
+
     const requestedView = searchParams.get("view");
     if ((requestedView === "users" || requestedView === "roles") && requestedView !== view) {
       setView(requestedView);
     }
-  }, [searchParams, view]);
+  }, [forcedView, searchParams, view]);
 
   useEffect(() => {
     if (view !== "users") {
@@ -640,12 +653,12 @@ export function PeoplePage() {
   };
 
   return (
-    <div className="page-content people-access-page">
+    <div className={embedded ? "admin-embedded-page people-access-page" : "page-content people-access-page"}>
       {confirmationDialog}
       <PageHeader
         eyebrow="People & Access"
-        title="User Management"
-        description="Review workspace users, refine role assignments, and keep access governance easy to audit."
+        title={forcedView === "roles" ? "Roles" : forcedView === "users" ? "Users" : "User Management"}
+        description={forcedView === "roles" ? "Review role definitions, selected permissions, and reusable access labels." : "Review workspace users, refine role assignments, and keep access governance easy to audit."}
         meta={[
           { label: "Users", value: userItems.length },
           { label: "Roles", value: roleItems.length },
@@ -669,14 +682,16 @@ export function PeoplePage() {
         <ToastMessage message={feedback.message} onDismiss={() => setFeedback(null)} tone={feedback.tone} />
       ) : null}
 
-      <SubnavTabs
-        value={view}
-        onChange={handleViewChange}
-        items={[
-          { value: "users", label: "Users", meta: `${userItems.length} records` },
-          { value: "roles", label: "Roles", meta: `${roleItems.length} records` }
-        ]}
-      />
+      {!forcedView ? (
+        <SubnavTabs
+          value={view}
+          onChange={handleViewChange}
+          items={[
+            { value: "users", label: "Users", meta: `${userItems.length} records` },
+            { value: "roles", label: "Roles", meta: `${roleItems.length} records` }
+          ]}
+        />
+      ) : null}
 
       {view === "users" ? (
         <WorkspaceMasterDetail

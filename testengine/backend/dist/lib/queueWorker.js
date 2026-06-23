@@ -52,6 +52,13 @@ const serializeError = (error) => {
         message: String(error || "Unknown error")
     };
 };
+const formatWorkerErrorMessage = (error, fallback) => {
+    const serialized = serializeError(error);
+    const stack = "stack" in serialized ? serialized.stack : "";
+    return stack
+        ? `${serialized.message}\nStack:\n${stack}`
+        : String(serialized.message || fallback);
+};
 function emitTelemetry(telemetry, payload) {
     if (!telemetry) {
         return;
@@ -148,9 +155,14 @@ function buildAutomationDetail(step, status, note, provider) {
     };
 }
 async function executeQueuedJob(job, workerId, logger, telemetry) {
-    const envelope = job.payload;
+    const envelope = {
+        ...job.payload,
+        steps: Array.isArray(job.payload?.steps) ? job.payload.steps : []
+    };
     const existingStatuses = job.runtime_state?.logs?.stepStatuses || {};
-    const orderedSteps = envelope.steps.slice().sort((left, right) => left.order - right.order);
+    const orderedSteps = envelope.steps
+        .slice()
+        .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
     const accepted = saveRun(buildAcceptedRun(envelope), envelope);
     const webRunSession = orderedSteps.some((step) => step.step_type === "web")
         ? createWebRunSession(envelope, job.runtime_state?.captured_values || {})
@@ -207,6 +219,24 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             status: "running",
             summary: `${job.test_case_title} started in the Test Engine queue worker.`
         }));
+        if (!orderedSteps.length) {
+            const emptyJobSummary = `${job.test_case_title} has no executable API, web, or Android steps in its queued snapshot.`;
+            updateRunState(accepted.id, "failed", emptyJobSummary);
+            await completeQueuedJobWithMetadata(job.id, {
+                status: "failed",
+                error: emptyJobSummary,
+                summary: emptyJobSummary,
+                deterministic_attempted: true,
+                healing_attempted: healingAttempted,
+                healing_succeeded: healingSucceeded
+            });
+            emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
+                event_type: "testengine.queue.job.failed",
+                status: "failed",
+                summary: emptyJobSummary
+            }));
+            return;
+        }
         const remainingSteps = orderedSteps.filter((step) => existingStatuses[step.id] !== "passed");
         if (!remainingSteps.length) {
             await completeQueuedJobWithMetadata(job.id, {
@@ -225,7 +255,53 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             return;
         }
         if (webRunSession) {
-            await webRunSession.start();
+            try {
+                await webRunSession.start();
+            }
+            catch (error) {
+                const message = formatWorkerErrorMessage(error, `${job.test_case_title} could not start the web automation session.`);
+                const startupStep = remainingSteps.find((step) => step.step_type === "web");
+                const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+                updateRunState(accepted.id, "failed", message);
+                if (startupStep && !reportedStepIds.has(startupStep.id)) {
+                    enqueueStepReport(startupStep.id, {
+                        status: "failed",
+                        note: [
+                            `${job.test_case_title} could not start the web automation session before step ${startupStep.order}.`,
+                            message
+                        ].join("\n"),
+                        evidence: null,
+                        web_detail: null,
+                        automation_detail: buildAutomationDetail(startupStep, "failed", message, webRunSession.provider),
+                        captures: {}
+                    });
+                }
+                await flushStepReports();
+                await completeQueuedJobWithMetadata(job.id, {
+                    status: "failed",
+                    error: message,
+                    summary: message,
+                    deterministic_attempted: true,
+                    healing_attempted: healingAttempted,
+                    healing_succeeded: healingSucceeded,
+                    artifact_bundle: artifactBundle,
+                    patch_proposals: patchProposals
+                });
+                emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
+                    event_type: "testengine.queue.job.failed",
+                    status: "failed",
+                    summary: message,
+                    error: serializeError(error),
+                    step: startupStep
+                        ? {
+                            id: startupStep.id,
+                            order: startupStep.order,
+                            type: startupStep.step_type
+                        }
+                        : undefined
+                }));
+                return;
+            }
         }
         const remainingAndroidSteps = remainingSteps.filter((step) => step.step_type === "android");
         const androidResultsByStepId = new Map();
@@ -433,11 +509,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
         }));
     }
     catch (error) {
-        const serialized = serializeError(error);
-        const stack = "stack" in serialized ? serialized.stack : "";
-        const message = stack
-            ? `${serialized.message}\nStack:\n${stack}`
-            : String(serialized.message || `${job.test_case_title} failed in queue worker.`);
+        const message = formatWorkerErrorMessage(error, `${job.test_case_title} failed in queue worker.`);
         updateRunState(accepted.id, "failed", message);
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
             event_type: "testengine.queue.job.crashed",
