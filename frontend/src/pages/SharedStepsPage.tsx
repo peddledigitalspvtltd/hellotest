@@ -1,7 +1,7 @@
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, LayersIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, LayersIcon, OpenIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -35,6 +35,7 @@ import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import {
   buildGroupAutomationCode,
@@ -177,7 +178,7 @@ export function SharedStepsPage() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">("tile");
+  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -1154,29 +1155,36 @@ export function SharedStepsPage() {
                 </div>
               </CatalogSearchFilter>
               <button
-                className="ghost-button"
+                className="ghost-button catalog-selection-button"
                 disabled={!visibleGroupIds.length || selectedVisibleGroupIds.length === visibleGroupIds.length}
                 onClick={() => setSelectedGroupIds((current) => Array.from(new Set([...current, ...visibleGroupIds])))}
                 type="button"
               >
-                Select visible
+                <SelectAllIcon />
+                <span>Select all</span>
               </button>
               <button
-                className="ghost-button"
+                className="ghost-button catalog-selection-button"
                 disabled={!selectedGroupIds.length}
                 onClick={() => setSelectedGroupIds([])}
                 type="button"
               >
-                Clear selection
+                <ClearSelectionIcon />
+                <span>Clear</span>
               </button>
-              <button
-                className="ghost-button danger"
-                disabled={!selectedVisibleGroupIds.length || deleteSharedGroup.isPending}
-                onClick={() => void handleDeleteSelectedGroups()}
-                type="button"
-              >
-                Delete selected
-              </button>
+              <CatalogActionMenu
+                actions={[
+                  {
+                    label: "Delete selected",
+                    description: "Delete selected shared step groups in the current list.",
+                    icon: <TrashIcon />,
+                    disabled: !selectedVisibleGroupIds.length || deleteSharedGroup.isPending,
+                    tone: "danger",
+                    onClick: () => void handleDeleteSelectedGroups()
+                  }
+                ]}
+                label="Shared step actions"
+              />
               <button className="ghost-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
                 New group
               </button>

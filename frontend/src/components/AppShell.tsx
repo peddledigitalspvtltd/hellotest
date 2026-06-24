@@ -9,6 +9,7 @@ import { BrandWordmark } from "./BrandWordmark";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
 import { canAccessPath, hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
 import {
   AUTOMATION_SECTION_ITEMS,
@@ -161,6 +162,7 @@ export function AppShell() {
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_SIDEBAR_BREAKPOINT).matches);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(() => getUnreadNotificationCount());
   const [sidebarProjectId, setSidebarProjectId] = useCurrentProject();
 
   const projects = projectsQuery.data || [];
@@ -180,6 +182,18 @@ export function AppShell() {
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_KEY, String(isCollapsed));
   }, [isCollapsed]);
+
+  useEffect(() => {
+    const syncNotifications = () => setNotificationUnreadCount(getUnreadNotificationCount());
+
+    syncNotifications();
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, syncNotifications);
+    window.addEventListener("storage", syncNotifications);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, syncNotifications);
+      window.removeEventListener("storage", syncNotifications);
+    };
+  }, []);
 
   useEffect(() => {
     const syncPreferences = (event?: Event) => {
@@ -366,9 +380,9 @@ export function AppShell() {
       <aside className={sidebarClassName} id="app-sidebar" role="navigation">
         <div className="sidebar-top">
           <div className="sidebar-brand-row">
-            <div className="sidebar-brand-lockup">
+            <NavLink className="sidebar-brand-lockup" to="/" aria-label="Go to dashboard">
               <BrandWordmark className="sidebar-brand-mark" variant={shouldCollapseSidebar ? "mark" : "wordmark"} />
-            </div>
+            </NavLink>
             {isMobileViewport ? (
               <button
                 aria-label="Close navigation"
@@ -441,7 +455,11 @@ export function AppShell() {
 
                   const Icon = item.icon;
                   const isDisabled = Boolean("disabledWhenNoProjects" in item && item.disabledWhenNoProjects && hasNoProjects);
-                  const badgeCount = "countKey" in item ? navCounts[item.countKey as keyof typeof navCounts] : undefined;
+                  const badgeCount = item.id === "notifications"
+                    ? notificationUnreadCount
+                    : "countKey" in item
+                      ? navCounts[item.countKey as keyof typeof navCounts]
+                      : undefined;
                   const isActive = isNavigationItemActive(item, location.pathname);
 
                   return (
@@ -461,9 +479,16 @@ export function AppShell() {
                         }}
                         style={{ opacity: isDisabled ? 0.5 : 1, cursor: isDisabled ? "not-allowed" : "pointer" }}
                       >
-                        <span className="nav-link-icon" aria-hidden="true"><Icon /></span>
+                        <span className="nav-link-icon" aria-hidden="true">
+                          <Icon />
+                          {item.id === "notifications" && notificationUnreadCount > 0 ? (
+                            <span className="nav-link-icon-badge">{notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}</span>
+                          ) : null}
+                        </span>
                         <span className="nav-link-label">{resolveNavLabel(item)}</span>
-                        {!shouldCollapseSidebar && typeof badgeCount === "number" ? <span className="nav-link-badge">{badgeCount}</span> : null}
+                        {!shouldCollapseSidebar && typeof badgeCount === "number" && badgeCount > 0 ? (
+                          <span className={item.id === "notifications" ? "nav-link-badge is-alert" : "nav-link-badge"}>{badgeCount > 99 ? "99+" : badgeCount}</span>
+                        ) : null}
                       </NavLink>
                     </div>
                   );

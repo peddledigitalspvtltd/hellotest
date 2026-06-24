@@ -1,6 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AddIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon } from "../components/AppIcons";
+import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
+import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
@@ -18,7 +22,8 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { parseTestDataFile, toKeyValueRows } from "../lib/testDataImport";
-import { countGeneratedTestDataFields, hasTestDataGeneratorTemplate, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import { countGeneratedTestDataFields, evaluateTestDataTemplate, hasTestDataGeneratorTemplate, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_ENVIRONMENT_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { KeyValueEntry, TestConfiguration, TestDataSet, TestDataSetMode, TestDataSetRow, TestEnvironment } from "../types";
 
@@ -255,7 +260,7 @@ const collectTemplateUtilitiesFromRows = ({
 
       seen.add(template);
       const fieldLabel = field === "value" && row.key ? String(row.key) : field;
-      const columnLabel = columns.includes(field) ? field : fieldLabel;
+      const columnLabel = field === "value" && row.key ? fieldLabel : columns.includes(field) ? field : fieldLabel;
 
       return [{
         id: `saved-${createTemplateKey(source)}-${createTemplateKey(columnLabel)}-${rowIndex}`,
@@ -389,6 +394,15 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [selectedConfigurationId, setSelectedConfigurationId] = useState("");
   const [selectedDataSetId, setSelectedDataSetId] = useState("");
+  const [environmentViewMode, setEnvironmentViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [configurationViewMode, setConfigurationViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [dataSetViewMode, setDataSetViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [environmentSearch, setEnvironmentSearch] = useState("");
+  const [configurationSearch, setConfigurationSearch] = useState("");
+  const [dataSetSearch, setDataSetSearch] = useState("");
+  const [selectedActionEnvironmentIds, setSelectedActionEnvironmentIds] = useState<string[]>([]);
+  const [selectedActionConfigurationIds, setSelectedActionConfigurationIds] = useState<string[]>([]);
+  const [selectedActionDataSetIds, setSelectedActionDataSetIds] = useState<string[]>([]);
   const browserOptions = domainMetadataQuery.data?.test_environments.browsers || [];
   const mobileOsOptions = domainMetadataQuery.data?.test_environments.mobile_os || [];
   const dataSetModeOptions = domainMetadataQuery.data?.test_data_sets.modes || [];
@@ -453,11 +467,219 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const environments = environmentsQuery.data || [];
   const configurations = configurationsQuery.data || [];
   const dataSets = dataSetsQuery.data || [];
+  const selectedAppTypeName = appTypes.find((item) => item.id === appTypeId)?.name || "All app types";
+  const filteredEnvironments = useMemo(() => {
+    const normalizedSearch = environmentSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return environments;
+    }
+
+    return environments.filter((environment) =>
+      [environment.id, environment.name, environment.description, environment.base_url, environment.browser, environment.notes, selectedAppTypeName]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [environmentSearch, environments, selectedAppTypeName]);
+  const filteredConfigurations = useMemo(() => {
+    const normalizedSearch = configurationSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return configurations;
+    }
+
+    return configurations.filter((configuration) =>
+      [
+        configuration.id,
+        configuration.name,
+        configuration.description,
+        configuration.browser,
+        configuration.mobile_os,
+        configuration.platform_version,
+        selectedAppTypeName
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [configurationSearch, configurations, selectedAppTypeName]);
+  const filteredDataSets = useMemo(() => {
+    const normalizedSearch = dataSetSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return dataSets;
+    }
+
+    return dataSets.filter((dataSet) =>
+      [
+        dataSet.id,
+        dataSet.name,
+        dataSet.description,
+        dataSet.mode,
+        ...dataSet.columns,
+        ...dataSet.rows.flatMap((row) => Object.values(row))
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [dataSetSearch, dataSets]);
+  const visibleEnvironmentIds = useMemo(() => filteredEnvironments.map((environment) => environment.id), [filteredEnvironments]);
+  const visibleConfigurationIds = useMemo(() => filteredConfigurations.map((configuration) => configuration.id), [filteredConfigurations]);
+  const visibleDataSetIds = useMemo(() => filteredDataSets.map((dataSet) => dataSet.id), [filteredDataSets]);
+  const areAllFilteredEnvironmentsSelected = visibleEnvironmentIds.length > 0 && visibleEnvironmentIds.every((id) => selectedActionEnvironmentIds.includes(id));
+  const areAllFilteredConfigurationsSelected = visibleConfigurationIds.length > 0 && visibleConfigurationIds.every((id) => selectedActionConfigurationIds.includes(id));
+  const areAllFilteredDataSetsSelected = visibleDataSetIds.length > 0 && visibleDataSetIds.every((id) => selectedActionDataSetIds.includes(id));
+  const environmentListColumns = useMemo<Array<DataTableColumn<TestEnvironment>>>(() => [
+    {
+      key: "name",
+      label: "Environment",
+      canToggle: false,
+      width: 260,
+      minWidth: 180,
+      sortValue: (environment) => environment.name,
+      render: (environment) => (
+        <div className="data-table-multiline">
+          <strong>{environment.name}</strong>
+          <span className="data-table-multiline-line">{environment.base_url || environment.description || "No URL configured"}</span>
+        </div>
+      )
+    },
+    {
+      key: "scope",
+      label: "Scope",
+      width: 160,
+      minWidth: 120,
+      render: () => selectedAppTypeName
+    },
+    {
+      key: "baseUrl",
+      label: "Base URL",
+      width: 320,
+      minWidth: 180,
+      sortValue: (environment) => environment.base_url || "",
+      render: (environment) => environment.base_url || "Draft target"
+    },
+    {
+      key: "variables",
+      label: "Variables",
+      width: 116,
+      minWidth: 92,
+      sortValue: (environment) => environment.variables.length,
+      render: (environment) => environment.variables.length
+    },
+    {
+      key: "description",
+      label: "Description",
+      defaultVisible: false,
+      width: 280,
+      minWidth: 160,
+      render: (environment) => environment.description || "No description"
+    }
+  ], [selectedAppTypeName]);
+  const configurationListColumns = useMemo<Array<DataTableColumn<TestConfiguration>>>(() => [
+    {
+      key: "name",
+      label: "Configuration",
+      canToggle: false,
+      width: 260,
+      minWidth: 180,
+      sortValue: (configuration) => configuration.name,
+      render: (configuration) => (
+        <div className="data-table-multiline">
+          <strong>{configuration.name}</strong>
+          <span className="data-table-multiline-line">{formatConfigurationTarget(configuration) || configuration.description || "Draft profile"}</span>
+        </div>
+      )
+    },
+    {
+      key: "scope",
+      label: "Scope",
+      width: 160,
+      minWidth: 120,
+      render: () => selectedAppTypeName
+    },
+    {
+      key: "target",
+      label: "Target",
+      width: 240,
+      minWidth: 160,
+      sortValue: (configuration) => formatConfigurationTarget(configuration),
+      render: (configuration) => formatConfigurationTarget(configuration) || "Draft profile"
+    },
+    {
+      key: "variables",
+      label: "Variables",
+      width: 116,
+      minWidth: 92,
+      sortValue: (configuration) => configuration.variables.length,
+      render: (configuration) => configuration.variables.length
+    },
+    {
+      key: "description",
+      label: "Description",
+      defaultVisible: false,
+      width: 280,
+      minWidth: 160,
+      render: (configuration) => configuration.description || "No description"
+    }
+  ], [selectedAppTypeName]);
+  const dataSetListColumns = useMemo<Array<DataTableColumn<TestDataSet>>>(() => [
+    {
+      key: "name",
+      label: "Test data",
+      canToggle: false,
+      width: 260,
+      minWidth: 180,
+      sortValue: (dataSet) => dataSet.name,
+      render: (dataSet) => (
+        <div className="data-table-multiline">
+          <strong>{dataSet.name}</strong>
+          <span className="data-table-multiline-line">{dataSet.description || (dataSet.mode === "table" ? "Table mode" : "Key/value mode")}</span>
+        </div>
+      )
+    },
+    {
+      key: "mode",
+      label: "Mode",
+      width: 130,
+      minWidth: 104,
+      sortValue: (dataSet) => dataSet.mode,
+      render: (dataSet) => dataSet.mode === "table" ? "Table" : "Key/value"
+    },
+    {
+      key: "rows",
+      label: "Rows",
+      width: 100,
+      minWidth: 80,
+      sortValue: (dataSet) => dataSet.rows.length,
+      render: (dataSet) => dataSet.rows.length
+    },
+    {
+      key: "columns",
+      label: "Columns",
+      width: 120,
+      minWidth: 92,
+      sortValue: (dataSet) => dataSet.columns.length,
+      render: (dataSet) => dataSet.mode === "table" ? dataSet.columns.length : "key/value"
+    },
+    {
+      key: "description",
+      label: "Description",
+      defaultVisible: false,
+      width: 280,
+      minWidth: 160,
+      render: (dataSet) => dataSet.description || "No description"
+    }
+  ], []);
   const selectedEnvironment = environments.find((item) => item.id === selectedEnvironmentId) || null;
   const selectedConfiguration = configurations.find((item) => item.id === selectedConfigurationId) || null;
   const selectedDataSet = dataSets.find((item) => item.id === selectedDataSetId) || null;
   const selectedProjectName = projects.find((project) => String(project.id) === String(projectId))?.name || "No project selected";
-  const selectedAppTypeName = appTypes.find((item) => item.id === appTypeId)?.name || "All app types";
   const currentCreateLabel =
     view === "environments" ? "Create test environment" : view === "configurations" ? "Create configuration" : "Create test data";
   const currentViewDescription =
@@ -757,7 +979,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   return (
-    <div className="page-content">
+    <div className={["page-content", view === "data" ? "page-content--test-data" : ""].filter(Boolean).join(" ")}>
       {confirmationDialog}
       <PageHeader
         eyebrow="Test Environment"
@@ -799,11 +1021,50 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         <WorkspaceMasterDetail
           browseView={(
             <Panel title="Environments" titleVariant="eyebrow" subtitle="Browse run targets as tiles first, then open one environment into a focused editor.">
+              <div className="design-list-toolbar resource-catalog-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={environmentSearch.trim() ? 1 : 0}
+                  ariaLabel="Search environments"
+                  onChange={setEnvironmentSearch}
+                  placeholder="Search environments"
+                  subtitle="Search by name, URL, browser, notes, or app type scope."
+                  title="Environment search"
+                  type="search"
+                  value={environmentSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button className="ghost-button" disabled={!environmentSearch.trim()} onClick={() => setEnvironmentSearch("")} type="button">
+                        Clear search
+                      </button>
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!visibleEnvironmentIds.length || areAllFilteredEnvironmentsSelected}
+                  onClick={() => setSelectedActionEnvironmentIds((current) => Array.from(new Set([...current, ...visibleEnvironmentIds])))}
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedActionEnvironmentIds.length}
+                  onClick={() => setSelectedActionEnvironmentIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setEnvironmentViewMode} value={environmentViewMode} />
+              </div>
               <TileBrowserPane className="test-environment-list">
                 {environmentsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-                {!environmentsQuery.isLoading && environments.length ? (
+                {!environmentsQuery.isLoading && filteredEnvironments.length && environmentViewMode === "tile" ? (
                   <div className="tile-browser-grid">
-                    {environments.map((environment) => (
+                    {filteredEnvironments.map((environment) => (
                       <button
                         className={selectedEnvironmentId === environment.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={environment.id}
@@ -811,6 +1072,23 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                         type="button"
                       >
                         <div className="tile-card-main">
+                          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+                            <label className="checkbox-field">
+                              <input
+                                aria-label={`Select ${environment.name}`}
+                                checked={selectedActionEnvironmentIds.includes(environment.id)}
+                                onChange={() =>
+                                  setSelectedActionEnvironmentIds((current) =>
+                                    current.includes(environment.id)
+                                      ? current.filter((id) => id !== environment.id)
+                                      : [...current, environment.id]
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <span className="sr-only">Select environment</span>
+                            </label>
+                          </div>
                           <div className="tile-card-header">
                             <span className="resource-card-badge">URL</span>
                             <div className="tile-card-title-group">
@@ -828,7 +1106,22 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     ))}
                   </div>
                 ) : null}
+                {!environmentsQuery.isLoading && filteredEnvironments.length && environmentViewMode === "list" ? (
+                  <DataTable
+                    columns={environmentListColumns}
+                    enableColumnResize
+                    enableHeaderColumnReorder
+                    emptyMessage="No environments match the current search."
+                    getRowClassName={(environment) => (selectedEnvironmentId === environment.id ? "is-active-row" : "")}
+                    getRowKey={(environment) => environment.id}
+                    hideToolbarCopy
+                    onRowClick={(environment) => setSelectedEnvironmentId(environment.id)}
+                    rows={filteredEnvironments}
+                    storageKey="qaira:test-environments:list-columns"
+                  />
+                ) : null}
                 {!environmentsQuery.isLoading && !environments.length ? <div className="empty-state compact">No test environments defined for this scope yet.</div> : null}
+                {!environmentsQuery.isLoading && environments.length > 0 && !filteredEnvironments.length ? <div className="empty-state compact">No environments match the current search.</div> : null}
               </TileBrowserPane>
             </Panel>
           )}
@@ -860,11 +1153,50 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         <WorkspaceMasterDetail
           browseView={(
             <Panel title="Configurations" titleVariant="eyebrow" subtitle="Browse reusable browser and device profiles as cards before opening one into the editor.">
+              <div className="design-list-toolbar resource-catalog-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={configurationSearch.trim() ? 1 : 0}
+                  ariaLabel="Search configurations"
+                  onChange={setConfigurationSearch}
+                  placeholder="Search configurations"
+                  subtitle="Search by name, browser, mobile OS, platform version, or app type scope."
+                  title="Configuration search"
+                  type="search"
+                  value={configurationSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button className="ghost-button" disabled={!configurationSearch.trim()} onClick={() => setConfigurationSearch("")} type="button">
+                        Clear search
+                      </button>
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!visibleConfigurationIds.length || areAllFilteredConfigurationsSelected}
+                  onClick={() => setSelectedActionConfigurationIds((current) => Array.from(new Set([...current, ...visibleConfigurationIds])))}
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedActionConfigurationIds.length}
+                  onClick={() => setSelectedActionConfigurationIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setConfigurationViewMode} value={configurationViewMode} />
+              </div>
               <TileBrowserPane className="test-environment-list">
                 {configurationsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-                {!configurationsQuery.isLoading && configurations.length ? (
+                {!configurationsQuery.isLoading && filteredConfigurations.length && configurationViewMode === "tile" ? (
                   <div className="tile-browser-grid">
-                    {configurations.map((configuration) => (
+                    {filteredConfigurations.map((configuration) => (
                       <button
                         className={selectedConfigurationId === configuration.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={configuration.id}
@@ -872,6 +1204,23 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                         type="button"
                       >
                         <div className="tile-card-main">
+                          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+                            <label className="checkbox-field">
+                              <input
+                                aria-label={`Select ${configuration.name}`}
+                                checked={selectedActionConfigurationIds.includes(configuration.id)}
+                                onChange={() =>
+                                  setSelectedActionConfigurationIds((current) =>
+                                    current.includes(configuration.id)
+                                      ? current.filter((id) => id !== configuration.id)
+                                      : [...current, configuration.id]
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <span className="sr-only">Select configuration</span>
+                            </label>
+                          </div>
                           <div className="tile-card-header">
                             <span className="resource-card-badge">CFG</span>
                             <div className="tile-card-title-group">
@@ -889,7 +1238,22 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     ))}
                   </div>
                 ) : null}
+                {!configurationsQuery.isLoading && filteredConfigurations.length && configurationViewMode === "list" ? (
+                  <DataTable
+                    columns={configurationListColumns}
+                    enableColumnResize
+                    enableHeaderColumnReorder
+                    emptyMessage="No configurations match the current search."
+                    getRowClassName={(configuration) => (selectedConfigurationId === configuration.id ? "is-active-row" : "")}
+                    getRowKey={(configuration) => configuration.id}
+                    hideToolbarCopy
+                    onRowClick={(configuration) => setSelectedConfigurationId(configuration.id)}
+                    rows={filteredConfigurations}
+                    storageKey="qaira:test-configurations:list-columns"
+                  />
+                ) : null}
                 {!configurationsQuery.isLoading && !configurations.length ? <div className="empty-state compact">No test configurations defined for this scope yet.</div> : null}
+                {!configurationsQuery.isLoading && configurations.length > 0 && !filteredConfigurations.length ? <div className="empty-state compact">No configurations match the current search.</div> : null}
               </TileBrowserPane>
             </Panel>
           )}
@@ -923,11 +1287,50 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         <WorkspaceMasterDetail
           browseView={(
             <Panel title="Test Data" titleVariant="eyebrow" subtitle="Review reusable data sets as cards first, then open one source into a focused editor.">
+              <div className="design-list-toolbar resource-catalog-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={dataSetSearch.trim() ? 1 : 0}
+                  ariaLabel="Search test data"
+                  onChange={setDataSetSearch}
+                  placeholder="Search test data"
+                  subtitle="Search by name, description, mode, columns, or saved values."
+                  title="Test data search"
+                  type="search"
+                  value={dataSetSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button className="ghost-button" disabled={!dataSetSearch.trim()} onClick={() => setDataSetSearch("")} type="button">
+                        Clear search
+                      </button>
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!visibleDataSetIds.length || areAllFilteredDataSetsSelected}
+                  onClick={() => setSelectedActionDataSetIds((current) => Array.from(new Set([...current, ...visibleDataSetIds])))}
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedActionDataSetIds.length}
+                  onClick={() => setSelectedActionDataSetIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setDataSetViewMode} value={dataSetViewMode} />
+              </div>
               <TileBrowserPane className="test-environment-list">
                 {dataSetsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-                {!dataSetsQuery.isLoading && dataSets.length ? (
+                {!dataSetsQuery.isLoading && filteredDataSets.length && dataSetViewMode === "tile" ? (
                   <div className="tile-browser-grid">
-                    {dataSets.map((dataSet) => (
+                    {filteredDataSets.map((dataSet) => (
                       <button
                         className={selectedDataSetId === dataSet.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={dataSet.id}
@@ -935,8 +1338,25 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                         type="button"
                       >
                         <div className="tile-card-main">
+                          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+                            <label className="checkbox-field">
+                              <input
+                                aria-label={`Select ${dataSet.name}`}
+                                checked={selectedActionDataSetIds.includes(dataSet.id)}
+                                onChange={() =>
+                                  setSelectedActionDataSetIds((current) =>
+                                    current.includes(dataSet.id)
+                                      ? current.filter((id) => id !== dataSet.id)
+                                      : [...current, dataSet.id]
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <span className="sr-only">Select test data</span>
+                            </label>
+                          </div>
                           <div className="tile-card-header">
-                            <span className="resource-card-badge test-data-card-icon"><TestDataUtilityIcon /></span>
+                            <span className="resource-card-badge">DATA</span>
                             <div className="tile-card-title-group">
                               <strong>{dataSet.name}</strong>
                               <span className="tile-card-kicker">{dataSet.mode === "table" ? "Table mode" : "Key/value mode"}</span>
@@ -952,7 +1372,22 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     ))}
                   </div>
                 ) : null}
+                {!dataSetsQuery.isLoading && filteredDataSets.length && dataSetViewMode === "list" ? (
+                  <DataTable
+                    columns={dataSetListColumns}
+                    enableColumnResize
+                    enableHeaderColumnReorder
+                    emptyMessage="No test data sets match the current search."
+                    getRowClassName={(dataSet) => (selectedDataSetId === dataSet.id ? "is-active-row" : "")}
+                    getRowKey={(dataSet) => dataSet.id}
+                    hideToolbarCopy
+                    onRowClick={(dataSet) => setSelectedDataSetId(dataSet.id)}
+                    rows={filteredDataSets}
+                    storageKey="qaira:test-data:list-columns"
+                  />
+                ) : null}
                 {!dataSetsQuery.isLoading && !dataSets.length ? <div className="empty-state compact">No test data sets defined for this scope yet.</div> : null}
+                {!dataSetsQuery.isLoading && dataSets.length > 0 && !filteredDataSets.length ? <div className="empty-state compact">No test data sets match the current search.</div> : null}
               </TileBrowserPane>
             </Panel>
           )}
@@ -1016,6 +1451,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
       {isCreateDataSetModalOpen ? (
         <ResourceModalShell
+          className="resource-modal-card--test-data"
           onClose={() => !createDataSet.isPending && setIsCreateDataSetModalOpen(false)}
           title="Create test data"
         >
@@ -1057,10 +1493,12 @@ function buildDataSetPayload(projectId: string, appTypeId: string | undefined, d
 }
 
 function ResourceModalShell({
+  className,
   title,
   children,
   onClose
 }: {
+  className?: string;
   title: string;
   children: ReactNode;
   onClose: () => void;
@@ -1072,7 +1510,7 @@ function ResourceModalShell({
       <div
         aria-label={title}
         aria-modal="true"
-        className="modal-card resource-modal-card"
+        className={["modal-card resource-modal-card", className].filter(Boolean).join(" ")}
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -1277,8 +1715,8 @@ function DataSetForm({
   };
 
   return (
-    <form className="resource-form" onSubmit={onSubmit}>
-      <div className="resource-form-body">
+    <form className="resource-form test-data-form" onSubmit={onSubmit}>
+      <div className="resource-form-body test-data-form-body">
         <div className="record-grid">
           <FormField label="Data set name" required>
             <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
@@ -1389,7 +1827,7 @@ function DataUtilityPicker({
   onSelect
 }: {
   options: TestDataUtilityOption[];
-  onSelect: (template: string) => void;
+  onSelect: (template: string, mode: "template" | "static") => void;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const filteredOptions = useMemo(() => {
@@ -1420,20 +1858,46 @@ function DataUtilityPicker({
         value={searchTerm}
       />
       <div className="test-data-utility-list">
-        {filteredOptions.map((option) => (
-          <button
-            className="test-data-utility-option"
-            key={option.id}
-            onClick={() => onSelect(option.template)}
-            type="button"
-          >
-            <span className="test-data-utility-option-meta">
-              {option.group}{option.source ? ` · ${option.source}` : ""}
-            </span>
-            <strong>{option.label}</strong>
-            <code>{option.template}</code>
-          </button>
-        ))}
+        {filteredOptions.map((option) => {
+          const staticPreview = evaluateTestDataTemplate(option.template);
+
+          return (
+            <article
+              className="test-data-utility-option"
+              onClick={() => onSelect(option.template, "template")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(option.template, "template");
+                }
+              }}
+              key={option.id}
+              role="button"
+              tabIndex={0}
+            >
+              <span className="test-data-utility-option-meta">
+                {option.group}{option.source ? ` · ${option.source}` : ""}
+              </span>
+              <strong>{option.label}</strong>
+              <code>{option.template}</code>
+              <small>Sample: {staticPreview || "-"}</small>
+              <div className="test-data-utility-option-actions">
+                <button className="primary-button compact" onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(option.template, "template");
+                }} type="button">
+                  Randomize
+                </button>
+                <button className="ghost-button compact" onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(option.template, "static");
+                }} type="button">
+                  Static
+                </button>
+              </div>
+            </article>
+          );
+        })}
         {!filteredOptions.length ? <div className="empty-state compact test-data-utility-empty">No matching utilities.</div> : null}
       </div>
     </div>
@@ -1447,16 +1911,46 @@ function TestDataCellValueEditor({
   isUtilityOpen,
   onToggleUtility,
   onApplyUtility,
-  utilityLabel
+  utilityLabel,
+  utilityContextLabel
 }: {
   value: string;
   onChange: (value: string) => void;
   utilityOptions: TestDataUtilityOption[];
   isUtilityOpen: boolean;
   onToggleUtility: () => void;
-  onApplyUtility: (template: string) => void;
+  onApplyUtility: (template: string, mode: "template" | "static") => void;
   utilityLabel: string;
+  utilityContextLabel?: string;
 }) {
+  const modalContextLabel = utilityContextLabel || utilityLabel.replace(/^Open data utilities for\s*/i, "");
+  const utilityPanel = isUtilityOpen && typeof document !== "undefined" ? createPortal(
+    <div className="test-data-utility-modal-backdrop" onMouseDown={onToggleUtility} role="presentation">
+      <div
+        aria-label={utilityLabel}
+        aria-modal="true"
+        className="test-data-utility-floating"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="test-data-utility-modal-head">
+          <div>
+            <strong>Data utilities</strong>
+            <span>{modalContextLabel ? `For ${modalContextLabel}` : "Choose a dynamic template or write one generated value into this cell."}</span>
+          </div>
+          <button className="ghost-button compact" onClick={onToggleUtility} type="button">Close</button>
+        </div>
+        <DataUtilityPicker
+          options={utilityOptions}
+          onSelect={(template, mode) => {
+            onApplyUtility(template, mode);
+          }}
+        />
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   return (
     <div className="test-data-cell-editor">
       <div className="test-data-cell-input-row">
@@ -1477,14 +1971,7 @@ function TestDataCellValueEditor({
           <TestDataUtilityIcon />
         </button>
       </div>
-      {isUtilityOpen ? (
-        <DataUtilityPicker
-          options={utilityOptions}
-          onSelect={(template) => {
-            onApplyUtility(template);
-          }}
-        />
-      ) : null}
+      {utilityPanel}
     </div>
   );
 }
@@ -1545,12 +2032,13 @@ function KeyValueEditor({
                   {multilineValue && !entry.is_secret && utilityOptions ? (
                     <TestDataCellValueEditor
                       isUtilityOpen={activeUtilityRow === index}
-                      onApplyUtility={(template) => {
+                      onApplyUtility={(template, mode) => {
+                        const nextValue = mode === "static" ? evaluateTestDataTemplate(template) : template;
                         setActiveUtilityRow(null);
                         onChange(
                           entries.map((current, currentIndex) =>
                             currentIndex === index
-                              ? { ...current, value: template, has_stored_value: current.has_stored_value || Boolean(template) }
+                              ? { ...current, value: nextValue, has_stored_value: current.has_stored_value || Boolean(nextValue) }
                               : current
                           )
                         );
@@ -1563,6 +2051,7 @@ function KeyValueEditor({
                         )
                       }
                       onToggleUtility={() => setActiveUtilityRow((current) => (current === index ? null : index))}
+                      utilityContextLabel={entry.key || `pair ${index + 1}`}
                       utilityLabel={`Open data utilities for ${entry.key || `pair ${index + 1}`}`}
                       utilityOptions={utilityOptions}
                       value={entry.value}
@@ -1644,7 +2133,6 @@ function DataTableEditor({
   const columns = draft.columns;
   const rows = draft.rows;
   const [activeUtilityCell, setActiveUtilityCell] = useState("");
-  const [activeUtilityColumn, setActiveUtilityColumn] = useState<number | null>(null);
   const [dragState, setDragState] = useState<{ type: "column" | "row"; index: number } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const handleAddColumn = () => {
@@ -1679,17 +2167,6 @@ function DataTableEditor({
       rows: rows.map((currentRow, currentIndex) =>
         currentIndex === rowIndex ? { ...currentRow, [column]: value } : currentRow
       )
-    });
-  };
-  const applyUtilityToColumn = (column: string, template: string) => {
-    const nextRows = rows.length
-      ? rows.map((row) => ({ ...row, [column]: template }))
-      : [columns.reduce<TestDataSetRow>((accumulator, currentColumn) => ({ ...accumulator, [currentColumn]: currentColumn === column ? template : "" }), {})];
-
-    onChange({
-      ...draft,
-      columns,
-      rows: nextRows
     });
   };
   const handleRenameColumn = (columnIndex: number, value: string) => {
@@ -1775,7 +2252,11 @@ function DataTableEditor({
   };
 
   return (
-    <div className={isExpanded ? "resource-table-shell is-expanded" : "resource-table-shell"}>
+    <div
+      aria-modal={isExpanded ? "true" : undefined}
+      className={isExpanded ? "resource-table-shell is-expanded" : "resource-table-shell"}
+      role={isExpanded ? "dialog" : undefined}
+    >
       <div className="resource-table-toolbar">
         <strong>Table data</strong>
         <div className="resource-table-actions">
@@ -1851,19 +2332,6 @@ function DataTableEditor({
                         onChange={(event) => handleRenameColumn(columnIndex, event.target.value)}
                       />
                       <button
-                        aria-expanded={activeUtilityColumn === columnIndex}
-                        aria-label={`Open data utilities for column ${column}`}
-                        className={activeUtilityColumn === columnIndex ? "test-data-cell-utility-trigger is-active resource-column-utility-trigger" : "test-data-cell-utility-trigger resource-column-utility-trigger"}
-                        onClick={() => {
-                          setActiveUtilityCell("");
-                          setActiveUtilityColumn((current) => (current === columnIndex ? null : columnIndex));
-                        }}
-                        title="Data utilities"
-                        type="button"
-                      >
-                        <TestDataUtilityIcon />
-                      </button>
-                      <button
                         className="ghost-button danger resource-column-remove"
                         onClick={() => handleRemoveColumn(columnIndex)}
                         title="Remove column"
@@ -1871,17 +2339,6 @@ function DataTableEditor({
                       >
                         x
                       </button>
-                      {activeUtilityColumn === columnIndex ? (
-                        <div className="resource-column-utility-popover">
-                          <DataUtilityPicker
-                            options={utilityOptions}
-                            onSelect={(template) => {
-                              applyUtilityToColumn(column, template);
-                              setActiveUtilityColumn(null);
-                            }}
-                          />
-                        </div>
-                      ) : null}
                     </div>
                   </th>
                 ))}
@@ -1923,16 +2380,16 @@ function DataTableEditor({
                     <td key={`${rowIndex}-${columnIndex}`}>
                       <TestDataCellValueEditor
                         isUtilityOpen={activeUtilityCell === `${rowIndex}:${columnIndex}`}
-                        onApplyUtility={(template) => {
-                          updateCellValue(rowIndex, column, template);
+                        onApplyUtility={(template, mode) => {
+                          updateCellValue(rowIndex, column, mode === "static" ? evaluateTestDataTemplate(template) : template);
                           setActiveUtilityCell("");
                         }}
                         onChange={(value) => updateCellValue(rowIndex, column, value)}
                         onToggleUtility={() => {
                           const cellId = `${rowIndex}:${columnIndex}`;
-                          setActiveUtilityColumn(null);
                           setActiveUtilityCell((current) => (current === cellId ? "" : cellId));
                         }}
+                        utilityContextLabel={`row ${rowIndex + 1}, column ${column}`}
                         utilityLabel={`Open data utilities for row ${rowIndex + 1}, ${column}`}
                         utilityOptions={utilityOptions}
                         value={row[column] ?? ""}

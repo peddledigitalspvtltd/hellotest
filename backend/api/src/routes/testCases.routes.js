@@ -229,7 +229,10 @@ module.exports = async function (fastify) {
       throw new Error("App type scope is required");
     }
 
-    return aiAutomationBuilderService.extractRepositoryFields(req.body || {});
+    return aiAutomationBuilderService.extractRepositoryFields({
+      ...(req.body || {}),
+      user_id: req.user.id
+    });
   });
 
   fastify.get("/test-cases/automation/learning-cache/:id/usage", async (req) => {
@@ -431,6 +434,7 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.improveLearningCacheEntry({
       id: req.params.id,
       integration_id: req.body?.integration_id,
+      user_id: req.user.id,
       guidance: req.body?.guidance
     });
   });
@@ -649,6 +653,7 @@ module.exports = async function (fastify) {
       requirements,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       max_cases: req.body.max_cases,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,
@@ -675,6 +680,7 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       additional_context: req.body.additional_context,
       test_case: req.body.test_case
     });
@@ -706,6 +712,7 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       additional_context: req.body.additional_context,
       test_case: req.body.test_case,
       step: req.body.step

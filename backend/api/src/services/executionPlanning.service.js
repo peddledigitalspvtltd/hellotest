@@ -1,5 +1,5 @@
 const db = require("../db");
-const integrationService = require("./integration.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
 const DIRECT_CASE_SUITE_ID = "default";
@@ -188,10 +188,13 @@ const toCsvCell = (value) => {
 
 const uniqueList = (values = []) => Array.from(new Set(values.filter(Boolean)));
 
-const resolveIntegration = async (integration_id) => {
-  const integration = integration_id
-    ? await integrationService.getIntegration(integration_id)
-    : await integrationService.getActiveIntegrationByType("llm");
+const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => {
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId: integration_id,
+    userId,
+    usageKey,
+    fallback: "global"
+  });
 
   if (!integration) {
     throw new Error("No active LLM integration is configured");
@@ -711,6 +714,7 @@ exports.previewSmartExecution = async ({
   project_id,
   appType,
   integration_id,
+  user_id,
   release_scope,
   additional_context,
   impacted_requirement_ids,
@@ -758,7 +762,10 @@ exports.previewSmartExecution = async ({
       selectSuiteMappingsForPlanning.all(appType.id),
       selectRequirementMappingsForPlanning.all(appType.id),
       selectStepsForPlanning.all(appType.id),
-      resolveIntegration(integration_id)
+      resolveIntegration(integration_id, {
+        userId: user_id,
+        usageKey: "ai.execution.smart_plan"
+      })
     ]);
 
   if (!cases.length) {

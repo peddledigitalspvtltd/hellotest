@@ -1,15 +1,23 @@
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import {
   ActivityIcon,
+  AddIcon,
+  ClearSelectionIcon,
+  ExportIcon,
   GithubIcon,
   GoogleDriveIcon,
+  ImportIcon,
   MailIcon,
   PlugIcon,
+  SelectAllIcon,
   SparkIcon,
   UsersIcon
 } from "../components/AppIcons";
+import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
+import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -22,6 +30,7 @@ import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type { Integration } from "../types";
 
 type IntegrationDraft = {
@@ -74,13 +83,24 @@ type IntegrationDraft = {
   engine_max_android_workers: string;
   engine_live_view_url: string;
   engine_mobile_engine_url: string;
-  engine_mobile_cloud_provider: "none" | "saucelabs" | "lambdatest" | "browserstack" | "other";
+  engine_mobile_cloud_provider: "none" | "saucelabs" | "lambdatest" | "browserstack" | "crossbrowser" | "other";
   engine_mobile_remote_url: string;
   engine_mobile_username: string;
   engine_mobile_access_key: string;
   engine_mobile_device_name: string;
   engine_mobile_platform_version: string;
   engine_android_app: string;
+  cloud_run_provider: "browserstack" | "lambdatest" | "saucelabs" | "crossbrowser" | "other";
+  cloud_run_project_id: string;
+  cloud_run_remote_url: string;
+  cloud_run_username: string;
+  cloud_run_access_key: string;
+  cloud_run_browser: string;
+  cloud_run_os: string;
+  cloud_run_device_name: string;
+  cloud_run_platform_version: string;
+  cloud_run_build_name: string;
+  cloud_run_session_name: string;
   ops_project_id: string;
   ops_events_path: string;
   ops_health_path: string;
@@ -98,13 +118,65 @@ type IntegrationDraft = {
 type IntegrationTypeDefinition = {
   value: Integration["type"];
   label: string;
+  description?: string;
   icon?: string;
   defaults?: Record<string, unknown>;
 };
 
+type IntegrationCategoryKey = "ai" | "alm" | "notification" | "sso" | "backup" | "repository" | "testgrid" | "ops";
+type IntegrationTypeFilter = "all" | IntegrationCategoryKey;
+
 const DEFAULT_INTEGRATION_TYPE: Integration["type"] = "llm";
 const MASKED_SECRET_VALUE = "********";
 const isMaskedSecretValue = (value: string) => value.trim() === MASKED_SECRET_VALUE || /^[*•●]{6,}$/.test(value.trim());
+
+const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
+  value: IntegrationCategoryKey;
+  label: string;
+  description: string;
+  defaultProvider: Integration["type"];
+}> = [
+  { value: "ai", label: "AI Providers", description: "LLM and model providers used by QAira AI flows.", defaultProvider: "llm" },
+  { value: "alm", label: "ALM", description: "Application lifecycle and issue management providers.", defaultProvider: "jira" },
+  { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
+  { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },
+  { value: "sso", label: "SSO", description: "Single sign-on identity providers.", defaultProvider: "google_auth" },
+  { value: "backup", label: "Backup", description: "Workspace and project backup providers.", defaultProvider: "google_drive" },
+  { value: "notification", label: "Notifications", description: "Outbound mail and notification delivery providers.", defaultProvider: "email" },
+  { value: "ops", label: "OPS", description: "Operational telemetry and event sink providers.", defaultProvider: "ops" }
+];
+
+function getIntegrationCategoryKey(type: Integration["type"]): IntegrationCategoryKey {
+  switch (type) {
+    case "jira":
+      return "alm";
+    case "testengine":
+    case "cloudrun":
+    case "local-desktop":
+      return "testgrid";
+    case "github":
+      return "repository";
+    case "google_auth":
+      return "sso";
+    case "google_drive":
+      return "backup";
+    case "email":
+      return "notification";
+    case "ops":
+      return "ops";
+    case "llm":
+    default:
+      return "ai";
+  }
+}
+
+function getIntegrationCategoryDefinition(value: IntegrationTypeFilter) {
+  return value === "all" ? null : INTEGRATION_CATEGORY_DEFINITIONS.find((definition) => definition.value === value) || null;
+}
+
+function getIntegrationProvidersForCategory(category: IntegrationCategoryKey, definitions: IntegrationTypeDefinition[]) {
+  return definitions.filter((definition) => getIntegrationCategoryKey(definition.value) === category);
+}
 
 const getIntegrationTypeDefinition = (type: Integration["type"], definitions: IntegrationTypeDefinition[]) =>
   definitions.find((definition) => definition.value === type);
@@ -126,6 +198,7 @@ const buildEmptyDraft = (
   const llmDefaults = getIntegrationTypeDefinition("llm", definitions)?.defaults || {};
   const emailDefaults = getIntegrationTypeDefinition("email", definitions)?.defaults || {};
   const testEngineDefaults = getIntegrationTypeDefinition("testengine", definitions)?.defaults || {};
+  const cloudRunDefaults = getIntegrationTypeDefinition("cloudrun", definitions)?.defaults || {};
   const opsDefaults = getIntegrationTypeDefinition("ops", definitions)?.defaults || {};
 
   return {
@@ -185,6 +258,17 @@ const buildEmptyDraft = (
     engine_mobile_device_name: "",
     engine_mobile_platform_version: "",
     engine_android_app: "",
+    cloud_run_provider: (typeof cloudRunDefaults.provider === "string" ? cloudRunDefaults.provider : "browserstack") as IntegrationDraft["cloud_run_provider"],
+    cloud_run_project_id: "",
+    cloud_run_remote_url: typeof cloudRunDefaults.remote_url === "string" ? cloudRunDefaults.remote_url : "",
+    cloud_run_username: "",
+    cloud_run_access_key: "",
+    cloud_run_browser: typeof cloudRunDefaults.browser === "string" ? cloudRunDefaults.browser : "Chrome",
+    cloud_run_os: typeof cloudRunDefaults.os === "string" ? cloudRunDefaults.os : "Windows",
+    cloud_run_device_name: "",
+    cloud_run_platform_version: "",
+    cloud_run_build_name: "",
+    cloud_run_session_name: "",
     ops_project_id: "",
     ops_events_path: typeof opsDefaults.events_path === "string" ? opsDefaults.events_path : "/api/v1/events",
     ops_health_path: typeof opsDefaults.health_path === "string" ? opsDefaults.health_path : "/health",
@@ -250,6 +334,16 @@ function TestEngineIntegrationIcon() {
   );
 }
 
+function CloudRunIntegrationIcon() {
+  return (
+    <IntegrationBadgeSvg>
+      <path d="M8 17.5H7a4 4 0 0 1-.5-8 5.5 5.5 0 0 1 10.4-1.8A4.5 4.5 0 0 1 17 17.5h-1" />
+      <path d="m10 12 4 2-4 2Z" />
+      <path d="M14 14h4" />
+    </IntegrationBadgeSvg>
+  );
+}
+
 function GoogleAuthIntegrationIcon() {
   return (
     <IntegrationBadgeSvg>
@@ -274,7 +368,10 @@ function getIntegrationBadgeIcon(type: Integration["type"]) {
     case "github":
       return <GithubIcon size={18} />;
     case "testengine":
+    case "local-desktop":
       return <TestEngineIntegrationIcon />;
+    case "cloudrun":
+      return <CloudRunIntegrationIcon />;
     case "ops":
       return <ActivityIcon size={18} />;
     default:
@@ -356,6 +453,7 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
   const llmDefaults = getIntegrationTypeDefinition("llm", definitions)?.defaults || {};
   const emailDefaults = getIntegrationTypeDefinition("email", definitions)?.defaults || {};
   const testEngineDefaults = getIntegrationTypeDefinition("testengine", definitions)?.defaults || {};
+  const cloudRunDefaults = getIntegrationTypeDefinition("cloudrun", definitions)?.defaults || {};
   const opsDefaults = getIntegrationTypeDefinition("ops", definitions)?.defaults || {};
   const llmDefaultBaseUrl = getLlmDefaultBaseUrl(definitions);
   const nextBaseUrl = current.base_url === llmDefaultBaseUrl ? "" : current.base_url;
@@ -444,6 +542,18 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
       ops_emit_case_events: current.ops_emit_case_events,
       ops_emit_suite_events: current.ops_emit_suite_events,
       ops_emit_run_events: current.ops_emit_run_events
+    };
+  }
+
+  if (type === "cloudrun") {
+    return {
+      ...current,
+      type,
+      base_url: current.base_url === llmDefaultBaseUrl ? "" : current.base_url,
+      cloud_run_provider: (current.cloud_run_provider || String(cloudRunDefaults.provider || "browserstack")) as IntegrationDraft["cloud_run_provider"],
+      cloud_run_remote_url: current.cloud_run_remote_url || String(cloudRunDefaults.remote_url || ""),
+      cloud_run_browser: current.cloud_run_browser || String(cloudRunDefaults.browser || "Chrome"),
+      cloud_run_os: current.cloud_run_os || String(cloudRunDefaults.os || "Windows")
     };
   }
 
@@ -589,6 +699,17 @@ function getDraftFromIntegration(
     engine_mobile_device_name: typeof config.device_name === "string" ? config.device_name : "",
     engine_mobile_platform_version: typeof config.platform_version === "string" ? config.platform_version : "",
     engine_android_app: typeof config.android_app === "string" ? config.android_app : "",
+    cloud_run_provider: (typeof config.provider === "string" ? config.provider : emptyDraft.cloud_run_provider) as IntegrationDraft["cloud_run_provider"],
+    cloud_run_project_id: typeof config.project_id === "string" ? config.project_id : "",
+    cloud_run_remote_url: typeof config.remote_url === "string" ? config.remote_url : integration.type === "cloudrun" ? integration.base_url || "" : "",
+    cloud_run_username: integration.type === "cloudrun" ? integration.username || "" : "",
+    cloud_run_access_key: integration.type === "cloudrun" ? integration.api_key || "" : "",
+    cloud_run_browser: typeof config.browser === "string" ? config.browser : emptyDraft.cloud_run_browser,
+    cloud_run_os: typeof config.os === "string" ? config.os : emptyDraft.cloud_run_os,
+    cloud_run_device_name: typeof config.device_name === "string" ? config.device_name : "",
+    cloud_run_platform_version: typeof config.platform_version === "string" ? config.platform_version : "",
+    cloud_run_build_name: typeof config.build_name === "string" ? config.build_name : "",
+    cloud_run_session_name: typeof config.session_name === "string" ? config.session_name : "",
     ops_project_id: typeof config.project_id === "string" ? config.project_id : "",
     ops_events_path: typeof config.events_path === "string" ? config.events_path : emptyDraft.ops_events_path,
     ops_health_path: typeof config.health_path === "string" ? config.health_path : emptyDraft.ops_health_path,
@@ -694,6 +815,21 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
     };
   }
 
+  if (draft.type === "cloudrun") {
+    return {
+      provider: draft.cloud_run_provider,
+      project_id: draft.cloud_run_project_id || undefined,
+      remote_url: draft.cloud_run_remote_url.trim() || draft.base_url.trim() || null,
+      browser: draft.cloud_run_browser.trim() || "Chrome",
+      os: draft.cloud_run_os.trim() || "Windows",
+      device_name: draft.cloud_run_device_name.trim() || null,
+      platform_version: draft.cloud_run_platform_version.trim() || null,
+      build_name: draft.cloud_run_build_name.trim() || null,
+      session_name: draft.cloud_run_session_name.trim() || null,
+      provider_options: {}
+    };
+  }
+
   if (draft.type === "ops") {
     return {
       project_id: draft.ops_project_id || undefined,
@@ -783,6 +919,18 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
     };
   }
 
+  if (integration.type === "cloudrun") {
+    const provider = typeof config.provider === "string" ? config.provider : "browserstack";
+    const browser = typeof config.browser === "string" ? config.browser : "Chrome";
+    const os = typeof config.os === "string" ? config.os : "Windows";
+    const deviceName = typeof config.device_name === "string" ? config.device_name : "";
+
+    return {
+      primary: integration.base_url || (typeof config.remote_url === "string" ? config.remote_url : "Remote hub not set"),
+      secondary: `${provider} · ${deviceName ? `${deviceName} · ` : ""}${browser} on ${os}`
+    };
+  }
+
   if (integration.type === "ops") {
     return {
       primary: integration.base_url || "Uses active Test Engine host",
@@ -843,7 +991,7 @@ function IntegrationReadOnlyDetails({
   );
 }
 
-export function IntegrationsPage() {
+export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
@@ -859,10 +1007,15 @@ export function IntegrationsPage() {
   );
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [integrationCatalogViewMode, setIntegrationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [selectedIntegrationTypeFilter, setSelectedIntegrationTypeFilter] = useState<IntegrationTypeFilter>("all");
+  const [selectedActionIntegrationIds, setSelectedActionIntegrationIds] = useState<string[]>([]);
+  const [integrationSearch, setIntegrationSearch] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [draft, setDraft] = useState<IntegrationDraft>(emptyDraft);
   const [testConnectionSummary, setTestConnectionSummary] = useState("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const integrationsQuery = useQuery({
     queryKey: ["integrations"],
@@ -877,6 +1030,7 @@ export function IntegrationsPage() {
 
   const createIntegration = useMutation({ mutationFn: api.integrations.create });
   const testIntegrationConnection = useMutation({ mutationFn: api.integrations.testConnection });
+  const importIntegrations = useMutation({ mutationFn: api.integrations.import });
   const updateIntegration = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.integrations.update>[1] }) =>
       api.integrations.update(id, input)
@@ -886,6 +1040,111 @@ export function IntegrationsPage() {
   const integrations = integrationsQuery.data || [];
   const projects = projectsQuery.data || [];
   const isIntegrationCatalogLoading = integrationsQuery.isLoading;
+  const integrationTypeOptions = INTEGRATION_CATEGORY_DEFINITIONS;
+  const searchFilteredIntegrations = useMemo(() => {
+    const normalizedSearch = integrationSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return integrations;
+    }
+
+    return integrations.filter((integration) => {
+      const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+
+      return [
+        integration.id,
+        integration.name,
+        integration.type,
+        getIntegrationCategoryDefinition(getIntegrationCategoryKey(integration.type))?.label,
+        getIntegrationTypeLabel(integration.type, integrationTypeDefinitions),
+        integration.base_url,
+        integration.model,
+        integration.project_key,
+        integration.username,
+        integration.is_active ? "active" : "inactive",
+        summary.primary,
+        summary.secondary
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    });
+  }, [integrationSearch, integrationTypeDefinitions, integrations]);
+  const integrationTypeSections = useMemo(
+    () =>
+      integrationTypeOptions.map((definition) => {
+        const allTypeIntegrations = integrations.filter((integration) => getIntegrationCategoryKey(integration.type) === definition.value);
+        const items = searchFilteredIntegrations.filter((integration) => getIntegrationCategoryKey(integration.type) === definition.value);
+
+        return {
+          ...definition,
+          activeCount: allTypeIntegrations.filter((integration) => integration.is_active).length,
+          items,
+          totalCount: allTypeIntegrations.length
+        };
+      }),
+    [integrationTypeOptions, integrations, searchFilteredIntegrations]
+  );
+  const visibleIntegrationSections = useMemo(
+    () =>
+      selectedIntegrationTypeFilter === "all"
+        ? integrationTypeSections.filter((section) => section.items.length)
+        : integrationTypeSections.filter((section) => section.value === selectedIntegrationTypeFilter),
+    [integrationTypeSections, selectedIntegrationTypeFilter]
+  );
+  const filteredIntegrations = useMemo(
+    () =>
+      selectedIntegrationTypeFilter === "all"
+        ? searchFilteredIntegrations
+        : searchFilteredIntegrations.filter((integration) => getIntegrationCategoryKey(integration.type) === selectedIntegrationTypeFilter),
+    [searchFilteredIntegrations, selectedIntegrationTypeFilter]
+  );
+  const visibleIntegrationIds = useMemo(() => filteredIntegrations.map((integration) => integration.id), [filteredIntegrations]);
+  const areAllFilteredIntegrationsSelected = visibleIntegrationIds.length > 0 && visibleIntegrationIds.every((id) => selectedActionIntegrationIds.includes(id));
+  const integrationListColumns = useMemo<Array<DataTableColumn<Integration>>>(() => [
+    {
+      key: "name",
+      label: "Integration",
+      canToggle: false,
+      width: 280,
+      minWidth: 180,
+      sortValue: (integration) => integration.name,
+      render: (integration) => {
+        const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+
+        return (
+          <div className="data-table-multiline">
+            <strong>{integration.name}</strong>
+            <span className="data-table-multiline-line">{summary.primary}</span>
+          </div>
+        );
+      }
+    },
+    {
+      key: "type",
+      label: "Provider",
+      width: 170,
+      minWidth: 128,
+      sortValue: (integration) => getIntegrationTypeLabel(integration.type, integrationTypeDefinitions),
+      render: (integration) => getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)
+    },
+    {
+      key: "status",
+      label: "Status",
+      width: 120,
+      minWidth: 96,
+      sortValue: (integration) => integration.is_active ? "active" : "inactive",
+      render: (integration) => <StatusBadge value={integration.is_active ? "active" : "inactive"} />
+    },
+    {
+      key: "details",
+      label: "Details",
+      width: 260,
+      minWidth: 160,
+      render: (integration) => getIntegrationSummary(integration, integrationTypeDefinitions).secondary
+    }
+  ], [integrationTypeDefinitions]);
   const selectedIntegration = useMemo(
     () => integrations.find((item) => item.id === selectedIntegrationId) || null,
     [integrations, selectedIntegrationId]
@@ -899,7 +1158,13 @@ export function IntegrationsPage() {
   const isGoogleDrive = draft.type === "google_drive";
   const isGithub = draft.type === "github";
   const isTestEngine = draft.type === "testengine";
+  const isCloudRun = draft.type === "cloudrun";
   const isOps = draft.type === "ops";
+  const draftCategoryKey = getIntegrationCategoryKey(draft.type);
+  const draftProviderOptions = useMemo(
+    () => getIntegrationProvidersForCategory(draftCategoryKey, integrationTypeDefinitions),
+    [draftCategoryKey, integrationTypeDefinitions]
+  );
   const emailDefaults = getIntegrationTypeDefinition("email", integrationTypeDefinitions)?.defaults || {};
   const llmDefaults = getIntegrationTypeDefinition("llm", integrationTypeDefinitions)?.defaults || {};
   const defaultEmailSender = typeof emailDefaults.sender_email === "string" ? emailDefaults.sender_email : "";
@@ -1026,14 +1291,17 @@ export function IntegrationsPage() {
     event.preventDefault();
 
     try {
+      const resolvedApiKey = isCloudRun ? draft.cloud_run_access_key : draft.api_key;
+      const resolvedBaseUrl = isCloudRun ? draft.cloud_run_remote_url || draft.base_url : draft.base_url;
+      const resolvedUsername = isCloudRun ? draft.cloud_run_username : draft.username;
       const input = {
         type: draft.type,
         name: draft.name.trim(),
-        base_url: draft.base_url.trim() || undefined,
-        api_key: draft.api_key.trim() && !isMaskedSecretValue(draft.api_key) ? draft.api_key.trim() : undefined,
+        base_url: resolvedBaseUrl.trim() || undefined,
+        api_key: resolvedApiKey.trim() && !isMaskedSecretValue(resolvedApiKey) ? resolvedApiKey.trim() : undefined,
         model: draft.model.trim() || undefined,
         project_key: draft.project_key.trim() || undefined,
-        username: draft.username.trim() || undefined,
+        username: resolvedUsername.trim() || undefined,
         config: buildIntegrationConfig(draft, integrationTypeDefinitions),
         is_active: draft.is_active
       };
@@ -1041,6 +1309,7 @@ export function IntegrationsPage() {
       if (isCreating || !selectedIntegration) {
         const response = await createIntegration.mutateAsync(input);
         setSelectedIntegrationId(response.id);
+        setSelectedIntegrationTypeFilter(getIntegrationCategoryKey(input.type));
         setIsCreating(false);
         showSuccess("Integration created.");
       } else {
@@ -1048,6 +1317,7 @@ export function IntegrationsPage() {
           id: selectedIntegration.id,
           input
         });
+        setSelectedIntegrationTypeFilter(getIntegrationCategoryKey(input.type));
         showSuccess("Integration updated.");
       }
 
@@ -1074,16 +1344,72 @@ export function IntegrationsPage() {
     }
   };
 
+  const handleExportIntegrations = async () => {
+    try {
+      const payload = await api.integrations.export();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+
+      anchor.href = url;
+      anchor.download = `qaira-integrations-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      showSuccess("Integrations exported.");
+    } catch (error) {
+      showError(error, "Unable to export integrations");
+    }
+  };
+
+  const handleImportIntegrationFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as { integrations?: Integration[] } | Integration[];
+      const integrationsToImport = Array.isArray(parsed) ? parsed : parsed.integrations;
+
+      if (!Array.isArray(integrationsToImport)) {
+        throw new Error("Import file must contain an integrations array");
+      }
+
+      const result = await importIntegrations.mutateAsync({ integrations: integrationsToImport });
+      const failureCopy = result.failed ? ` ${result.failed} failed.` : "";
+      showSuccess(`Integrations imported: ${result.imported} new, ${result.updated} updated.${failureCopy}`);
+      await refresh();
+    } catch (error) {
+      showError(error, "Unable to import integrations");
+    }
+  };
+
   const openCreateForm = () => {
+    const preferredType = getIntegrationCategoryDefinition(selectedIntegrationTypeFilter)?.defaultProvider || defaultIntegrationType;
     setIsCreating(true);
     setSelectedIntegrationId("");
-    setDraft(emptyDraft);
+    setDraft(buildEmptyDraft(integrationTypeDefinitions, preferredType));
   };
 
   const closeIntegrationWorkspace = () => {
     setSelectedIntegrationId("");
     setIsCreating(false);
     setDraft(emptyDraft);
+  };
+
+  const handleSelectIntegrationType = (nextType: IntegrationTypeFilter) => {
+    setSelectedIntegrationTypeFilter(nextType);
+    setSelectedActionIntegrationIds([]);
+
+    if (nextType !== "all" && selectedIntegration && getIntegrationCategoryKey(selectedIntegration.type) !== nextType) {
+      setSelectedIntegrationId("");
+      setIsCreating(false);
+      setDraft(emptyDraft);
+    }
   };
 
   const handleTestConnection = async () => {
@@ -1119,74 +1445,238 @@ export function IntegrationsPage() {
     }
   };
 
+  const integrationActions = isAdmin ? (
+    <div className="integration-header-actions">
+      <input
+        accept="application/json,.json"
+        className="visually-hidden"
+        onChange={(event) => void handleImportIntegrationFile(event)}
+        ref={importInputRef}
+        type="file"
+      />
+      <button className="ghost-button" disabled={!integrations.length} onClick={() => void handleExportIntegrations()} type="button">
+        <ExportIcon />
+        Export
+      </button>
+      <button className="ghost-button" disabled={importIntegrations.isPending} onClick={() => importInputRef.current?.click()} type="button">
+        <ImportIcon />
+        Import
+      </button>
+      <button
+        className="primary-button"
+        onClick={openCreateForm}
+        type="button"
+      >
+        <PlugIcon />
+        New Integration
+      </button>
+    </div>
+  ) : null;
+
+  const renderIntegrationTile = (integration: Integration) => {
+    const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+
+    return (
+      <button
+        key={integration.id}
+        className={selectedIntegrationId === integration.id ? "record-card tile-card is-active" : "record-card tile-card"}
+        onClick={() => {
+          setSelectedIntegrationId(integration.id);
+          setIsCreating(false);
+        }}
+        type="button"
+      >
+        <div className="tile-card-main">
+          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+            <label className="checkbox-field">
+              <input
+                aria-label={`Select ${integration.name}`}
+                checked={selectedActionIntegrationIds.includes(integration.id)}
+                onChange={() =>
+                  setSelectedActionIntegrationIds((current) =>
+                    current.includes(integration.id)
+                      ? current.filter((id) => id !== integration.id)
+                      : [...current, integration.id]
+                  )
+                }
+                type="checkbox"
+              />
+              <span className="sr-only">Select integration</span>
+            </label>
+          </div>
+          <div className="tile-card-header">
+            <span className="integration-type-badge">{getIntegrationBadgeIcon(integration.type)}</span>
+            <div className="tile-card-title-group">
+              <strong>{integration.name}</strong>
+              <span className="tile-card-kicker">{getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
+            </div>
+            <TileCardStatusIndicator title={integration.is_active ? "Active" : "Inactive"} tone={integration.is_active ? "success" : "neutral"} />
+          </div>
+          <p className="tile-card-description">{summary.primary}</p>
+          <div className="integration-card-footer">
+            <StatusBadge value={integration.is_active ? "active" : "inactive"} />
+            <span className="count-pill">{summary.secondary}</span>
+          </div>
+        </div>
+      </button>
+    );
+  };
+
   return (
-    <div className="page-content">
+    <div className={embedded ? "admin-embedded-page integrations-admin-page" : "page-content"}>
       {confirmationDialog}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone === "error" ? "error" : "success"} />
 
-      <PageHeader
-        eyebrow="Administration"
-        title="Integrations"
-        description="Manage the external systems QAira uses for AI generation, Jira sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
-        meta={[
-          { label: "Configured", value: integrations.length },
-          { label: "Active", value: activeIntegrationCount },
-          { label: "Selected type", value: isCreating ? getIntegrationTypeLabel(draft.type, integrationTypeDefinitions) : selectedIntegration ? getIntegrationTypeLabel(selectedIntegration.type, integrationTypeDefinitions) : "None" }
-        ]}
-        actions={
-          isAdmin ? (
-            <button
-              className="primary-button"
-              onClick={openCreateForm}
-              type="button"
-            >
-              <PlugIcon />
-              New Integration
-            </button>
-          ) : null
-        }
-      />
+      {!embedded ? (
+        <PageHeader
+          eyebrow="Administration"
+          title="Integrations"
+          description="Manage the external systems QAira uses for AI generation, Jira sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
+          meta={[
+            { label: "Configured", value: integrations.length },
+            { label: "Active", value: activeIntegrationCount },
+            { label: "Selected type", value: selectedIntegrationTypeFilter === "all" ? "All types" : getIntegrationCategoryDefinition(selectedIntegrationTypeFilter)?.label || "None" }
+          ]}
+          actions={integrationActions}
+        />
+      ) : null}
 
       <WorkspaceMasterDetail
           browseView={(
-            <Panel title="Integrations" titleVariant="eyebrow" subtitle="Review configured connections as tiles first, then open one profile into a focused editor.">
-              {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
-              {!isIntegrationCatalogLoading ? (
-                <div className="tile-browser-grid">
-                  {integrations.map((integration) => {
-                    const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+            <Panel
+              title="Integrations"
+              titleVariant="eyebrow"
+              subtitle="Review configured connections grouped by integration type, then open one profile into a focused editor."
+            >
+              <div className="integration-type-selector" role="tablist" aria-label="Integration type sections">
+                <button
+                  aria-selected={selectedIntegrationTypeFilter === "all"}
+                  className={selectedIntegrationTypeFilter === "all" ? "is-active" : ""}
+                  onClick={() => handleSelectIntegrationType("all")}
+                  role="tab"
+                  type="button"
+                >
+                  <span className="integration-type-selector-icon"><PlugIcon /></span>
+                  <span>
+                    <strong>All types</strong>
+                    <small>{integrations.length} configured · {activeIntegrationCount} active</small>
+                  </span>
+                </button>
+                {integrationTypeOptions.map((definition) => {
+                  const section = integrationTypeSections.find((item) => item.value === definition.value);
+                  const totalCount = section?.totalCount || 0;
+                  const activeCount = section?.activeCount || 0;
 
-                    return (
-                      <button
-                        key={integration.id}
-                        className={selectedIntegrationId === integration.id ? "record-card tile-card is-active" : "record-card tile-card"}
-                        onClick={() => {
-                          setSelectedIntegrationId(integration.id);
-                          setIsCreating(false);
-                        }}
-                        type="button"
-                      >
-                        <div className="tile-card-main">
-                          <div className="tile-card-header">
-                            <span className="integration-type-badge">{getIntegrationBadgeIcon(integration.type)}</span>
-                            <div className="tile-card-title-group">
-                              <strong>{integration.name}</strong>
-                              <span className="tile-card-kicker">{getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
-                            </div>
-                            <TileCardStatusIndicator title={integration.is_active ? "Active" : "Inactive"} tone={integration.is_active ? "success" : "neutral"} />
-                          </div>
-                          <p className="tile-card-description">{summary.primary}</p>
-                          <div className="integration-card-footer">
-                            <StatusBadge value={integration.is_active ? "active" : "inactive"} />
-                            <span className="count-pill">{summary.secondary}</span>
-                          </div>
-                        </div>
+                  return (
+                    <button
+                      aria-selected={selectedIntegrationTypeFilter === definition.value}
+                      className={selectedIntegrationTypeFilter === definition.value ? "is-active" : ""}
+                      key={definition.value}
+                      onClick={() => handleSelectIntegrationType(definition.value)}
+                      role="tab"
+                      type="button"
+                    >
+                      <span className="integration-type-selector-icon">{getIntegrationBadgeIcon(definition.defaultProvider)}</span>
+                      <span>
+                        <strong>{definition.label}</strong>
+                        <small>{totalCount} configured · {activeCount} active</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="design-list-toolbar integration-catalog-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={integrationSearch.trim() ? 1 : 0}
+                  ariaLabel="Search integrations"
+                  onChange={setIntegrationSearch}
+                  placeholder="Search integrations"
+                  subtitle="Search by name, provider type, status, URL, model, project key, or user."
+                  title="Integration search"
+                  type="search"
+                  value={integrationSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button className="ghost-button" disabled={!integrationSearch.trim()} onClick={() => setIntegrationSearch("")} type="button">
+                        Clear search
                       </button>
-                    );
-                  })}
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!visibleIntegrationIds.length || areAllFilteredIntegrationsSelected}
+                  onClick={() => setSelectedActionIntegrationIds((current) => Array.from(new Set([...current, ...visibleIntegrationIds])))}
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedActionIntegrationIds.length}
+                  onClick={() => setSelectedActionIntegrationIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setIntegrationCatalogViewMode} value={integrationCatalogViewMode} />
+                {embedded && integrationActions ? <div className="catalog-toolbar-actions">{integrationActions}</div> : null}
+              </div>
+              {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
+              {!isIntegrationCatalogLoading && visibleIntegrationSections.length ? (
+                <div className="integration-type-section-stack">
+                  {visibleIntegrationSections.map((section) => (
+                    <section className="integration-type-section" key={section.value}>
+                      <div className="integration-type-section-header">
+                        <span className="integration-type-section-icon">{getIntegrationBadgeIcon(section.defaultProvider)}</span>
+                        <div>
+                          <strong>{section.label}</strong>
+                          <span>{section.description || "Configured external system profiles for this integration type."}</span>
+                        </div>
+                        <div className="integration-type-section-meta">
+                          <span className="count-pill">{section.items.length} shown</span>
+                          <span className="count-pill">{section.totalCount} total</span>
+                          <span className="count-pill">{section.activeCount} active</span>
+                        </div>
+                      </div>
+
+                      {section.items.length && integrationCatalogViewMode === "tile" ? (
+                        <div className="tile-browser-grid integration-type-grid">
+                          {section.items.map((integration) => renderIntegrationTile(integration))}
+                        </div>
+                      ) : null}
+
+                      {section.items.length && integrationCatalogViewMode === "list" ? (
+                        <DataTable
+                          columns={integrationListColumns}
+                          enableColumnResize
+                          enableHeaderColumnReorder
+                          emptyMessage={`No ${section.label} integrations match the current search.`}
+                          getRowClassName={(integration) => (selectedIntegrationId === integration.id ? "is-active-row" : "")}
+                          getRowKey={(integration) => integration.id}
+                          hideToolbarCopy
+                          onRowClick={(integration) => {
+                            setSelectedIntegrationId(integration.id);
+                            setIsCreating(false);
+                          }}
+                          rows={section.items}
+                          storageKey={`qaira:integrations:list-columns:${section.value}`}
+                        />
+                      ) : null}
+
+                      {!section.items.length ? (
+                        <div className="empty-state compact">No {section.label} integrations match the current search.</div>
+                      ) : null}
+                    </section>
+                  ))}
                 </div>
               ) : null}
               {!isIntegrationCatalogLoading && !integrations.length ? <div className="empty-state compact">No integrations configured yet.</div> : null}
+              {!isIntegrationCatalogLoading && integrations.length > 0 && !visibleIntegrationSections.length && !filteredIntegrations.length ? <div className="empty-state compact">No integrations match the current search.</div> : null}
             </Panel>
           )}
           detailView={(
@@ -1200,21 +1690,43 @@ export function IntegrationsPage() {
               ) : isCreating || selectedIntegration ? (
                 <form className="form-grid" onSubmit={(event) => void handleSave(event)}>
                 <div className="record-grid">
-                  <FormField label="Type">
+                  <FormField label="Integration type">
                     <select
-                      value={draft.type}
-                      onChange={(event) =>
+                      value={draftCategoryKey}
+                      onChange={(event) => {
+                        const nextCategory = event.target.value as IntegrationCategoryKey;
+                        const nextType = getIntegrationCategoryDefinition(nextCategory)?.defaultProvider || getIntegrationProvidersForCategory(nextCategory, integrationTypeDefinitions)[0]?.value || DEFAULT_INTEGRATION_TYPE;
+                        setSelectedIntegrationTypeFilter(nextCategory);
                         setDraft((current) =>
-                          applyDraftDefaultsForType(event.target.value as Integration["type"], current, integrationTypeDefinitions)
-                        )
-                      }
+                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
+                        );
+                      }}
                     >
-                      {integrationTypeDefinitions.map((definition) => (
+                      {INTEGRATION_CATEGORY_DEFINITIONS.map((definition) => (
                         <option key={definition.value} value={definition.value}>{definition.label}</option>
                       ))}
                     </select>
                   </FormField>
 
+                  <FormField label="Provider">
+                    <select
+                      value={draft.type}
+                      onChange={(event) => {
+                        const nextType = event.target.value as Integration["type"];
+                        setSelectedIntegrationTypeFilter(getIntegrationCategoryKey(nextType));
+                        setDraft((current) =>
+                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
+                        );
+                      }}
+                    >
+                      {draftProviderOptions.map((definition) => (
+                        <option key={definition.value} value={definition.value}>{definition.label}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+
+                <div className="record-grid">
                   <FormField label="Name">
                     <input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
                   </FormField>
@@ -1460,11 +1972,128 @@ export function IntegrationsPage() {
                         </div>
                       </>
                     ) : null}
-                  </>
-                ) : null}
+	                  </>
+	                ) : null}
+	
+	                {isCloudRun ? (
+	                  <>
+	                    <div className="empty-state compact integration-helper">
+	                      Store cloud browser and device provider credentials independently from project records. These settings remain in Admin Space and can be reused across runs.
+	                    </div>
 
-                {isTestEngine ? (
-                  <>
+	                    <div className="record-grid">
+	                      <FormField label="Provider">
+	                        <select
+	                          value={draft.cloud_run_provider}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_provider: event.target.value as IntegrationDraft["cloud_run_provider"] }))}
+	                        >
+	                          <option value="browserstack">BrowserStack</option>
+	                          <option value="lambdatest">LambdaTest</option>
+	                          <option value="saucelabs">Sauce Labs</option>
+	                          <option value="crossbrowser">CrossBrowser</option>
+	                          <option value="other">Other</option>
+	                        </select>
+	                      </FormField>
+
+	                      <FormField label="Project Scope">
+	                        <select
+	                          value={draft.cloud_run_project_id}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_project_id: event.target.value }))}
+	                        >
+	                          <option value="">All projects (default)</option>
+	                          {projects.map((project) => (
+	                            <option key={project.id} value={project.id}>{project.name}</option>
+	                          ))}
+	                        </select>
+	                      </FormField>
+	                    </div>
+
+	                    <div className="record-grid">
+	                      <FormField label="Remote Hub URL">
+	                        <input
+	                          placeholder="https://hub.browserstack.com/wd/hub"
+	                          value={draft.cloud_run_remote_url}
+	                          onChange={(event) => {
+	                            const remoteUrl = event.target.value;
+	                            setDraft((current) => ({ ...current, cloud_run_remote_url: remoteUrl, base_url: remoteUrl }));
+	                          }}
+	                        />
+	                      </FormField>
+
+	                      <FormField label="Username">
+	                        <input
+	                          value={draft.cloud_run_username}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_username: event.target.value }))}
+	                        />
+	                      </FormField>
+
+	                      <FormField label="Access Key">
+	                        <input
+	                          type="password"
+	                          value={draft.cloud_run_access_key}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_access_key: event.target.value }))}
+	                        />
+	                      </FormField>
+	                    </div>
+
+	                    <div className="record-grid">
+	                      <FormField label="Browser">
+	                        <input
+	                          placeholder="Chrome"
+	                          value={draft.cloud_run_browser}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_browser: event.target.value }))}
+	                        />
+	                      </FormField>
+
+	                      <FormField label="OS">
+	                        <input
+	                          placeholder="Windows"
+	                          value={draft.cloud_run_os}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_os: event.target.value }))}
+	                        />
+	                      </FormField>
+	                    </div>
+
+	                    <div className="record-grid">
+	                      <FormField label="Device name">
+	                        <input
+	                          placeholder="Pixel 8 or iPhone 15"
+	                          value={draft.cloud_run_device_name}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_device_name: event.target.value }))}
+	                        />
+	                      </FormField>
+
+	                      <FormField label="Platform version">
+	                        <input
+	                          placeholder="14"
+	                          value={draft.cloud_run_platform_version}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_platform_version: event.target.value }))}
+	                        />
+	                      </FormField>
+	                    </div>
+
+	                    <div className="record-grid">
+	                      <FormField label="Build name">
+	                        <input
+	                          placeholder="QAira regression"
+	                          value={draft.cloud_run_build_name}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_build_name: event.target.value }))}
+	                        />
+	                      </FormField>
+
+	                      <FormField label="Session name">
+	                        <input
+	                          placeholder="Manual or automated run"
+	                          value={draft.cloud_run_session_name}
+	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_session_name: event.target.value }))}
+	                        />
+	                      </FormField>
+	                    </div>
+	                  </>
+	                ) : null}
+
+	                {isTestEngine ? (
+	                  <>
                     <div className="empty-state compact integration-helper">
                       QAira remains the only run UI. Configure the Test Engine host and active web engine here. QAira derives the queue, pull-based execution flow, and provider-aware runtime defaults automatically, so you no longer need to manage callback URLs, signing secrets, or engine tokens from this screen.
                     </div>
@@ -1728,10 +2357,11 @@ export function IntegrationsPage() {
                           onChange={(event) => setDraft((current) => ({ ...current, engine_mobile_cloud_provider: event.target.value as IntegrationDraft["engine_mobile_cloud_provider"] }))}
                         >
                           <option value="none">None</option>
-                          <option value="saucelabs">Sauce Labs</option>
-                          <option value="lambdatest">LambdaTest</option>
-                          <option value="browserstack">BrowserStack</option>
-                          <option value="other">Other</option>
+	                          <option value="saucelabs">Sauce Labs</option>
+	                          <option value="lambdatest">LambdaTest</option>
+	                          <option value="browserstack">BrowserStack</option>
+	                          <option value="crossbrowser">CrossBrowser</option>
+	                          <option value="other">Other</option>
                         </select>
                       </FormField>
                     </div>

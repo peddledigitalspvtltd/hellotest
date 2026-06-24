@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { remote } from "webdriverio";
 import { randomUUID } from "crypto";
+import { readFile } from "fs/promises";
 
 const port = Number(process.env.PORT || 4312);
 const sessions = new Map();
@@ -9,6 +10,23 @@ const app = Fastify({ logger: { level: process.env.LOG_LEVEL || "info" } });
 
 const normalizeText = (value) => String(value || "").trim();
 const nowIso = () => new Date().toISOString();
+const escapeUiSelectorText = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+async function remoteFileToBase64(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Unable to download remote mobile file: ${response.status} ${response.statusText}`);
+  }
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
+}
+
+async function localFileToBase64(value) {
+  const normalized = normalizeText(value);
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) && normalized.length > 64) {
+    return normalized;
+  }
+  return (await readFile(normalized)).toString("base64");
+}
 
 const KEYWORDS = [
   "aiStep",
@@ -23,12 +41,22 @@ const KEYWORDS = [
   "swipe",
   "waitForDisplayed",
   "waitForExist",
+  "waitForEnabled",
+  "tapByText",
   "expectText",
   "expectDisplayed",
   "expectNotDisplayed",
   "expectEnabled",
   "expectValue",
   "scrollIntoView",
+  "pushFile",
+  "pushRemoteFile",
+  "pullFile",
+  "installApp",
+  "removeApp",
+  "startActivity",
+  "openDeepLink",
+  "deepLink",
   "pressBack",
   "pressKeyCode",
   "backgroundApp",
@@ -82,7 +110,7 @@ function buildCapabilities(input = {}) {
     ...(config.no_reset !== undefined ? { "appium:noReset": Boolean(config.no_reset) } : { "appium:noReset": true })
   };
 
-  if (provider === "saucelabs" || provider === "browserstack" || provider === "lambdatest") {
+  if (provider === "saucelabs" || provider === "browserstack" || provider === "lambdatest" || provider === "crossbrowser") {
     return {
       provider,
       appiumServerUrl: normalizeText(input.remote_url || config.remote_url || process.env.MOBILE_REMOTE_URL) || appiumServerUrl,
@@ -157,21 +185,37 @@ function normalizeRepositoryKey(value) {
 }
 
 function buildRepositoryResolver(entries = []) {
+  const locatorValue = (value) => {
+    if (typeof value === "string") return normalizeText(value);
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return normalizeText(value.locator || value.selector || value.value);
+    }
+    return "";
+  };
   const normalizedEntries = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
-    .map((entry) => ({
-      locator: normalizeText(entry.locator),
-      candidates: [
-        entry.locator,
-        entry.locator_intent,
-        entry.object_name,
-        entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
-        entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
-        entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
-        entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
-        ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
-      ].map(normalizeRepositoryKey).filter(Boolean)
-    }))
+    .map((entry) => {
+      const metadata = entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata) ? entry.metadata : {};
+      const fallbackLocators = [
+        ...(Array.isArray(entry.fallback_locators) ? entry.fallback_locators : []),
+        ...(Array.isArray(metadata.fallback_locators) ? metadata.fallback_locators : []),
+        ...(Array.isArray(metadata.locator_candidates) ? metadata.locator_candidates : [])
+      ].map(locatorValue).filter(Boolean);
+      return {
+        locator: normalizeText(entry.locator),
+        candidates: [
+          entry.locator,
+          entry.locator_intent,
+          entry.object_name,
+          entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+          entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+          entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
+          entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
+          ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : []),
+          ...fallbackLocators
+        ].map(normalizeRepositoryKey).filter(Boolean)
+      };
+    })
     .filter((entry) => entry.locator);
 
   return (selector) => {
@@ -246,6 +290,12 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
         await driver.$(String(resolvedSelector)).click();
       }
       return { status: "passed", note: `Tapped ${selector}` };
+    case "tapByText": {
+      const text = String(selector || value || "");
+      const selectorText = `android=new UiSelector().textContains("${escapeUiSelectorText(text)}")`;
+      await driver.$(selectorText).click();
+      return { status: "passed", note: `Tapped text ${text}` };
+    }
     case "tapPoint":
       await tapPoint(driver, parsePoint(resolvedSelector));
       return { status: "passed", note: `Tapped point ${selector}` };
@@ -286,6 +336,14 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
     case "waitForExist":
       await driver.$(String(resolvedSelector)).waitForExist({ timeout: Number(value) || 10000 });
       return { status: "passed", note: `${selector} exists` };
+    case "waitForEnabled": {
+      const element = await driver.$(String(resolvedSelector));
+      await driver.waitUntil(async () => element.isEnabled(), {
+        timeout: Number(value) || 10000,
+        timeoutMsg: `${selector} was not enabled`
+      });
+      return { status: "passed", note: `${selector} enabled` };
+    }
     case "expectText": {
       const text = await driver.$(String(resolvedSelector)).getText();
       if (!String(text).includes(String(value || ""))) {
@@ -347,6 +405,50 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       }
       throw new Error(`Unable to scroll ${selector} into view`);
     }
+    case "pushFile": {
+      const remotePath = String(selector || "");
+      const base64 = await localFileToBase64(value);
+      await driver.pushFile(remotePath, base64);
+      return { status: "passed", note: `Pushed file to ${remotePath}` };
+    }
+    case "pushRemoteFile": {
+      const remotePath = String(selector || "");
+      const base64 = await remoteFileToBase64(value);
+      await driver.pushFile(remotePath, base64);
+      return { status: "passed", note: `Pushed remote file to ${remotePath}` };
+    }
+    case "pullFile": {
+      const remotePath = String(selector || "");
+      const content = await driver.pullFile(remotePath);
+      return { status: "passed", note: `Pulled file ${remotePath}`, value: content };
+    }
+    case "installApp":
+      await driver.installApp(String(selector || value || ""));
+      return { status: "passed", note: `Installed app ${selector || value}` };
+    case "removeApp":
+      await driver.removeApp(String(selector || value || ""));
+      return { status: "passed", note: `Removed app ${selector || value}` };
+    case "startActivity": {
+      const appPackage = String(selector || extra?.appPackage || "");
+      const appActivity = String(value || extra?.appActivity || "");
+      if (typeof driver.startActivity === "function") {
+        await driver.startActivity(appPackage, appActivity);
+      } else {
+        await driver.execute("mobile: startActivity", { appPackage, appActivity });
+      }
+      return { status: "passed", note: `Started activity ${appPackage}/${appActivity}` };
+    }
+    case "openDeepLink":
+    case "deepLink": {
+      const url = String(selector || "");
+      const appPackage = String(value || extra?.package || extra?.appPackage || "");
+      try {
+        await driver.execute("mobile: deepLink", { url, package: appPackage || undefined });
+      } catch {
+        await driver.url(url);
+      }
+      return { status: "passed", note: `Opened deep link ${url}` };
+    }
     case "pressBack":
       await driver.back();
       return { status: "passed", note: "Pressed Android back" };
@@ -379,6 +481,7 @@ function buildAndroidApi(driver, resolveSelector = (value) => value) {
     step: async (_name, fn) => (typeof fn === "function" ? fn() : undefined),
     aiStep: (instruction, options) => run("aiStep", [instruction, options]),
     tap: (selector, options) => run("tap", [selector, options]),
+    tapByText: (text, options) => run("tapByText", [text, options]),
     tapPoint: (point, options) => run("tapPoint", [point, options]),
     doubleTap: (selector, options) => run("doubleTap", [selector, options]),
     longPress: (selector, durationMs, options) => run("longPress", [selector, durationMs, options]),
@@ -387,6 +490,7 @@ function buildAndroidApi(driver, resolveSelector = (value) => value) {
     hideKeyboard: () => run("hideKeyboard", []),
     waitForDisplayed: (selector, timeoutMs, options) => run("waitForDisplayed", [selector, timeoutMs, options]),
     waitForExist: (selector, timeoutMs, options) => run("waitForExist", [selector, timeoutMs, options]),
+    waitForEnabled: (selector, timeoutMs, options) => run("waitForEnabled", [selector, timeoutMs, options]),
     expectText: (selector, value, options) => run("expectText", [selector, value, options]),
     expectDisplayed: (selector, options) => run("expectDisplayed", [selector, options]),
     expectNotDisplayed: (selector, timeoutMs) => run("expectNotDisplayed", [selector, timeoutMs]),
@@ -394,6 +498,14 @@ function buildAndroidApi(driver, resolveSelector = (value) => value) {
     expectValue: (selector, value, options) => run("expectValue", [selector, value, options]),
     swipe: (startX, startY, endX, endY, durationMs) => run("swipe", [startX, startY, endX, endY, durationMs]),
     scrollIntoView: (selector, options) => run("scrollIntoView", [selector, options?.direction, options]),
+    pushFile: (remotePath, localPathOrBase64, options) => run("pushFile", [remotePath, localPathOrBase64, options]),
+    pushRemoteFile: (remotePath, url, options) => run("pushRemoteFile", [remotePath, url, options]),
+    pullFile: (remotePath, options) => run("pullFile", [remotePath, options]),
+    installApp: (appPath) => run("installApp", [appPath]),
+    removeApp: (appId) => run("removeApp", [appId]),
+    startActivity: (appPackage, appActivity, options) => run("startActivity", [appPackage, appActivity, options]),
+    openDeepLink: (url, appPackage, options) => run("openDeepLink", [url, appPackage, options]),
+    deepLink: (url, appPackage, options) => run("deepLink", [url, appPackage, options]),
     pressBack: () => run("pressBack", []),
     pressKeyCode: (code) => run("pressKeyCode", [code]),
     backgroundApp: (seconds) => run("backgroundApp", [seconds]),
@@ -414,7 +526,7 @@ app.get("/api/v1/capabilities", async () => ({
   runner: "mobile",
   supported_platforms: ["android"],
   supported_engines: ["webdriverio", "appium"],
-  supported_providers: ["local-appium", "saucelabs", "lambdatest", "browserstack", "other"],
+  supported_providers: ["local-appium", "saucelabs", "lambdatest", "browserstack", "crossbrowser", "other"],
   android_keywords: KEYWORDS,
   recorder_modes: ["local", "remote"]
 }));

@@ -368,7 +368,7 @@ export function AiDesignStudioModal({
                   <div className="record-grid">
                     <FormField label="LLM integration">
                       <select value={integrationId} onChange={(event) => onIntegrationIdChange(event.target.value)}>
-                        <option value="">Default active integration</option>
+                        <option value="">Configured prompt LLM or default active</option>
                         {integrations.map((integration) => (
                           <option key={integration.id} value={integration.id}>
                             {integration.name}

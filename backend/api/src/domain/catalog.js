@@ -97,6 +97,18 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
     }
   },
   {
+    value: "cloudrun",
+    label: "Cloud Run",
+    description: "Cloud browser and device execution providers for BrowserStack, LambdaTest, Sauce Labs, and CrossBrowser.",
+    icon: "CR",
+    defaults: {
+      provider: "browserstack",
+      browser: "Chrome",
+      os: "Windows",
+      remote_url: ""
+    }
+  },
+  {
     value: "ops",
     label: "OPS Telemetry",
     description: "External operational telemetry sink for execution step, case, suite, and run updates.",

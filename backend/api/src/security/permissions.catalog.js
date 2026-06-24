@@ -384,6 +384,9 @@ const ROUTE_PERMISSION_RULES = [
   ["PUT", "/settings/localization", "settings.manage"],
   ["GET", "/settings/workspace-preferences", "workspace.view"],
   ["PUT", "/settings/workspace-preferences", "workspace.view"],
+  ["GET", "/settings/api-keys", "workspace.view"],
+  ["POST", "/settings/api-keys", "workspace.view"],
+  ["DELETE", "/settings/api-keys/:id", "workspace.view"],
   ["GET", "/local-agent/status", "ops.view"],
   ["POST", "/local-agent/start", "ops.manage"],
   ["DELETE", "/ops-telemetry/logs", "ops.manage"]

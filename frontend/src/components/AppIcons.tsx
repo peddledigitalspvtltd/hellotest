@@ -40,6 +40,34 @@ export function AddIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function SelectAllIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <rect height="7" rx="1.5" width="7" x="4" y="4" />
+      <path d="m6 7.4 1.2 1.2L9.4 6" />
+      <rect height="7" rx="1.5" width="7" x="13" y="4" />
+      <path d="m15 7.4 1.2 1.2L18.4 6" />
+      <rect height="7" rx="1.5" width="7" x="4" y="13" />
+      <path d="m6 16.4 1.2 1.2L9.4 15" />
+      <rect height="7" rx="1.5" width="7" x="13" y="13" />
+      <path d="m15 16.4 1.2 1.2L18.4 15" />
+    </IconFrame>
+  );
+}
+
+export function ClearSelectionIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <rect height="7" rx="1.5" width="7" x="4" y="4" />
+      <rect height="7" rx="1.5" width="7" x="13" y="4" />
+      <rect height="7" rx="1.5" width="7" x="4" y="13" />
+      <rect height="7" rx="1.5" width="7" x="13" y="13" />
+      <path d="M8 8 16 16" />
+      <path d="m16 8-8 8" />
+    </IconFrame>
+  );
+}
+
 export function SaveIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>
@@ -130,6 +158,24 @@ export function MessageIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>
       <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H11l-4 4v-4H7.5A2.5 2.5 0 0 1 5 12.5z" />
+    </IconFrame>
+  );
+}
+
+export function BugIcon({ size, strokeWidth }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <path d="M8 7.5V7a4 4 0 0 1 8 0v.5" />
+      <rect height="12" rx="5" width="10" x="7" y="7.5" />
+      <path d="M12 11v8" />
+      <path d="m8.5 4-2-2" />
+      <path d="m15.5 4 2-2" />
+      <path d="M4 12h3" />
+      <path d="M17 12h3" />
+      <path d="m5 17 2.4-1.2" />
+      <path d="m18.6 15.8 2.4 1.2" />
+      <path d="m5 7.5 2.3 1.2" />
+      <path d="m16.7 8.7 2.3-1.2" />
     </IconFrame>
   );
 }

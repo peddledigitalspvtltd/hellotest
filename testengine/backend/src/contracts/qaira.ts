@@ -81,6 +81,13 @@ export type EngineObjectRepositoryEntry = {
   screenshot_url?: string | null;
   fallback_strategy?: string | null;
   previous_locators?: string[];
+  fallback_locators?: Array<{
+    locator?: string | null;
+    strategy?: string | null;
+    confidenceScore?: number | null;
+    confidence_score?: number | null;
+  }>;
+  metadata?: Record<string, unknown>;
   updated_at?: string | null;
 };
 

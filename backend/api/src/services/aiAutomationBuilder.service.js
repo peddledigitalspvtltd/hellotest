@@ -2,6 +2,7 @@ const db = require("../db");
 const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
 const integrationService = require("./integration.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const testStepService = require("./testStep.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const testEnvironmentService = require("./testEnvironment.service");
@@ -467,10 +468,14 @@ const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS) => {
   }
 };
 
-const resolveLlmIntegration = async (integrationId, { allowFallback = true } = {}) => {
-  const integration = integrationId
-    ? await integrationService.getIntegration(integrationId)
-    : await integrationService.getActiveIntegrationByType("llm");
+const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey } = {}) => {
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId,
+    userId,
+    usageKey,
+    fallback: "global",
+    allowMissing: allowFallback
+  });
 
   if (!integration) {
     if (allowFallback) {
@@ -642,6 +647,10 @@ const inferObjectRole = (action) => {
   const locator = String(action?.locator || "").toLowerCase();
   const text = String(action?.text || "").toLowerCase();
 
+  if (type === "upload" || /\b(file|upload)\b/.test(`${locator} ${text}`)) {
+    return "file";
+  }
+
   if (["fill", "change"].includes(type) || /\b(input|textarea|textbox|email|password|search)\b/.test(`${locator} ${text}`)) {
     return "field";
   }
@@ -734,6 +743,9 @@ const inferKeywordForAction = (action) => {
   if (type === "fill" || type === "change") {
     return "web.fill";
   }
+  if (type === "upload") {
+    return "web.uploadFile";
+  }
   if (type === "select") {
     return "web.select";
   }
@@ -783,7 +795,7 @@ const buildObjectRepositoryEntry = (action) => {
     object_role: role,
     object_label: label,
     keyword: inferKeywordForAction(action),
-    parameter_hint: role === "field" ? inferRecorderFillValue(action) : null
+    parameter_hint: role === "field" ? inferRecorderFillValue(action) : role === "file" ? "@t.uploadFilePath" : null
   };
 };
 
@@ -833,6 +845,7 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
   testCase,
   actions,
   integrationId,
+  userId,
   transactionId
 }) => {
   const pages = [];
@@ -881,7 +894,10 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
 
   let integration = null;
   try {
-    integration = await resolveLlmIntegration(integrationId);
+    integration = await resolveLlmIntegration(integrationId, {
+      userId,
+      usageKey: "ai.automation.locator_repair"
+    });
   } catch (error) {
     return {
       screens: new Map(),
@@ -999,6 +1015,7 @@ const buildRecorderRepositoryModel = async ({
   testCase,
   capturedActions = [],
   integrationId,
+  userId,
   transactionId,
   platform = "web"
 } = {}) => {
@@ -1009,6 +1026,7 @@ const buildRecorderRepositoryModel = async ({
     testCase,
     actions,
     integrationId,
+    userId,
     transactionId
   });
   const screenByPageKey = new Map();
@@ -1070,7 +1088,7 @@ const buildRecorderRepositoryModel = async ({
         object_label: inferObjectLabel(action),
         action,
         keyword: inferRecorderKeywordForPlatform(action, platform),
-        parameter_hint: inferObjectRole(action) === "field" ? inferRecorderFillValue(action) : null,
+        parameter_hint: inferObjectRole(action) === "field" ? inferRecorderFillValue(action) : inferObjectRole(action) === "file" ? "@t.uploadFilePath" : null,
         page_url: normalizeText(action.url),
         page_key: screenName,
         page_identity: pageKey,
@@ -1111,7 +1129,7 @@ const buildRecorderRepositoryModel = async ({
       object_role: role,
       object_label: inferObjectLabel(action),
       keyword: inferRecorderKeywordForPlatform(action, platform),
-      parameter_hint: role === "field" ? inferRecorderFillValue(action) : null,
+      parameter_hint: role === "field" ? inferRecorderFillValue(action) : role === "file" ? "@t.uploadFilePath" : null,
       page_url: normalizeText(action.url),
       page_key: screenName,
       page_identity: pageKey,
@@ -1225,8 +1243,7 @@ const stripRecorderLocatorPrefix = (locator) => {
     return null;
   }
 
-  const match = normalized.match(/^(label|placeholder)=(.+)$/i);
-  return match ? normalizeText(match[2]) : normalized;
+  return normalized;
 };
 
 const getRecorderRepositoryMember = (action, repositoryModel) =>
@@ -1248,7 +1265,52 @@ const resolveRecorderTarget = (action, repositoryModel) => {
 };
 
 const quoteCodeString = (value) => JSON.stringify(String(value || ""));
-const playwrightLocatorCode = (target) => `page.locator(${quoteCodeString(target)})`;
+const unescapeLocatorLiteral = (value) => String(value || "").replace(/\\(["'`\\])/g, "$1");
+const extractLocatorCallArgument = (value) => {
+  const match = String(value || "").match(/\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/);
+  return match ? unescapeLocatorLiteral(match[2]) : "";
+};
+const extractLocatorOptionName = (value) => {
+  const match = String(value || "").match(/\bname\s*:\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/i);
+  return match ? unescapeLocatorLiteral(match[2]) : "";
+};
+const playwrightLocatorCode = (target) => {
+  const normalized = String(target || "").trim();
+  const methodMatch = normalized.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId|locator)\s*\(/i);
+  const legacyRoleMatch = normalized.match(/^role=([A-Za-z0-9_-]+)(?:\[name=(["']?)(.+?)\2\])?$/i);
+
+  if (methodMatch) {
+    const method = methodMatch[1];
+    const arg = extractLocatorCallArgument(normalized);
+    const optionName = extractLocatorOptionName(normalized);
+
+    if (method.toLowerCase() === "locator") {
+      return `page.locator(${quoteCodeString(arg || normalized)}).first()`;
+    }
+    if (method.toLowerCase() === "getbyrole") {
+      return `page.getByRole(${quoteCodeString(arg)}, ${optionName ? `{ name: ${quoteCodeString(optionName)} }` : "{}"}).first()`;
+    }
+    return `page.${method}(${quoteCodeString(arg)}).first()`;
+  }
+
+  if (legacyRoleMatch) {
+    return `page.getByRole(${quoteCodeString(legacyRoleMatch[1])}, ${legacyRoleMatch[3] ? `{ name: ${quoteCodeString(unescapeLocatorLiteral(legacyRoleMatch[3]))} }` : "{}"}).first()`;
+  }
+  if (/^(?:testid|data-testid)=/i.test(normalized)) {
+    return `page.getByTestId(${quoteCodeString(normalized.replace(/^(?:testid|data-testid)=/i, ""))}).first()`;
+  }
+  if (/^label=/i.test(normalized)) {
+    return `page.getByLabel(${quoteCodeString(normalized.slice(6))}).first()`;
+  }
+  if (/^placeholder=/i.test(normalized)) {
+    return `page.getByPlaceholder(${quoteCodeString(normalized.slice(12))}).first()`;
+  }
+  if (/^text=/i.test(normalized)) {
+    return `page.getByText(${quoteCodeString(normalized.slice(5))}).first()`;
+  }
+
+  return `page.locator(${quoteCodeString(normalized)}).first()`;
+};
 const playwrightLocatorBlock = (target, lines = []) => [
   "{",
   `  const target = ${playwrightLocatorCode(target)};`,
@@ -1454,6 +1516,40 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
     };
   }
 
+  if (type === "upload") {
+    const value = normalizeRichText(action.value) || "@t.uploadFilePath";
+
+    if (target) {
+      return {
+        source_action_index: action.index,
+        step_order: order,
+        action: `Upload file to ${targetLabel}`,
+        expected_result: "",
+        step_type: "web",
+        keyword,
+        keyword_arguments: [target, value],
+        automation_code: [
+          keywordComment(keyword, [target, value]),
+          `await web.uploadFile(${quoteCodeString(target)}, ${quoteCodeString(value)}, { waitFor: "attached" });`
+        ].join("\n")
+      };
+    }
+
+    return {
+      source_action_index: action.index,
+      step_order: order,
+      action: "Upload file",
+      expected_result: "Review the file input locator before running this step.",
+      step_type: "web",
+      keyword,
+      keyword_arguments: ["input[type=file]", value],
+      automation_code: [
+        keywordComment(keyword, ["input[type=file]", value]),
+        `await web.uploadFile("input[type=file]", ${quoteCodeString(value)}, { waitFor: "attached" });`
+      ].join("\n")
+    };
+  }
+
   if (type === "select") {
     const value = normalizeRichText(action.value) || normalizeRichText(action.text) || "@t.value";
 
@@ -1593,14 +1689,14 @@ const isRecorderActionSuperseded = (action, actions, index) => {
     );
   }
 
-  if ((type === "change" || type === "fill" || type === "select" || type === "check" || type === "uncheck") && action.locator) {
+  if ((type === "change" || type === "fill" || type === "upload" || type === "select" || type === "check" || type === "uncheck") && action.locator) {
     const previousSameLocator = actions.slice(0, index).some((candidate) =>
-      ["fill", "change", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
+      ["fill", "change", "upload", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
       && candidate.locator === action.locator
       && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
     );
     const laterSameLocator = actions.slice(index + 1).some((candidate) =>
-      ["fill", "change", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
+      ["fill", "change", "upload", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
       && candidate.locator === action.locator
       && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
     );
@@ -1628,7 +1724,7 @@ const isRecorderActionSuperseded = (action, actions, index) => {
 };
 
 const buildRecorderStepCandidates = (actions = [], repositoryModel = null) => {
-  const allowedTypes = new Set(["navigation", "click", "dblclick", "rightclick", "fill", "change", "select", "check", "uncheck", "submit", "press", "tab", "scroll"]);
+  const allowedTypes = new Set(["navigation", "click", "dblclick", "rightclick", "fill", "change", "upload", "select", "check", "uncheck", "submit", "press", "tab", "scroll"]);
   const candidates = [];
 
   actions.forEach((action, index) => {
@@ -1846,13 +1942,17 @@ const buildAiRecorderMappings = async ({
   stepCandidates,
   capturedActions,
   integrationId,
+  userId,
   additionalContext,
   transactionId
 }) => {
   let integration = null;
 
   try {
-    integration = await resolveLlmIntegration(integrationId);
+    integration = await resolveLlmIntegration(integrationId, {
+      userId,
+      usageKey: "ai.automation.keyword_generation"
+    });
   } catch (error) {
     return {
       mappings: [],
@@ -2029,7 +2129,7 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
   '  "page_key": "stable screen key",',
   '  "screen_name": "human readable screen name",',
   '  "object_name": "human readable field/control name",',
-  '  "object_role": "button|textbox|link|checkbox|dropdown|field|view|mobile-control",',
+  '  "object_role": "button|textbox|link|checkbox|dropdown|field|file|view|mobile-control",',
   '  "locator": "best target locator string",',
   '  "locator_kind": "role|label|placeholder|testid|css|xpath|text|accessibility_id|android_uiautomator",',
   '  "target_criteria": ["primary criteria", "secondary criteria"],',
@@ -2594,7 +2694,10 @@ const buildCaseCore = async ({
   });
 
   try {
-    integration = await resolveLlmIntegration(integration_id);
+    integration = await resolveLlmIntegration(integration_id, {
+      userId: created_by,
+      usageKey: "ai.automation.keyword_generation"
+    });
   } catch (error) {
     throw error;
   }
@@ -2993,6 +3096,7 @@ const finalizeRecorderBuild = async ({
     testCase,
     capturedActions,
     integrationId,
+    userId: createdBy,
     transactionId,
     platform: "web"
   });
@@ -3025,6 +3129,7 @@ const finalizeRecorderBuild = async ({
       stepCandidates,
       capturedActions,
       integrationId,
+      userId: createdBy,
       additionalContext,
       transactionId
     });
@@ -4045,13 +4150,16 @@ exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name, confirmed
   return { deleted: true, requires_confirmation: false, usage, invalidated_cases: invalidatedCases };
 };
 
-exports.improveLearningCacheEntry = async ({ id, integration_id, guidance } = {}) => {
+exports.improveLearningCacheEntry = async ({ id, integration_id, user_id, guidance } = {}) => {
   const existing = await exports.getLearningCacheEntry(id);
   let suggestion;
   let integration = null;
 
   try {
-    integration = await resolveLlmIntegration(integration_id);
+    integration = await resolveLlmIntegration(integration_id, {
+      userId: user_id,
+      usageKey: "ai.automation.locator_repair"
+    });
   } catch {
     integration = null;
   }
@@ -4110,7 +4218,8 @@ exports.extractRepositoryFields = async ({
   screenshot_url,
   business_meaning,
   candidate_fields,
-  integration_id
+  integration_id,
+  user_id
 } = {}) => {
   const screenName = normalizeText(screen_name) || "Screen";
   const pageUrl = normalizeText(page_url);
@@ -4124,7 +4233,10 @@ exports.extractRepositoryFields = async ({
 
   let integration = null;
   try {
-    integration = await resolveLlmIntegration(integration_id);
+    integration = await resolveLlmIntegration(integration_id, {
+      userId: user_id,
+      usageKey: "ai.automation.locator_repair"
+    });
   } catch {
     integration = null;
   }
@@ -4603,6 +4715,7 @@ exports.finishRecorderSession = async ({
       testCase,
       capturedActions,
       integrationId: integration_id,
+      userId: created_by,
       transactionId,
       platform: "android"
     });

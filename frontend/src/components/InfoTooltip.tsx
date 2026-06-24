@@ -171,10 +171,9 @@ export function InfoCopy({
 
 function InfoGlyph() {
   return (
-    <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 11v5" />
-      <path d="M12 8h.01" />
+    <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 16 16" width="14">
+      <path d="M8 7.1v4.4" />
+      <path d="M8 4.7h.01" />
     </svg>
   );
 }

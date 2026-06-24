@@ -2,7 +2,7 @@ import { DragEvent, FormEvent, useEffect, useMemo, useState, type ReactNode } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, EyeIcon, LayersIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, EyeIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
 import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -14,6 +14,7 @@ import { ExecutionContextSelector } from "../components/ExecutionContextSelector
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SharedGroupLevelIcon } from "../components/StepAutomationEditor";
 import { StatusBadge } from "../components/StatusBadge";
@@ -43,6 +44,7 @@ import {
   type StepParameterDefinition
 } from "../lib/stepParameters";
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestStep, TestSuite, User } from "../types";
 
@@ -218,8 +220,8 @@ export function DesignPage() {
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
   const [suiteSearchTerm, setSuiteSearchTerm] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [suiteCatalogViewMode, setSuiteCatalogViewMode] = useState<"tile" | "list">("tile");
-  const [suiteCaseCatalogViewMode, setSuiteCaseCatalogViewMode] = useState<"tile" | "list">("tile");
+  const [suiteCatalogViewMode, setSuiteCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [suiteCaseCatalogViewMode, setSuiteCaseCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [statusFilter, setStatusFilter] = useState("all");
   const [suitePlacementFilter, setSuitePlacementFilter] = useState<SuitePlacementFilter>("all");
   const [suiteMappedCasesFilter, setSuiteMappedCasesFilter] = useState<SuiteMappedCasesFilter>("all");
@@ -2018,13 +2020,14 @@ function SuiteSidebar({
     },
     {
       key: "clear-selection",
-      label: "Clear selection",
+      label: "Clear",
       className: "ghost-button suite-smart-action",
       disabled: !selectedSuiteActionIds.length,
       onClick: () => runSuiteAction("clear-selection", onClearSuiteSelection)
     }
   ];
-  const inlineSuiteActions = smartSuiteActions
+  const toolbarPrimarySuiteActions = smartSuiteActions.filter((action) => action.key === "create-suite" || action.key === "manual-run");
+  const inlineSuiteActions = toolbarPrimarySuiteActions
     .map((action) => {
       const usage = suiteActionUsage[action.key];
       const score = (usage?.lastUsedAt || 0) + (usage?.count || 0) * 1000 * 60 * 60 * 24;
@@ -2033,7 +2036,7 @@ function SuiteSidebar({
     .sort((left, right) => right.score - left.score)
     .slice(0, 2);
   const shouldShowDefaultCreateSuite = !inlineSuiteActions.some((action) => action.score > 0);
-  const visibleInlineSuiteActions = shouldShowDefaultCreateSuite ? smartSuiteActions.slice(0, 1) : inlineSuiteActions;
+  const visibleInlineSuiteActions = shouldShowDefaultCreateSuite ? toolbarPrimarySuiteActions.slice(0, 1) : inlineSuiteActions;
   const moreSuiteActions: CatalogActionMenuItem[] = [
     {
       label: "Create Suite",
@@ -2065,18 +2068,6 @@ function SuiteSidebar({
       onClick: () => runSuiteAction("remote-run", onCreateRemoteRun)
     },
     {
-      label: "Select all visible",
-      icon: <LayersIcon />,
-      disabled: !suites.length || areAllVisibleSuitesSelected,
-      onClick: () => runSuiteAction("select-visible", onSelectAllVisibleSuites)
-    },
-    {
-      label: "Clear selection",
-      icon: <LayersIcon />,
-      disabled: !selectedSuiteActionIds.length,
-      onClick: () => runSuiteAction("clear-selection", onClearSuiteSelection)
-    },
-    {
       label: isDeletingSelectedSuites ? "Deleting selected…" : `Delete selected${selectedSuiteActionIds.length ? ` (${selectedSuiteActionIds.length})` : ""}`,
       icon: <LayersIcon />,
       disabled: !selectedSuiteActionIds.length || isDeletingSelectedSuites,
@@ -2084,6 +2075,97 @@ function SuiteSidebar({
       onClick: () => runSuiteAction("delete-selected", onDeleteSelectedSuites)
     }
   ];
+  const suiteListColumns = useMemo<Array<DataTableColumn<TestSuite>>>(() => [
+    {
+      key: "select",
+      label: "",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 56,
+      headerRender: () => (
+        <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label="Select all visible suites"
+            checked={areAllVisibleSuitesSelected}
+            onChange={(event) => {
+              if (event.target.checked) {
+                onSelectAllVisibleSuites();
+              } else {
+                onClearSuiteSelection();
+              }
+            }}
+            type="checkbox"
+          />
+        </label>
+      ),
+      render: (suite) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label={`Select ${suite.name}`}
+            checked={selectedSuiteActionIds.includes(suite.id)}
+            onChange={() => onToggleSuiteSelection(suite.id)}
+            type="checkbox"
+          />
+        </div>
+      )
+    },
+    {
+      key: "id",
+      label: "ID",
+      width: 120,
+      minWidth: 96,
+      sortValue: (suite) => suite.display_id || suite.id,
+      render: (suite) => <DisplayIdBadge value={suite.display_id || suite.id} />
+    },
+    {
+      key: "suite",
+      label: "Suite",
+      canToggle: false,
+      width: 280,
+      minWidth: 180,
+      sortValue: (suite) => suite.name,
+      render: (suite) => (
+        <div className="data-table-multiline">
+          <strong>{suite.name}</strong>
+          <span className="data-table-multiline-line">{selectedAppType ? `${selectedAppType.name} workspace suite` : "Suite"}</span>
+        </div>
+      )
+    },
+    {
+      key: "placement",
+      label: "Placement",
+      width: 150,
+      minWidth: 120,
+      sortValue: (suite) => suite.parent_id ? "Nested suite" : "Root suite",
+      render: (suite) => suite.parent_id ? "Nested suite" : "Root suite"
+    },
+    {
+      key: "mappedCases",
+      label: "Mapped cases",
+      width: 140,
+      minWidth: 110,
+      sortValue: (suite) => counts[suite.id] || 0,
+      render: (suite) => counts[suite.id] || 0
+    },
+    {
+      key: "childSuites",
+      label: "Child suites",
+      width: 132,
+      minWidth: 110,
+      sortValue: (suite) => childCounts[suite.id] || 0,
+      render: (suite) => childCounts[suite.id] || 0
+    }
+  ], [
+    areAllVisibleSuitesSelected,
+    childCounts,
+    counts,
+    onClearSuiteSelection,
+    onSelectAllVisibleSuites,
+    onToggleSuiteSelection,
+    selectedAppType,
+    selectedSuiteActionIds
+  ]);
 
   return (
     <Panel
@@ -2149,6 +2231,24 @@ function SuiteSidebar({
               </div>
             </div>
           </CatalogSearchFilter>
+          <button
+            className="ghost-button catalog-selection-button"
+            disabled={!suites.length || areAllVisibleSuitesSelected}
+            onClick={() => runSuiteAction("select-visible", onSelectAllVisibleSuites)}
+            type="button"
+          >
+            <SelectAllIcon />
+            <span>Select all</span>
+          </button>
+          <button
+            className="ghost-button catalog-selection-button"
+            disabled={!selectedSuiteActionIds.length}
+            onClick={() => runSuiteAction("clear-selection", onClearSuiteSelection)}
+            type="button"
+          >
+            <ClearSelectionIcon />
+            <span>Clear</span>
+          </button>
           <div className="suite-toolbar-smart-actions" aria-label="Smart suite actions">
             {visibleInlineSuiteActions.map((action) => (
               <button className={action.className} disabled={action.disabled} key={action.key} onClick={action.onClick} type="button">
@@ -2297,51 +2397,18 @@ function SuiteSidebar({
             </div>
           ) : null}
           {!isLoading && hasSuiteSearchResults && viewMode === "list" ? (
-            <div className="table-wrap catalog-table-wrap">
-              <table className="data-table catalog-data-table">
-                <thead>
-                  <tr>
-                    <th><span className="data-table-header-label" /></th>
-                    <th><span className="data-table-header-label">ID</span></th>
-                    <th><span className="data-table-header-label">Suite</span></th>
-                    <th><span className="data-table-header-label">Placement</span></th>
-                    <th><span className="data-table-header-label">Mapped cases</span></th>
-                    <th><span className="data-table-header-label">Child suites</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {suites.map((suite) => {
-                    const suitePlacementLabel = suite.parent_id ? "Nested suite" : "Root suite";
-                    const mappedCaseCount = counts[suite.id] || 0;
-                    const childSuiteCount = childCounts[suite.id] || 0;
-
-                    return (
-                      <tr
-                        className={activeSuiteId === suite.id ? "is-active-row" : ""}
-                        key={suite.id}
-                        onClick={() => onSelectSuite(suite.id)}
-                      >
-                        <td onClick={(event) => event.stopPropagation()}>
-                          <input
-                            checked={selectedSuiteActionIds.includes(suite.id)}
-                            onChange={() => onToggleSuiteSelection(suite.id)}
-                            type="checkbox"
-                          />
-                        </td>
-                        <td><DisplayIdBadge value={suite.display_id || suite.id} /></td>
-                        <td>
-                          <strong>{suite.name}</strong>
-                          <div className="catalog-row-subcopy">{selectedAppType ? `${selectedAppType.name} workspace suite` : "Suite"}</div>
-                        </td>
-                        <td>{suitePlacementLabel}</td>
-                        <td>{mappedCaseCount}</td>
-                        <td>{childSuiteCount}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={suiteListColumns}
+              enableColumnResize
+              enableHeaderColumnReorder
+              emptyMessage="No suites match the current search."
+              getRowClassName={(suite) => (activeSuiteId === suite.id ? "is-active-row" : "")}
+              getRowKey={(suite) => suite.id}
+              hideToolbarCopy
+              onRowClick={(suite) => onSelectSuite(suite.id)}
+              rows={suites}
+              storageKey="qaira:suites:list-columns"
+            />
           ) : null}
         </TileBrowserPane>
       </div>
@@ -3499,11 +3566,7 @@ function SuiteExecutionModal({
 
             <div className="execution-create-grid">
               <FormField label="Run type">
-                <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                  <option value="manual">Create Manual Run</option>
-                  <option value="local">Create Local Run</option>
-                  <option value="remote">Create Remote Run</option>
-                </select>
+                <RunTypeSelector value={executionStartMode} onChange={(value) => onExecutionStartModeChange(value as ExecutionStartMode)} />
               </FormField>
 
               <FormField label="Parallel execution">

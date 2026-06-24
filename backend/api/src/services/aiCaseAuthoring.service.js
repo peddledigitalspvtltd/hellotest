@@ -1,4 +1,4 @@
-const integrationService = require("./integration.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
@@ -108,10 +108,13 @@ const extractJsonPayload = (content) => {
   }
 };
 
-const resolveIntegration = async (integration_id) => {
-  const integration = integration_id
-    ? await integrationService.getIntegration(integration_id)
-    : await integrationService.getActiveIntegrationByType("llm");
+const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => {
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId: integration_id,
+    userId,
+    usageKey,
+    fallback: "global"
+  });
 
   if (!integration) {
     throw new Error("No active LLM integration is configured");
@@ -385,6 +388,7 @@ exports.previewCaseAuthoring = async ({
   requirement,
   appType,
   integration_id,
+  user_id,
   test_case,
   additional_context
 }) => {
@@ -403,7 +407,10 @@ exports.previewCaseAuthoring = async ({
     parameter_values: normalizeParameterValues(test_case?.parameter_values),
     steps: normalizeSteps(test_case?.steps, fallbackStepType)
   };
-  const integration = await resolveIntegration(integration_id);
+  const integration = await resolveIntegration(integration_id, {
+    userId: user_id,
+    usageKey: "ai.case_authoring.full_case"
+  });
   const prompt = buildPrompt({
     requirement,
     appType,
@@ -436,6 +443,7 @@ exports.rephraseTestStep = async ({
   requirement,
   appType,
   integration_id,
+  user_id,
   test_case,
   step,
   additional_context
@@ -466,7 +474,10 @@ exports.rephraseTestStep = async ({
     throw new Error("The selected step needs an action or expected result before AI can rephrase it");
   }
 
-  const integration = await resolveIntegration(integration_id);
+  const integration = await resolveIntegration(integration_id, {
+    userId: user_id,
+    usageKey: "ai.case_authoring.step_rephrase"
+  });
   const prompt = buildStepRephrasePrompt({
     requirement,
     appType,

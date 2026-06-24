@@ -21,6 +21,7 @@ const aiAutomationBuilderService = require("./services/aiAutomationBuilder.servi
 const projectSyncService = require("./services/projectSync.service");
 const batchProcessService = require("./services/batchProcess.service");
 const permissionService = require("./services/permission.service");
+const apiKeyService = require("./services/apiKey.service");
 const { ROUTE_PERMISSIONS } = require("./security/permissions.catalog");
 const { verifyToken, generateRequestId } = require("./utils/token");
 
@@ -74,6 +75,46 @@ const getCurrentUser = async (id) => {
   };
 };
 
+const getBearerToken = (headers) => {
+  const value = typeof headers.authorization === "string" ? headers.authorization : "";
+
+  if (!value.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return value.slice("Bearer ".length).trim();
+};
+
+const getRouteUrl = (req) => req.routeOptions?.url || req.routerPath || "";
+
+const getRoutePermissionCode = (req) => {
+  const routeUrl = getRouteUrl(req);
+
+  if (!routeUrl) {
+    return "";
+  }
+
+  return ROUTE_PERMISSIONS.get(`${String(req.method || "").toUpperCase()} ${routeUrl}`) || "";
+};
+
+const enforceApiKeyScope = (req) => {
+  if (!req.apiKey) {
+    return;
+  }
+
+  const routeUrl = getRouteUrl(req);
+
+  if (routeUrl.startsWith("/settings/api-keys")) {
+    throw createError("API key management requires a signed-in browser session.", 403);
+  }
+
+  const permissionCode = getRoutePermissionCode(req);
+
+  if (!apiKeyService.isScopeAllowed(req.apiKey.scope, permissionCode, req.method)) {
+    throw createError("API key scope does not allow this endpoint.", 403);
+  }
+};
+
 fastify.decorate("validate", (schema, data = {}) => {
   for (const [field, rules] of Object.entries(schema)) {
     const value = data[field];
@@ -122,18 +163,47 @@ fastify.decorate("validate", (schema, data = {}) => {
 });
 
 fastify.decorateRequest("user", null);
+fastify.decorateRequest("apiKey", null);
+fastify.decorateRequest("authMethod", null);
 
 fastify.decorate("authenticate", async (req) => {
-  const value = req.headers.authorization || "";
+  if (req.user) {
+    enforceApiKeyScope(req);
+    return;
+  }
 
-  if (!value.startsWith("Bearer ")) {
+  const providedApiKey = apiKeyService.extractApiKeyFromRequest(req);
+
+  if (providedApiKey) {
+    const apiKey = await apiKeyService.verifyApiKey(providedApiKey);
+
+    if (!apiKey) {
+      throw createError("Invalid API key", 401);
+    }
+
+    const user = await getCurrentUser(apiKey.user_id);
+
+    if (!user) {
+      throw createError("User not found", 404);
+    }
+
+    req.user = user;
+    req.apiKey = apiKey;
+    req.authMethod = "api_key";
+    enforceApiKeyScope(req);
+    return;
+  }
+
+  const bearerToken = getBearerToken(req.headers);
+
+  if (!bearerToken) {
     throw createError("Missing bearer token", 401);
   }
 
   let payload;
 
   try {
-    payload = verifyToken(value.slice("Bearer ".length));
+    payload = verifyToken(bearerToken);
   } catch (error) {
     throw createError(error.message || "Invalid token", 401);
   }
@@ -145,6 +215,7 @@ fastify.decorate("authenticate", async (req) => {
   }
 
   req.user = user;
+  req.authMethod = "session";
 });
 
 fastify.decorate("requireAdmin", async (req) => {
@@ -247,7 +318,7 @@ fastify.register(cors, {
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID", "traceparent", "tracestate"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "traceparent", "tracestate"],
   exposedHeaders: ["X-Request-ID", "X-Trace-ID", "traceparent"],
   credentials: true,
   maxAge: 86400

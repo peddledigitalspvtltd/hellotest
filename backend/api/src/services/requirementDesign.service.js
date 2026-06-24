@@ -1,6 +1,6 @@
-const integrationService = require("./integration.service");
 const testCaseService = require("./testCase.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
@@ -278,10 +278,13 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
   return prompt.join("\n");
 };
 
-const resolveIntegration = async (integration_id) => {
-  const integration = integration_id
-    ? await integrationService.getIntegration(integration_id)
-    : await integrationService.getActiveIntegrationByType("llm");
+const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => {
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId: integration_id,
+    userId,
+    usageKey,
+    fallback: "global"
+  });
 
   if (!integration) {
     throw new Error("No active LLM integration is configured");
@@ -408,6 +411,7 @@ exports.previewRequirementsTestCases = async ({
   requirements,
   appType,
   integration_id,
+  user_id,
   max_cases,
   additional_context,
   external_links,
@@ -425,7 +429,10 @@ exports.previewRequirementsTestCases = async ({
   const additionalContext = normalizeText(additional_context);
   const externalLinks = normalizeTextList(external_links);
   const normalizedImages = normalizeImageAssets(images);
-  const integration = await resolveIntegration(integration_id);
+  const integration = await resolveIntegration(integration_id, {
+    userId: user_id,
+    usageKey: "ai.case_authoring.full_case"
+  });
   const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(scopedRequirements[0].project_id, {
     app_type_id: appType.id,
     query: additionalContext,
@@ -481,6 +488,7 @@ exports.previewRequirementTestCases = async ({
     requirements: [requirement],
     appType,
     integration_id,
+    user_id,
     max_cases,
     additional_context,
     external_links,
@@ -557,6 +565,7 @@ exports.generateRequirementTestCases = async ({
   requirement,
   appType,
   integration_id,
+  user_id,
   max_cases,
   status = "draft",
   additional_context,
@@ -567,6 +576,7 @@ exports.generateRequirementTestCases = async ({
     requirement,
     appType,
     integration_id,
+    user_id,
     max_cases,
     additional_context,
     external_links,

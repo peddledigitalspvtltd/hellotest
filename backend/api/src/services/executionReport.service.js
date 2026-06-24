@@ -2,7 +2,7 @@ const executionService = require("./execution.service");
 const executionResultService = require("./executionResult.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const emailService = require("./email.service");
-const integrationService = require("./integration.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
@@ -418,9 +418,14 @@ const normalizeAiAnalysis = (payload) => {
   };
 };
 
-const generateAiAnalysis = async (report) => {
+const generateAiAnalysis = async (report, { userId } = {}) => {
   try {
-    const integration = await integrationService.getActiveIntegrationByType("llm");
+    const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+      userId,
+      usageKey: "ai.execution.analysis",
+      fallback: "global",
+      allowMissing: true
+    });
 
     if (!integration) {
       return createUnavailableAiAnalysis("No active LLM integration is configured, so this report was generated without AI analysis.");
@@ -443,11 +448,11 @@ const generateAiAnalysis = async (report) => {
   }
 };
 
-const buildReportWithAiAnalysis = async (executionId) => {
+const buildReportWithAiAnalysis = async (executionId, { userId } = {}) => {
   const report = await buildReportModel(executionId);
   return {
     ...report,
-    ai_analysis: await generateAiAnalysis(report)
+    ai_analysis: await generateAiAnalysis(report, { userId })
   };
 };
 
@@ -1252,9 +1257,9 @@ const normalizeRecipients = (value) => {
 
 exports.buildReport = buildReportModel;
 
-exports.renderReportHtml = async (executionId) => renderReportHtml(await buildReportWithAiAnalysis(executionId), { mode: "detailed" });
+exports.renderReportHtml = async (executionId, { user_id } = {}) => renderReportHtml(await buildReportWithAiAnalysis(executionId, { userId: user_id }), { mode: "detailed" });
 
-exports.renderReportPdf = async (executionId) => renderReportPdf(await buildReportWithAiAnalysis(executionId));
+exports.renderReportPdf = async (executionId, { user_id } = {}) => renderReportPdf(await buildReportWithAiAnalysis(executionId, { userId: user_id }));
 
 exports.emailReport = async ({ execution_id, recipients, requested_by } = {}) => {
   const normalizedRecipients = normalizeRecipients(recipients);
@@ -1263,7 +1268,7 @@ exports.emailReport = async ({ execution_id, recipients, requested_by } = {}) =>
     throw new Error("At least one report recipient is required");
   }
 
-  const report = await buildReportWithAiAnalysis(execution_id);
+  const report = await buildReportWithAiAnalysis(execution_id, { userId: requested_by });
   const title = report.execution.name || "QAira execution run";
   const html = renderReportHtml(report);
   const text = buildReportLines(report).join("\n");

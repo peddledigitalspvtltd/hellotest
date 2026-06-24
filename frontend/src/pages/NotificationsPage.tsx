@@ -1,54 +1,45 @@
-import { useEffect, useState } from "react";
-import { SaveIcon } from "../components/AppIcons";
+import { useEffect, useMemo, useState } from "react";
+import { ImportIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
-import { ToastMessage } from "../components/ToastMessage";
-
-const notificationFeed = [
-  { title: "Run failed in Checkout Regression", detail: "2 minutes ago · Web Portal · Assigned to release team", tone: "error" },
-  { title: "AI design preview completed", detail: "18 minutes ago · Requirement coverage updated", tone: "success" },
-  { title: "New integration was activated", detail: "1 hour ago · OpenAI production key rotated", tone: "info" },
-  { title: "Project membership changed", detail: "Today · Two new members added to Mobile QA", tone: "neutral" }
-] as const;
-
-const NOTIFICATION_PREFERENCES_KEY = "notification_preferences";
+import {
+  clearAllNotifications,
+  getVisibleNotifications,
+  markNotificationRead,
+  NOTIFICATION_FEED,
+  NOTIFICATIONS_UPDATED_EVENT,
+  readNotificationCenterState
+} from "../lib/notificationCenter";
+import { readNotificationPreferences } from "../lib/notificationPreferences";
 
 export function NotificationsPage() {
-  const [channels, setChannels] = useState({
-    failures: true,
-    ai: true,
-    governance: false,
-    digest: true
-  });
-  const [message, setMessage] = useState("");
-  const enabledChannelCount = Object.values(channels).filter(Boolean).length;
+  const [, setRevision] = useState(0);
+  const notificationPreferences = readNotificationPreferences();
+  const visibleFeed = getVisibleNotifications();
+  const { readIds } = readNotificationCenterState();
+  const unreadCount = visibleFeed.filter((item) => !readIds.includes(item.id)).length;
+  const enabledEventCount = NOTIFICATION_FEED.filter((item) => notificationPreferences[item.preference]).length;
+  const visibleIds = useMemo(() => visibleFeed.map((item) => item.id), [visibleFeed]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(NOTIFICATION_PREFERENCES_KEY);
+    const refresh = () => setRevision((current) => current + 1);
 
-    if (!stored) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as typeof channels;
-
-      if (
-        typeof parsed.failures === "boolean" &&
-        typeof parsed.ai === "boolean" &&
-        typeof parsed.governance === "boolean" &&
-        typeof parsed.digest === "boolean"
-      ) {
-        setChannels(parsed);
-      }
-    } catch {
-      window.localStorage.removeItem(NOTIFICATION_PREFERENCES_KEY);
-    }
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, []);
 
-  const savePreferences = () => {
-    window.localStorage.setItem(NOTIFICATION_PREFERENCES_KEY, JSON.stringify(channels));
-    setMessage("Notification preferences saved locally for this browser.");
+  const handleClearAll = () => {
+    clearAllNotifications(visibleIds);
+    setRevision((current) => current + 1);
+  };
+
+  const handleOpenNotification = (id: string) => {
+    markNotificationRead(id);
+    setRevision((current) => current + 1);
   };
 
   return (
@@ -56,53 +47,50 @@ export function NotificationsPage() {
       <PageHeader
         eyebrow="Notifications"
         title="Notification Center"
-        description="Choose which quality events deserve immediate attention and which ones should stay in a calmer digest."
+        description="Review recent in-app quality, governance, integration, and execution events."
         meta={[
-          { label: "Channels on", value: enabledChannelCount },
-          { label: "Recent events", value: notificationFeed.length },
-          { label: "Digest", value: channels.digest ? "Enabled" : "Off" }
+          { label: "Recent events", value: visibleFeed.length },
+          { label: "Unread", value: unreadCount },
+          { label: "In-app", value: notificationPreferences.inApp ? "Enabled" : "Off" },
+          { label: "Event prefs", value: `${enabledEventCount}/${NOTIFICATION_FEED.length}` }
         ]}
-        actions={<button className="primary-button" onClick={savePreferences} type="button"><SaveIcon />Save preferences</button>}
       />
 
-      <ToastMessage message={message} onDismiss={() => setMessage("")} />
+      <Panel
+        actions={(
+          <button className="ghost-button" disabled={!visibleFeed.length} onClick={handleClearAll} type="button">
+            <ImportIcon />
+            <span>Clear All</span>
+          </button>
+        )}
+        title="Notification list"
+        subtitle="Unread events stay highlighted until opened."
+      >
+        {visibleFeed.length ? (
+          <div className="stack-list notification-list">
+            {visibleFeed.map((item) => {
+              const isUnread = !readIds.includes(item.id);
 
-      <div className="workspace-grid">
-        <Panel title="Rules" subtitle="Decide which events should surface immediately and which should wait for a digest.">
-          <div className="detail-stack">
-            <label className="checkbox-field">
-              <input checked={channels.failures} onChange={(event) => setChannels((current) => ({ ...current, failures: event.target.checked }))} type="checkbox" />
-              <span>Execution failures and blocked runs</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={channels.ai} onChange={(event) => setChannels((current) => ({ ...current, ai: event.target.checked }))} type="checkbox" />
-              <span>AI design completions and acceptance events</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={channels.governance} onChange={(event) => setChannels((current) => ({ ...current, governance: event.target.checked }))} type="checkbox" />
-              <span>Project membership, role, and integration governance changes</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={channels.digest} onChange={(event) => setChannels((current) => ({ ...current, digest: event.target.checked }))} type="checkbox" />
-              <span>Daily digest for workspace health and coverage updates</span>
-            </label>
+              return (
+                <button
+                  className={isUnread ? "stack-item notification-list-item is-unread" : "stack-item notification-list-item"}
+                  key={item.id}
+                  onClick={() => handleOpenNotification(item.id)}
+                  type="button"
+                >
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.detail}</span>
+                  </div>
+                  <span className={`status-pill tone-${item.tone}`}>{isUnread ? "Unread" : "Read"}</span>
+                </button>
+              );
+            })}
           </div>
-        </Panel>
-
-        <Panel title="Recent activity" subtitle="A compact activity stream for the events that matter most.">
-          <div className="stack-list">
-            {notificationFeed.map((item) => (
-              <div className="stack-item" key={item.title}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </div>
-                <span className={`status-pill tone-${item.tone}`}>{item.tone}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
+        ) : (
+          <div className="empty-state compact">No notifications to show.</div>
+        )}
+      </Panel>
     </div>
   );
 }

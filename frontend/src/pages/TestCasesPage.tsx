@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, RecordIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, CopyIcon, ExportIcon, MoveIcon, OpenIcon, PauseIcon, RecordIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -18,6 +18,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
+import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
@@ -49,6 +50,7 @@ import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import {
   countImportedGroups,
@@ -89,6 +91,7 @@ import {
   type StepParameterScope
 } from "../lib/stepParameters";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type {
   AiAuthoredTestCasePreview,
   AiDesignImageInput,
@@ -612,26 +615,6 @@ function TestCaseCreateIcon() {
   );
 }
 
-function TestCaseSelectAllIcon() {
-  return (
-    <TestCaseActionIcon>
-      <rect x="4" y="5" width="6" height="6" rx="1.2" />
-      <path d="M14 7h6" />
-      <rect x="4" y="13" width="6" height="6" rx="1.2" />
-      <path d="M14 15h6" />
-    </TestCaseActionIcon>
-  );
-}
-
-function TestCaseClearIcon() {
-  return (
-    <TestCaseActionIcon>
-      <path d="M5 12h14" />
-      <path d="m15.5 6.5 3 3-9.5 9.5H6v-3Z" />
-    </TestCaseActionIcon>
-  );
-}
-
 function TestCaseDeleteIcon() {
   return (
     <TestCaseActionIcon>
@@ -746,13 +729,14 @@ export function TestCasesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">("tile");
+  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [caseStatusFilter, setCaseStatusFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
@@ -1000,7 +984,7 @@ export function TestCasesPage() {
         start_url: automationStartUrl.trim() || undefined,
         additional_context: [
           automationContext.trim(),
-          "Analyze the manual steps on this test case. Fill missing automation between actions, generate any missing manual step text implied by the flow, and attach each executable QAira keyword to its matching step on this same case across web, API, and mobile automation."
+          getPrompt("ai.automation.gap_analysis")
         ].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
@@ -1337,8 +1321,8 @@ export function TestCasesPage() {
       return;
     }
 
-    if (!integrations.some((integration) => integration.id === integrationId)) {
-      setIntegrationId(integrations[0].id);
+    if (integrationId && !integrations.some((integration) => integration.id === integrationId)) {
+      setIntegrationId("");
     }
   }, [integrationId, integrations]);
 
@@ -4901,54 +4885,6 @@ export function TestCasesPage() {
   const historySectionSummary = selectedHistory.length
     ? "Review the latest recorded outcomes and preserved run evidence for this reusable test case."
     : "No run history has been recorded for this reusable test case yet.";
-  const parameterDialogHeaderContent = (
-    <div className="step-parameter-dialog-context">
-      <div className="step-parameter-dialog-context-card">
-        <div className="step-parameter-group-title-row">
-          <strong>Scope guide</strong>
-          <InfoTooltip
-            content="`@t` saves on the case, `@s` saves on a linked suite, and `@r` stays local here for preview until a real execution data set supplies it."
-            label="Scope guide information"
-          />
-        </div>
-      </div>
-      {selectedCaseSuites.length ? (
-        <div className="step-parameter-dialog-context-card">
-          <div className="step-parameter-group-title-row">
-            <strong>Suite targets</strong>
-            <InfoTooltip
-              content={selectedCaseSuites.length === 1
-              ? `Previewing and editing suite-shared values for "${selectedCaseSuites[0]?.name || "Linked suite"}".`
-              : `This case is linked to ${selectedCaseSuites.length} suites. Choose the active suite target to preview or edit its saved @s values.`}
-              label="Suite target information"
-            />
-          </div>
-          <div className="selection-chip-row">
-            {selectedCaseSuites.map((suite) => (
-              <button
-                className={suite.id === selectedParameterSuiteId ? "selection-chip is-selected" : "selection-chip is-unselected"}
-                key={suite.id}
-                onClick={() => setSelectedParameterSuiteId(suite.id)}
-                type="button"
-              >
-                {suite.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : detectedStepParameters.some((parameter) => parameter.scope === "s") ? (
-        <div className="step-parameter-dialog-context-card">
-          <div className="step-parameter-group-title-row">
-            <strong>Suite targets</strong>
-            <InfoTooltip
-              content="Link this case to a suite before editing any `@s` values."
-              label="Suite target information"
-            />
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
   const aiSelectedRequirements = useMemo(
     () => requirements.filter((requirement) => aiRequirementIds.includes(requirement.id)),
     [aiRequirementIds, requirements]
@@ -5107,6 +5043,18 @@ export function TestCasesPage() {
     <div className="panel-head-actions-row">
       <WorkspaceBackButton label="Back to test case tiles" onClick={handleWorkspaceBack} />
       {selectedTestCase ? (
+        <button
+          aria-label={isVisualBuilderActive ? "Return to step list" : "Open flow map"}
+          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
+          onClick={() => setIsVisualBuilderActive((current) => !current)}
+          title={isVisualBuilderActive ? "Step list" : "Visual builder"}
+          type="button"
+        >
+          {isVisualBuilderActive ? <TileCardStepsIcon /> : <TestCaseFlowMapIcon />}
+          <span>{isVisualBuilderActive ? "Step list" : "Visual builder"}</span>
+        </button>
+      ) : null}
+      {selectedTestCase ? (
         <div className="test-case-run-cluster" ref={runOptionsRef}>
           <button
             className="test-case-tile-action-button is-run test-case-header-run-button"
@@ -5171,18 +5119,6 @@ export function TestCasesPage() {
             ) : null}
           </div>
         </div>
-      ) : null}
-      {selectedTestCase ? (
-        <button
-          aria-label={isVisualBuilderActive ? "Return to step list" : "Open flow map"}
-          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
-          onClick={() => setIsVisualBuilderActive((current) => !current)}
-          title={isVisualBuilderActive ? "Step list" : "Visual builder"}
-          type="button"
-        >
-          {isVisualBuilderActive ? <TileCardStepsIcon /> : <TestCaseFlowMapIcon />}
-          <span>{isVisualBuilderActive ? "Step list" : "Visual builder"}</span>
-        </button>
       ) : null}
       {selectedTestCase ? (
         <button
@@ -6016,33 +5952,38 @@ export function TestCasesPage() {
                       }}
                       type="button"
                     >
-                      <TestCaseClearIcon />
+                      <ClearSelectionIcon />
                       Clear filters
                     </button>
                   </div>
                 </div>
               </CatalogSearchFilter>
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!filteredCases.length || areAllFilteredCasesSelected}
+                onClick={() =>
+                  setSelectedActionTestCaseIds((current) => [...new Set([...current, ...filteredCases.map((item) => item.id)])])
+                }
+                type="button"
+              >
+                <SelectAllIcon />
+                <span>Select all</span>
+              </button>
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!selectedActionTestCaseIds.length}
+                onClick={() => setSelectedActionTestCaseIds([])}
+                type="button"
+              >
+                <ClearSelectionIcon />
+                <span>Clear</span>
+              </button>
               <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
                 <TestCaseCreateIcon />
                 <span>New case</span>
               </button>
               <CatalogActionMenu
                 actions={[
-                  {
-                    label: "Select all visible",
-                    description: "Mark every test case currently shown by search and filters.",
-                    icon: <TestCaseSelectAllIcon />,
-                    disabled: !filteredCases.length || areAllFilteredCasesSelected,
-                    onClick: () =>
-                      setSelectedActionTestCaseIds((current) => [...new Set([...current, ...filteredCases.map((item) => item.id)])])
-                  },
-                  {
-                    label: "Clear selection",
-                    description: "Remove all selected test cases from the bulk action set.",
-                    icon: <TestCaseClearIcon />,
-                    disabled: !selectedActionTestCaseIds.length,
-                    onClick: () => setSelectedActionTestCaseIds([])
-                  },
                   {
                     label: "Create suite",
                     description: "Create a suite before adding selected cases.",
@@ -7083,12 +7024,11 @@ export function TestCasesPage() {
       {isCaseParameterDialogOpen ? (
         <StepParameterDialog
           getInputState={(parameter) => resolveScopedParameterInputState(parameter.scope)}
-          headerContent={parameterDialogHeaderContent}
           onChange={handleScopedParameterValueChange}
           onClose={() => setIsCaseParameterDialogOpen(false)}
           parameters={detectedStepParameters}
-          subtitle="Detected scoped params from the current case steps. Values update the editor preview immediately and save to the matching case or suite scope."
-          title="Test case parameter values"
+          subtitle="Edit detected @tokens for this case and its selected suite context."
+          title="Test data"
           values={mergedScopedParameterValues}
         />
       ) : null}
@@ -8430,11 +8370,7 @@ function TestCaseExecutionModal({
 
             <div className="execution-create-grid">
               <FormField label="Run type">
-                <select value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                  <option value="manual">Create Manual Run</option>
-                  <option value="local">Create Local Run</option>
-                  <option value="remote">Create Remote Run</option>
-                </select>
+                <RunTypeSelector value={executionStartMode} onChange={(value) => onExecutionStartModeChange(value as ExecutionStartMode)} />
               </FormField>
 
               <FormField label="Parallel execution">
@@ -8764,10 +8700,13 @@ function StepPasteBelowIcon() {
 function StepParameterIcon() {
   return (
     <StepIconShell>
-      <path d="M5 7.5h14" />
-      <path d="M7 12h10" />
-      <path d="M9 16.5h6" />
-      <path d="m5 5 2.5 2.5L5 10" />
+      <rect height="14" rx="2.5" width="14" x="5" y="5" />
+      <path d="M5 10h14" />
+      <path d="M10 5v14" />
+      <path d="M14.5 5v14" />
+      <path d="M7.5 14.5h1" />
+      <path d="M12 14.5h1" />
+      <path d="M16.5 14.5h1" />
     </StepIconShell>
   );
 }

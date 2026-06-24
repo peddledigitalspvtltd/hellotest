@@ -1,13 +1,17 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
+import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
+import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SubnavTabs } from "../components/SubnavTabs";
@@ -26,9 +30,11 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useAuth } from "../auth/AuthContext";
+import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { AUTOMATION_SECTION_ITEMS } from "../lib/workspaceSections";
 import {
   collectStepParameters,
@@ -37,7 +43,7 @@ import {
   parseStepParameterName,
   type StepParameterScope
 } from "../lib/stepParameters";
-import type { AutomationLearningCacheEntry, ExecutionResult, Integration, RecorderSessionResponse, TestCase, TestStep, TestSuite } from "../types";
+import type { AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResponse, TestCase, TestStep, TestStepType, TestSuite } from "../types";
 
 type AutomationView = "cases" | "repository";
 type AutomationCaseSectionKey = "case" | "steps" | "history";
@@ -56,15 +62,12 @@ type AutomationCaseDraft = {
 };
 
 type AutomationStepDraft = {
+  step_type: TestStepType;
+  name: string;
   keyword: string;
   objectRef: string;
   value: string;
   expected_result: string;
-};
-
-type AutomationHookTargetDraft = {
-  type: "test_case" | "test_step" | "suite";
-  id: string;
 };
 
 type AutomationStepOptions = {
@@ -129,6 +132,72 @@ const formatRunDate = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit"
 });
+
+const AUTOMATION_KEYWORDS_BY_TYPE: Record<TestStepType, string[]> = {
+  web: [
+    "web.goto", "web.openTab", "web.switchTab", "web.closeTab", "web.reload", "web.goBack", "web.goForward",
+    "web.click", "web.hover", "web.dblclick", "web.rightClick", "web.fill", "web.clear", "web.select",
+    "web.check", "web.uncheck", "web.uploadFile", "web.uploadLocalFile", "web.uploadRemoteFile", "web.press",
+    "web.scroll", "web.wait", "web.waitForLoadState", "web.expectVisible", "web.expectHidden", "web.expectText",
+    "web.expectValue", "web.expectEnabled", "web.expectUrl", "web.text", "web.value", "web.captureText", "web.screenshot"
+  ],
+  api: ["api.request", "api.expectStatus", "api.expectJson", "api.capture"],
+  android: [
+    "android.tap", "android.tapByText", "android.tapPoint", "android.doubleTap", "android.longPress", "android.type",
+    "android.clear", "android.hideKeyboard", "android.swipe", "android.scrollIntoView", "android.waitForDisplayed",
+    "android.waitForExist", "android.waitForEnabled", "android.expectText", "android.expectDisplayed",
+    "android.expectNotDisplayed", "android.expectEnabled", "android.expectValue", "android.pushFile",
+    "android.pushRemoteFile", "android.pullFile", "android.installApp", "android.removeApp", "android.startActivity",
+    "android.openDeepLink", "android.pressBack", "android.pressKeyCode", "android.backgroundApp", "android.activateApp",
+    "android.terminateApp", "android.setOrientation", "android.pause"
+  ],
+  ios: ["mobile.tap", "mobile.type", "mobile.select", "mobile.press", "mobile.expectVisible", "mobile.expectText"]
+};
+
+const emptyAutomationStepDraft = (stepType: TestStepType = "web"): AutomationStepDraft => ({
+  step_type: stepType,
+  name: "",
+  keyword: AUTOMATION_KEYWORDS_BY_TYPE[stepType][0],
+  objectRef: "",
+  value: "",
+  expected_result: ""
+});
+
+const hookTypeToExecutionHookMeta = (hookType: RunHookType) => {
+  switch (hookType) {
+    case "BEFORE_ALL":
+      return { scope: "run", phase: "pre", name: "Before Run", fail_behavior: "fail-run" };
+    case "AFTER_ALL":
+      return { scope: "run", phase: "post", name: "After Run", fail_behavior: "continue" };
+    case "BEFORE_SUITE":
+      return { scope: "suite", phase: "pre", name: "Before Suite", fail_behavior: "fail-run" };
+    case "AFTER_SUITE":
+      return { scope: "suite", phase: "post", name: "After Suite", fail_behavior: "continue" };
+    case "BEFORE_TEST":
+      return { scope: "test", phase: "pre", name: "Before Test", fail_behavior: "fail-run" };
+    case "AFTER_TEST":
+      return { scope: "test", phase: "post", name: "After Test", fail_behavior: "continue" };
+    default:
+      return { scope: "test", phase: "pre", name: "Run Hook", fail_behavior: "fail-run" };
+  }
+};
+
+function mapRunHooksToExecutionHooks(hooks: RunHookSelection[]) {
+  return hooks.map((hook, index) => {
+    const meta = hookTypeToExecutionHookMeta(hook.hookType);
+    return {
+      id: hook.id,
+      name: `${meta.name}: ${hook.name}`,
+      hook_type: hook.hookType,
+      scope: meta.scope,
+      phase: meta.phase,
+      fail_behavior: meta.fail_behavior,
+      target_kind: hook.itemType,
+      target_id: hook.itemId,
+      execution_order: index + 1
+    };
+  });
+}
 
 function isAutomatedCase(testCase: TestCase) {
   return testCase.automated === "yes";
@@ -516,37 +585,6 @@ function parseParameterText(value: string) {
   }, {});
 }
 
-function parseAutomationHookLines(value: string, phase: "pre" | "post") {
-  return value
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((command, index) => ({
-      id: `${phase}-${index + 1}`,
-      phase,
-      type: "keyword",
-      command
-    }));
-}
-
-function buildAutomationHookTarget(
-  phase: "pre" | "post",
-  target: AutomationHookTargetDraft,
-  label: string
-) {
-  if (!target.id) {
-    return [];
-  }
-
-  return [{
-    id: `${phase}-${target.type}-${target.id}`,
-    phase,
-    type: target.type,
-    target_id: target.id,
-    label
-  }];
-}
-
 function parseAutomationStepOptions(step: TestStep): AutomationStepOptions {
   const code = step.automation_code || step.action || "";
   const optionMatch = code.match(/@qaira-options\s+([^\n]+)/i);
@@ -573,6 +611,38 @@ function applyAutomationStepOptions(code: string, options: AutomationStepOptions
 function getAutomationStepTypeLabel(step: TestStep) {
   const value = step.step_type || "web";
   return value === "android" ? "Android" : value === "ios" ? "iOS" : value.toUpperCase();
+}
+
+function inferAutomationStepType(keyword?: string | null, fallback?: TestStepType | null): TestStepType {
+  const normalized = String(keyword || "").toLowerCase();
+  if (normalized.startsWith("api.")) return "api";
+  if (normalized.startsWith("android.")) return "android";
+  if (normalized.startsWith("mobile.")) return fallback === "ios" ? "ios" : "android";
+  return fallback || "web";
+}
+
+function formatKeywordDisplay(keyword: string) {
+  const [namespace, action] = keyword.split(".");
+  if (!namespace || !action) {
+    return keyword;
+  }
+  return `${namespace.charAt(0).toUpperCase()}${namespace.slice(1)}.${action}`;
+}
+
+function formatObjectReferenceLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "No locator selected";
+  }
+  const parts = trimmed.split(".");
+  return parts.length > 1 ? `${parts[parts.length - 2]}.${parts[parts.length - 1]}` : trimmed;
+}
+
+function formatAutomationKeywordReadable(draft: AutomationStepDraft, variables: string[] = []) {
+  const keyword = formatKeywordDisplay(draft.keyword);
+  const target = formatObjectReferenceLabel(draft.objectRef);
+  const dataReference = draft.value.trim() || variables.find((variable) => variable.startsWith("t.") || variable.startsWith("s.") || variable.startsWith("r."));
+  return `${keyword} ${target}${dataReference ? ` using @${dataReference.replace(/^@/, "")}` : ""}`;
 }
 
 function getRecorderEngineBaseUrl(session: RecorderSessionResponse | null) {
@@ -663,16 +733,17 @@ function extractRepositoryFieldsFromDom(dom: string) {
       || (tag === "button" ? "button" : "")
       || (tag === "a" ? "link" : "")
       || (tag === "select" ? "combobox" : "")
-      || (tag === "textarea" || (tag === "input" && !["checkbox", "radio"].includes(inputType)) ? "textbox" : "")
+      || (tag === "textarea" || (tag === "input" && !["checkbox", "radio", "file"].includes(inputType)) ? "textbox" : "")
       || (tag === "input" && ["checkbox", "radio"].includes(inputType) ? inputType : "");
+    const quoted = (value: string) => JSON.stringify(value);
     const locatorCandidates = ([
-      attrs["data-testid"] ? { locator: `[data-testid="${attrs["data-testid"]}"]`, strategy: "data-testid", confidenceScore: 0.98 } : null,
-      attrs["aria-label"] ? { locator: `${tag}[aria-label="${attrs["aria-label"]}"]`, strategy: "aria-label", confidenceScore: 0.94 } : null,
-      semanticRole && label ? { locator: `role=${semanticRole}[name="${label}"]`, strategy: "role + name", confidenceScore: 0.92 } : null,
+      attrs["data-testid"] ? { locator: `getByTestId(${quoted(attrs["data-testid"])})`, strategy: "playwright test id", confidenceScore: 0.99 } : null,
+      semanticRole && label ? { locator: `getByRole(${quoted(semanticRole)}, { name: ${quoted(label)} })`, strategy: "playwright role + name", confidenceScore: 0.97 } : null,
+      attrs["aria-label"] ? { locator: `${tag}[aria-label="${attrs["aria-label"]}"]`, strategy: "aria-label", confidenceScore: 0.9 } : null,
+      attrs.placeholder ? { locator: `getByPlaceholder(${quoted(attrs.placeholder)})`, strategy: "playwright placeholder", confidenceScore: 0.88 } : null,
       attrs.id ? { locator: `#${attrs.id}`, strategy: "stable id", confidenceScore: 0.88 } : null,
       attrs.name ? { locator: `${tag}[name="${attrs.name}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
-      attrs.placeholder ? { locator: `${tag}[placeholder="${attrs.placeholder}"]`, strategy: "placeholder", confidenceScore: 0.78 } : null,
-      tag === "button" || tag === "a" ? { locator: `text=${label}`, strategy: "text", confidenceScore: 0.7 } : null,
+      tag === "button" || tag === "a" ? { locator: `getByText(${quoted(label)})`, strategy: "playwright text", confidenceScore: 0.7 } : null,
       { locator: tag, strategy: "css", confidenceScore: 0.4 }
     ] as Array<RepositoryLocator | null>).filter((candidate): candidate is RepositoryLocator => Boolean(candidate));
     const locator = locatorCandidates[0].locator;
@@ -746,12 +817,17 @@ function buildRepositoryFieldFromInspectSelection(result: RecorderInspectResult,
 
 function parseAutomationStepDraft(step: TestStep): AutomationStepDraft {
   const code = step.automation_code || "";
-  const match = code.match(/web\.(\w+)\(([\s\S]*)\)/);
-  const keyword = match?.[1] ? `web.${match[1]}` : "web.click";
+  const match = code.match(/(?:await\s+)?((?:web|api|android|mobile)\.\w+)\(([\s\S]*)\)/);
+  const stepType = inferAutomationStepType(match?.[1], step.step_type || "web");
+  const keyword = match?.[1] && AUTOMATION_KEYWORDS_BY_TYPE[stepType].includes(match[1])
+    ? match[1]
+    : AUTOMATION_KEYWORDS_BY_TYPE[stepType][0];
   const args = match?.[2] || "";
   const quoted = Array.from(args.matchAll(/(['"`])([\s\S]*?)\1/g)).map((item) => item[2]);
 
   return {
+    step_type: stepType,
+    name: step.action || "",
     keyword,
     objectRef: quoted[0] || "",
     value: quoted[1] || "",
@@ -760,25 +836,87 @@ function parseAutomationStepDraft(step: TestStep): AutomationStepDraft {
 }
 
 function buildAutomationCodeFromDraft(draft: AutomationStepDraft) {
-  const objectRef = draft.objectRef || "Page.element";
+  const q = (value: string) => JSON.stringify(value);
+  const objectRef = draft.objectRef.trim();
+  const targetRef = objectRef || "Page.element";
   const value = draft.value.trim();
-  if (draft.keyword === "web.goto" || draft.keyword === "web.expectUrl") {
-    return `await ${draft.keyword}("${value || objectRef}");`;
+  if (draft.keyword.startsWith("api.")) {
+    if (draft.keyword === "api.expectStatus") {
+      return `await api.expectStatus(${Number(value || objectRef) || 200});`;
+    }
+    if (draft.keyword === "api.expectJson") {
+      return `await api.expectJson(${q(targetRef)}, ${q(value || "@r.response")});`;
+    }
+    if (draft.keyword === "api.capture") {
+      return `await api.capture(${q(targetRef)}, ${q(value || "@r.capture")});`;
+    }
+    return `await api.request(${q(objectRef || "GET /")}${value ? `, ${q(value)}` : ""});`;
+  }
+  if (draft.keyword.startsWith("android.") || draft.keyword.startsWith("mobile.")) {
+    const keyword = draft.keyword.replace(/^mobile\./, "android.");
+    if (["android.type", "android.expectText", "android.expectValue", "android.pushFile", "android.pushRemoteFile", "android.startActivity", "android.openDeepLink", "android.deepLink"].includes(keyword)) {
+      return `await ${keyword}(${q(targetRef)}, ${q(value || (keyword === "android.pushFile" ? "/path/to/local-file" : ""))});`;
+    }
+    if (["android.longPress", "android.waitForDisplayed", "android.waitForExist", "android.waitForEnabled", "android.expectNotDisplayed"].includes(keyword)) {
+      return `await ${keyword}(${q(targetRef)}, ${Number(value) || 10000});`;
+    }
+    if (keyword === "android.swipe") {
+      const points = (value || objectRef || "500,1500,500,500,300").split(",").map((item) => Number(item.trim()) || 0);
+      return `await android.swipe(${points[0] || 500}, ${points[1] || 1500}, ${points[2] || 500}, ${points[3] || 500}, ${points[4] || 300});`;
+    }
+    if (keyword === "android.pause" || keyword === "android.pressKeyCode" || keyword === "android.backgroundApp") {
+      return `await ${keyword}(${Number(value || objectRef) || (keyword === "android.pressKeyCode" ? 66 : 1000)});`;
+    }
+    return `await ${keyword}(${q(targetRef)});`;
+  }
+  if (["web.goto", "web.expectUrl", "web.openTab"].includes(draft.keyword)) {
+    return `await ${draft.keyword}(${q(value || objectRef || "/")});`;
   }
   if (draft.keyword === "web.wait" || draft.keyword === "web.waitForTimeout") {
     return `await web.wait(${Math.max(0, Number.parseInt(value || objectRef, 10) || 1000)});`;
   }
-  if (draft.keyword === "web.press" && !objectRef) {
-    return `await web.press(null, "${value || "Tab"}");`;
+  if (draft.keyword === "web.waitForLoadState") {
+    return `await web.waitForLoadState(${q(value || objectRef || "domcontentloaded")});`;
   }
-  if (["web.fill", "web.select", "web.press", "web.expectText"].includes(draft.keyword)) {
-    return `await ${draft.keyword}("${objectRef}", "${value}");`;
+  if (draft.keyword === "web.scroll") {
+    const [deltaX, deltaY] = (value || objectRef || "0,600").split(",").map((item) => Number(item.trim()) || 0);
+    return `await web.scroll(${deltaX || 0}, ${deltaY || 600});`;
   }
-  return `await ${draft.keyword}("${objectRef}");`;
+  if (draft.keyword === "web.press") {
+    return objectRef
+      ? `await web.press(${q(objectRef)}, ${q(value || "Tab")});`
+      : `await web.press(null, ${q(value || "Tab")});`;
+  }
+  if (["web.uploadFile", "web.uploadLocalFile"].includes(draft.keyword)) {
+    return `await ${draft.keyword}(${q(targetRef)}, ${q(value || "@t.uploadFilePath")}, { waitFor: "attached" });`;
+  }
+  if (draft.keyword === "web.uploadRemoteFile") {
+    return `await web.uploadRemoteFile(${q(targetRef)}, ${q(value || "https://example.com/file.png")}, { waitFor: "attached" });`;
+  }
+  if (["web.fill", "web.select", "web.expectText", "web.expectValue", "web.captureText"].includes(draft.keyword)) {
+    return `await ${draft.keyword}(${q(targetRef)}, ${q(value)});`;
+  }
+  if (draft.keyword === "web.screenshot") {
+    return `await web.screenshot(${q(value || objectRef || "automation-step")});`;
+  }
+  if (["web.switchTab", "web.closeTab"].includes(draft.keyword)) {
+    return `await ${draft.keyword}(${q(value || objectRef || "latest")});`;
+  }
+  return `await ${draft.keyword}(${q(targetRef)});`;
+}
+
+function escapeAutomationPdfHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function AutomationPage({ initialView = "cases" }: { initialView?: AutomationView } = {}) {
   const { session } = useAuth();
+  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -788,6 +926,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [selectedAutomatedCaseId, setSelectedAutomatedCaseId] = useState("");
   const [selectedManualCaseId, setSelectedManualCaseId] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [automationCatalogViewMode, setAutomationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [automationCaseSearch, setAutomationCaseSearch] = useState("");
+  const [selectedAutomationCaseIds, setSelectedAutomationCaseIds] = useState<string[]>([]);
   const [expandedCaseSections, setExpandedCaseSections] = useState<Record<AutomationCaseSectionKey, boolean>>({
     case: true,
     steps: true,
@@ -809,17 +950,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [suiteParameterValues, setSuiteParameterValues] = useState<Record<string, string>>({});
   const [selectedParameterSuiteId, setSelectedParameterSuiteId] = useState("");
   const [suiteLinkDraftIds, setSuiteLinkDraftIds] = useState<string[]>([]);
-  const [preHookText, setPreHookText] = useState("");
-  const [postHookText, setPostHookText] = useState("");
-  const [preHookTarget, setPreHookTarget] = useState<AutomationHookTargetDraft>({ type: "test_case", id: "" });
-  const [postHookTarget, setPostHookTarget] = useState<AutomationHookTargetDraft>({ type: "test_case", id: "" });
+  const [executionHookDraft, setExecutionHookDraft] = useState<RunHookSelection[]>([]);
   const [stepOptionDrafts, setStepOptionDrafts] = useState<Record<string, AutomationStepOptions>>({});
-  const [newStepDraft, setNewStepDraft] = useState<AutomationStepDraft>({
-    keyword: "web.click",
-    objectRef: "",
-    value: "",
-    expected_result: ""
-  });
+  const [newStepDraft, setNewStepDraft] = useState<AutomationStepDraft>(() => emptyAutomationStepDraft("web"));
+  const [newStepPlacement, setNewStepPlacement] = useState<{ mode: "end" | "before" | "after"; stepId: string }>({ mode: "end", stepId: "" });
   const [startUrl, setStartUrl] = useState("");
   const [builderContext, setBuilderContext] = useState("");
   const [message, setMessage] = useState("");
@@ -947,11 +1081,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId && session)
   });
-  const integrationsQuery = useQuery({
-    queryKey: ["integrations", "automation-workspace"],
-    queryFn: () => api.integrations.list({ is_active: true }),
-    enabled: Boolean(session)
-  });
   const suitesQuery = useQuery({
     queryKey: ["test-case-suites", appTypeId],
     queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
@@ -962,12 +1091,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const appTypes = appTypesQuery.data || [];
   const testCases = testCasesQuery.data || [];
   const learningCache = learningCacheQuery.data || [];
-  const integrations = integrationsQuery.data || [];
   const suites = suitesQuery.data || [];
-  const llmIntegration = useMemo(() => {
-    const active = integrations.filter((integration: Integration) => integration.type === "llm" && integration.is_active);
-    return active.find((integration) => String(integration.config?.project_id || "") === projectId) || active[0] || null;
-  }, [integrations, projectId]);
   const automatedCases = useMemo(() => testCases.filter(isAutomatedCase), [testCases]);
   const automationDisplayIdByCaseId = useMemo(
     () => automatedCases.reduce<Record<string, string>>((accumulator, testCase, index) => {
@@ -997,6 +1121,36 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
     return map;
   }, [executionResults]);
+  const filteredAutomationCases = useMemo(() => {
+    const normalizedSearch = automationCaseSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return automatedCases;
+    }
+
+    return automatedCases.filter((testCase) => {
+      const history = historyByCaseId[testCase.id] || [];
+      const searchContent = [
+        testCase.id,
+        testCase.display_id,
+        automationDisplayIdByCaseId[testCase.id],
+        testCase.title,
+        testCase.description,
+        testCase.status,
+        testCase.automation_status,
+        `p${testCase.priority || 3}`,
+        `${history.length} runs`
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchContent.includes(normalizedSearch);
+    });
+  }, [automatedCases, automationCaseSearch, automationDisplayIdByCaseId, historyByCaseId]);
+  const activeAutomationCaseSearchCount = automationCaseSearch.trim() ? 1 : 0;
+  const areAllFilteredAutomationCasesSelected =
+    Boolean(filteredAutomationCases.length) && filteredAutomationCases.every((testCase) => selectedAutomationCaseIds.includes(testCase.id));
   const activeCaseHistory = activeCase ? historyByCaseId[activeCase.id] || [] : [];
   const activeCaseSuiteIds = useMemo(() => activeCase?.suite_ids || (activeCase?.suite_id ? [activeCase.suite_id] : []), [activeCase]);
   const selectedParameterSuite = suites.find((suite) => suite.id === selectedParameterSuiteId) || null;
@@ -1014,19 +1168,205 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }))),
     [automatedSteps, stepCodeDrafts, stepDrafts]
   );
-  const hookTargetLabelByKey = useMemo(() => {
-    const map: Record<string, string> = {};
-    testCases.forEach((testCase) => {
-      map[`test_case:${testCase.id}`] = testCase.display_id ? `${testCase.display_id} · ${testCase.title}` : testCase.title;
-    });
+  const automationStepGroups = useMemo(() => {
+    const standaloneGroup = {
+      id: "standalone",
+      title: "Standalone automation keywords",
+      subtitle: "Automation keywords without a manual step name.",
+      steps: [] as TestStep[],
+      isStandalone: true
+    };
+    const groupMap = new Map<string, { id: string; title: string; subtitle: string; steps: TestStep[]; isStandalone: boolean }>();
+
     automatedSteps.forEach((step) => {
-      map[`test_step:${step.id}`] = `Step ${step.step_order} · ${step.action || step.automation_code || "Automation step"}`;
+      const manualStepTitle = (step.action || "").trim();
+      if (!manualStepTitle) {
+        standaloneGroup.steps.push(step);
+        return;
+      }
+
+      const groupKey = step.group_id || step.id;
+      const existingGroup = groupMap.get(groupKey);
+
+      if (existingGroup) {
+        existingGroup.steps.push(step);
+        return;
+      }
+
+      groupMap.set(groupKey, {
+        id: `manual-${groupKey}`,
+        title: step.group_name || manualStepTitle,
+        subtitle: `Manual step ${step.step_order}${step.group_name ? ` · ${manualStepTitle}` : ""}`,
+        steps: [step],
+        isStandalone: false
+      });
     });
-    suites.forEach((suite) => {
-      map[`suite:${suite.id}`] = suite.display_id ? `${suite.display_id} · ${suite.name}` : suite.name;
-    });
-    return map;
-  }, [automatedSteps, suites, testCases]);
+
+    const groups = Array.from(groupMap.values()).map((group) => ({
+      ...group,
+      steps: [...group.steps].sort((left, right) => left.step_order - right.step_order)
+    }));
+
+    return standaloneGroup.steps.length ? [...groups, standaloneGroup] : groups;
+  }, [automatedSteps]);
+  const newStepPlacementTarget = useMemo(
+    () => newStepPlacement.mode !== "end" && newStepPlacement.stepId
+      ? automatedSteps.find((step) => step.id === newStepPlacement.stepId) || null
+      : null,
+    [automatedSteps, newStepPlacement]
+  );
+  const newStepPlacementLabel = newStepPlacementTarget
+    ? `${newStepPlacement.mode === "before" ? "Insert before" : "Add after"} ${newStepPlacementTarget.group_name || newStepPlacementTarget.action || `step ${newStepPlacementTarget.step_order}`}`
+    : "";
+  const inlineTestDataGroups = useMemo(() => {
+    const buildRows = (scope: StepParameterScope, values: Record<string, string>) => {
+      const names = new Set<string>(Object.keys(values));
+      detectedStepParameters
+        .filter((parameter) => parameter.scope === scope)
+        .forEach((parameter) => names.add(parameter.name));
+
+      return Array.from(names)
+        .sort((left, right) => left.localeCompare(right))
+        .map((name) => {
+          const parsed = parseStepParameterName(name, scope);
+          return {
+            name: parsed?.name || name,
+            token: parsed?.token || `@${name.replace(/^@/, "")}`,
+            value: values[parsed?.name || name] || "",
+            locked: scope === "r"
+          };
+        });
+    };
+
+    return [
+      { scope: "t" as const, title: "Test case data", rows: buildRows("t", testCaseParameterValues) },
+      { scope: "s" as const, title: selectedParameterSuite ? `Suite data · ${selectedParameterSuite.name}` : "Suite-shared data", rows: buildRows("s", suiteParameterValues) },
+      { scope: "r" as const, title: "Run data", rows: buildRows("r", {}) }
+    ].filter((group) => group.rows.length);
+  }, [detectedStepParameters, selectedParameterSuite, suiteParameterValues, testCaseParameterValues]);
+  const completeAutomationCode = useMemo(() => {
+    const parameterLines = Object.entries(mergedParameterValues)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `// ${key} = ${value || "<empty>"}`);
+    const stepLines = automationStepGroups.flatMap((group) => [
+      `// ${group.isStandalone ? group.title : `Manual step: ${group.title}`}`,
+      ...group.steps.map((step) => {
+        const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
+        return stepCodeDrafts[step.id] || step.automation_code || buildAutomationCodeFromDraft(draft);
+      })
+    ]);
+
+    return [
+      `// Automation case: ${activeCase?.display_id || activeCase?.id || "selected-case"} ${activeCase?.title || ""}`.trim(),
+      parameterLines.length ? "// Data references" : "",
+      ...parameterLines,
+      parameterLines.length ? "" : "",
+      "export async function runAutomation({ web, api, mobile }) {",
+      ...stepLines.map((line) => `  ${line}`),
+      "}"
+    ].filter((line) => line !== "").join("\n");
+  }, [activeCase?.display_id, activeCase?.id, activeCase?.title, automationStepGroups, mergedParameterValues, stepCodeDrafts, stepDrafts]);
+
+  const exportAutomationCasePdf = () => {
+    if (!activeCase) {
+      showError(new Error("Select an automation case before exporting."), "Unable to export automation case.");
+      return;
+    }
+
+    const metadataRows = [
+      ["Case", `${activeCase.display_id || activeCase.id} · ${activeCase.title}`],
+      ["Status", activeCase.status || "active"],
+      ["Priority", `P${activeCase.priority || 3}`],
+      ["Automation", activeCase.automation_status || "ready"],
+      ["Suites", activeCaseSuiteIds.length ? activeCaseSuiteIds.join(", ") : "None"],
+      ["Requirement", activeCase.requirement_id || "Not linked"]
+    ];
+    const testDataRows = inlineTestDataGroups.flatMap((group) =>
+      group.rows.map((row) => [group.title, row.token, row.locked ? "Supplied at run time" : row.value || "(empty)"])
+    );
+    const stepSections = automationStepGroups.map((group) => {
+      const rows = group.steps.map((step) => {
+        const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
+        const variables = extractVariables(step);
+        return `
+          <tr>
+            <td>${escapeAutomationPdfHtml(step.step_order)}</td>
+            <td>${escapeAutomationPdfHtml(formatAutomationKeywordReadable(draft, variables))}</td>
+            <td><code>${escapeAutomationPdfHtml(draft.objectRef || "No locator")}</code></td>
+            <td><code>${escapeAutomationPdfHtml(draft.value || "No data reference")}</code></td>
+            <td><pre>${escapeAutomationPdfHtml(stepCodeDrafts[step.id] || step.automation_code || buildAutomationCodeFromDraft(draft))}</pre></td>
+          </tr>
+        `;
+      }).join("");
+
+      return `
+        <section>
+          <h2>${escapeAutomationPdfHtml(group.isStandalone ? group.title : `Manual step: ${group.title}`)}</h2>
+          <p>${escapeAutomationPdfHtml(group.subtitle)}</p>
+          <table>
+            <thead><tr><th>Step</th><th>Keyword</th><th>Locator</th><th>Data reference</th><th>Code</th></tr></thead>
+            <tbody>${rows || "<tr><td colspan=\"5\">No automation keywords.</td></tr>"}</tbody>
+          </table>
+        </section>
+      `;
+    }).join("");
+    const printable = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
+
+    if (!printable) {
+      showError(new Error("Allow pop-ups to export the automation case PDF."), "Unable to open PDF export.");
+      return;
+    }
+
+    printable.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeAutomationPdfHtml(activeCase.title)} automation export</title>
+          <style>
+            body { color: #111827; font: 13px/1.45 Inter, Arial, sans-serif; margin: 32px; }
+            h1 { font-size: 24px; margin: 0 0 6px; }
+            h2 { border-bottom: 1px solid #d8dee8; font-size: 17px; margin: 28px 0 8px; padding-bottom: 6px; }
+            p { color: #526071; margin: 0 0 14px; }
+            table { border-collapse: collapse; margin: 10px 0 18px; width: 100%; }
+            th, td { border: 1px solid #d8dee8; padding: 8px; text-align: left; vertical-align: top; }
+            th { background: #f3f6fb; font-size: 11px; text-transform: uppercase; }
+            code, pre { background: #f8fafc; border-radius: 6px; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+            code { padding: 2px 4px; }
+            pre { margin: 0; max-width: 100%; overflow-wrap: anywhere; padding: 8px; white-space: pre-wrap; }
+            .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+            .meta div { border: 1px solid #d8dee8; border-radius: 8px; padding: 9px; }
+            .meta span { color: #64748b; display: block; font-size: 11px; text-transform: uppercase; }
+            .meta strong { display: block; margin-top: 3px; }
+            @media print { body { margin: 18mm; } button { display: none; } }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeAutomationPdfHtml(activeCase.title)}</h1>
+          <p>${escapeAutomationPdfHtml(activeCase.description || "No description recorded.")}</p>
+          <section class="meta">
+            ${metadataRows.map(([label, value]) => `<div><span>${escapeAutomationPdfHtml(label)}</span><strong>${escapeAutomationPdfHtml(value)}</strong></div>`).join("")}
+          </section>
+          <section>
+            <h2>Test data</h2>
+            <table>
+              <thead><tr><th>Scope</th><th>Token</th><th>Value</th></tr></thead>
+              <tbody>
+                ${testDataRows.length ? testDataRows.map(([scope, token, value]) => `<tr><td>${escapeAutomationPdfHtml(scope)}</td><td><code>${escapeAutomationPdfHtml(token)}</code></td><td>${escapeAutomationPdfHtml(value)}</td></tr>`).join("") : "<tr><td colspan=\"3\">No test data references detected.</td></tr>"}
+              </tbody>
+            </table>
+          </section>
+          ${stepSections}
+          <section>
+            <h2>Complete automation code</h2>
+            <pre>${escapeAutomationPdfHtml(completeAutomationCode)}</pre>
+          </section>
+          <script>window.addEventListener("load", () => { window.focus(); window.print(); });</script>
+        </body>
+      </html>
+    `);
+    printable.document.close();
+    showSuccess("Automation case PDF export opened.");
+  };
   const groupedRepository = useMemo(() => {
     const grouped = new Map<string, AutomationLearningCacheEntry[]>();
 
@@ -1102,6 +1442,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
+
+  useEffect(() => {
+    setSelectedAutomationCaseIds((current) =>
+      current.filter((testCaseId) => automatedCases.some((testCase) => testCase.id === testCaseId))
+    );
+  }, [automatedCases]);
 
   useEffect(() => {
     stagedInspectFieldsRef.current = stagedInspectFields;
@@ -1379,7 +1725,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
   };
 
-  const selectAutomationCase = (testCaseId: string) => {
+  const selectAutomationCase = useCallback((testCaseId: string) => {
     setSelectedCaseId(testCaseId);
     setSelectedAutomatedCaseId(testCaseId);
     setSearchParams((prev) => {
@@ -1387,7 +1733,153 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       next.set("case", testCaseId);
       return next;
     }, { replace: true });
-  };
+  }, [setSearchParams]);
+
+  const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => [
+    {
+      key: "select",
+      label: "",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 56,
+      headerRender: () => (
+        <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label="Select all filtered automation cases"
+            checked={areAllFilteredAutomationCasesSelected}
+            onChange={(event) =>
+              setSelectedAutomationCaseIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])]
+                  : current.filter((testCaseId) => !filteredAutomationCases.some((testCase) => testCase.id === testCaseId))
+              )
+            }
+            type="checkbox"
+          />
+        </label>
+      ),
+      render: (testCase) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label={`Select ${testCase.title}`}
+            checked={selectedAutomationCaseIds.includes(testCase.id)}
+            onChange={(event) =>
+              setSelectedAutomationCaseIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, testCase.id])]
+                  : current.filter((testCaseId) => testCaseId !== testCase.id)
+              )
+            }
+            type="checkbox"
+          />
+        </div>
+      )
+    },
+    {
+      key: "id",
+      label: "ID",
+      width: 120,
+      minWidth: 96,
+      sortValue: (testCase) => automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id,
+      render: (testCase) => <DisplayIdBadge value={automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id} />
+    },
+    {
+      key: "title",
+      label: "Automation case",
+      canToggle: false,
+      width: 300,
+      minWidth: 180,
+      sortValue: (testCase) => testCase.title,
+      render: (testCase) => (
+        <div className="automation-list-primary-cell">
+          <strong>{testCase.title}</strong>
+          <span>{testCase.description || "Automation is mapped to the original manual case definition."}</span>
+        </div>
+      )
+    },
+    {
+      key: "state",
+      label: "State",
+      width: 160,
+      minWidth: 128,
+      sortValue: (testCase) => testCase.automation_status || "ready",
+      render: (testCase) => (
+        <div className="automation-list-status-cell">
+          <StatusBadge value="automated" />
+          <StatusBadge value={testCase.automation_status || "ready"} />
+        </div>
+      )
+    },
+    {
+      key: "runs",
+      label: "Runs",
+      width: 92,
+      minWidth: 78,
+      sortValue: (testCase) => (historyByCaseId[testCase.id] || []).length,
+      render: (testCase) => (historyByCaseId[testCase.id] || []).length
+    },
+    {
+      key: "passRate",
+      label: "Pass rate",
+      width: 124,
+      minWidth: 100,
+      sortValue: (testCase) => {
+        const history = historyByCaseId[testCase.id] || [];
+        const passedRuns = history.filter((result) => result.status === "passed").length;
+        return history.length ? Math.round((passedRuns / history.length) * 100) : 0;
+      },
+      render: (testCase) => {
+        const history = historyByCaseId[testCase.id] || [];
+        const passedRuns = history.filter((result) => result.status === "passed").length;
+        return history.length ? `${Math.round((passedRuns / history.length) * 100)}%` : "No runs";
+      }
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      width: 104,
+      minWidth: 88,
+      sortValue: (testCase) => testCase.priority || 3,
+      render: (testCase) => `P${testCase.priority || 3}`
+    },
+    {
+      key: "description",
+      label: "Description",
+      defaultVisible: false,
+      width: 320,
+      minWidth: 180,
+      render: (testCase) => testCase.description || "No automation description yet."
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 96,
+      render: (testCase) => (
+        <button
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            selectAutomationCase(testCase.id);
+          }}
+          type="button"
+        >
+          <OpenIcon size={15} />
+          <span>Open</span>
+        </button>
+      )
+    }
+  ], [
+    areAllFilteredAutomationCasesSelected,
+    automationDisplayIdByCaseId,
+    filteredAutomationCases,
+    historyByCaseId,
+    selectAutomationCase,
+    selectedAutomationCaseIds
+  ]);
 
   const openLinkedManualCase = (manualCaseId: string) => {
     navigate(`/test-cases?case=${encodeURIComponent(manualCaseId)}`);
@@ -1563,10 +2055,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
-        additional_context: [
-          "Review the original manual case, its automation keyword steps, repository bindings, verification points, grouping, and coding standards.",
-          "Suggest and regenerate optimized automation without removing business intent. Preserve @t and @s data scope tokens."
-        ].join(" ")
+        additional_context: getPrompt("ai.automation.review")
       });
     },
     onSuccess: (response) => {
@@ -1633,21 +2122,39 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         throw new Error("Select an automation case first.");
       }
       const automation_code = buildAutomationCodeFromDraft(newStepDraft);
+      const stepName = newStepDraft.name.trim() || formatAutomationKeywordReadable(newStepDraft);
+      const placementTargetStep = newStepPlacementTarget;
+      const manualGroupId = placementTargetStep ? placementTargetStep.group_id || placementTargetStep.id : undefined;
+      const manualGroupName = placementTargetStep
+        ? placementTargetStep.group_name || placementTargetStep.action || `Manual step ${placementTargetStep.step_order}`
+        : undefined;
 
       const created = await api.testSteps.create({
         test_case_id: activeCase.id,
         step_order: automatedSteps.length + 1,
-        action: automation_code,
+        action: stepName,
         expected_result: newStepDraft.expected_result,
-        step_type: "web",
-        automation_code
+        step_type: newStepDraft.step_type,
+        automation_code,
+        group_id: manualGroupId,
+        group_name: manualGroupName,
+        group_kind: manualGroupId ? "local" : undefined
       });
+      if (newStepPlacement.mode !== "end" && newStepPlacement.stepId) {
+        const nextOrder = automatedSteps.map((step) => step.id);
+        const placementIndex = nextOrder.findIndex((stepId) => stepId === newStepPlacement.stepId);
+        if (placementIndex >= 0) {
+          nextOrder.splice(newStepPlacement.mode === "before" ? placementIndex : placementIndex + 1, 0, created.id);
+          await api.testSteps.reorder(activeCase.id, nextOrder);
+        }
+      }
       await api.testCases.update(activeCase.id, { automated: "yes", automation_status: "ready" });
       return created;
     },
     onSuccess: () => {
       showSuccess("Automation step added.");
-      setNewStepDraft({ keyword: "web.click", objectRef: "", value: "", expected_result: "" });
+      setNewStepDraft(emptyAutomationStepDraft("web"));
+      setNewStepPlacement({ mode: "end", stepId: "" });
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
       void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     },
@@ -1663,8 +2170,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       );
 
       const updated = await api.testSteps.update(step.id, {
+        action: draft.name.trim() || step.action || automation_code,
         expected_result: draft.expected_result,
-        step_type: "web",
+        step_type: draft.step_type,
         automation_code
       });
       if (activeCase) {
@@ -1714,7 +2222,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const response = await api.testCases.rephraseStep({
         app_type_id: appTypeId,
         requirement_id: activeCase.requirement_id || undefined,
-        additional_context: "Improve this automation keyword step for clarity, verification strength, and coding standard alignment. Keep locator/object references and @t/@s tokens intact.",
+        additional_context: getPrompt("ai.automation.step_rephrase"),
         test_case: {
           title: activeCase.title,
           description: activeCase.description || "",
@@ -1800,20 +2308,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         test_case_ids: [testCase.id],
         name: `Automation run - ${testCase.title}`,
         created_by: session.user.id,
-        execution_hooks: [
-          ...buildAutomationHookTarget(
-            "pre",
-            preHookTarget,
-            hookTargetLabelByKey[`${preHookTarget.type}:${preHookTarget.id}`] || ""
-          ),
-          ...parseAutomationHookLines(preHookText, "pre"),
-          ...buildAutomationHookTarget(
-            "post",
-            postHookTarget,
-            hookTargetLabelByKey[`${postHookTarget.type}:${postHookTarget.id}`] || ""
-          ),
-          ...parseAutomationHookLines(postHookText, "post")
-        ],
+        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
         engine_base_url: "http://localhost:4311"
       });
     },
@@ -1823,6 +2318,65 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
     },
     onError: (error) => showError(error, "Unable to run case.")
+  });
+
+  const runSelectedAutomationCases = useMutation({
+    mutationFn: async (mode: "local" | "remote") => {
+      if (!projectId || !appTypeId || !session?.user.id) {
+        throw new Error("Select project and app type before running automation.");
+      }
+
+      const fallbackCaseId = activeCase?.id || activeAutomatedCase?.id || "";
+      const testCaseIds = selectedAutomationCaseIds.length ? selectedAutomationCaseIds : fallbackCaseId ? [fallbackCaseId] : [];
+
+      if (!testCaseIds.length) {
+        throw new Error("Select at least one automation case before running.");
+      }
+
+      const selectedTitles = automatedCases
+        .filter((testCase) => testCaseIds.includes(testCase.id))
+        .map((testCase) => testCase.title);
+      const runName = selectedTitles.length === 1
+        ? `${selectedTitles[0]} ${mode === "local" ? "Local Run" : "Remote Run"}`
+        : `Automation ${mode === "local" ? "Local" : "Remote"} Run - ${selectedTitles.length} cases`;
+
+      if (mode === "local") {
+        const response = await api.executions.createLocalRun({
+          project_id: projectId,
+          app_type_id: appTypeId,
+          test_case_ids: testCaseIds,
+          name: runName,
+          created_by: session.user.id,
+          execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
+          engine_base_url: "http://localhost:4311"
+        });
+
+        return { id: response.id, mode, count: testCaseIds.length };
+      }
+
+      const response = await api.executions.create({
+        project_id: projectId,
+        app_type_id: appTypeId,
+        test_case_ids: testCaseIds,
+        name: runName,
+        created_by: session.user.id,
+        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
+        execution_mode: "remote"
+      });
+
+      await api.executions.start(response.id, { execution_mode: "remote" });
+      return { id: response.id, mode, count: testCaseIds.length };
+    },
+    onSuccess: async ({ id, mode, count }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["executions"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
+      ]);
+      setSelectedAutomationCaseIds([]);
+      navigate(`/executions?view=${mode === "local" ? "local-runs" : "test-case-runs"}&execution=${id}`);
+      showSuccess(`${mode === "local" ? "Local" : "Remote"} automation run started with ${count} case${count === 1 ? "" : "s"}.`);
+    },
+    onError: (error) => showError(error, "Unable to run selected automation cases.")
   });
 
   const stageInspectField = (field: RepositoryExtractedField) => {
@@ -2114,8 +2668,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         dom_structure: screenDomDraft || undefined,
         screenshot_url: screenScreenshotDraft || undefined,
         business_meaning: screenInfoDraft.business_meaning || undefined,
-        candidate_fields: inspectedFields,
-        integration_id: llmIntegration?.id
+        candidate_fields: inspectedFields
       });
 
       return response;
@@ -2277,7 +2830,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       return api.testCases.improveLearningCacheEntry(selectedRepositoryEntry.id, {
-        integration_id: llmIntegration?.id,
         guidance: repositoryDraft.target_criteria || builderContext || undefined
       });
     },
@@ -2727,10 +3279,74 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             title="Automated manual cases"
             subtitle="Each tile is the original manual case with executable keywords attached. Open it to review bindings and run history."
             actions={(
-              <button className="primary-button" onClick={() => navigate("/test-cases")} type="button">
-                <AddIcon />
-                <span>Choose manual case</span>
-              </button>
+              <div className="design-list-toolbar automation-catalog-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={activeAutomationCaseSearchCount}
+                  ariaLabel="Search automation cases"
+                  onChange={setAutomationCaseSearch}
+                  placeholder="Search automation cases"
+                  subtitle="Search automated manual cases by title, ID, state, priority, or recent run count."
+                  title="Automation search"
+                  type="search"
+                  value={automationCaseSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button
+                        className="ghost-button"
+                        disabled={!automationCaseSearch.trim()}
+                        onClick={() => setAutomationCaseSearch("")}
+                        type="button"
+                      >
+                        Clear search
+                      </button>
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!filteredAutomationCases.length || areAllFilteredAutomationCasesSelected}
+                  onClick={() =>
+                    setSelectedAutomationCaseIds((current) => [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])])
+                  }
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedAutomationCaseIds.length}
+                  onClick={() => setSelectedAutomationCaseIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setAutomationCatalogViewMode} value={automationCatalogViewMode} />
+                <button
+                  className="ghost-button catalog-run-button"
+                  disabled={!projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
+                  onClick={() => runSelectedAutomationCases.mutate("local")}
+                  type="button"
+                >
+                  <PlayIcon />
+                  <span>Run local</span>
+                </button>
+                <button
+                  className="ghost-button catalog-run-button"
+                  disabled={!projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
+                  onClick={() => runSelectedAutomationCases.mutate("remote")}
+                  type="button"
+                >
+                  <OpenIcon />
+                  <span>Run remote</span>
+                </button>
+                <button className="primary-button automation-choose-manual-toolbar-button" onClick={() => navigate("/test-cases")} type="button">
+                  <AddIcon />
+                  <span>Choose manual case</span>
+                </button>
+              </div>
             )}
           >
             {testCasesQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
@@ -2739,8 +3355,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             ) : null}
             {!testCasesQuery.isLoading && automatedCases.length ? (
               <TileBrowserPane className="automation-case-tile-browser">
-                <div className="tile-browser-grid">
-                  {automatedCases.map((testCase) => {
+                {automationCatalogViewMode === "tile" && filteredAutomationCases.length ? (
+                  <div className="tile-browser-grid">
+                    {filteredAutomationCases.map((testCase) => {
                     const history = (historyByCaseId[testCase.id] || []).slice(0, 10);
                     const latest = history[0];
                     const passedRuns = history.filter((result) => result.status === "passed").length;
@@ -2769,7 +3386,21 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       >
                         <div className="tile-card-main">
                           <div className="tile-card-select-row test-case-card-header">
-                            <DisplayIdBadge value={automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id} />
+                            <label className="checkbox-field" onClick={(event) => event.stopPropagation()}>
+                              <input
+                                aria-label={`Select ${testCase.title}`}
+                                checked={selectedAutomationCaseIds.includes(testCase.id)}
+                                onChange={(event) =>
+                                  setSelectedAutomationCaseIds((current) =>
+                                    event.target.checked
+                                      ? [...new Set([...current, testCase.id])]
+                                      : current.filter((testCaseId) => testCaseId !== testCase.id)
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <DisplayIdBadge value={automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id} />
+                            </label>
                             <div className="catalog-inline-actions test-case-top-actions">
                               <StatusBadge value="automated" />
                               <StatusBadge value={testCase.automation_status || "ready"} />
@@ -2799,8 +3430,26 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         </div>
                       </div>
                     );
-                  })}
-                </div>
+                    })}
+                  </div>
+                ) : null}
+                {automationCatalogViewMode === "list" ? (
+                  <DataTable
+                    columns={automationCaseListColumns}
+                    enableColumnResize
+                    enableHeaderColumnReorder
+                    emptyMessage="No automation cases match the current search."
+                    getRowClassName={(testCase) => (activeCase?.id === testCase.id ? "is-active-row" : "")}
+                    getRowKey={(testCase) => testCase.id}
+                    hideToolbarCopy
+                    onRowClick={(testCase) => selectAutomationCase(testCase.id)}
+                    rows={filteredAutomationCases}
+                    storageKey="qaira:automation-cases:list-columns"
+                  />
+                ) : null}
+                {automationCatalogViewMode === "tile" && !filteredAutomationCases.length ? (
+                  <div className="empty-state compact">No automation cases match the current search.</div>
+                ) : null}
               </TileBrowserPane>
             ) : null}
           </Panel>
@@ -2834,92 +3483,87 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   isExpanded={expandedCaseSections.case}
                   onToggle={() => toggleCaseSection("case")}
                   summary="Automation is stored on this original manual case with its parameters, suites, and priority."
-                  title="Test case"
-                >
-                  <div className="automation-description-panel">
-                    <div className="automation-case-editor-grid">
-                      <label className="form-field">
-                        <span>Manual case name</span>
-                        <input value={caseDraft.title} onChange={(event) => setCaseDraft((current) => ({ ...current, title: event.target.value }))} />
-                      </label>
-                      <label className="form-field">
-                        <span>Status</span>
-                        <input value={caseDraft.status} onChange={(event) => setCaseDraft((current) => ({ ...current, status: event.target.value }))} />
-                      </label>
-                      <label className="form-field">
-                        <span>Priority</span>
-                        <input min={1} max={5} type="number" value={caseDraft.priority} onChange={(event) => setCaseDraft((current) => ({ ...current, priority: event.target.value }))} />
-                      </label>
-                    </div>
-                    <div className="automation-manual-link-panel">
-                      <button className="automation-linked-manual-card automation-linked-manual-card--button" onClick={() => openLinkedManualCase(activeCase.id)} type="button">
-                        <strong>Original manual case</strong>
-                        <span>{activeCase.display_id || activeCase.id} · automation is attached directly to this case · Open manual authoring</span>
-                      </button>
-                    </div>
-                    <label className="form-field">
-                      <span>Description</span>
-                      <textarea rows={4} value={caseDraft.description} onChange={(event) => setCaseDraft((current) => ({ ...current, description: event.target.value }))} />
-                    </label>
-                    <label className="form-field">
-                      <span>Parameters</span>
-                      <textarea rows={4} value={caseDraft.parameterText} onChange={(event) => setCaseDraft((current) => ({ ...current, parameterText: event.target.value }))} placeholder={"@t.userEmail=qa@example.com\n@s.basePath=/login\n@r.buildNumber=123"} />
-                    </label>
-                    <div className="automation-hooks-grid">
-                      {(["pre", "post"] as const).map((phase) => {
-                        const target = phase === "pre" ? preHookTarget : postHookTarget;
-                        const setTarget = phase === "pre" ? setPreHookTarget : setPostHookTarget;
-                        const textValue = phase === "pre" ? preHookText : postHookText;
-                        const setTextValue = phase === "pre" ? setPreHookText : setPostHookText;
-                        const targetOptions =
-                          target.type === "suite"
-                            ? suites.map((suite) => ({ id: suite.id, label: suite.display_id ? `${suite.display_id} · ${suite.name}` : suite.name }))
-                            : target.type === "test_step"
-                              ? automatedSteps.map((step) => ({ id: step.id, label: `Step ${step.step_order} · ${step.action || step.automation_code || "Automation step"}` }))
-                              : testCases.map((testCase) => ({ id: testCase.id, label: testCase.display_id ? `${testCase.display_id} · ${testCase.title}` : testCase.title }));
-
-                        return (
-                          <div className="automation-hook-card" key={phase}>
-                            <div>
-                              <strong>{phase === "pre" ? "Pre-run hook" : "Post-run hook"}</strong>
-                              <span>{phase === "pre" ? "Run setup before this automation case." : "Run teardown after this automation case."}</span>
-                            </div>
-                            <div className="automation-hook-target-grid">
-                              <label className="form-field">
-                                <span>Hook target</span>
-                                <select
-                                  value={target.type}
-                                  onChange={(event) => setTarget({ type: event.target.value as AutomationHookTargetDraft["type"], id: "" })}
-                                >
-                                  <option value="test_case">Test case</option>
-                                  <option value="test_step">Step</option>
-                                  <option value="suite">Suite</option>
-                                </select>
-                              </label>
-                              <label className="form-field">
-                                <span>Select target</span>
-                                <select value={target.id} onChange={(event) => setTarget({ ...target, id: event.target.value })}>
-                                  <option value="">No selected hook</option>
-                                  {targetOptions.map((option) => (
-                                    <option key={option.id} value={option.id}>{option.label}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                            <label className="form-field">
-                              <span>Additional keyword hooks</span>
-                              <textarea
-                                rows={3}
-                                value={textValue}
-                                onChange={(event) => setTextValue(event.target.value)}
-                                placeholder={phase === "pre" ? "Example: web.goto(\"@s.baseUrl\")" : "Example: web.close()"}
-                              />
-                            </label>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="automation-suite-link-panel">
+	                  title="Test case"
+	                >
+	                  <div className="automation-description-panel">
+	                    <div className="automation-manual-summary-grid">
+	                      <button className="automation-linked-manual-card automation-linked-manual-card--button" onClick={() => openLinkedManualCase(activeCase.id)} type="button">
+	                        <strong>Original manual case</strong>
+	                        <span>{activeCase.display_id || activeCase.id} · automation is attached directly to this case · Open manual authoring</span>
+	                      </button>
+	                      <div className="automation-manual-meta-grid" aria-label="Manual test case metadata carried into automation">
+	                        <div><span>Status</span><strong>{activeCase.status || "active"}</strong></div>
+	                        <div><span>Priority</span><strong>P{activeCase.priority || 3}</strong></div>
+	                        <div><span>Automation</span><strong>{activeCase.automation_status || "ready"}</strong></div>
+	                        <div><span>Suites</span><strong>{activeCaseSuiteIds.length || "None"}</strong></div>
+	                        <div><span>Requirement</span><strong>{activeCase.requirement_id || "Not linked"}</strong></div>
+	                        <div><span>Updated</span><strong>{activeCase.updated_at ? formatRunDate.format(new Date(activeCase.updated_at)) : "Not recorded"}</strong></div>
+	                      </div>
+	                    </div>
+	                    <div className="automation-case-editor-grid automation-case-editor-grid--metadata">
+	                      <label className="form-field">
+	                        <span>Manual case name</span>
+	                        <input value={caseDraft.title} onChange={(event) => setCaseDraft((current) => ({ ...current, title: event.target.value }))} />
+	                      </label>
+	                      <label className="form-field">
+	                        <span>Status</span>
+	                        <input value={caseDraft.status} onChange={(event) => setCaseDraft((current) => ({ ...current, status: event.target.value }))} />
+	                      </label>
+	                      <label className="form-field">
+	                        <span>Priority</span>
+	                        <input min={1} max={5} type="number" value={caseDraft.priority} onChange={(event) => setCaseDraft((current) => ({ ...current, priority: event.target.value }))} />
+	                      </label>
+	                    </div>
+	                    <label className="form-field">
+	                      <span>Description</span>
+	                      <textarea rows={3} value={caseDraft.description} onChange={(event) => setCaseDraft((current) => ({ ...current, description: event.target.value }))} />
+	                    </label>
+	                    <section className="automation-test-data-panel step-parameter-list" aria-label="Automation test data inherited from manual case">
+	                      <div className="automation-section-heading">
+	                        <div>
+	                          <strong>Test data</strong>
+	                          <span>Same scoped values used by the manual test case. @r values are supplied by the run.</span>
+	                        </div>
+	                        <button className="ghost-button compact" onClick={() => setIsParameterDialogOpen(true)} type="button">
+	                          <SparkIcon />
+	                          <span>{detectedStepParameters.length ? `Edit ${detectedStepParameters.length}` : "Edit test data"}</span>
+	                        </button>
+	                      </div>
+	                      {inlineTestDataGroups.length ? inlineTestDataGroups.map((group) => (
+	                        <section className="step-parameter-group automation-inline-parameter-group" key={group.scope}>
+	                          <div className="step-parameter-group-head">
+	                            <strong>{group.title}</strong>
+	                            <span>{group.rows.length} item{group.rows.length === 1 ? "" : "s"}</span>
+	                          </div>
+	                          {group.rows.map((row) => (
+	                            <div className="step-parameter-row" key={row.name}>
+	                              <label className="form-field">
+	                                <span>{row.token}</span>
+	                                <div className="step-parameter-input-row">
+	                                  <input
+	                                    disabled={row.locked}
+	                                    placeholder={row.locked ? "Supplied when the run starts" : `Value for ${row.token}`}
+	                                    value={row.locked ? "" : row.value}
+	                                    onChange={(event) => handleParameterValueChange(row.name, event.target.value)}
+	                                  />
+	                                </div>
+	                              </label>
+	                            </div>
+	                          ))}
+	                        </section>
+	                      )) : (
+	                        <div className="empty-state compact">No test data references detected yet. Add @t, @s, or @r tokens in manual steps or automation keywords.</div>
+	                      )}
+	                    </section>
+	                    <section className="automation-run-hooks-panel">
+	                      <RunHooksBuilder
+	                        onChange={setExecutionHookDraft}
+	                        suites={suites}
+	                        testCases={testCases}
+	                        value={executionHookDraft}
+	                      />
+	                    </section>
+	                    <div className="automation-suite-link-panel">
                       <strong>Suite references</strong>
                       <span>@s values are saved against the selected linked suite, matching the manual test case workspace.</span>
                       {suites.length ? (
@@ -2946,18 +3590,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           })}
                         </div>
                       ) : <div className="empty-state compact">No suites exist for this app type yet.</div>}
-                    </div>
-                    <div className="testops-action-row">
-                      <button className="ghost-button" onClick={() => setIsParameterDialogOpen(true)} type="button">
-                        <SparkIcon />
-                        <span>{detectedStepParameters.length ? `Test data · ${detectedStepParameters.length}` : "Test data"}</span>
+	                    </div>
+		                    <div className="testops-action-row">
+		                      <button className="primary-button" disabled={updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">
+		                        <span>{updateAutomationCase.isPending ? "Saving..." : "Save automation case"}</span>
+		                      </button>
+                      <button className="ghost-button" onClick={exportAutomationCasePdf} type="button">
+                        <ExportIcon size={16} />
+                        <span>Export PDF</span>
                       </button>
-                      <button className="primary-button" disabled={updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">
-                        <span>{updateAutomationCase.isPending ? "Saving..." : "Save automation case"}</span>
-                      </button>
-                      <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
-                        <TrashIcon size={16} />
-                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete test case"}</span>
+	                      <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
+	                        <TrashIcon size={16} />
+	                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete test case"}</span>
                       </button>
                     </div>
                   </div>
@@ -2978,31 +3622,58 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 >
                   <div className="automation-keyword-step-list">
                     {!automatedSteps.length ? <div className="empty-state compact">No keyword steps yet. Add them from Test Cases, recorder capture, or AI automation generation.</div> : null}
-                    {automationStepView === "keyword" ? automatedSteps.map((step) => {
-                      const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
-                      const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
-                      const variables = extractVariables(step);
-                      const isExpanded = expandedAutomationStepIds.includes(step.id);
+	                    {automationStepView === "keyword" ? automationStepGroups.map((group) => (
+	                      <section className={group.isStandalone ? "automation-manual-step-group is-standalone" : "automation-manual-step-group"} key={group.id}>
+	                        <div className="automation-manual-step-group-head">
+	                          <div>
+	                            <strong>{group.title}</strong>
+	                            <span>{group.subtitle}</span>
+	                          </div>
+	                          <div className="automation-manual-step-group-actions">
+	                            <span className="count-pill">{group.steps.length} keyword{group.steps.length === 1 ? "" : "s"}</span>
+	                            {!group.isStandalone && group.steps.length ? (
+	                              <button
+	                                className="ghost-button compact"
+	                                onClick={() => {
+	                                  const lastGroupStep = group.steps[group.steps.length - 1];
+	                                  setNewStepPlacement({ mode: "after", stepId: lastGroupStep.id });
+	                                }}
+	                                type="button"
+	                              >
+	                                <AddIcon />
+	                                <span>Add keyword</span>
+	                              </button>
+	                            ) : null}
+	                          </div>
+	                        </div>
+	                        <div className="automation-manual-step-keywords">
+	                          {group.steps.map((step) => {
+	                      const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
+	                      const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
+	                      const variables = extractVariables(step);
+	                      const isExpanded = expandedAutomationStepIds.includes(step.id);
 
                       return (
                         <article className={["automation-keyword-step", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} key={step.id}>
                           <div className="automation-keyword-step-top">
                             <button className="automation-keyword-step-summary" onClick={() => toggleAutomationStep(step.id)} type="button">
                               <span className="count-pill">Step {step.step_order}</span>
-                              <span className="automation-step-type-chip">{getAutomationStepTypeLabel(step)}</span>
-                              <strong>{step.action || "No manual action recorded"}</strong>
-                              {step.group_kind ? (
-                                <span className={step.group_kind === "reusable" ? "automation-step-group-chip is-shared" : "automation-step-group-chip"}>
-                                  {step.group_kind === "reusable" ? "Shared group" : step.group_name || "Group"}
-                                </span>
-                              ) : null}
+	                              <span className="automation-step-type-chip">{getAutomationStepTypeLabel(step)}</span>
+	                              <strong>{formatAutomationKeywordReadable(draft, variables)}</strong>
+	                              {step.group_kind ? (
+	                                <span className={step.group_kind === "reusable" ? "automation-step-group-chip is-shared" : "automation-step-group-chip"}>
+	                                  {step.group_kind === "reusable" ? "Shared group" : step.group_name || "Group"}
+	                                </span>
+	                              ) : null}
                               <StatusBadge value={step.automation_code ? "keyword-ready" : "manual-only"} />
                             </button>
                             <div className="automation-hover-step-tools" aria-label={`Step ${step.step_order} actions`}>
-                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order <= 1} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })} title="Move up" type="button">↑</button>
-                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} title="Move down" type="button">↓</button>
-                              <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
-                              <button className="automation-step-tool-button is-primary" disabled={updateAutomationStep.isPending} onClick={() => updateAutomationStep.mutate(step)} title="Save step" type="button">Save</button>
+	                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order <= 1} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })} title="Move up" type="button">↑</button>
+	                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} title="Move down" type="button">↓</button>
+	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "before", stepId: step.id })} title="Insert above" type="button">+↑</button>
+	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "after", stepId: step.id })} title="Insert below" type="button">+↓</button>
+	                              <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
+	                              <button className="automation-step-tool-button is-primary" disabled={updateAutomationStep.isPending} onClick={() => updateAutomationStep.mutate(step)} title="Save step" type="button">Save</button>
                               <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(buildAutomationCodeFromDraft(draft))} title="Copy keyword" type="button"><CopyIcon size={15} /></button>
                               <button className="automation-step-tool-button" onClick={() => openLinkedManualCase(activeCase.id)} title="Open manual case" type="button"><OpenIcon size={15} /></button>
                               <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} title="Remove automation from step" type="button"><TrashIcon size={15} /></button>
@@ -3010,14 +3681,40 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           </div>
                           {isExpanded ? (
                             <div className="automation-keyword-step-body">
-                              <div className="automation-step-editor-grid">
-                                <label className="form-field">
-                                  <span>Keyword</span>
-                                  <select value={draft.keyword} onChange={(event) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, keyword: event.target.value } }))}>
-                                    {["web.goto", "web.click", "web.fill", "web.select", "web.check", "web.uncheck", "web.press", "web.wait", "web.expectVisible", "web.expectText", "web.expectUrl"].map((keyword) => (
-                                      <option key={keyword} value={keyword}>{keyword}</option>
-                                    ))}
-                                  </select>
+	                              <div className="automation-step-editor-grid">
+	                                <label className="form-field">
+	                                  <span>Step type</span>
+	                                  <select
+	                                    value={draft.step_type}
+	                                    onChange={(event) => {
+	                                      const nextType = event.target.value as TestStepType;
+	                                      setStepDrafts((current) => ({
+	                                        ...current,
+	                                        [step.id]: {
+	                                          ...draft,
+	                                          step_type: nextType,
+	                                          keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType].includes(draft.keyword) ? draft.keyword : AUTOMATION_KEYWORDS_BY_TYPE[nextType][0]
+	                                        }
+	                                      }));
+	                                    }}
+	                                  >
+	                                    <option value="web">Web</option>
+	                                    <option value="api">API</option>
+	                                    <option value="android">Android</option>
+	                                    <option value="ios">iOS</option>
+	                                  </select>
+	                                </label>
+	                                <label className="form-field">
+	                                  <span>Step name</span>
+	                                  <input value={draft.name} onChange={(event) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, name: event.target.value } }))} placeholder={step.action || "Standalone automation step"} />
+	                                </label>
+	                                <label className="form-field">
+	                                  <span>Keyword</span>
+	                                  <select value={draft.keyword} onChange={(event) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, keyword: event.target.value } }))}>
+	                                    {AUTOMATION_KEYWORDS_BY_TYPE[draft.step_type].map((keyword) => (
+	                                      <option key={keyword} value={keyword}>{keyword}</option>
+	                                    ))}
+	                                  </select>
                                 </label>
                                 <label className="form-field">
                                   <span>Repository member</span>
@@ -3031,10 +3728,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 <label className="form-field">
                                   <span>Value / parameter</span>
                                   <input value={draft.value} onChange={(event) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, value: event.target.value } }))} placeholder="@t.userEmail" />
-                                </label>
-                                <label className="form-field automation-step-expected-field">
-                                  <span>Expected result</span>
-                                  <textarea rows={3} value={draft.expected_result} onChange={(event) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, expected_result: event.target.value } }))} />
                                 </label>
                               </div>
                               <div className="automation-step-action-row">
@@ -3116,10 +3809,28 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           ) : null}
                         </article>
                       );
-                    }) : automatedSteps.map((step) => {
-                      const codeDraft = stepCodeDrafts[step.id] ?? step.automation_code ?? buildAutomationCodeFromDraft(parseAutomationStepDraft(step));
-                      const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
-                      const isExpanded = expandedAutomationStepIds.includes(step.id);
+	                          })}
+	                        </div>
+	                      </section>
+	                    )) : (
+	                      <>
+	                        <article className="automation-complete-code-card">
+	                          <div className="automation-section-heading">
+	                            <div>
+	                              <strong>Complete automation code</strong>
+	                              <span>Generated from grouped keyword steps with current data references.</span>
+	                            </div>
+	                            <button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(completeAutomationCode)} type="button">
+	                              <CopyIcon size={15} />
+	                              <span>Copy full code</span>
+	                            </button>
+	                          </div>
+	                          <pre className="automation-code-block automation-code-block--complete">{completeAutomationCode}</pre>
+	                        </article>
+	                        {automatedSteps.map((step) => {
+	                      const codeDraft = stepCodeDrafts[step.id] ?? step.automation_code ?? buildAutomationCodeFromDraft(parseAutomationStepDraft(step));
+	                      const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
+	                      const isExpanded = expandedAutomationStepIds.includes(step.id);
 
                       return (
                         <article className={["automation-keyword-step automation-code-step", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} key={step.id}>
@@ -3219,23 +3930,53 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           ) : null}
                         </article>
                       );
-                    })}
-                    {automationStepView === "keyword" ? (
-                    <article className="automation-keyword-step is-expanded">
-                      <div className="automation-keyword-step-summary">
-                        <span className="count-pill">New</span>
-                        <strong>Add automation step</strong>
-                        <StatusBadge value="draft" />
-                      </div>
-                      <div className="automation-keyword-step-body">
-                        <div className="automation-step-editor-grid">
-                          <label className="form-field">
-                            <span>Keyword</span>
-                            <select value={newStepDraft.keyword} onChange={(event) => setNewStepDraft((current) => ({ ...current, keyword: event.target.value }))}>
-                              {["web.goto", "web.click", "web.fill", "web.select", "web.check", "web.uncheck", "web.press", "web.wait", "web.expectVisible", "web.expectText", "web.expectUrl"].map((keyword) => (
-                                <option key={keyword} value={keyword}>{keyword}</option>
-                              ))}
-                            </select>
+	                        })}
+	                      </>
+	                    )}
+	                    {automationStepView === "keyword" ? (
+	                    <article className="automation-keyword-step is-expanded">
+	                      <div className="automation-keyword-step-summary">
+	                        <span className="count-pill">New</span>
+	                        <strong>Add automated step</strong>
+	                        {newStepPlacement.mode !== "end" ? (
+	                          <span className="automation-step-group-chip">
+	                            {newStepPlacementLabel}
+	                          </span>
+	                        ) : null}
+	                        <StatusBadge value="draft" />
+	                      </div>
+	                      <div className="automation-keyword-step-body">
+	                        <div className="automation-step-editor-grid">
+	                          <label className="form-field">
+	                            <span>Step type</span>
+	                            <select
+	                              value={newStepDraft.step_type}
+	                              onChange={(event) => {
+	                                const nextType = event.target.value as TestStepType;
+	                                setNewStepDraft((current) => ({
+	                                  ...current,
+	                                  step_type: nextType,
+	                                  keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType][0]
+	                                }));
+	                              }}
+	                            >
+	                              <option value="web">Web</option>
+	                              <option value="api">API</option>
+	                              <option value="android">Android</option>
+	                              <option value="ios">iOS</option>
+	                            </select>
+	                          </label>
+	                          <label className="form-field">
+	                            <span>Step name</span>
+	                            <input value={newStepDraft.name} onChange={(event) => setNewStepDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Describe the automated action" />
+	                          </label>
+	                          <label className="form-field">
+	                            <span>Keyword</span>
+	                            <select value={newStepDraft.keyword} onChange={(event) => setNewStepDraft((current) => ({ ...current, keyword: event.target.value }))}>
+	                              {AUTOMATION_KEYWORDS_BY_TYPE[newStepDraft.step_type].map((keyword) => (
+	                                <option key={keyword} value={keyword}>{keyword}</option>
+	                              ))}
+	                            </select>
                           </label>
                           <label className="form-field">
                             <span>Repository member</span>
@@ -3250,19 +3991,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                             <span>Value / parameter</span>
                             <input value={newStepDraft.value} onChange={(event) => setNewStepDraft((current) => ({ ...current, value: event.target.value }))} placeholder="@t.userEmail" />
                           </label>
-                          <label className="form-field automation-step-expected-field">
-                            <span>Expected result</span>
-                            <textarea rows={3} value={newStepDraft.expected_result} onChange={(event) => setNewStepDraft((current) => ({ ...current, expected_result: event.target.value }))} />
-                          </label>
-                        </div>
-                        <div className="testops-action-row">
-                          <button className="primary-button" disabled={createAutomationStep.isPending || !newStepDraft.objectRef} onClick={() => createAutomationStep.mutate()} type="button">
-                            <AddIcon />
-                            <span>{createAutomationStep.isPending ? "Adding..." : "Add step"}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </article>
+		                        </div>
+	                        <div className="testops-action-row">
+	                          <button className="primary-button" disabled={createAutomationStep.isPending || (!newStepDraft.name.trim() && !newStepDraft.objectRef.trim())} onClick={() => createAutomationStep.mutate()} type="button">
+	                            <AddIcon />
+	                            <span>{createAutomationStep.isPending ? "Adding..." : "Add automated step"}</span>
+	                          </button>
+	                          {newStepPlacement.mode !== "end" ? (
+	                            <button className="ghost-button" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">
+	                              Add at end
+	                            </button>
+	                          ) : null}
+	                        </div>
+	                      </div>
+	                    </article>
                     ) : null}
                   </div>
                 </AutomationAccordionSection>

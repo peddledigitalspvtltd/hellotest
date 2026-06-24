@@ -17,7 +17,7 @@ import { useAuth } from "../auth/AuthContext";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { AddIcon, PlayIcon, SaveIcon, SparkIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, PlayIcon, SaveIcon, SelectAllIcon, SparkIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
@@ -25,6 +25,7 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type {
   AgenticWorkflow,
   AgenticWorkflowEdge,
@@ -249,9 +250,9 @@ export function AgenticWorkflowsPage() {
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [activeTab, setActiveTab] = useState<WorkflowTab>("workflows");
   const [searchTerm, setSearchTerm] = useState("");
-  const [viewMode, setViewMode] = useState<WorkflowViewMode>(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 840px)").matches ? "tile" : "list"
-  );
+  const [viewMode, setViewMode] = useState<WorkflowViewMode>(() => readDefaultCatalogViewMode());
+  const [selectedActionWorkflowIds, setSelectedActionWorkflowIds] = useState<string[]>([]);
+  const [selectedActionRunIds, setSelectedActionRunIds] = useState<string[]>([]);
   const [draft, setDraft] = useState<WorkflowDraft | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
@@ -417,6 +418,11 @@ export function AgenticWorkflowsPage() {
         .some((value) => String(value).toLowerCase().includes(term))
     );
   }, [runs, searchTerm]);
+  const visibleWorkflowIds = useMemo(() => filteredWorkflows.map((workflow) => workflow.id), [filteredWorkflows]);
+  const visibleRunIds = useMemo(() => filteredRuns.map((run) => run.id), [filteredRuns]);
+  const selectedActionIds = activeTab === "workflows" ? selectedActionWorkflowIds : selectedActionRunIds;
+  const visibleActionIds = activeTab === "workflows" ? visibleWorkflowIds : visibleRunIds;
+  const areAllFilteredActionItemsSelected = visibleActionIds.length > 0 && visibleActionIds.every((id) => selectedActionIds.includes(id));
 
   const workflowColumns = useMemo<Array<DataTableColumn<AgenticWorkflow>>>(() => [
     {
@@ -640,24 +646,15 @@ export function AgenticWorkflowsPage() {
         </button>
       </div>
 
+      <div className={draft || selectedRun ? "agentic-workspace-grid has-detail" : "agentic-workspace-grid"}>
       <Panel
         className="agentic-workflows-panel"
         title={activeTab === "workflows" ? "Agentic workflow catalog" : "Workflow run history"}
         titleVariant="eyebrow"
         subtitle={activeTab === "workflows" ? "Browse saved workflow definitions in the current project and app type." : "Review run records with the workflow snapshot captured at launch time."}
-        actions={(
-          <div className="agentic-workflows-toolbar-actions">
-            <CatalogViewToggle onChange={setViewMode} value={viewMode} />
-            {activeTab === "workflows" ? (
-              <button className="ghost-button" disabled={emptyScope} onClick={() => openDraft()} type="button">
-                <AddIcon />
-                New
-              </button>
-            ) : null}
-          </div>
-        )}
       >
         <div className="design-list-toolbar agentic-workflows-toolbar">
+          <CatalogViewToggle onChange={setViewMode} value={viewMode} />
           <CatalogSearchFilter
             activeFilterCount={searchTerm.trim() ? 1 : 0}
             ariaLabel={activeTab === "workflows" ? "Search workflows" : "Search workflow runs"}
@@ -674,6 +671,44 @@ export function AgenticWorkflowsPage() {
               </label>
             </div>
           </CatalogSearchFilter>
+          <button
+            className="ghost-button catalog-selection-button"
+            disabled={!visibleActionIds.length || areAllFilteredActionItemsSelected}
+            onClick={() => {
+              if (activeTab === "workflows") {
+                setSelectedActionWorkflowIds((current) => Array.from(new Set([...current, ...visibleWorkflowIds])));
+              } else {
+                setSelectedActionRunIds((current) => Array.from(new Set([...current, ...visibleRunIds])));
+              }
+            }}
+            type="button"
+          >
+            <SelectAllIcon />
+            <span>Select all</span>
+          </button>
+          <button
+            className="ghost-button catalog-selection-button"
+            disabled={!selectedActionIds.length}
+            onClick={() => {
+              if (activeTab === "workflows") {
+                setSelectedActionWorkflowIds([]);
+              } else {
+                setSelectedActionRunIds([]);
+              }
+            }}
+            type="button"
+          >
+            <ClearSelectionIcon />
+            <span>Clear</span>
+          </button>
+          {activeTab === "workflows" ? (
+            <div className="agentic-workflows-toolbar-actions">
+              <button className="ghost-button" disabled={emptyScope} onClick={() => openDraft()} type="button">
+                <AddIcon />
+                New
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="agentic-catalog-stage" data-tab={activeTab} data-view={viewMode}>
@@ -688,6 +723,7 @@ export function AgenticWorkflowsPage() {
                 enableColumnResize
                 enableHeaderColumnReorder
                 getRowKey={(workflow) => workflow.id}
+                getRowClassName={(workflow) => (draft?.id === workflow.id ? "is-active-row" : "")}
                 hideToolbarCopy
                 onRowClick={openDraft}
                 storageKey="agentic-workflows-list-columns"
@@ -695,7 +731,22 @@ export function AgenticWorkflowsPage() {
             ) : (
               <div className="tile-browser-grid agentic-workflow-grid">
                 {filteredWorkflows.map((workflow) => (
-                  <article className="record-card tile-card agentic-workflow-card" key={workflow.id}>
+                  <article className={draft?.id === workflow.id ? "record-card tile-card agentic-workflow-card is-active" : "record-card tile-card agentic-workflow-card"} key={workflow.id}>
+                    <div className="tile-card-select-row">
+                      <label className="checkbox-field">
+                        <input
+                          aria-label={`Select ${workflow.name}`}
+                          checked={selectedActionWorkflowIds.includes(workflow.id)}
+                          onChange={() =>
+                            setSelectedActionWorkflowIds((current) =>
+                              current.includes(workflow.id) ? current.filter((id) => id !== workflow.id) : [...current, workflow.id]
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span className="sr-only">Select workflow</span>
+                      </label>
+                    </div>
                     <button className="tile-card-main agentic-workflow-card-button" onClick={() => openDraft(workflow)} type="button">
                       <div className="tile-card-header">
                         <div className="tile-card-title-group">
@@ -724,6 +775,7 @@ export function AgenticWorkflowsPage() {
               enableColumnResize
               enableHeaderColumnReorder
               getRowKey={(run) => run.id}
+              getRowClassName={(run) => (selectedRunId === run.id ? "is-active-row" : "")}
               hideToolbarCopy
               onRowClick={(run) => setSelectedRunId(run.id)}
               storageKey="agentic-workflow-runs-list-columns"
@@ -731,7 +783,22 @@ export function AgenticWorkflowsPage() {
           ) : (
             <div className="tile-browser-grid agentic-workflow-grid">
               {filteredRuns.map((run) => (
-                <article className="record-card tile-card agentic-workflow-card" key={run.id}>
+                <article className={selectedRunId === run.id ? "record-card tile-card agentic-workflow-card is-active" : "record-card tile-card agentic-workflow-card"} key={run.id}>
+                  <div className="tile-card-select-row">
+                    <label className="checkbox-field">
+                      <input
+                        aria-label={`Select ${run.workflow_name}`}
+                        checked={selectedActionRunIds.includes(run.id)}
+                        onChange={() =>
+                          setSelectedActionRunIds((current) =>
+                            current.includes(run.id) ? current.filter((id) => id !== run.id) : [...current, run.id]
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span className="sr-only">Select workflow run</span>
+                    </label>
+                  </div>
                   <button className="tile-card-main agentic-workflow-card-button" onClick={() => setSelectedRunId(run.id)} type="button">
                     <div className="tile-card-header">
                       <div className="tile-card-title-group">
@@ -930,6 +997,7 @@ export function AgenticWorkflowsPage() {
           </div>
         </Panel>
       ) : null}
+      </div>
 
       <ToastMessage message={toastMessage} onDismiss={() => setToastMessage("")} tone={toastTone} />
     </div>

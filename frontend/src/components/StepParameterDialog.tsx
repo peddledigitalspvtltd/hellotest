@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { FormField } from "./FormField";
-import { InfoTooltip } from "./InfoTooltip";
 import type { StepParameterDefinition } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 
@@ -61,24 +60,25 @@ export function StepParameterDialog({
   headerContent?: ReactNode;
   getInputState?: (parameter: StepParameterDefinition) => StepParameterDialogInputState;
 }) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
+    t: true,
+    s: true,
+    r: true
+  });
   const groupedParameters = [
     {
       scope: "t",
       title: "Test case data",
-      info: "`@t` values are saved on this test case and reused whenever the case runs. Unscoped tokens like `@email` are treated as test case scoped data.",
       items: parameters.filter((parameter) => parameter.scope === "t")
     },
     {
       scope: "s",
       title: "Suite-shared data",
-      info: "`@s` values are saved on the selected linked suite so multiple cases can reuse the same value.",
       items: parameters.filter((parameter) => parameter.scope === "s")
     },
     {
       scope: "r",
       title: "Run data",
-      info: "`@r` values are run-scoped. They stay local in this editor preview until a real run data set supplies them.",
       items: parameters.filter((parameter) => parameter.scope === "r")
     }
   ].filter((group) => group.items.length);
@@ -94,6 +94,17 @@ export function StepParameterDialog({
     const query = utilityTemplateSearch.trim().toLowerCase();
     return !query || [template.label, template.token].some((value) => value.toLowerCase().includes(query));
   });
+  const toggleParameterGroup = (scope: string) => {
+    setCollapsedGroups((current) => {
+      const willCollapseSelected = !current[scope];
+      return {
+        t: true,
+        s: true,
+        r: true,
+        [scope]: willCollapseSelected
+      };
+    });
+  };
 
   const addCustomUtilityTemplate = () => {
     const label = customUtilityLabel.trim();
@@ -154,6 +165,23 @@ export function StepParameterDialog({
     }));
   };
 
+  const applyUtilityStaticValue = (parameterName: string) => {
+    const template = utilityDrafts[parameterName] || "";
+    const sampleValue = evaluateTestDataTemplate(template);
+
+    onChange(parameterName, sampleValue);
+    setUtilityDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [parameterName]: sampleValue
+    }));
+    setUtilityFeedbackByParameter((current) => ({
+      ...current,
+      [parameterName]: sampleValue
+        ? `Static value saved now: ${sampleValue}`
+        : "Saved an empty static value."
+    }));
+  };
+
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
@@ -165,11 +193,8 @@ export function StepParameterDialog({
       >
         <div className="suite-create-header step-parameter-dialog-header">
           <div className="suite-create-title">
-            <p className="eyebrow">Test data</p>
-            <div className="modal-title-info-row">
-              <p className="eyebrow">{title}</p>
-              <InfoTooltip content={subtitle} label="Test data information" />
-            </div>
+            <p className="eyebrow">{title}</p>
+            {subtitle ? <span>{subtitle}</span> : null}
           </div>
           <div className="step-parameter-dialog-head-meta">
             <span className="count-pill">{parameterCount} field{parameterCount === 1 ? "" : "s"}</span>
@@ -185,136 +210,152 @@ export function StepParameterDialog({
             <div className="step-parameter-list">
               {groupedParameters.map((group) => (
                 <section className="step-parameter-group" key={group.scope}>
-                  <div className="step-parameter-group-head">
+                  <div
+                    className="step-parameter-group-head"
+                    onClick={() => toggleParameterGroup(group.scope)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleParameterGroup(group.scope);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
                     <button
                       aria-expanded={!collapsedGroups[group.scope]}
                       className="step-parameter-group-toggle"
-                      onClick={() => setCollapsedGroups((current) => ({ ...current, [group.scope]: !current[group.scope] }))}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleParameterGroup(group.scope);
+                      }}
                       type="button"
                     >
                       <span aria-hidden="true">{collapsedGroups[group.scope] ? "+" : "-"}</span>
                       <strong>{group.title}</strong>
                     </button>
-                    <div className="step-parameter-group-title-row">
-                      <InfoTooltip content={group.info} label={`${group.title} information`} />
-                    </div>
                     <span>{group.items.length} item{group.items.length === 1 ? "" : "s"}</span>
                   </div>
-                  {!collapsedGroups[group.scope] ? group.items.map((parameter) => {
-                    const inputState = getInputState?.(parameter) || {};
+                  {!collapsedGroups[group.scope] ? (
+                    <div className="step-parameter-group-items">
+                      {group.items.map((parameter) => {
+                        const inputState = getInputState?.(parameter) || {};
 
-                    return (
-                      <div className="step-parameter-row" key={parameter.name}>
-                        <FormField
-                          label={parameter.token}
-                          hint={[
-                            `${parameter.occurrenceCount} mention${parameter.occurrenceCount === 1 ? "" : "s"} across ${parameter.stepIds.length} step${parameter.stepIds.length === 1 ? "" : "s"}.`,
-                            inputState.hint || ""
-                          ].filter(Boolean).join(" ")}
-                        >
-                          <div className="step-parameter-input-row">
-                            <input
-                              disabled={inputState.disabled}
-                              placeholder={inputState.placeholder || `Value for ${parameter.token}`}
-                              value={values[parameter.name] || ""}
-                              onChange={(event) => onChange(parameter.name, event.target.value)}
-                            />
-                            <button
-                              aria-label={`Open utility generator for ${parameter.token}`}
-                              className={activeUtilityParameter === parameter.name ? "step-parameter-utility-trigger is-active" : "step-parameter-utility-trigger"}
-                              disabled={inputState.disabled}
-                              onClick={() => toggleUtilityBuilder(parameter.name)}
-                              title="Open generation utilities"
-                              type="button"
+                        return (
+                          <div className="step-parameter-row" key={parameter.name}>
+                            <FormField
+                              label={parameter.token}
+                              hint={inputState.hint || `${parameter.occurrenceCount} reference${parameter.occurrenceCount === 1 ? "" : "s"} in this design`}
                             >
-                              <StepParameterUtilityIcon />
-                            </button>
-                          </div>
-                          {activeUtilityParameter === parameter.name ? (
-                            <div className="step-parameter-utility-panel">
-                              <div className="step-parameter-utility-search-row">
+                              <div className="step-parameter-input-row">
                                 <input
-                                  aria-label="Search generator templates"
-                                  placeholder="Search generator templates"
-                                  value={utilityTemplateSearch}
-                                  onChange={(event) => setUtilityTemplateSearch(event.target.value)}
+                                  disabled={inputState.disabled}
+                                  placeholder={inputState.placeholder || `Value for ${parameter.token}`}
+                                  value={values[parameter.name] || ""}
+                                  onChange={(event) => onChange(parameter.name, event.target.value)}
                                 />
+                                <button
+                                  aria-label={`Open utility generator for ${parameter.token}`}
+                                  className={activeUtilityParameter === parameter.name ? "step-parameter-utility-trigger is-active" : "step-parameter-utility-trigger"}
+                                  disabled={inputState.disabled}
+                                  onClick={() => toggleUtilityBuilder(parameter.name)}
+                                  title="Open generation utilities"
+                                  type="button"
+                                >
+                                  <StepParameterUtilityIcon />
+                                </button>
                               </div>
-                              <div className="step-parameter-utility-actions">
-                                {utilityTemplates.map((template) => (
-                                  <span className="step-parameter-utility-template-chip" key={template.id}>
-                                    <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, template.token)} type="button">
-                                      {template.label}
+                              {activeUtilityParameter === parameter.name ? (
+                                <div aria-label={`Data utilities for ${parameter.token}`} className="step-parameter-utility-panel" role="dialog">
+                                  <div className="step-parameter-utility-modal-head">
+                                    <div>
+                                      <strong>Data utilities</strong>
+                                      <span>Build a reusable generator template or save a generated static sample.</span>
+                                    </div>
+                                    <button className="ghost-button compact" onClick={() => setActiveUtilityParameter("")} type="button">Close</button>
+                                  </div>
+                                  <div className="step-parameter-utility-search-row">
+                                    <input
+                                      aria-label="Search generator templates"
+                                      placeholder="Search generator templates"
+                                      value={utilityTemplateSearch}
+                                      onChange={(event) => setUtilityTemplateSearch(event.target.value)}
+                                    />
+                                  </div>
+                                  <div className="step-parameter-utility-actions">
+                                    {utilityTemplates.map((template) => (
+                                      <span className="step-parameter-utility-template-chip" key={template.id}>
+                                        <button className="ghost-button" onClick={() => appendUtilityToken(parameter.name, template.token)} title="Add this utility to the draft template" type="button">
+                                          <strong>{template.label}</strong>
+                                          <code>{template.token}</code>
+                                        </button>
+                                        {template.custom ? (
+                                          <button
+                                            aria-label={`Delete ${template.label} template`}
+                                            className="step-parameter-utility-delete"
+                                            onClick={() => setCustomUtilityTemplates((current) => current.filter((item) => item.id !== template.id))}
+                                            type="button"
+                                          >
+                                            ×
+                                          </button>
+                                        ) : null}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="step-parameter-utility-add-row">
+                                    <input
+                                      aria-label="Template label"
+                                      placeholder="Template label"
+                                      value={customUtilityLabel}
+                                      onChange={(event) => setCustomUtilityLabel(event.target.value)}
+                                    />
+                                    <input
+                                      aria-label="Template token"
+                                      placeholder="{{aiData:customer email}}"
+                                      value={customUtilityToken}
+                                      onChange={(event) => setCustomUtilityToken(event.target.value)}
+                                    />
+                                    <button className="ghost-button" onClick={addCustomUtilityTemplate} type="button">
+                                      Add
                                     </button>
-                                    {template.custom ? (
-                                      <button
-                                        aria-label={`Delete ${template.label} template`}
-                                        className="step-parameter-utility-delete"
-                                        onClick={() => setCustomUtilityTemplates((current) => current.filter((item) => item.id !== template.id))}
-                                        type="button"
-                                      >
-                                        ×
-                                      </button>
-                                    ) : null}
-                                  </span>
-                                ))}
-                              </div>
-                              <div className="step-parameter-utility-add-row">
-                                <input
-                                  aria-label="Template label"
-                                  placeholder="Template label"
-                                  value={customUtilityLabel}
-                                  onChange={(event) => setCustomUtilityLabel(event.target.value)}
-                                />
-                                <input
-                                  aria-label="Template token"
-                                  placeholder="{{aiData:customer email}}"
-                                  value={customUtilityToken}
-                                  onChange={(event) => setCustomUtilityToken(event.target.value)}
-                                />
-                                <button className="ghost-button" onClick={addCustomUtilityTemplate} type="button">
-                                  Add
-                                </button>
-                              </div>
-                              <textarea
-                                className="step-parameter-utility-template"
-                                onChange={(event) => {
-                                  const nextValue = event.target.value;
-                                  setUtilityDrafts((currentDrafts) => ({
-                                    ...currentDrafts,
-                                    [parameter.name]: nextValue
-                                  }));
-                                  setUtilityFeedbackByParameter((current) => ({
-                                    ...current,
-                                    [parameter.name]: ""
-                                  }));
-                                }}
-                                placeholder="Example: ORD-{{randomNumber:6}}-{{date:YYYYMMDD}}"
-                                rows={3}
-                                value={utilityDrafts[parameter.name] || ""}
-                              />
-                              <div className="step-parameter-utility-footer">
-                                <InfoTooltip
-                                  content={(
-                                    <>
-                                      Templates are resolved freshly for every run and rerun. Use <code>{"{{yopmail}}"}</code>, <code>{"{{date:YYYY-MM-DD|+1d}}"}</code>, <code>{"{{randomNumber:6}}"}</code>, <code>{"{{randomString:8}}"}</code>, or <code>{"{{aiData:customer email}}"}</code>.
-                                    </>
-                                  )}
-                                  label="Template utility information"
-                                />
-                                <button className="primary-button" onClick={() => applyUtilityTemplate(parameter.name)} type="button">
-                                  Save template
-                                </button>
-                              </div>
-                              {utilityFeedbackByParameter[parameter.name] ? (
-                                <span className="step-parameter-utility-feedback">{utilityFeedbackByParameter[parameter.name]}</span>
+                                  </div>
+                                  <textarea
+                                    className="step-parameter-utility-template"
+                                    onChange={(event) => {
+                                      const nextValue = event.target.value;
+                                      setUtilityDrafts((currentDrafts) => ({
+                                        ...currentDrafts,
+                                        [parameter.name]: nextValue
+                                      }));
+                                      setUtilityFeedbackByParameter((current) => ({
+                                        ...current,
+                                        [parameter.name]: ""
+                                      }));
+                                    }}
+                                    placeholder="Example: ORD-{{randomNumber:6}}-{{date:YYYYMMDD}}"
+                                    rows={3}
+                                    value={utilityDrafts[parameter.name] || ""}
+                                  />
+                                  <div className="step-parameter-utility-footer">
+                                    <button className="primary-button" onClick={() => applyUtilityTemplate(parameter.name)} title="Save the template so every run resolves a fresh value" type="button">
+                                      Randomize each run
+                                    </button>
+                                    <button className="ghost-button" onClick={() => applyUtilityStaticValue(parameter.name)} title="Resolve the template now and save the generated value as static data" type="button">
+                                      Use static sample
+                                    </button>
+                                    <span>Template keeps values dynamic; static sample writes one generated value into this reference.</span>
+                                  </div>
+                                  {utilityFeedbackByParameter[parameter.name] ? (
+                                    <span className="step-parameter-utility-feedback">{utilityFeedbackByParameter[parameter.name]}</span>
+                                  ) : null}
+                                </div>
                               ) : null}
-                            </div>
-                          ) : null}
-                        </FormField>
-                      </div>
-                    );
-                  }) : null}
+                            </FormField>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </section>
               ))}
             </div>
@@ -324,12 +365,6 @@ export function StepParameterDialog({
         </div>
 
         <div className="step-parameter-dialog-footer">
-          <InfoTooltip
-            content={parameterCount
-              ? `${parameterCount} detected field${parameterCount === 1 ? "" : "s"} stay scoped to this case, suite, or run context.`
-              : "Detected params will appear here once steps reference @tokens."}
-            label="Detected fields information"
-          />
           <button className="ghost-button" onClick={onClose} type="button">
             Done
           </button>

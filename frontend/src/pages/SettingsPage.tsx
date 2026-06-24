@@ -1,53 +1,198 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
-import { SaveIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, SaveIcon, TrashIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ToastMessage } from "../components/ToastMessage";
 import { api } from "../lib/api";
+import {
+  AI_PROMPT_LLM_OVERRIDES_KEY,
+  AI_PROMPT_OVERRIDES_KEY,
+  AI_PROMPT_REGISTRY,
+  normalizeAiPromptLlmOverrides,
+  normalizeAiPromptOverrides,
+  resolveAiPromptRegistryValue
+} from "../lib/aiPromptRegistry";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  readNotificationPreferences,
+  writeNotificationPreferences,
+  type NotificationPreferences
+} from "../lib/notificationPreferences";
+import { readDefaultCatalogViewMode, writeDefaultCatalogViewMode, type CatalogViewModePreference } from "../lib/viewPreferences";
+import type { ApiKeyScope, ApiKeyScopeOption, Integration, UserApiKey } from "../types";
 
 const THEME_KEY = "app_theme";
 const SIDEBAR_KEY = "sidebar_collapsed";
 const AUTO_EXPORT_KEY = "app_auto_export";
+const PROJECT_AUTOMATION_SETTINGS_KEY = "qaira.project_automation_settings";
 const PREFERENCES_UPDATED_EVENT = "qaira:preferences-updated";
 
-export function SettingsPage() {
+const DEFAULT_API_KEY_SCOPE_OPTIONS: ApiKeyScopeOption[] = [
+  { value: "user", label: "User access", description: "Default. Uses your current user permissions." },
+  { value: "read", label: "Read only", description: "GET and HEAD requests only." },
+  { value: "design", label: "Design", description: "Requirements, test cases, suites, steps, and data." },
+  { value: "automation", label: "Automation", description: "Automation build, object repository, recorder, and workflows." },
+  { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and issues." },
+  { value: "environment", label: "Environment", description: "Environments, configurations, app types, and data sets." },
+  { value: "integrations", label: "Integrations", description: "Integrations, AI knowledge, and prompt templates." },
+  { value: "admin", label: "Admin", description: "Users, roles, settings, project members, and ops." }
+];
+
+type ProjectAutomationSettings = {
+  waitTimeMs: string;
+  failureRetries: string;
+  videoMode: "off" | "on" | "retain-on-failure";
+  screenshotMode: "off" | "on" | "only-on-failure";
+  defaultLlmIntegrationId: string;
+  localEngineBaseUrl: string;
+  remoteGridProvider: "default" | "browserstack" | "lambdatest" | "saucelabs" | "crossbrowser";
+};
+
+const DEFAULT_PROJECT_AUTOMATION_SETTINGS: ProjectAutomationSettings = {
+  waitTimeMs: "750",
+  failureRetries: "2",
+  videoMode: "retain-on-failure",
+  screenshotMode: "only-on-failure",
+  defaultLlmIntegrationId: "",
+  localEngineBaseUrl: "http://localhost:4311",
+  remoteGridProvider: "default"
+};
+
+function readProjectAutomationSettings(): ProjectAutomationSettings {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PROJECT_AUTOMATION_SETTINGS_KEY) || "{}") as Partial<ProjectAutomationSettings>;
+    return { ...DEFAULT_PROJECT_AUTOMATION_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_PROJECT_AUTOMATION_SETTINGS;
+  }
+}
+
+export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { strings, setWorkspaceStrings, t } = useLocalization();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [sidebarMode, setSidebarMode] = useState<"expanded" | "collapsed">("expanded");
+  const [defaultCatalogViewMode, setDefaultCatalogViewMode] = useState<CatalogViewModePreference>("tile");
   const [autoExport, setAutoExport] = useState(false);
+  const [projectAutomationSettings, setProjectAutomationSettings] = useState<ProjectAutomationSettings>(DEFAULT_PROJECT_AUTOMATION_SETTINGS);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, prompt.value]))
+  );
+  const [promptLlmDrafts, setPromptLlmDrafts] = useState<Record<string, string>>({});
+  const [apiKeyName, setApiKeyName] = useState("");
+  const [apiKeyScope, setApiKeyScope] = useState<ApiKeyScope>("user");
+  const [createdApiKey, setCreatedApiKey] = useState("");
+  const [createdApiKeyRecord, setCreatedApiKeyRecord] = useState<UserApiKey | null>(null);
+  const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
+  const [revokingApiKeyId, setRevokingApiKeyId] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isAdmin = session?.user.role === "admin";
+  const integrationsQuery = useQuery({ queryKey: ["integrations"], queryFn: () => api.integrations.list(), enabled: Boolean(session) });
+  const workspacePreferencesQuery = useQuery({
+    queryKey: ["settings", "workspace-preferences"],
+    queryFn: api.settings.getWorkspacePreferences,
+    enabled: Boolean(session)
+  });
+  const apiKeysQuery = useQuery({
+    queryKey: ["settings", "api-keys"],
+    queryFn: api.settings.listApiKeys,
+    enabled: Boolean(session)
+  });
+  const llmIntegrations = useMemo(
+    () => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active),
+    [integrationsQuery.data]
+  );
+  const apiKeyScopeOptions = useMemo(
+    () => apiKeysQuery.data?.scopes?.length ? apiKeysQuery.data.scopes : DEFAULT_API_KEY_SCOPE_OPTIONS,
+    [apiKeysQuery.data]
+  );
+  const apiKeyScopeLabels = useMemo(
+    () => Object.fromEntries(apiKeyScopeOptions.map((scope) => [scope.value, scope.label])) as Record<ApiKeyScope, string>,
+    [apiKeyScopeOptions]
+  );
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
     setTheme(storedTheme === "dark" ? "dark" : "light");
     setSidebarMode(window.localStorage.getItem(SIDEBAR_KEY) === "true" ? "collapsed" : "expanded");
+    setDefaultCatalogViewMode(readDefaultCatalogViewMode());
     setAutoExport(window.localStorage.getItem(AUTO_EXPORT_KEY) === "true");
+    setProjectAutomationSettings(readProjectAutomationSettings());
+    setNotificationPreferences(readNotificationPreferences());
   }, []);
 
-  const saveSettings = () => {
-    window.localStorage.setItem(THEME_KEY, theme);
-    window.localStorage.setItem(SIDEBAR_KEY, String(sidebarMode === "collapsed"));
-    window.localStorage.setItem(AUTO_EXPORT_KEY, String(autoExport));
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.dataset.sidebar = sidebarMode;
-    window.dispatchEvent(
-      new CustomEvent(PREFERENCES_UPDATED_EVENT, {
-        detail: {
-          theme,
-          sidebarMode
-        }
-      })
+  useEffect(() => {
+    const overrides = normalizeAiPromptOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_OVERRIDES_KEY]);
+    const llmOverrides = normalizeAiPromptLlmOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY]);
+    setPromptDrafts(
+      Object.fromEntries(
+        AI_PROMPT_REGISTRY.map((prompt) => [
+          prompt.key,
+          resolveAiPromptRegistryValue(prompt.key, overrides)
+        ])
+      )
     );
-    setMessageTone("success");
-    setMessage("Workspace preferences saved.");
+    setPromptLlmDrafts(
+      Object.fromEntries(
+        AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, llmOverrides[prompt.key] || ""])
+      )
+    );
+  }, [workspacePreferencesQuery.data]);
+
+  const saveSettings = async () => {
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+      window.localStorage.setItem(SIDEBAR_KEY, String(sidebarMode === "collapsed"));
+      window.localStorage.setItem(AUTO_EXPORT_KEY, String(autoExport));
+      window.localStorage.setItem(PROJECT_AUTOMATION_SETTINGS_KEY, JSON.stringify(projectAutomationSettings));
+      writeDefaultCatalogViewMode(defaultCatalogViewMode);
+      writeNotificationPreferences(notificationPreferences);
+      await api.settings.updateWorkspacePreferences({
+        preferences: {
+          [AI_PROMPT_OVERRIDES_KEY]: Object.fromEntries(
+            AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, promptDrafts[prompt.key] ?? prompt.value])
+          ),
+          [AI_PROMPT_LLM_OVERRIDES_KEY]: Object.fromEntries(
+            AI_PROMPT_REGISTRY
+              .map((prompt) => [prompt.key, promptLlmDrafts[prompt.key] || ""])
+              .filter(([, integrationId]) => Boolean(integrationId))
+          )
+        }
+      });
+      await workspacePreferencesQuery.refetch();
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.sidebar = sidebarMode;
+      window.dispatchEvent(
+        new CustomEvent(PREFERENCES_UPDATED_EVENT, {
+          detail: {
+            theme,
+            sidebarMode
+          }
+        })
+      );
+      setMessageTone("success");
+      setMessage("Workspace preferences saved.");
+    } catch (error) {
+      showError(error, "Unable to save workspace preferences.");
+    }
+  };
+
+  const updateProjectAutomationSetting = <Key extends keyof ProjectAutomationSettings>(
+    key: Key,
+    value: ProjectAutomationSettings[Key]
+  ) => {
+    setProjectAutomationSettings((current) => ({
+      ...current,
+      [key]: value
+    }));
   };
 
   const showError = (error: unknown, fallback: string) => {
@@ -104,23 +249,112 @@ export function SettingsPage() {
     }
   };
 
+  const formatApiDate = (value?: string | null) => {
+    if (!value) {
+      return "Never";
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(new Date(value));
+  };
+
+  const copyToClipboard = async (value: string, successMessage: string) => {
+    if (!value) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessageTone("success");
+      setMessage(successMessage);
+    } catch (error) {
+      showError(error, "Unable to copy to clipboard.");
+    }
+  };
+
+  const handleCreateApiKey = async () => {
+    if (apiKeyName.trim().length < 2) {
+      setMessageTone("error");
+      setMessage("Enter an API key name with at least 2 characters.");
+      return;
+    }
+
+    setIsCreatingApiKey(true);
+
+    try {
+      const response = await api.settings.createApiKey({
+        name: apiKeyName.trim(),
+        scope: apiKeyScope
+      });
+      setCreatedApiKey(response.key);
+      setCreatedApiKeyRecord(response.api_key);
+      setApiKeyName("");
+      setApiKeyScope("user");
+      await apiKeysQuery.refetch();
+      setMessageTone("success");
+      setMessage("API key created. Copy it now; it will not be shown again.");
+    } catch (error) {
+      showError(error, "Unable to create API key.");
+    } finally {
+      setIsCreatingApiKey(false);
+    }
+  };
+
+  const handleRevokeApiKey = async (apiKeyRecord: UserApiKey) => {
+    if (!apiKeyRecord.is_active || !window.confirm(`Revoke API key "${apiKeyRecord.name}"?`)) {
+      return;
+    }
+
+    setRevokingApiKeyId(apiKeyRecord.id);
+
+    try {
+      await api.settings.revokeApiKey(apiKeyRecord.id);
+      if (createdApiKeyRecord?.id === apiKeyRecord.id) {
+        setCreatedApiKey("");
+        setCreatedApiKeyRecord(null);
+      }
+      await apiKeysQuery.refetch();
+      setMessageTone("success");
+      setMessage("API key revoked.");
+    } catch (error) {
+      showError(error, "Unable to revoke API key.");
+    } finally {
+      setRevokingApiKeyId("");
+    }
+  };
+
+  const settingsActions = <button className="primary-button" onClick={() => void saveSettings()} type="button"><SaveIcon />Save preferences</button>;
+
   return (
-    <div className="page-content">
-      <PageHeader
-        eyebrow="Settings"
-        title="Workspace Settings"
-        description="Save the interface defaults and behavior preferences you want to carry across sessions."
-        meta={[
-          { label: "Theme", value: theme === "light" ? "Light" : "Dark" },
-          { label: "Sidebar", value: sidebarMode === "collapsed" ? "Collapsed" : "Expanded" },
-          { label: "Export prompts", value: autoExport ? "Enabled" : "Off" }
-        ]}
-        actions={<button className="primary-button" onClick={saveSettings} type="button"><SaveIcon />Save preferences</button>}
-      />
+    <div className={embedded ? "admin-embedded-page settings-admin-page" : "page-content"}>
+      {!embedded ? (
+        <PageHeader
+          eyebrow="Settings"
+          title="Workspace Settings"
+          description="Save the interface defaults and behavior preferences you want to carry across sessions."
+          meta={[
+            { label: "Theme", value: theme === "light" ? "Light" : "Dark" },
+            { label: "Sidebar", value: sidebarMode === "collapsed" ? "Collapsed" : "Expanded" },
+            { label: "Catalogs", value: defaultCatalogViewMode === "tile" ? "Grid" : "List" },
+            { label: "Export prompts", value: autoExport ? "Enabled" : "Off" }
+          ]}
+        />
+      ) : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
-      <div className="two-column-grid">
+      <div className="settings-section-stack">
+        <section className="settings-section">
+          <div className="settings-section-heading settings-section-heading--with-action">
+            <div>
+              <p className="eyebrow">Interface</p>
+              <h3>Appearance and navigation</h3>
+            </div>
+            {settingsActions}
+          </div>
+          <div className="two-column-grid">
         <Panel title="Appearance" subtitle="Keep the interface comfortable for long QA sessions.">
           <div className="detail-stack">
             <label className="checkbox-field">
@@ -142,6 +376,264 @@ export function SettingsPage() {
           </div>
         </Panel>
 
+        <Panel title="Catalog view preference" subtitle="Choose the default view used when catalog pages open.">
+          <div className="detail-stack">
+            <label className="checkbox-field">
+              <input checked={defaultCatalogViewMode === "tile"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("tile")} type="radio" />
+              <span>Open catalogs in grid view by default</span>
+            </label>
+            <label className="checkbox-field">
+              <input checked={defaultCatalogViewMode === "list"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("list")} type="radio" />
+              <span>Open catalogs in list view by default</span>
+            </label>
+          </div>
+        </Panel>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">API</p>
+            <h3>API access keys</h3>
+          </div>
+          <Panel title="Scoped API keys" subtitle="Create personal keys for API clients. A key can never exceed your current user permissions.">
+            <div className="settings-api-create-grid">
+              <label className="settings-input-field">
+                <span>Key name</span>
+                <input
+                  onChange={(event) => setApiKeyName(event.target.value)}
+                  placeholder="CI runner, local script, reporting job"
+                  value={apiKeyName}
+                />
+                <small>Use a name that makes the client easy to audit later.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Scope</span>
+                <select
+                  onChange={(event) => setApiKeyScope(event.target.value as ApiKeyScope)}
+                  value={apiKeyScope}
+                >
+                  {apiKeyScopeOptions.map((scope) => (
+                    <option key={scope.value} value={scope.value}>{scope.label}</option>
+                  ))}
+                </select>
+                <small>{apiKeyScopeOptions.find((scope) => scope.value === apiKeyScope)?.description || "Scoped API access."}</small>
+              </label>
+              <button
+                className="primary-button settings-api-create-button"
+                disabled={isCreatingApiKey || apiKeyName.trim().length < 2}
+                onClick={() => void handleCreateApiKey()}
+                type="button"
+              >
+                <AddIcon />
+                <span>{isCreatingApiKey ? "Creating..." : "Create API key"}</span>
+              </button>
+            </div>
+
+            {createdApiKey ? (
+              <div className="settings-api-key-reveal" role="status">
+                <div>
+                  <strong>{createdApiKeyRecord?.name || "New API key"}</strong>
+                  <span>Copy this key now. It will not be shown again after you leave this screen.</span>
+                </div>
+                <code>{createdApiKey}</code>
+                <button className="ghost-button compact" onClick={() => void copyToClipboard(createdApiKey, "API key copied.")} type="button">
+                  <CopyIcon size={15} />
+                  <span>Copy key</span>
+                </button>
+              </div>
+            ) : null}
+
+            <div className="settings-api-scope-grid" aria-label="API key scopes">
+              {apiKeyScopeOptions.map((scope) => (
+                <div className={scope.value === apiKeyScope ? "settings-api-scope-pill is-selected" : "settings-api-scope-pill"} key={scope.value}>
+                  <strong>{scope.label}</strong>
+                  <span>{scope.description}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="settings-api-key-list" aria-label="Created API keys">
+              {apiKeysQuery.isLoading ? <div className="empty-state compact">Loading API keys...</div> : null}
+              {!apiKeysQuery.isLoading && !(apiKeysQuery.data?.api_keys || []).length ? (
+                <div className="empty-state compact">No API keys created yet.</div>
+              ) : null}
+              {(apiKeysQuery.data?.api_keys || []).map((apiKeyRecord) => (
+                <article className={apiKeyRecord.is_active ? "settings-api-key-card" : "settings-api-key-card is-revoked"} key={apiKeyRecord.id}>
+                  <div className="settings-api-key-main">
+                    <strong>{apiKeyRecord.name}</strong>
+                    <span>{apiKeyScopeLabels[apiKeyRecord.scope] || apiKeyRecord.scope}</span>
+                  </div>
+                  <code>{apiKeyRecord.key_prefix}</code>
+                  <div className="settings-api-key-meta">
+                    <span>{apiKeyRecord.is_active ? "Active" : "Revoked"}</span>
+                    <span>Created {formatApiDate(apiKeyRecord.created_at)}</span>
+                    <span>Last used {formatApiDate(apiKeyRecord.last_used_at)}</span>
+                  </div>
+                  <button
+                    className="ghost-button compact danger"
+                    disabled={!apiKeyRecord.is_active || revokingApiKeyId === apiKeyRecord.id}
+                    onClick={() => void handleRevokeApiKey(apiKeyRecord)}
+                    type="button"
+                  >
+                    <TrashIcon size={15} />
+                    <span>{revokingApiKeyId === apiKeyRecord.id ? "Revoking..." : "Revoke"}</span>
+                  </button>
+                </article>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">Project settings</p>
+            <h3>Automation defaults</h3>
+          </div>
+          <Panel title="Project automation settings" subtitle="Default behavior for generated automation, local runs, remote grid runs, and evidence capture.">
+            <div className="settings-project-grid">
+              <label className="settings-input-field">
+                <span>Wait time after recovery</span>
+                <input
+                  inputMode="numeric"
+                  min="0"
+                  onChange={(event) => updateProjectAutomationSetting("waitTimeMs", event.target.value)}
+                  type="number"
+                  value={projectAutomationSettings.waitTimeMs}
+                />
+                <small>Milliseconds before retrying a healed action.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Failure retries</span>
+                <input
+                  inputMode="numeric"
+                  min="0"
+                  max="10"
+                  onChange={(event) => updateProjectAutomationSetting("failureRetries", event.target.value)}
+                  type="number"
+                  value={projectAutomationSettings.failureRetries}
+                />
+                <small>Retry count for flaky automation steps.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Video capture</span>
+                <select
+                  onChange={(event) => updateProjectAutomationSetting("videoMode", event.target.value as ProjectAutomationSettings["videoMode"])}
+                  value={projectAutomationSettings.videoMode}
+                >
+                  <option value="retain-on-failure">Retain on failure</option>
+                  <option value="on">Always capture</option>
+                  <option value="off">Off</option>
+                </select>
+                <small>Default run-level video evidence behavior.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Screenshots</span>
+                <select
+                  onChange={(event) => updateProjectAutomationSetting("screenshotMode", event.target.value as ProjectAutomationSettings["screenshotMode"])}
+                  value={projectAutomationSettings.screenshotMode}
+                >
+                  <option value="only-on-failure">Only on failure</option>
+                  <option value="on">Every step</option>
+                  <option value="off">Off</option>
+                </select>
+                <small>Default screenshot policy for automation runs.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Default LLM</span>
+                <select
+                  onChange={(event) => updateProjectAutomationSetting("defaultLlmIntegrationId", event.target.value)}
+                  value={projectAutomationSettings.defaultLlmIntegrationId}
+                >
+                  <option value="">System default</option>
+                  {llmIntegrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>{integration.name}</option>
+                  ))}
+                </select>
+                <small>Used by automation build, healing, and review flows when a project does not override it.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Local engine URL</span>
+                <input
+                  onChange={(event) => updateProjectAutomationSetting("localEngineBaseUrl", event.target.value)}
+                  value={projectAutomationSettings.localEngineBaseUrl}
+                />
+                <small>Default endpoint for local Playwright/Test Engine runs.</small>
+              </label>
+              <label className="settings-input-field">
+                <span>Remote grid</span>
+                <select
+                  onChange={(event) => updateProjectAutomationSetting("remoteGridProvider", event.target.value as ProjectAutomationSettings["remoteGridProvider"])}
+                  value={projectAutomationSettings.remoteGridProvider}
+                >
+                  <option value="default">Use active integration</option>
+                  <option value="browserstack">BrowserStack</option>
+                  <option value="lambdatest">LambdaTest</option>
+                  <option value="saucelabs">Sauce Labs</option>
+                  <option value="crossbrowser">CrossBrowser</option>
+                </select>
+                <small>Preferred cloud execution provider for remote runs.</small>
+              </label>
+            </div>
+          </Panel>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">AI</p>
+            <h3>Prompt key mapping</h3>
+          </div>
+          <Panel title="AI prompt registry" subtitle="Central keys for AI prompt surfaces used by requirement, test design, automation, execution, and test data flows.">
+            <div className="settings-prompt-grid">
+              {AI_PROMPT_REGISTRY.map((prompt) => (
+                <article className="settings-prompt-card" key={prompt.key}>
+                  <div>
+                    <strong>{prompt.label}</strong>
+                    <span>{prompt.surface}</span>
+                  </div>
+                  <code>{prompt.key}</code>
+                  <label className="settings-input-field settings-prompt-llm-field">
+                    <span>LLM for this prompt</span>
+                    <select
+                      aria-label={`${prompt.label} LLM integration`}
+                      onChange={(event) => setPromptLlmDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
+                      value={promptLlmDrafts[prompt.key] || ""}
+                    >
+                      <option value="">Use current fallback</option>
+                      {llmIntegrations.map((integration) => (
+                        <option key={integration.id} value={integration.id}>
+                          {integration.name}{integration.model ? ` (${integration.model})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <small>Overrides automatic LLM selection only for this prompt key.</small>
+                  </label>
+                  <textarea
+                    aria-label={`${prompt.label} prompt text`}
+                    onChange={(event) => setPromptDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
+                    rows={5}
+                    value={promptDrafts[prompt.key] ?? prompt.value}
+                  />
+                  <button
+                    className="ghost-button compact"
+                    disabled={(promptDrafts[prompt.key] ?? prompt.value) === prompt.value}
+                    onClick={() => setPromptDrafts((current) => ({ ...current, [prompt.key]: prompt.value }))}
+                    type="button"
+                  >
+                    Reset default
+                  </button>
+                </article>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">Evidence</p>
+            <h3>Export and retention</h3>
+          </div>
+          <div className="two-column-grid">
         <Panel title="Export & retention" subtitle="Decide how much trace data should be surfaced and exported.">
           <div className="detail-stack">
             <label className="checkbox-field">
@@ -154,7 +646,56 @@ export function SettingsPage() {
             </div>
           </div>
         </Panel>
+          </div>
+        </section>
 
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">Notifications</p>
+            <h3>Notification preferences</h3>
+          </div>
+          <Panel title="Notification routing" subtitle="Configure which workspace events should create in-app notifications or digest entries.">
+            <div className="settings-preference-grid">
+              {[
+                ["executionFailures", "Execution failures and blocked runs"],
+                ["executionCompletions", "Execution completions and run finalization"],
+                ["runAssignments", "Run and case assignment changes"],
+                ["issueReports", "Reported issues and feedback updates"],
+                ["aiDesign", "AI design previews and accepted generated cases"],
+                ["aiAutomation", "AI automation build and recorder events"],
+                ["importExport", "Import, export, backup, and sync jobs"],
+                ["requirementChanges", "Requirement creation, completion, and coverage changes"],
+                ["testCaseChanges", "Test case, suite, and shared step changes"],
+                ["integrationChanges", "Integration activation, import, and credential changes"],
+                ["userRoleChanges", "User, role, and permission changes"],
+                ["projectMembership", "Project membership and app type changes"],
+                ["scheduledRuns", "Scheduled run creation, execution, and failures"],
+                ["inApp", "Show enabled events as in-app notifications"],
+                ["digest", "Include enabled events in the daily digest"]
+              ].map(([key, label]) => (
+                <label className="checkbox-field" key={key}>
+                  <input
+                    checked={notificationPreferences[key as keyof NotificationPreferences]}
+                    onChange={(event) =>
+                      setNotificationPreferences((current) => ({
+                        ...current,
+                        [key]: event.target.checked
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <p className="eyebrow">Localization</p>
+            <h3>Workspace language strings</h3>
+          </div>
         <Panel
           title={t("settings.localization.title", "Localization")}
           subtitle={t("settings.localization.subtitle", "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.")}
@@ -196,6 +737,7 @@ export function SettingsPage() {
             />
           </div>
         </Panel>
+        </section>
       </div>
     </div>
   );

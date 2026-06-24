@@ -175,7 +175,7 @@ function OrderedSelectionPicker({
             Select all
           </button>
           <button className="ghost-button" disabled={!selectedIds.length} onClick={() => onChange([])} type="button">
-            Clear selection
+            Clear
           </button>
         </div>
       </div>

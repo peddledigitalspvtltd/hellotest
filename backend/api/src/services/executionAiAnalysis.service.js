@@ -1,4 +1,4 @@
-const integrationService = require("./integration.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const executionResultService = require("./executionResult.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
@@ -278,7 +278,13 @@ exports.analyzeExecutionCase = async ({ execution, testCaseId, requestedBy } = {
       test_case_id: testCaseId
     });
     const existingLogs = executionStepRuntimeService.parseStructuredLogs(existingResult?.logs || null);
-    const integration = await integrationService.getActiveIntegrationByTypeForProject("llm", execution.project_id);
+    const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+      userId: requestedBy,
+      usageKey: "ai.execution.analysis",
+      projectId: execution.project_id,
+      fallback: "project-scoped",
+      allowMissing: true
+    });
 
     if (!integration || !integration.is_active) {
       return { recorded: false };

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { ActivityIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
+import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -11,11 +14,13 @@ import { StatusBadge } from "../components/StatusBadge";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
+import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TESTOPS_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
 
@@ -162,6 +167,9 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [view, setView] = useState<TestOpsView>(initialView);
   const [selectedTransactionId, setSelectedTransactionId] = useState("");
+  const [batchProcessViewMode, setBatchProcessViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [batchProcessSearch, setBatchProcessSearch] = useState("");
+  const [selectedBatchLogIds, setSelectedBatchLogIds] = useState<string[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [startUrl, setStartUrl] = useState("");
@@ -268,11 +276,153 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     () => (transactionsQuery.data || []).filter(isBatchProcessTransaction),
     [transactionsQuery.data]
   );
-  const deletableBatchTransactions = useMemo(
-    () => batchTransactions,
-    [batchTransactions]
+  const filteredBatchTransactions = useMemo(() => {
+    const normalizedSearch = batchProcessSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return batchTransactions;
+    }
+
+    return batchTransactions.filter((transaction) => {
+      const metadataValues = Object.values(transaction.metadata || {}).map((value) =>
+        typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : ""
+      );
+      return [
+        transaction.id,
+        transaction.title,
+        transaction.description,
+        transaction.category,
+        transaction.action,
+        transaction.status,
+        formatLabel(transaction.category),
+        formatLabel(transaction.action),
+        ...metadataValues
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    });
+  }, [batchProcessSearch, batchTransactions]);
+  const visibleBatchTransactionIds = useMemo(
+    () => filteredBatchTransactions.map((transaction) => transaction.id),
+    [filteredBatchTransactions]
   );
+  const selectedBatchLogTransactions = useMemo(
+    () => batchTransactions.filter((transaction) => selectedBatchLogIds.includes(transaction.id)),
+    [batchTransactions, selectedBatchLogIds]
+  );
+  const areAllFilteredBatchLogsSelected =
+    Boolean(visibleBatchTransactionIds.length) && visibleBatchTransactionIds.every((id) => selectedBatchLogIds.includes(id));
   const selectedTransaction = batchTransactions.find((transaction) => transaction.id === selectedTransactionId) || null;
+
+  const toggleBatchLogSelection = (transactionId: string, checked: boolean) => {
+    setSelectedBatchLogIds((current) =>
+      checked
+        ? [...new Set([...current, transactionId])]
+        : current.filter((id) => id !== transactionId)
+    );
+  };
+
+  useEffect(() => {
+    const availableIds = new Set(batchTransactions.map((transaction) => transaction.id));
+    setSelectedBatchLogIds((current) => current.filter((id) => availableIds.has(id)));
+
+    if (selectedTransactionId && !availableIds.has(selectedTransactionId)) {
+      setSelectedTransactionId("");
+    }
+  }, [batchTransactions, selectedTransactionId]);
+
+  const batchProcessListColumns = useMemo<Array<DataTableColumn<WorkspaceTransaction>>>(() => [
+    {
+      key: "select",
+      label: "",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 56,
+      headerRender: () => (
+        <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label="Select all filtered batch process logs"
+            checked={areAllFilteredBatchLogsSelected}
+            onChange={(event) =>
+              setSelectedBatchLogIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, ...visibleBatchTransactionIds])]
+                  : current.filter((id) => !visibleBatchTransactionIds.includes(id))
+              )
+            }
+            type="checkbox"
+          />
+        </label>
+      ),
+      render: (transaction) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label={`Select ${transaction.title}`}
+            checked={selectedBatchLogIds.includes(transaction.id)}
+            onChange={(event) => toggleBatchLogSelection(transaction.id, event.target.checked)}
+            type="checkbox"
+          />
+        </div>
+      )
+    },
+    {
+      key: "title",
+      label: "Process",
+      canToggle: false,
+      width: 300,
+      minWidth: 180,
+      sortValue: (transaction) => transaction.title,
+      render: (transaction) => (
+        <div className="data-table-multiline">
+          <strong>{transaction.title}</strong>
+          <span className="data-table-multiline-line">{transaction.description || formatLabel(transaction.category)}</span>
+        </div>
+      )
+    },
+    {
+      key: "status",
+      label: "Status",
+      width: 132,
+      minWidth: 108,
+      sortValue: (transaction) => transaction.status,
+      render: (transaction) => <StatusBadge value={transaction.status} />
+    },
+    {
+      key: "action",
+      label: "Action",
+      width: 180,
+      minWidth: 128,
+      sortValue: (transaction) => formatLabel(transaction.action),
+      render: (transaction) => formatLabel(transaction.action)
+    },
+    {
+      key: "progress",
+      label: "Progress",
+      width: 116,
+      minWidth: 92,
+      sortValue: (transaction) => resolveProgressPercent(transaction),
+      render: (transaction) => `${resolveProgressPercent(transaction)}%`
+    },
+    {
+      key: "events",
+      label: "Events",
+      width: 92,
+      minWidth: 76,
+      sortValue: (transaction) => transaction.event_count || 0,
+      render: (transaction) => transaction.event_count || 0
+    },
+    {
+      key: "latest",
+      label: "Latest activity",
+      width: 210,
+      minWidth: 150,
+      sortValue: (transaction) => transaction.latest_event_at || transaction.updated_at || "",
+      render: (transaction) => formatTimestamp(transaction.latest_event_at || transaction.updated_at)
+    }
+  ], [areAllFilteredBatchLogsSelected, selectedBatchLogIds, visibleBatchTransactionIds]);
 
   useEffect(() => {
     if (!batchTransactions.length) {
@@ -362,7 +512,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       }
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
-        integration_id: llmIntegration?.id,
         start_url: startUrl || undefined,
         additional_context: builderContext || undefined
       });
@@ -385,7 +534,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       return api.testCases.buildAutomationBatch({
         app_type_id: appTypeId,
         test_case_ids: selectedCaseIds,
-        integration_id: llmIntegration?.id,
         start_url: startUrl || undefined,
         additional_context: builderContext || undefined
       });
@@ -429,7 +577,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
       return api.testCases.finishRecorderSession(activeCase.id, recorderSession.id, {
         transaction_id: recorderSession.transaction_id,
-        integration_id: llmIntegration?.id,
         additional_context: builderContext || undefined,
         recorder_mode: recorderStartOptions?.recorder_mode,
         engine_base_url: recorderStartOptions?.engine_base_url
@@ -454,6 +601,8 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       if (selectedTransactionId === transactionId) {
         setSelectedTransactionId("");
       }
+
+      setSelectedBatchLogIds((current) => current.filter((id) => id !== transactionId));
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] }),
@@ -493,14 +642,14 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     }
   };
 
-  const handleDeleteVisibleBatchLogs = async () => {
-    if (!deletableBatchTransactions.length || !(await confirmDelete({ message: `Delete ${deletableBatchTransactions.length} batch process log${deletableBatchTransactions.length === 1 ? "" : "s"}?` }))) {
+  const handleDeleteSelectedBatchLogs = async () => {
+    if (!selectedBatchLogTransactions.length || !(await confirmDelete({ message: `Delete ${selectedBatchLogTransactions.length} selected batch process log${selectedBatchLogTransactions.length === 1 ? "" : "s"}?` }))) {
       return;
     }
 
     let deleted = 0;
 
-    for (const transaction of deletableBatchTransactions) {
+    for (const transaction of selectedBatchLogTransactions) {
       try {
         await deleteBatchLog.mutateAsync(transaction.id);
         deleted += 1;
@@ -510,7 +659,8 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       }
     }
 
-    setBuilderMessage(`${deleted} batch process log${deleted === 1 ? "" : "s"} deleted.`);
+    setSelectedBatchLogIds([]);
+    setBuilderMessage(`${deleted} selected batch process log${deleted === 1 ? "" : "s"} deleted.`);
   };
 
   return (
@@ -777,86 +927,208 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
           </Panel>
         </div>
       ) : view === "batch-process" ? (
-        <div className="testops-layout">
-          <Panel
-            className="testops-panel"
+        <WorkspaceMasterDetail
+          className="testops-batch-workspace"
+          isDetailOpen={Boolean(selectedTransaction)}
+          browseView={(
+            <Panel
+            className="testops-panel testops-batch-browser-panel"
             title="Batch process"
             subtitle="Imports, exports, automation handoffs, generated cases, reports, and sync work appear here with their latest trace state."
             actions={
-              isAdmin ? (
+              <div className="batch-process-toolbar">
+                <CatalogSearchFilter
+                  activeFilterCount={batchProcessSearch.trim() ? 1 : 0}
+                  ariaLabel="Search batch process logs"
+                  onChange={setBatchProcessSearch}
+                  placeholder="Search batch process"
+                  subtitle="Search by title, status, action, category, or metadata."
+                  title="Batch process filters"
+                  value={batchProcessSearch}
+                >
+                  <div className="catalog-filter-actions">
+                    <button
+                      className="ghost-button"
+                      disabled={!batchProcessSearch.trim()}
+                      onClick={() => setBatchProcessSearch("")}
+                      type="button"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                </CatalogSearchFilter>
+                <CatalogViewToggle onChange={setBatchProcessViewMode} value={batchProcessViewMode} />
                 <button
-                  className="ghost-button danger"
-                  disabled={!deletableBatchTransactions.length || deleteBatchLog.isPending}
-                  onClick={() => void handleDeleteVisibleBatchLogs()}
+                  className="ghost-button catalog-selection-button"
+                  disabled={!filteredBatchTransactions.length || areAllFilteredBatchLogsSelected}
+                  onClick={() => setSelectedBatchLogIds((current) => [...new Set([...current, ...visibleBatchTransactionIds])])}
                   type="button"
                 >
-                  <TrashIcon size={16} />
-                  <span>{deleteBatchLog.isPending ? "Deleting..." : "Delete logs"}</span>
+                  <SelectAllIcon />
+                  <span>Select all</span>
                 </button>
-              ) : undefined
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedBatchLogIds.length}
+                  onClick={() => setSelectedBatchLogIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                {isAdmin ? (
+                  <button
+                    className="ghost-button danger catalog-selection-button"
+                    disabled={!selectedBatchLogTransactions.length || deleteBatchLog.isPending}
+                    onClick={() => void handleDeleteSelectedBatchLogs()}
+                    type="button"
+                  >
+                    <TrashIcon size={16} />
+                    <span>{deleteBatchLog.isPending ? "Deleting..." : "Delete logs"}</span>
+                  </button>
+                ) : null}
+                {selectedBatchLogIds.length ? <span className="count-pill">{selectedBatchLogIds.length} selected</span> : null}
+              </div>
             }
           >
             {transactionsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
             {!transactionsQuery.isLoading && batchTransactions.length ? (
-              <div className="testops-operation-grid">
-                {batchTransactions.map((transaction) => (
-                  <button
-                    className={selectedTransactionId === transaction.id ? "record-card tile-card is-active" : "record-card tile-card"}
-                    key={transaction.id}
-                    onClick={() => setSelectedTransactionId(transaction.id)}
-                    type="button"
-                  >
-                    <div className="tile-card-main">
-                      <div className="tile-card-header">
-                        <span className="integration-type-badge"><ActivityIcon size={18} /></span>
-                        <div className="tile-card-title-group">
-                          <strong>{transaction.title}</strong>
-                          <span className="tile-card-kicker">{formatLabel(transaction.action)}</span>
+              batchProcessViewMode === "list" ? (
+                <DataTable
+                  columns={batchProcessListColumns}
+                  emptyMessage="No batch process logs match the current search."
+                  enableColumnResize
+                  enableHeaderColumnReorder
+                  enableRowSelection={false}
+                  getRowClassName={(transaction) => (selectedTransactionId === transaction.id ? "is-active-row" : "")}
+                  getRowKey={(transaction) => transaction.id}
+                  onRowClick={(transaction) => setSelectedTransactionId(transaction.id)}
+                  rows={filteredBatchTransactions}
+                  storageKey="qaira:testops:batch-process:list-columns"
+                />
+              ) : filteredBatchTransactions.length ? (
+                <div className="testops-operation-grid batch-process-browser-grid">
+                  {filteredBatchTransactions.map((transaction) => {
+                    const isActive = selectedTransactionId === transaction.id;
+                    const isChecked = selectedBatchLogIds.includes(transaction.id);
+
+                    return (
+                      <article
+                        aria-selected={isActive}
+                        className={isActive ? "record-card tile-card batch-process-card is-active" : "record-card tile-card batch-process-card"}
+                        key={transaction.id}
+                        onClick={() => setSelectedTransactionId(transaction.id)}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) {
+                            return;
+                          }
+
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedTransactionId(transaction.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="tile-card-main">
+                          <div className="tile-card-select-row batch-process-card-select-row">
+                            <label className="checkbox-field" onClick={(event) => event.stopPropagation()}>
+                              <input
+                                aria-label={`Select ${transaction.title}`}
+                                checked={isChecked}
+                                onChange={(event) => toggleBatchLogSelection(transaction.id, event.target.checked)}
+                                type="checkbox"
+                              />
+                              <code>{transaction.id.slice(0, 8)}</code>
+                            </label>
+                            <StatusBadge value={transaction.status} />
+                          </div>
+                          <div className="tile-card-header batch-process-card-header">
+                            <span className={`record-card-icon tile-card-icon batch-process-card-icon status-${transaction.status}`}>
+                              <ActivityIcon size={18} />
+                            </span>
+                            <div className="tile-card-title-group">
+                              <strong>{transaction.title}</strong>
+                              <span className="tile-card-kicker">{formatLabel(transaction.action)}</span>
+                            </div>
+                          </div>
+                          <p className="tile-card-description">{transaction.description || formatLabel(transaction.category)}</p>
+                          <ProgressMeter
+                            value={resolveProgressPercent(transaction)}
+                            label={formatLabel(String(transaction.metadata?.current_phase || transaction.status))}
+                            detail={formatProgressDetail(transaction)}
+                            tone={transaction.status === "failed" ? "danger" : transaction.status === "completed" ? "success" : "info"}
+                          />
+                          <div className="batch-process-card-facts">
+                            <span>
+                              <small>Category</small>
+                              <strong>{formatLabel(transaction.category)}</strong>
+                            </span>
+                            <span>
+                              <small>Events</small>
+                              <strong>{transaction.event_count || 0}</strong>
+                            </span>
+                            <span>
+                              <small>Duration</small>
+                              <strong>{formatDuration(transaction.started_at || transaction.created_at, transaction.completed_at || transaction.updated_at)}</strong>
+                            </span>
+                            <span>
+                              <small>Latest</small>
+                              <strong>{formatTimestamp(transaction.latest_event_at || transaction.updated_at)}</strong>
+                            </span>
+                          </div>
+                          <div className="batch-process-card-footer">
+                            <span className="count-pill">{resolveProgressPercent(transaction)}% complete</span>
+                            <button
+                              className="ghost-button compact-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedTransactionId(transaction.id);
+                              }}
+                              type="button"
+                            >
+                              <OpenIcon />
+                              <span>Open</span>
+                            </button>
+                          </div>
                         </div>
-                        <StatusBadge value={transaction.status} />
-                      </div>
-                      <p className="tile-card-description">{transaction.description || formatLabel(transaction.category)}</p>
-                      <ProgressMeter
-                        value={resolveProgressPercent(transaction)}
-                        label={formatLabel(String(transaction.metadata?.current_phase || transaction.status))}
-                        detail={formatProgressDetail(transaction)}
-                        tone={transaction.status === "failed" ? "danger" : transaction.status === "completed" ? "success" : "info"}
-                      />
-                      <div className="integration-card-footer">
-                        <span className="count-pill">{transaction.event_count || 0} events</span>
-                        <span className="count-pill">
-                          {formatDuration(transaction.started_at || transaction.created_at, transaction.completed_at || transaction.updated_at)}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-state compact">No batch process logs match the current search.</div>
+              )
             ) : null}
             {!transactionsQuery.isLoading && !batchTransactions.length ? (
               <div className="empty-state compact">No batch process records have been recorded for this scope yet.</div>
             ) : null}
-          </Panel>
+            </Panel>
+          )}
 
-          <Panel
-            className="testops-panel testops-detail-panel"
-            title={selectedTransaction ? selectedTransaction.title : "Process trace"}
-            subtitle={selectedTransaction ? "The latest metadata and event timeline for this operation." : "Choose a batch process card to inspect its trace."}
-            actions={
-              isAdmin && selectedTransaction ? (
-                <button
-                  className="ghost-button danger"
-                  disabled={deleteBatchLog.isPending}
-                  onClick={() => void handleDeleteSelectedBatchLog()}
-                  type="button"
-                >
-                  <TrashIcon size={16} />
-                  <span>{deleteBatchLog.isPending ? "Deleting..." : "Delete log"}</span>
-                </button>
-              ) : undefined
-            }
-          >
-            {selectedTransaction ? (
+          detailView={selectedTransaction ? (
+            <Panel
+              className="testops-panel testops-detail-panel batch-process-detail-panel"
+              title={selectedTransaction.title}
+              subtitle="The latest metadata and event timeline for this operation."
+              actions={
+                <div className="testops-action-row batch-process-detail-actions">
+                  <WorkspaceBackButton label="Back to batch process logs" onClick={() => setSelectedTransactionId("")} />
+                  {isAdmin ? (
+                    <button
+                      className="ghost-button danger"
+                      disabled={deleteBatchLog.isPending}
+                      onClick={() => void handleDeleteSelectedBatchLog()}
+                      type="button"
+                    >
+                      <TrashIcon size={16} />
+                      <span>{deleteBatchLog.isPending ? "Deleting..." : "Delete log"}</span>
+                    </button>
+                  ) : null}
+                </div>
+              }
+            >
               <div className="detail-stack">
                 <div className="metric-strip compact">
                   <div className="mini-card">
@@ -960,11 +1232,18 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   </div>
                 ) : null}
               </div>
-            ) : (
-              <div className="empty-state compact">Choose a process card to review its metadata and trace log.</div>
-            )}
-          </Panel>
-        </div>
+            </Panel>
+          ) : (
+            <Panel
+              className="testops-panel testops-detail-panel batch-process-detail-panel"
+              title="Process trace"
+              subtitle="Choose a batch process log to inspect its trace."
+              actions={<WorkspaceBackButton label="Back to batch process logs" onClick={() => setSelectedTransactionId("")} />}
+            >
+              <div className="empty-state compact">Choose a process log to review its metadata and trace log.</div>
+            </Panel>
+          )}
+        />
       ) : view === "ops-telemetry" ? (
         <Panel
           className="testops-panel testops-telemetry-panel"

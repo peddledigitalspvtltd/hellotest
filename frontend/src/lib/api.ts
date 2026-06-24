@@ -2,6 +2,8 @@ import type {
   ApiRequestPreview,
   AgenticWorkflow,
   AgenticWorkflowRun,
+  ApiKeyScope,
+  ApiKeyScopeOption,
   AiCaseAuthoringPreviewResponse,
   AiDesignImageInput,
   AiDesignPreviewResponse,
@@ -40,6 +42,7 @@ import type {
   TestEnvironment,
   TestStep,
   TestSuite,
+  UserApiKey,
   User,
   WorkspaceTransaction,
   WorkspaceTransactionArtifact,
@@ -302,6 +305,21 @@ export const api = {
       request<{ updated: boolean; preferences: Record<string, unknown> }>("/settings/workspace-preferences", {
         method: "PUT",
         body: JSON.stringify(input)
+      }),
+    listApiKeys: () => request<{ api_keys: UserApiKey[]; scopes: ApiKeyScopeOption[] }>("/settings/api-keys"),
+    createApiKey: (input: { name: string; scope?: ApiKeyScope }) =>
+      request<{
+        key: string;
+        api_key: UserApiKey;
+        authorization_header: string;
+        x_api_key_header: string;
+      }>("/settings/api-keys", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
+    revokeApiKey: (id: string) =>
+      request<{ revoked: boolean; api_key: UserApiKey }>(`/settings/api-keys/${id}`, {
+        method: "DELETE"
       })
   },
   metadata: {
@@ -505,10 +523,17 @@ export const api = {
             events_path: string;
           }
       >("/integrations/test-connection", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean }>) =>
-      request<{ updated: boolean }>(`/integrations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    delete: (id: string) => request<{ deleted: boolean }>(`/integrations/${id}`, { method: "DELETE" })
-  },
+	    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean }>) =>
+	      request<{ updated: boolean }>(`/integrations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+	    export: () =>
+	      request<{ version: number; exported_at: string; integrations: Integration[] }>("/integrations/export"),
+	    import: (input: { integrations: Integration[] }) =>
+	      request<{ imported: number; updated: number; failed: number; failures: Array<{ name: string; error: string }> }>("/integrations/import", {
+	        method: "POST",
+	        body: JSON.stringify(input)
+	      }),
+	    delete: (id: string) => request<{ deleted: boolean }>(`/integrations/${id}`, { method: "DELETE" })
+	  },
   requirementTestCases: {
     list: (query?: { requirement_id?: string; test_case_id?: string }) =>
       request<Array<{ requirement_id: string; test_case_id: string }>>(`/requirement-test-cases${toQueryString(query)}`),

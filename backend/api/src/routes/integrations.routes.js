@@ -72,7 +72,33 @@ const sanitizeIntegration = (integration) => {
         queue_poll_interval_minutes: config.queue_poll_interval_minutes ?? 5,
         qaira_api_base_url: config.qaira_api_base_url || null,
         promote_healed_patches: config.promote_healed_patches || "review",
-        live_view_url: config.live_view_url || null
+        live_view_url: config.live_view_url || null,
+        mobile_engine_url: config.mobile_engine_url || null,
+        mobile_cloud_provider: config.mobile_cloud_provider || null,
+        mobile_remote_url: config.mobile_remote_url || null,
+        mobile_username: config.mobile_username || null,
+        mobile_access_key: maskSecret(config.mobile_access_key),
+        device_name: config.device_name || null,
+        platform_version: config.platform_version || null,
+        android_app: config.android_app || null
+      }
+    };
+  }
+
+  if (integration.type === "cloudrun") {
+    return {
+      ...baseIntegration,
+      config: {
+        provider: config.provider || "browserstack",
+        project_id: config.project_id || null,
+        remote_url: config.remote_url || null,
+        browser: config.browser || "Chrome",
+        os: config.os || "Windows",
+        device_name: config.device_name || null,
+        platform_version: config.platform_version || null,
+        build_name: config.build_name || null,
+        session_name: config.session_name || null,
+        provider_options: config.provider_options && typeof config.provider_options === "object" ? config.provider_options : {}
       }
     };
   }
@@ -172,6 +198,38 @@ module.exports = async function (fastify) {
     }, req.body);
 
     return service.testConnection(req.body);
+  });
+
+  fastify.get("/integrations/export", async (req) => {
+    await fastify.authenticate(req);
+
+    if (req.user.role !== "admin") {
+      const error = new Error("Only admins can export integrations");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const payload = await service.exportIntegrations();
+    return {
+      ...payload,
+      integrations: payload.integrations.map(sanitizeIntegration)
+    };
+  });
+
+  fastify.post("/integrations/import", async (req) => {
+    await fastify.authenticate(req);
+
+    if (req.user.role !== "admin") {
+      const error = new Error("Only admins can import integrations");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    fastify.validate({
+      integrations: { required: true, type: "array" }
+    }, req.body);
+
+    return service.importIntegrations(req.body);
   });
 
   fastify.get("/integrations/:id", async (req) => {

@@ -341,6 +341,7 @@ async function generateCasesForRequirement({
     requirement,
     appType,
     integration_id: job.integration_id || undefined,
+    user_id: job.created_by,
     max_cases: job.max_cases_per_requirement,
     additional_context: job.additional_context || undefined,
     external_links: job.external_links || [],

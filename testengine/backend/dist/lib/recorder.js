@@ -11,6 +11,7 @@ const RECORDER_ACTION_TYPES = new Set([
     "rightclick",
     "fill",
     "change",
+    "upload",
     "select",
     "check",
     "uncheck",
@@ -132,12 +133,12 @@ const pushRecorderAction = (session, action) => {
     const actionLocator = normalizeText(action.locator);
     const actionPageId = normalizeText(action.page_id);
     const actionTimestamp = action.timestamp || new Date().toISOString();
-    if ((actionType === "fill" || actionType === "change" || actionType === "select" || actionType === "check" || actionType === "uncheck") && actionLocator) {
+    if ((actionType === "fill" || actionType === "change" || actionType === "upload" || actionType === "select" || actionType === "check" || actionType === "uncheck") && actionLocator) {
         const recentEditableAction = [...session.actions].reverse().find((candidate) => {
             const candidateType = String(candidate.type || "").toLowerCase();
             const candidateTime = Date.parse(candidate.timestamp || "");
             const nextTime = Date.parse(actionTimestamp);
-            return (candidateType === "fill" || candidateType === "change" || candidateType === "select" || candidateType === "check" || candidateType === "uncheck")
+            return (candidateType === "fill" || candidateType === "change" || candidateType === "upload" || candidateType === "select" || candidateType === "check" || candidateType === "uncheck")
                 && candidate.locator === actionLocator
                 && (!actionPageId || !candidate.page_id || candidate.page_id === actionPageId)
                 && (!Number.isFinite(candidateTime) || !Number.isFinite(nextTime) || Math.abs(nextTime - candidateTime) <= 12_000);
@@ -262,22 +263,30 @@ const recorderInitScript = `
       ? element.querySelector("input,textarea,select,[contenteditable=true],[role=textbox]")
       : null;
     if (editableChild) return locatorFor(editableChild);
+    const quoted = (value) => JSON.stringify(String(value || ""));
     const testId = attr(element, "data-testid") || attr(element, "data-test") || attr(element, "data-qa");
-    if (testId) return "[data-testid=\\"" + testId.replaceAll('"', "\\\\\\"") + "\\"]";
+    if (testId) return "getByTestId(" + quoted(testId) + ")";
     const aria = attr(element, "aria-label");
+    const placeholder = attr(element, "placeholder");
+    const label = element.labels && element.labels[0] ? clean(element.labels[0].innerText || element.labels[0].textContent || "") : "";
+    const role = attr(element, "role")
+      || (element.tagName.toLowerCase() === "button" ? "button" : "")
+      || (element.tagName.toLowerCase() === "a" ? "link" : "")
+      || (element.tagName.toLowerCase() === "select" ? "combobox" : "")
+      || (["input", "textarea"].includes(element.tagName.toLowerCase()) && !["checkbox", "radio", "file"].includes(String(element.type || "").toLowerCase()) ? "textbox" : "")
+      || (element.tagName.toLowerCase() === "input" && ["checkbox", "radio"].includes(String(element.type || "").toLowerCase()) ? String(element.type || "").toLowerCase() : "");
+    const accessibleName = aria || label || visibleText(element);
+    if (role && accessibleName) return "getByRole(" + quoted(role) + ", { name: " + quoted(accessibleName) + " })";
+    if (label) return "getByLabel(" + quoted(label) + ")";
+    if (placeholder) return "getByPlaceholder(" + quoted(placeholder) + ")";
     if (aria) return "[aria-label=\\"" + aria.replaceAll('"', "\\\\\\"") + "\\"]";
     const id = attr(element, "id");
     if (id) return "#" + cssEscape(id);
     const name = attr(element, "name");
     if (name) return element.tagName.toLowerCase() + "[name=\\"" + name.replaceAll('"', "\\\\\\"") + "\\"]";
-    const placeholder = attr(element, "placeholder");
-    if (placeholder) return "placeholder=" + placeholder;
-    const label = element.labels && element.labels[0] ? clean(element.labels[0].innerText || element.labels[0].textContent || "") : "";
-    if (label) return "label=" + label;
-    const role = attr(element, "role");
     const text = visibleText(element);
-    if ((role || ["button", "a"].includes(element.tagName.toLowerCase())) && text) return "text=" + text;
-    if (text && text.length <= 80) return "text=" + text;
+    if ((role || ["button", "a"].includes(element.tagName.toLowerCase())) && text) return "getByText(" + quoted(text) + ")";
+    if (text && text.length <= 80) return "getByText(" + quoted(text) + ")";
     return cssPath(element);
   };
   window.__qairaRecorderLocatorFor = locatorFor;
@@ -317,6 +326,19 @@ const recorderInitScript = `
     if (!target || !("value" in target)) return;
     const tag = String(target.tagName || "").toLowerCase();
     const inputType = String(target.type || "").toLowerCase();
+    if (inputType === "file") {
+      const fileNames = Array.from(target.files || []).map((file) => file && file.name ? file.name : "").filter(Boolean).join(", ");
+      const previous = lastInputValues.get(target);
+      if (previous === fileNames) return;
+      lastInputValues.set(target, fileNames);
+      emit({
+        type: "upload",
+        locator: locatorFor(target),
+        text: controlLabel(target) || fileNames || "File upload",
+        value: fileNames
+      });
+      return;
+    }
     if (tag === "select") {
       const selected = describeSelectValue(target);
       const previous = lastInputValues.get(target);
@@ -630,27 +652,32 @@ const installInspectMode = async (page) => {
             const testId = clean(element.getAttribute("data-testid"));
             const aria = clean(element.getAttribute("aria-label"));
             const explicitRole = clean(element.getAttribute("role"));
-            const accessibleName = aria || clean(inspectWindow.__qairaRecorderVisibleTextFor?.(element));
+            const label = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
+                ? clean(element.labels?.[0]?.innerText || element.labels?.[0]?.textContent || "")
+                : "";
+            const accessibleName = aria || label || clean(inspectWindow.__qairaRecorderVisibleTextFor?.(element));
             const id = clean(element.getAttribute("id"));
             const name = clean(element.getAttribute("name"));
             const placeholder = clean(element.getAttribute("placeholder"));
             const text = inspectWindow.__qairaRecorderVisibleTextFor?.(element);
             const tag = element.tagName.toLowerCase();
             const inputType = clean(element.getAttribute("type")).toLowerCase();
+            const quoted = (value) => JSON.stringify(value);
             const semanticRole = explicitRole
                 || (tag === "button" ? "button" : "")
                 || (tag === "a" ? "link" : "")
                 || (tag === "select" ? "combobox" : "")
-                || (tag === "textarea" || (tag === "input" && !["checkbox", "radio"].includes(inputType)) ? "textbox" : "")
+                || (tag === "textarea" || (tag === "input" && !["checkbox", "radio", "file"].includes(inputType)) ? "textbox" : "")
                 || (tag === "input" && ["checkbox", "radio"].includes(inputType) ? inputType : "");
             return [
-                testId ? { locator: `[data-testid="${testId.replace(/"/g, '\\"')}"]`, strategy: "data-testid", confidenceScore: 0.98 } : null,
-                aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.94 } : null,
-                semanticRole && accessibleName ? { locator: `role=${semanticRole}[name="${accessibleName.replace(/"/g, '\\"')}"]`, strategy: "role + name", confidenceScore: 0.92 } : null,
+                testId ? { locator: `getByTestId(${quoted(testId)})`, strategy: "playwright test id", confidenceScore: 0.99 } : null,
+                semanticRole && accessibleName ? { locator: `getByRole(${quoted(semanticRole)}, { name: ${quoted(accessibleName)} })`, strategy: "playwright role + name", confidenceScore: 0.97 } : null,
+                label ? { locator: `getByLabel(${quoted(label)})`, strategy: "playwright label", confidenceScore: 0.95 } : null,
+                placeholder ? { locator: `getByPlaceholder(${quoted(placeholder)})`, strategy: "playwright placeholder", confidenceScore: 0.91 } : null,
+                aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.9 } : null,
                 id ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88 } : null,
                 name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
-                placeholder ? { locator: `${tag}[placeholder="${placeholder.replace(/"/g, '\\"')}"]`, strategy: "placeholder", confidenceScore: 0.78 } : null,
-                text && ["button", "a"].includes(tag) ? { locator: `text=${text}`, strategy: "text", confidenceScore: 0.7 } : null,
+                text && ["button", "a"].includes(tag) ? { locator: `getByText(${quoted(text)})`, strategy: "playwright text", confidenceScore: 0.72 } : null,
                 { locator: inspectWindow.__qairaRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
             ].filter((candidate) => Boolean(candidate))
                 .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
@@ -776,6 +803,59 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
         document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
     };
     const resolveTarget = () => {
+        const unescapeLiteral = (value) => value.replace(/\\(["'`\\])/g, "$1");
+        const firstQuotedArgument = (value) => {
+            const match = value.match(/\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/);
+            return match ? unescapeLiteral(match[2]) : "";
+        };
+        const optionName = (value) => {
+            const match = value.match(/\bname\s*:\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/i);
+            return match ? unescapeLiteral(match[2]) : "";
+        };
+        const accessibleText = (element) => clean(element.getAttribute("aria-label")
+            || element.getAttribute("placeholder")
+            || element.getAttribute("name")
+            || element.textContent).toLowerCase();
+        const byAccessibleText = (text) => {
+            const normalized = clean(text).toLowerCase();
+            return [...document.querySelectorAll("button,a,[role],input,select,textarea,label,[data-testid],[data-test],[data-qa]")]
+                .find((element) => accessibleText(element).includes(normalized)) || null;
+        };
+        const getByMatch = targetLocator.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\s*\(/i);
+        if (getByMatch) {
+            const method = getByMatch[1].toLowerCase();
+            const firstArg = firstQuotedArgument(targetLocator);
+            if (method === "getbytestid") {
+                try {
+                    return document.querySelector(`[data-testid="${CSS.escape(firstArg)}"],[data-test="${CSS.escape(firstArg)}"],[data-qa="${CSS.escape(firstArg)}"]`);
+                }
+                catch {
+                    return null;
+                }
+            }
+            if (method === "getbyplaceholder") {
+                try {
+                    return document.querySelector(`[placeholder="${CSS.escape(firstArg)}"]`);
+                }
+                catch {
+                    return byAccessibleText(firstArg);
+                }
+            }
+            if (method === "getbylabel") {
+                return [...document.querySelectorAll("input,select,textarea")]
+                    .find((element) => clean(element.labels?.[0]?.textContent || element.getAttribute("aria-label") || "").toLowerCase().includes(firstArg.toLowerCase()))
+                    || byAccessibleText(firstArg);
+            }
+            if (method === "getbyrole") {
+                const role = firstArg.toLowerCase();
+                const name = clean(optionName(targetLocator)).toLowerCase();
+                return [...document.querySelectorAll(`[role="${role}"],${role === "button" ? "button," : ""}${role === "link" ? "a," : ""}input,select,textarea`)]
+                    .find((element) => !name || accessibleText(element).includes(name)) || null;
+            }
+            if (method === "getbytext") {
+                return byAccessibleText(firstArg);
+            }
+        }
         const roleMatch = targetLocator.match(/^role=([^\[]+)\[name=["']?(.+?)["']?\]$/i);
         if (roleMatch) {
             const role = roleMatch[1].toLowerCase();
@@ -788,6 +868,29 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
             const text = clean(textMatch[1]).toLowerCase();
             return [...document.querySelectorAll("button,a,[role],input,select,textarea")]
                 .find((element) => clean(element.getAttribute("aria-label") || element.textContent).toLowerCase().includes(text)) || null;
+        }
+        const labelMatch = targetLocator.match(/^label=(.+)$/i);
+        if (labelMatch) {
+            return byAccessibleText(labelMatch[1]);
+        }
+        const placeholderMatch = targetLocator.match(/^placeholder=(.+)$/i);
+        if (placeholderMatch) {
+            try {
+                return document.querySelector(`[placeholder="${CSS.escape(clean(placeholderMatch[1]))}"]`);
+            }
+            catch {
+                return byAccessibleText(placeholderMatch[1]);
+            }
+        }
+        const testIdMatch = targetLocator.match(/^(?:testid|data-testid)=(.+)$/i);
+        if (testIdMatch) {
+            try {
+                const testId = clean(testIdMatch[1]);
+                return document.querySelector(`[data-testid="${CSS.escape(testId)}"],[data-test="${CSS.escape(testId)}"],[data-qa="${CSS.escape(testId)}"]`);
+            }
+            catch {
+                return null;
+            }
         }
         if (/^xpath=/i.test(targetLocator)) {
             return document.evaluate(targetLocator.replace(/^xpath=/i, ""), document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -1966,7 +2069,7 @@ export const registerRecorderRoutes = async (app) => {
                     type: normalizedType,
                     locator: normalizeText(payload.locator),
                     text: normalizeText(payload.text),
-                    value: ["fill", "change", "select", "check", "uncheck", "press", "tab", "scroll"].includes(normalizedType) ? normalizeText(payload.value) : null,
+                    value: ["fill", "change", "upload", "select", "check", "uncheck", "press", "tab", "scroll"].includes(normalizedType) ? normalizeText(payload.value) : null,
                     url: normalizeText(payload.url) || sourcePage?.url() || null,
                     page_id: getRecorderPageId(sourcePage),
                     page_title: await resolvePageTitle(sourcePage),

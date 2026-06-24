@@ -5,7 +5,7 @@ import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { PROFILE_IMAGE_ACCEPT, prepareProfileAvatarDataUrl } from "../lib/profileImage";
 import type { User } from "../types";
-import { FormField } from "./FormField";
+import { EyeIcon, MailIcon, TrashIcon, UploadIcon } from "./AppIcons";
 
 type ProfileFeedback = {
   message: string;
@@ -31,27 +31,11 @@ const toDraft = (user: User): ProfileDraft => ({
 });
 
 const formatRoleLabel = (role?: string) => (role === "admin" ? "Admin" : "Member");
-const formatProviderLabel = (provider?: string) => (provider === "google" ? "Google Sign-In" : "Local account");
-
-const getAvatarFallback = (name: string, email: string) => {
-  const source = (name || email || "WU").trim();
-  const tokens = source.split(/\s+/).filter(Boolean);
-
-  if (tokens.length >= 2) {
-    return `${tokens[0][0]}${tokens[1][0]}`.toUpperCase();
-  }
-
-  return source.slice(0, 2).toUpperCase();
-};
 
 function ProfileAvatarPreview({
-  avatarDataUrl,
-  email,
-  name
+  avatarDataUrl
 }: {
   avatarDataUrl?: string | null;
-  email: string;
-  name: string;
 }) {
   if (avatarDataUrl) {
     return (
@@ -63,8 +47,36 @@ function ProfileAvatarPreview({
 
   return (
     <span className="profile-avatar" aria-hidden="true">
-      <span>{getAvatarFallback(name, email)}</span>
+      <ProfileCameraIcon />
     </span>
+  );
+}
+
+function ProfileCameraIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="42" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="42">
+      <path d="M8.5 7.5 10 5h4l1.5 2.5H18A2.5 2.5 0 0 1 20.5 10v6A2.5 2.5 0 0 1 18 18.5H6A2.5 2.5 0 0 1 3.5 16v-6A2.5 2.5 0 0 1 6 7.5z" />
+      <circle cx="12" cy="13" r="3.25" />
+    </svg>
+  );
+}
+
+function ProfileUserIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
+function ProfileInfoIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="22">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </svg>
   );
 }
 
@@ -194,7 +206,6 @@ export function UserProfileDialog({
   }
 
   const isBusy = updateProfile.isPending || changePassword.isPending || isPreparingAvatar;
-  const hasPasswordDraft = Boolean(passwordDraft.current_password || passwordDraft.new_password || passwordDraft.confirm_password);
   const canChangePassword =
     user.auth_provider !== "google"
     && passwordDraft.current_password.length > 0
@@ -235,7 +246,7 @@ export function UserProfileDialog({
 
   return (
     <div
-      className="modal-backdrop modal-backdrop--scroll"
+      className="modal-backdrop modal-backdrop--scroll profile-dialog-backdrop"
       onClick={() => {
         if (!isBusy) {
           onClose();
@@ -246,28 +257,27 @@ export function UserProfileDialog({
       <div
         aria-labelledby="profile-dialog-title"
         aria-modal="true"
-        className="modal-card people-modal-card profile-dialog-card"
+        className="modal-card profile-dialog-card"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
         <form
-          className="people-modal-form profile-dialog-form"
+          className="profile-dialog-form"
           onSubmit={(event) => {
             event.preventDefault();
             setFeedback(null);
             updateProfile.mutate(draft);
           }}
         >
-          <div className="people-modal-header profile-dialog-header">
-            <div className="people-modal-title">
-              <p>Personal profile</p>
-              <p className="eyebrow" id="profile-dialog-title">Update your sidebar profile</p>
+          <div className="profile-dialog-header">
+            <div className="profile-dialog-title">
+              <h2 id="profile-dialog-title">Personal Profile</h2>
             </div>
             <button
               aria-label="Close profile dialog"
-              className="ghost-button"
+              className="ghost-button profile-dialog-close-button"
               disabled={isBusy}
               onClick={onClose}
               type="button"
@@ -276,23 +286,16 @@ export function UserProfileDialog({
             </button>
           </div>
 
-          <div className="people-modal-body profile-dialog-body">
+          <div className="profile-dialog-body">
             {feedback ? (
               <p className={feedback.tone === "success" ? "inline-message success-message" : "inline-message error-message"}>
                 {feedback.message}
               </p>
             ) : null}
 
-            <section className="profile-dialog-hero" aria-label="Profile summary">
-              <ProfileAvatarPreview avatarDataUrl={draft.avatar_data_url} email={draft.email} name={draft.name || user.name || user.email} />
-
-              <div className="profile-dialog-copy">
-                <strong>{draft.name || user.name || "Workspace user"}</strong>
-                <span>{draft.email}</span>
-                <div className="profile-dialog-meta">
-                  <span>{formatRoleLabel(user.role)} access</span>
-                  <span>{formatProviderLabel(user.auth_provider)}</span>
-                </div>
+            <div className="profile-dialog-layout">
+              <section className="profile-dialog-photo-panel" aria-label="Profile photo">
+                <ProfileAvatarPreview avatarDataUrl={draft.avatar_data_url} />
                 <div className="action-row profile-dialog-photo-actions">
                   <input
                     accept={PROFILE_IMAGE_ACCEPT}
@@ -307,126 +310,142 @@ export function UserProfileDialog({
                     onClick={() => fileInputRef.current?.click()}
                     type="button"
                   >
-                    {isPreparingAvatar ? "Processing photo…" : draft.avatar_data_url ? "Change photo" : "Upload photo"}
+                    <UploadIcon size={18} strokeWidth={2} />
+                    <span>{isPreparingAvatar ? "Processing photo..." : draft.avatar_data_url ? "Change photo" : "Upload photo"}</span>
                   </button>
                   <button
                     className="ghost-button danger"
-                    disabled={isBusy || !draft.avatar_data_url}
+                    disabled={isBusy}
                     onClick={() => {
                       setDraft((current) => current ? { ...current, avatar_data_url: null } : current);
                       setFeedback(null);
                     }}
                     type="button"
                   >
-                    Remove photo
+                    <TrashIcon size={18} strokeWidth={2} />
+                    <span>Remove photo</span>
                   </button>
                 </div>
                 <p className="profile-dialog-avatar-note">
                   Uploaded photos are center-cropped to a square thumbnail, compressed, then stored as embedded image data for the sidebar profile chip.
                 </p>
-              </div>
-            </section>
+              </section>
 
-            <div className="profile-dialog-grid">
-              <FormField label="Name">
-                <input
-                  data-autofocus="true"
-                  name="name"
-                  onChange={(event) => setDraft((current) => current ? { ...current, name: event.target.value } : current)}
-                  placeholder="Your display name"
-                  value={draft.name}
-                />
-              </FormField>
+              <div className="profile-dialog-main">
+                <div className="profile-dialog-identity-grid">
+                  <label className="profile-field-card">
+                    <input
+                      className="profile-field-input"
+                      data-autofocus="true"
+                      name="name"
+                      onChange={(event) => setDraft((current) => current ? { ...current, name: event.target.value } : current)}
+                      placeholder="Full Name"
+                      value={draft.name}
+                    />
+                    <span className="profile-field-label">
+                      <ProfileUserIcon />
+                      <span>Full Name</span>
+                    </span>
+                  </label>
 
-              <FormField label="Email">
-                <input
-                  name="email"
-                  onChange={(event) => setDraft((current) => current ? { ...current, email: event.target.value } : current)}
-                  placeholder="you@company.com"
-                  required
-                  type="email"
-                  value={draft.email}
-                />
-              </FormField>
-            </div>
+                  <label className="profile-field-card">
+                    <input
+                      className="profile-field-input"
+                      name="email"
+                      onChange={(event) => setDraft((current) => current ? { ...current, email: event.target.value } : current)}
+                      placeholder="Email Address"
+                      required
+                      type="email"
+                      value={draft.email}
+                    />
+                    <span className="profile-field-label">
+                      <MailIcon size={18} strokeWidth={2} />
+                      <span>Email Address</span>
+                    </span>
+                  </label>
+                </div>
 
-            <div className="detail-summary compact-summary profile-dialog-summary">
-              <strong>{formatRoleLabel(user.role)} access is managed from the Users page</strong>
-              <span>Use this dialog for your own display details and profile photo. Workspace-wide user and role changes still live under Administration.</span>
-            </div>
+                <div className="profile-dialog-secondary-grid">
+                  <div className="profile-dialog-summary">
+                    <ProfileInfoIcon />
+                    <p>
+                      {formatRoleLabel(user.role)} access is managed from the Users page. Use this dialog for your own display details and profile photo.
+                    </p>
+                    <p>Workspace-wide user and role changes still live under Administration.</p>
+                  </div>
 
-            <section className="profile-password-panel" aria-label="Change password">
-              <div className="profile-password-panel-head">
-                <div>
-                  <strong>Change password</strong>
-                  <span>{user.auth_provider === "google" ? "Managed by Google Sign-In" : "Update your local sign-in password"}</span>
+                  <section className="profile-password-panel" aria-label="Change password">
+                    <strong>Change password</strong>
+                    <div className="profile-password-fields">
+                      <label className="profile-password-field">
+                        <span className="sr-only">Current password</span>
+                        <input
+                          autoComplete="current-password"
+                          disabled={user.auth_provider === "google" || isBusy}
+                          name="current_password"
+                          onChange={(event) => setPasswordDraft((current) => ({ ...current, current_password: event.target.value }))}
+                          placeholder="Current password"
+                          type="password"
+                          value={passwordDraft.current_password}
+                        />
+                        <span className="profile-password-eye" aria-hidden="true">
+                          <EyeIcon size={18} strokeWidth={2} />
+                        </span>
+                      </label>
+                      <label className="profile-password-field">
+                        <span className="sr-only">New password</span>
+                        <input
+                          autoComplete="new-password"
+                          disabled={user.auth_provider === "google" || isBusy}
+                          name="new_password"
+                          onChange={(event) => setPasswordDraft((current) => ({ ...current, new_password: event.target.value }))}
+                          placeholder="New password"
+                          type="password"
+                          value={passwordDraft.new_password}
+                        />
+                        <span className="profile-password-eye" aria-hidden="true">
+                          <EyeIcon size={18} strokeWidth={2} />
+                        </span>
+                      </label>
+                      <label className="profile-password-field">
+                        <span className="sr-only">Confirm password</span>
+                        <input
+                          autoComplete="new-password"
+                          disabled={user.auth_provider === "google" || isBusy}
+                          name="confirm_password"
+                          onChange={(event) => setPasswordDraft((current) => ({ ...current, confirm_password: event.target.value }))}
+                          placeholder="Confirm password"
+                          type="password"
+                          value={passwordDraft.confirm_password}
+                        />
+                        <span className="profile-password-eye" aria-hidden="true">
+                          <EyeIcon size={18} strokeWidth={2} />
+                        </span>
+                      </label>
+                      <button
+                        className="primary-button profile-password-submit"
+                        disabled={isBusy || !canChangePassword}
+                        onClick={() => {
+                          setFeedback(null);
+                          changePassword.mutate(passwordDraft);
+                        }}
+                        type="button"
+                      >
+                        {changePassword.isPending ? "Changing..." : "Change password"}
+                      </button>
+                    </div>
+                  </section>
                 </div>
               </div>
-              <div className="profile-dialog-grid">
-                <FormField label="Current password">
-                  <input
-                    autoComplete="current-password"
-                    disabled={user.auth_provider === "google" || isBusy}
-                    name="current_password"
-                    onChange={(event) => setPasswordDraft((current) => ({ ...current, current_password: event.target.value }))}
-                    type="password"
-                    value={passwordDraft.current_password}
-                  />
-                </FormField>
-                <FormField label="New password">
-                  <input
-                    autoComplete="new-password"
-                    disabled={user.auth_provider === "google" || isBusy}
-                    name="new_password"
-                    onChange={(event) => setPasswordDraft((current) => ({ ...current, new_password: event.target.value }))}
-                    type="password"
-                    value={passwordDraft.new_password}
-                  />
-                </FormField>
-                <FormField label="Confirm password">
-                  <input
-                    autoComplete="new-password"
-                    disabled={user.auth_provider === "google" || isBusy}
-                    name="confirm_password"
-                    onChange={(event) => setPasswordDraft((current) => ({ ...current, confirm_password: event.target.value }))}
-                    type="password"
-                    value={passwordDraft.confirm_password}
-                  />
-                </FormField>
-                <div className="profile-password-action">
-                  <button
-                    className="ghost-button"
-                    disabled={isBusy || !hasPasswordDraft}
-                    onClick={() => {
-                      setPasswordDraft({ current_password: "", new_password: "", confirm_password: "" });
-                      setFeedback(null);
-                    }}
-                    type="button"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    className="primary-button"
-                    disabled={isBusy || !canChangePassword}
-                    onClick={() => {
-                      setFeedback(null);
-                      changePassword.mutate(passwordDraft);
-                    }}
-                    type="button"
-                  >
-                    {changePassword.isPending ? "Changing…" : "Change password"}
-                  </button>
-                </div>
-              </div>
-            </section>
+            </div>
           </div>
 
-          <div className="action-row people-modal-actions">
+          <div className="profile-dialog-actions">
             <button className="ghost-button" disabled={isBusy} onClick={onClose} type="button">
               Cancel
             </button>
-            <button className="primary-button" disabled={isBusy || !hasChanges} type="submit">
-              {updateProfile.isPending ? "Saving…" : "Save profile"}
+            <button className="ghost-button profile-save-button" disabled={isBusy || !hasChanges} type="submit">
+              {updateProfile.isPending ? "Saving..." : "Save profile"}
             </button>
           </div>
         </form>

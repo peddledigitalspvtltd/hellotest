@@ -34,6 +34,7 @@ module.exports = async function (fastify) {
       project_id: req.body.project_id,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       release_scope: req.body.release_scope,
       additional_context: req.body.additional_context,
       impacted_requirement_ids: req.body.impacted_requirement_ids,
@@ -247,7 +248,7 @@ module.exports = async function (fastify) {
     const execution = await service.getExecution(req.params.id);
     await projectService.getProject(execution.project_id, req.user.id);
 
-    const pdf = await executionReportService.renderReportPdf(req.params.id);
+    const pdf = await executionReportService.renderReportPdf(req.params.id, { user_id: req.user.id });
     const safeName = String(execution.name || execution.id || "qaira-run-report")
       .replace(/[^A-Za-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "")
@@ -265,7 +266,7 @@ module.exports = async function (fastify) {
     const execution = await service.getExecution(req.params.id);
     await projectService.getProject(execution.project_id, req.user.id);
 
-    const html = await executionReportService.renderReportHtml(req.params.id);
+    const html = await executionReportService.renderReportHtml(req.params.id, { user_id: req.user.id });
     reply.header("Content-Type", "text/html; charset=utf-8");
     return reply.send(html);
   });

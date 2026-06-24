@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
-import { InfoTooltip } from "./InfoTooltip";
 
 export function Panel({
-  title,
-  titleVariant = "heading",
-  subtitle,
   actions,
   className = "",
   children
@@ -18,15 +14,11 @@ export function Panel({
 }) {
   return (
     <section className={`panel card ${className}`.trim()}>
-      <div className="panel-head">
-        <div>
-          <div className="panel-title-row">
-            <p className={titleVariant === "eyebrow" ? "eyebrow" : "panel-heading"}>{title}</p>
-            {subtitle ? <InfoTooltip content={subtitle} label={`${title} information`} /> : null}
-          </div>
+      {actions ? (
+        <div className="panel-head">
+          <div className="panel-head-actions">{actions}</div>
         </div>
-        {actions ? <div className="panel-head-actions">{actions}</div> : null}
-      </div>
+      ) : null}
       {children}
     </section>
   );

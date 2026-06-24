@@ -1,4 +1,5 @@
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Builder, By, Key, until } from "selenium-webdriver";
 import { chromium, firefox, webkit } from "playwright";
@@ -408,30 +409,231 @@ const normalizeRepositoryKey = (value) => normalizeText(typeof value === "string
     .replace(/\s+/g, " ")
     .trim()
     || "";
-const resolveObjectRepositoryLocator = (envelope, target) => {
+const uniqueTextValues = (values) => {
+    const seen = new Set();
+    const result = [];
+    values.forEach((value) => {
+        const normalized = normalizeText(typeof value === "string" ? value : null);
+        if (normalized && !seen.has(normalized)) {
+            seen.add(normalized);
+            result.push(normalized);
+        }
+    });
+    return result;
+};
+const normalizeRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+const locatorValueFromUnknown = (value) => {
+    if (typeof value === "string") {
+        return normalizeText(value);
+    }
+    const record = normalizeRecord(value);
+    return normalizeText(typeof record.locator === "string"
+        ? record.locator
+        : typeof record.selector === "string"
+            ? record.selector
+            : typeof record.value === "string"
+                ? record.value
+                : null);
+};
+const repositoryFallbackLocators = (entry) => {
+    const record = entry;
+    const metadata = normalizeRecord(record.metadata);
+    const fallbackSources = [
+        record.fallback_locators,
+        metadata.fallback_locators,
+        metadata.locator_candidates,
+        metadata.previous_locators
+    ];
+    return uniqueTextValues(fallbackSources.flatMap((source) => Array.isArray(source) ? source.map(locatorValueFromUnknown) : [locatorValueFromUnknown(source)]));
+};
+const repositoryLocatorCandidatesForEntry = (entry) => {
+    const record = entry;
+    const metadata = normalizeRecord(record.metadata);
+    return uniqueTextValues([
+        entry.locator,
+        metadata.playwright_locator,
+        metadata.primary_playwright_locator,
+        metadata.locator,
+        ...repositoryFallbackLocators(entry),
+        ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
+    ]);
+};
+const repositoryMatchKeysForEntry = (entry) => {
+    const record = entry;
+    const metadata = normalizeRecord(record.metadata);
+    return uniqueTextValues([
+        entry.locator,
+        entry.locator_intent,
+        entry.object_name,
+        entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
+        entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
+        entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
+        entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
+        metadata.object_label,
+        metadata.object_name,
+        metadata.playwright_locator,
+        ...repositoryLocatorCandidatesForEntry(entry)
+    ]).map(normalizeRepositoryKey).filter(Boolean);
+};
+const resolveObjectRepositoryLocatorCandidates = (envelope, target) => {
     const targetKey = normalizeRepositoryKey(stripWrappingQuotes(target));
     if (!targetKey || !Array.isArray(envelope.object_repository)) {
-        return target;
+        return [target];
     }
     const match = envelope.object_repository.find((entry) => {
-        const candidates = [
-            entry.locator,
-            entry.locator_intent,
-            entry.object_name,
-            entry.screen_name && entry.object_name ? `${entry.screen_name}.${entry.object_name}` : null,
-            entry.page_key && entry.object_name ? `${entry.page_key}.${entry.object_name}` : null,
-            entry.screen_name && entry.locator_intent ? `${entry.screen_name}.${entry.locator_intent}` : null,
-            entry.page_key && entry.locator_intent ? `${entry.page_key}.${entry.locator_intent}` : null,
-            ...(Array.isArray(entry.previous_locators) ? entry.previous_locators : [])
-        ];
-        return candidates.some((candidate) => normalizeRepositoryKey(candidate) === targetKey);
+        const candidates = repositoryMatchKeysForEntry(entry);
+        return candidates.includes(targetKey);
     });
-    return normalizeText(match?.locator || null) || target;
+    if (!match) {
+        return [target];
+    }
+    return uniqueTextValues([...repositoryLocatorCandidatesForEntry(match), target]);
+};
+const resolveObjectRepositoryLocator = (envelope, target) => resolveObjectRepositoryLocatorCandidates(envelope, target)[0] || target;
+const unescapeLocatorLiteral = (value) => value.replace(/\\(["'`\\])/g, "$1");
+const extractPlaywrightQuotedArgument = (source) => {
+    const match = source.match(/\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/);
+    return match ? unescapeLocatorLiteral(match[2]) : null;
+};
+const extractPlaywrightOptionName = (source) => {
+    const match = source.match(/\bname\s*:\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/i);
+    return match ? unescapeLocatorLiteral(match[2]) : null;
+};
+const extractPlaywrightOptionExact = (source) => /\bexact\s*:\s*true\b/i.test(source);
+const buildPlaywrightLocatorCandidates = (page, raw, text) => {
+    const candidates = [];
+    const push = (candidate) => {
+        if (candidate) {
+            candidates.push(candidate);
+        }
+    };
+    const trimmed = raw.trim();
+    const getByMatch = trimmed.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\s*\(/i);
+    const locatorMatch = trimmed.match(/^(?:page\.)?locator\s*\(/i);
+    const roleMatch = trimmed.match(/^role=([A-Za-z0-9_-]+)(?:\[name=(["']?)(.+?)\2\])?$/i);
+    if (getByMatch) {
+        const method = getByMatch[1].toLowerCase();
+        const firstArg = extractPlaywrightQuotedArgument(trimmed);
+        const name = extractPlaywrightOptionName(trimmed);
+        const exact = extractPlaywrightOptionExact(trimmed);
+        if (method === "getbyrole" && firstArg) {
+            push(() => page.getByRole(firstArg, name ? { name, exact } : undefined).first());
+        }
+        else if (method === "getbylabel" && firstArg) {
+            push(() => page.getByLabel(firstArg, { exact }).first());
+        }
+        else if (method === "getbyplaceholder" && firstArg) {
+            push(() => page.getByPlaceholder(firstArg, { exact }).first());
+        }
+        else if (method === "getbytext" && firstArg) {
+            push(() => page.getByText(firstArg, { exact }).first());
+        }
+        else if (method === "getbytestid" && firstArg) {
+            push(() => page.getByTestId(firstArg).first());
+        }
+    }
+    else if (locatorMatch) {
+        const selector = extractPlaywrightQuotedArgument(trimmed);
+        if (selector) {
+            push(() => page.locator(selector).first());
+        }
+    }
+    if (roleMatch) {
+        const role = roleMatch[1];
+        const name = roleMatch[3] ? unescapeLocatorLiteral(roleMatch[3]) : undefined;
+        push(() => page.getByRole(role, name ? { name, exact: false } : undefined).first());
+    }
+    if (trimmed.startsWith("css=")) {
+        push(() => page.locator(trimmed.slice(4)).first());
+    }
+    else if (trimmed.startsWith("xpath=") || trimmed.startsWith("//")) {
+        push(() => page.locator(trimmed.startsWith("xpath=") ? trimmed : `xpath=${trimmed}`).first());
+    }
+    else if (trimmed.startsWith("text=")) {
+        push(() => page.getByText(trimmed.slice(5), { exact: false }).first());
+    }
+    else if (trimmed.startsWith("label=")) {
+        push(() => page.getByLabel(trimmed.slice(6), { exact: false }).first());
+    }
+    else if (trimmed.startsWith("placeholder=")) {
+        push(() => page.getByPlaceholder(trimmed.slice(12), { exact: false }).first());
+    }
+    else if (/^(?:testid|data-testid)=/i.test(trimmed)) {
+        push(() => page.getByTestId(trimmed.replace(/^(?:testid|data-testid)=/i, "")).first());
+    }
+    else if (trimmed.startsWith("id=")) {
+        push(() => page.locator(`#${trimmed.slice(3)}`).first());
+    }
+    else if (trimmed.startsWith("name=")) {
+        push(() => page.locator(`[name="${trimmed.slice(5).replace(/"/g, '\\"')}"]`).first());
+    }
+    push(() => page.getByLabel(text, { exact: false }).first());
+    push(() => page.getByPlaceholder(text, { exact: false }).first());
+    push(() => page.getByRole("button", { name: text, exact: false }).first());
+    push(() => page.getByRole("link", { name: text, exact: false }).first());
+    push(() => page.getByText(text, { exact: false }).first());
+    push(() => page.locator(trimmed).first());
+    return candidates;
+};
+const normalizeUploadFiles = (files) => {
+    if (Array.isArray(files)) {
+        return files.map((file) => String(file || "").trim()).filter(Boolean);
+    }
+    const raw = String(files || "").trim();
+    if (!raw) {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed.map((file) => String(file || "").trim()).filter(Boolean);
+        }
+    }
+    catch {
+        // Plain file paths are the common case.
+    }
+    return raw.includes("\n")
+        ? raw.split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
+        : [raw];
+};
+const safeUploadFileName = (url, contentType) => {
+    try {
+        const parsed = new URL(url);
+        const fileName = path.basename(parsed.pathname).replace(/[^A-Za-z0-9._-]+/g, "-");
+        if (fileName && fileName !== "." && fileName !== "/") {
+            return fileName;
+        }
+    }
+    catch {
+        // Fall through to content-type based naming.
+    }
+    if (/pdf/i.test(contentType || ""))
+        return "remote-upload.pdf";
+    if (/png/i.test(contentType || ""))
+        return "remote-upload.png";
+    if (/jpe?g/i.test(contentType || ""))
+        return "remote-upload.jpg";
+    if (/json/i.test(contentType || ""))
+        return "remote-upload.json";
+    return "remote-upload.bin";
+};
+const downloadRemoteUploadFile = async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Unable to download remote upload file: ${response.status} ${response.statusText}`);
+    }
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "qaira-upload-"));
+    const filePath = path.join(tempDir, safeUploadFileName(url, response.headers.get("content-type")));
+    await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+    return {
+        filePath,
+        cleanup: () => rm(tempDir, { recursive: true, force: true })
+    };
 };
 const createPlaywrightLocatorFacade = (resolver, target) => {
     const prepare = async (options, fallbackTimeout = 10_000) => {
         const normalized = normalizeElementOptions(options, fallbackTimeout);
-        const locator = await resolver(target);
+        const locator = await resolver(target, normalized.waitFor === "visible" ? "visible" : "attached");
         if (normalized.waitFor !== "hidden" && normalized.waitFor !== "detached") {
             await locator.waitFor({ state: normalized.waitFor, timeout: normalized.timeoutMs });
         }
@@ -492,6 +694,13 @@ const createPlaywrightLocatorFacade = (resolver, target) => {
         selectOption: async (value, options) => {
             const prepared = await prepare(options);
             await prepared.locator.selectOption(value, { timeout: prepared.options.timeoutMs });
+        },
+        setInputFiles: async (files, options) => {
+            const prepared = await prepare({ ...(options || {}), waitFor: options?.waitFor || "attached", scroll: options?.scroll ?? "none" });
+            const fileInput = prepared.locator.locator("input[type=file]").first();
+            const fileInputCount = await fileInput.count().catch(() => 0);
+            const targetLocator = fileInputCount > 0 ? fileInput : prepared.locator;
+            await targetLocator.setInputFiles(normalizeUploadFiles(files), { timeout: prepared.options.timeoutMs });
         },
         check: async (options) => {
             const prepared = await prepare(options);
@@ -717,42 +926,29 @@ class PlaywrightWebSession {
         this.liveSessionId = null;
         return artifacts;
     }
-    async resolveLocator(target) {
+    async resolveLocator(target, resolutionState = "visible") {
         const page = this.pageOrThrow;
-        const tokens = candidateTokens(resolveObjectRepositoryLocator(this.envelope, target));
-        if (tokens.raw.startsWith("css=")) {
-            return page.locator(tokens.raw.slice(4)).first();
-        }
-        if (tokens.raw.startsWith("text=")) {
-            return page.getByText(tokens.raw.slice(5), { exact: false }).first();
-        }
-        if (tokens.raw.startsWith("xpath=") || tokens.raw.startsWith("//")) {
-            return page.locator(tokens.raw.startsWith("xpath=") ? tokens.raw : `xpath=${tokens.raw}`).first();
-        }
-        const fallbackCandidates = [
-            () => page.getByLabel(tokens.text, { exact: false }).first(),
-            () => page.getByPlaceholder(tokens.text, { exact: false }).first(),
-            () => page.getByRole("button", { name: tokens.text, exact: false }).first(),
-            () => page.getByRole("link", { name: tokens.text, exact: false }).first(),
-            () => page.getByText(tokens.text, { exact: false }).first(),
-            () => page.locator(tokens.raw).first()
-        ];
+        const candidateTargets = resolveObjectRepositoryLocatorCandidates(this.envelope, target);
         let lastError = null;
-        for (const candidate of fallbackCandidates) {
-            try {
-                const locator = candidate();
-                await locator.waitFor({ state: "visible", timeout: this.timeouts.action });
-                return locator;
-            }
-            catch (error) {
-                lastError = error;
+        for (const candidateTarget of candidateTargets) {
+            const tokens = candidateTokens(candidateTarget);
+            const locatorCandidates = buildPlaywrightLocatorCandidates(page, tokens.raw, tokens.text);
+            for (const candidate of locatorCandidates) {
+                try {
+                    const locator = candidate();
+                    await locator.waitFor({ state: resolutionState, timeout: this.timeouts.action });
+                    return locator;
+                }
+                catch (error) {
+                    lastError = error;
+                }
             }
         }
-        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${tokens.text}" in the browser page`);
+        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${target}" in the browser page`);
     }
     async prepareLocator(target, options, fallbackTimeout = this.timeouts.action) {
         const normalized = normalizeElementOptions(options, fallbackTimeout);
-        const locator = await this.resolveLocator(target);
+        const locator = await this.resolveLocator(target, normalized.waitFor === "visible" ? "visible" : "attached");
         if (normalized.waitFor !== "hidden" && normalized.waitFor !== "detached") {
             await locator.waitFor({ state: normalized.waitFor, timeout: normalized.timeoutMs });
         }
@@ -979,6 +1175,26 @@ class PlaywrightWebSession {
         const prepared = await this.prepareLocator(target, options);
         await prepared.locator.uncheck({ force: prepared.options.force, trial: prepared.options.trial, timeout: prepared.options.timeoutMs });
     }
+    async uploadFile(target, files, options) {
+        const prepared = await this.prepareLocator(target, { ...(options || {}), waitFor: options?.waitFor || "attached", scroll: options?.scroll ?? "none" });
+        const fileInput = prepared.locator.locator("input[type=file]").first();
+        const fileInputCount = await fileInput.count().catch(() => 0);
+        const targetLocator = fileInputCount > 0 ? fileInput : prepared.locator;
+        const normalizedFiles = normalizeUploadFiles(files);
+        if (!normalizedFiles.length) {
+            throw new Error(`No file path was provided for ${target}`);
+        }
+        await targetLocator.setInputFiles(normalizedFiles, { timeout: prepared.options.timeoutMs });
+    }
+    async uploadRemoteFile(target, url, options) {
+        const downloaded = await downloadRemoteUploadFile(url);
+        try {
+            await this.uploadFile(target, downloaded.filePath, options);
+        }
+        finally {
+            await downloaded.cleanup().catch(() => undefined);
+        }
+    }
     async press(target, key, options) {
         if (!target) {
             await this.pageOrThrow.keyboard.press(key);
@@ -1006,6 +1222,20 @@ class PlaywrightWebSession {
         const isVisible = await locator.isVisible();
         if (!isVisible) {
             throw new Error(`Expected ${target} to be visible`);
+        }
+    }
+    async expectHidden(target, options) {
+        const prepared = await this.prepareLocator(target, { ...(options || {}), waitFor: "attached", scroll: options?.scroll ?? "none" }, this.timeouts.assertion);
+        const isVisible = await prepared.locator.isVisible();
+        if (isVisible) {
+            throw new Error(`Expected ${target} to be hidden`);
+        }
+    }
+    async expectEnabled(target, options) {
+        const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
+        const isEnabled = await prepared.locator.isEnabled({ timeout: prepared.options.timeoutMs });
+        if (!isEnabled) {
+            throw new Error(`Expected ${target} to be enabled`);
         }
     }
     async expectText(target, expected, options) {
@@ -1086,6 +1316,7 @@ class PlaywrightWebSession {
             getByText: (target) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByText(value, { exact: false }).first()), target),
             getByLabel: (target) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByLabel(value, { exact: false }).first()), target),
             getByPlaceholder: (target) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByPlaceholder(value, { exact: false }).first()), target),
+            getByTestId: (target) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByTestId(value).first()), target),
             getByRole: (role, options) => {
                 const target = options?.name === undefined ? role : String(options.name);
                 return createPlaywrightLocatorFacade(() => Promise.resolve(this.pageOrThrow.getByRole(role, options).first()), target);
@@ -1126,6 +1357,12 @@ const createSeleniumLocatorFacade = (resolveElement, target) => ({
     selectOption: async (value, _options) => {
         const element = await resolveElement(target);
         await element.sendKeys(Array.isArray(value) ? value[0] || "" : value);
+    },
+    setInputFiles: async (files, _options) => {
+        const element = await resolveElement(target);
+        const descendants = await element.findElements(By.css("input[type='file']")).catch(() => []);
+        const targetElement = descendants[0] || element;
+        await targetElement.sendKeys(normalizeUploadFiles(files).join("\n"));
     },
     check: async (_options) => {
         const element = await resolveElement(target);
@@ -1212,6 +1449,45 @@ class SeleniumWebSession {
     }
     byStrategies(target) {
         const tokens = candidateTokens(target);
+        const raw = tokens.raw.trim();
+        const getByMatch = raw.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId|locator)\s*\(/i);
+        const roleMatch = raw.match(/^role=([A-Za-z0-9_-]+)(?:\[name=(["']?)(.+?)\2\])?$/i);
+        if (getByMatch) {
+            const method = getByMatch[1].toLowerCase();
+            const firstArg = extractPlaywrightQuotedArgument(raw);
+            const name = extractPlaywrightOptionName(raw);
+            if (method === "locator" && firstArg) {
+                return [By.css(firstArg)];
+            }
+            if (method === "getbytestid" && firstArg) {
+                const escaped = escapeXPathLiteral(firstArg);
+                return [By.xpath(`//*[@data-testid=${escaped} or @data-test=${escaped} or @data-qa=${escaped}]`)];
+            }
+            if (method === "getbylabel" && firstArg) {
+                const escaped = escapeXPathLiteral(firstArg);
+                return [By.xpath(`//*[@aria-label=${escaped} or @placeholder=${escaped} or @name=${escaped}] | //label[contains(normalize-space(.), ${escaped})]/following::*[self::input or self::textarea or self::select][1]`)];
+            }
+            if (method === "getbyplaceholder" && firstArg) {
+                return [By.xpath(`//*[@placeholder=${escapeXPathLiteral(firstArg)}]`)];
+            }
+            if (method === "getbyrole" && firstArg) {
+                const role = escapeXPathLiteral(firstArg);
+                const roleName = name ? escapeXPathLiteral(name) : null;
+                return [By.xpath(roleName
+                        ? `//*[@role=${role} and (@aria-label=${roleName} or contains(normalize-space(.), ${roleName}))] | //*[self::button or self::a or self::input or self::select or self::textarea][@aria-label=${roleName} or contains(normalize-space(.), ${roleName})]`
+                        : `//*[@role=${role}]`)];
+            }
+            if (method === "getbytext" && firstArg) {
+                return [By.xpath(`//*[contains(normalize-space(.), ${escapeXPathLiteral(firstArg)})]`)];
+            }
+        }
+        if (roleMatch) {
+            const role = escapeXPathLiteral(roleMatch[1].toLowerCase());
+            const name = roleMatch[3] ? escapeXPathLiteral(unescapeLocatorLiteral(roleMatch[3])) : null;
+            return [By.xpath(name
+                    ? `//*[@role=${role} and (@aria-label=${name} or contains(normalize-space(.), ${name}))] | //*[self::button or self::a or self::input or self::select or self::textarea][@aria-label=${name} or contains(normalize-space(.), ${name})]`
+                    : `//*[@role=${role}]`)];
+        }
         if (tokens.raw.startsWith("css=")) {
             return [By.css(tokens.raw.slice(4))];
         }
@@ -1231,6 +1507,17 @@ class SeleniumWebSession {
             const escapedText = escapeXPathLiteral(tokens.raw.slice(5));
             return [By.xpath(`//*[contains(normalize-space(.), ${escapedText})]`)];
         }
+        if (tokens.raw.startsWith("label=")) {
+            const escaped = escapeXPathLiteral(tokens.raw.slice(6));
+            return [By.xpath(`//*[@aria-label=${escaped} or @placeholder=${escaped} or @name=${escaped}] | //label[contains(normalize-space(.), ${escaped})]/following::*[self::input or self::textarea or self::select][1]`)];
+        }
+        if (tokens.raw.startsWith("placeholder=")) {
+            return [By.xpath(`//*[@placeholder=${escapeXPathLiteral(tokens.raw.slice(12))}]`)];
+        }
+        if (/^(?:testid|data-testid)=/i.test(tokens.raw)) {
+            const escaped = escapeXPathLiteral(tokens.raw.replace(/^(?:testid|data-testid)=/i, ""));
+            return [By.xpath(`//*[@data-testid=${escaped} or @data-test=${escaped} or @data-qa=${escaped}]`)];
+        }
         const escaped = escapeXPathLiteral(tokens.text);
         return [
             By.css(tokens.raw),
@@ -1242,21 +1529,23 @@ class SeleniumWebSession {
     }
     async resolveElement(target) {
         const driver = this.driverOrThrow;
-        const resolvedTarget = resolveObjectRepositoryLocator(this.envelope, target);
+        const resolvedTargets = resolveObjectRepositoryLocatorCandidates(this.envelope, target);
         let lastError = null;
-        for (const strategy of this.byStrategies(resolvedTarget)) {
-            try {
-                const matches = await driver.findElements(strategy);
-                const visibleMatch = matches[0];
-                if (visibleMatch) {
-                    return visibleMatch;
+        for (const resolvedTarget of resolvedTargets) {
+            for (const strategy of this.byStrategies(resolvedTarget)) {
+                try {
+                    const matches = await driver.findElements(strategy);
+                    const visibleMatch = matches[0];
+                    if (visibleMatch) {
+                        return visibleMatch;
+                    }
+                }
+                catch (error) {
+                    lastError = error;
                 }
             }
-            catch (error) {
-                lastError = error;
-            }
         }
-        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${resolvedTarget}" in Selenium`);
+        throw lastError instanceof Error ? lastError : new Error(`Unable to locate "${target}" in Selenium`);
     }
     async goto(target, _options) {
         await this.driverOrThrow.get(target);
@@ -1444,6 +1733,25 @@ class SeleniumWebSession {
             await element.click();
         }
     }
+    async uploadFile(target, files, _options) {
+        const element = await this.resolveElement(target);
+        const descendants = await element.findElements(By.css("input[type='file']")).catch(() => []);
+        const targetElement = descendants[0] || element;
+        const normalizedFiles = normalizeUploadFiles(files);
+        if (!normalizedFiles.length) {
+            throw new Error(`No file path was provided for ${target}`);
+        }
+        await targetElement.sendKeys(normalizedFiles.join("\n"));
+    }
+    async uploadRemoteFile(target, url, options) {
+        const downloaded = await downloadRemoteUploadFile(url);
+        try {
+            await this.uploadFile(target, downloaded.filePath, options);
+        }
+        finally {
+            await downloaded.cleanup().catch(() => undefined);
+        }
+    }
     async press(target, key, _options) {
         const seleniumKey = Key[key.toUpperCase()] || key;
         if (!target) {
@@ -1468,6 +1776,27 @@ class SeleniumWebSession {
         const visible = await element.isDisplayed();
         if (!visible) {
             throw new Error(`Expected ${target} to be visible`);
+        }
+    }
+    async expectHidden(target, _options) {
+        try {
+            const element = await this.resolveElement(target);
+            const visible = await element.isDisplayed();
+            if (visible) {
+                throw new Error(`Expected ${target} to be hidden`);
+            }
+        }
+        catch (error) {
+            if (error instanceof Error && /^Expected /.test(error.message)) {
+                throw error;
+            }
+        }
+    }
+    async expectEnabled(target, _options) {
+        const element = await this.resolveElement(target);
+        const enabled = await element.isEnabled();
+        if (!enabled) {
+            throw new Error(`Expected ${target} to be enabled`);
         }
     }
     async expectText(target, expected, options) {
@@ -1559,6 +1888,7 @@ class SeleniumWebSession {
             getByText: (target) => createSeleniumLocatorFacade((value) => this.resolveElement(`text=${value}`), target),
             getByLabel: (target) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
             getByPlaceholder: (target) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
+            getByTestId: (target) => createSeleniumLocatorFacade((value) => this.resolveElement(`testid=${value}`), target),
             getByRole: (_role, options) => {
                 const target = options?.name instanceof RegExp ? options.name.source : options?.name ? String(options.name) : _role;
                 return createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
@@ -1640,7 +1970,7 @@ const buildBindings = (session, context, captures, envelope) => {
     };
     const expect = buildExpectApi();
     const providerBindings = session.bindings();
-    const resolveTarget = (target) => interpolateText(resolveObjectRepositoryLocator(envelope, interpolateText(target, context)), context);
+    const resolveTarget = (target) => interpolateText(target, context);
     const resolveTabTarget = (target, asNavigationTarget = false) => {
         if (target === undefined || target === null) {
             return undefined;
@@ -1682,6 +2012,7 @@ const buildBindings = (session, context, captures, envelope) => {
         getByText: (target) => providerBindings.page.getByText(interpolateText(target, context)),
         getByLabel: (target) => providerBindings.page.getByLabel(interpolateText(target, context)),
         getByPlaceholder: (target) => providerBindings.page.getByPlaceholder(interpolateText(target, context)),
+        getByTestId: (target) => providerBindings.page.getByTestId(interpolateText(target, context)),
         getByRole: (role, options) => providerBindings.page.getByRole(role, {
             ...options,
             name: typeof options?.name === "string" ? interpolateText(options.name, context) : options?.name
@@ -1718,6 +2049,25 @@ const buildBindings = (session, context, captures, envelope) => {
         select: async (target, value, options) => session.select(resolveTarget(target), interpolateText(value, context), options),
         check: async (target, options) => session.check(resolveTarget(target), options),
         uncheck: async (target, options) => session.uncheck(resolveTarget(target), options),
+        uploadFile: async (target, files, options) => {
+            const resolvedFiles = Array.isArray(files)
+                ? files.map((file) => interpolateText(file, context))
+                : interpolateText(files, context);
+            return session.uploadFile(resolveTarget(target), resolvedFiles, options);
+        },
+        uploadLocalFile: async (target, files, options) => {
+            const resolvedFiles = Array.isArray(files)
+                ? files.map((file) => interpolateText(file, context))
+                : interpolateText(files, context);
+            return session.uploadFile(resolveTarget(target), resolvedFiles, options);
+        },
+        setInputFiles: async (target, files, options) => {
+            const resolvedFiles = Array.isArray(files)
+                ? files.map((file) => interpolateText(file, context))
+                : interpolateText(files, context);
+            return session.uploadFile(resolveTarget(target), resolvedFiles, options);
+        },
+        uploadRemoteFile: async (target, url, options) => session.uploadRemoteFile(resolveTarget(target), interpolateText(url, context), options),
         press: async (target, key, options) => {
             const resolvedTarget = target === null ? "" : resolveTarget(target).trim();
             return session.press(resolvedTarget || null, interpolateText(key, context), options);
@@ -1733,9 +2083,25 @@ const buildBindings = (session, context, captures, envelope) => {
             await session.expectText(resolveTarget(first), interpolateText(second, context), options);
         },
         expectVisible: async (target, options) => session.expectVisible(resolveTarget(target), options),
+        expectHidden: async (target, options) => session.expectHidden(resolveTarget(target), options),
+        expectEnabled: async (target, options) => session.expectEnabled(resolveTarget(target), options),
         expectUrl: async (expected, options) => session.waitForUrl(interpolateText(expected, context), options),
         text: async (target, options) => session.text(resolveTarget(target), options),
         value: async (target, options) => session.value(resolveTarget(target), options),
+        expectValue: async (target, expected, options) => {
+            const actual = await session.value(resolveTarget(target), options);
+            const resolvedExpected = interpolateText(expected, context);
+            const passed = options?.match === "equals" ? actual === resolvedExpected : actual.includes(resolvedExpected);
+            if (!passed) {
+                throw new Error(`Expected ${target} value to contain "${resolvedExpected}" but found "${actual}"`);
+            }
+        },
+        captureText: async (target, parameter, options) => {
+            const captured = await session.text(resolveTarget(target), options);
+            capture(parameter, captured);
+            return captured;
+        },
+        screenshot: async (label = "screenshot") => session.screenshot(interpolateText(label, context)),
         resolve: (value) => interpolateText(value, context),
         capture
     };

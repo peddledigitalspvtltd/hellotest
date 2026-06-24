@@ -27,6 +27,33 @@ export type PermissionGroup = {
   permissions: Permission[];
 };
 
+export type ApiKeyScope =
+  | "user"
+  | "read"
+  | "design"
+  | "automation"
+  | "runs"
+  | "environment"
+  | "integrations"
+  | "admin";
+
+export type ApiKeyScopeOption = {
+  value: ApiKeyScope;
+  label: string;
+  description: string;
+};
+
+export type UserApiKey = {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scope: ApiKeyScope;
+  is_active: boolean;
+  created_at?: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+};
+
 export type Project = {
   id: string;
   display_id?: string | null;
@@ -88,6 +115,7 @@ export type IntegrationType =
   | "google_drive"
   | "github"
   | "testengine"
+  | "cloudrun"
   | "ops"
   | "local-desktop";
 

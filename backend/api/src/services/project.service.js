@@ -205,8 +205,18 @@ const deleteProjectAiGenerationJobs = db.prepare(`
   WHERE project_id = ?
 `);
 
-const deleteProjectIntegrations = db.prepare(`
-  DELETE FROM integrations
+const clearDeletedProjectIntegrationScope = db.prepare(`
+  UPDATE integrations
+  SET
+    config = CASE
+      WHEN config->>'project_id' = ? THEN config - 'project_id'
+      ELSE config
+    END,
+    project_key = CASE
+      WHEN project_key = ? THEN NULL
+      ELSE project_key
+    END,
+    updated_at = CURRENT_TIMESTAMP
   WHERE config->>'project_id' = ?
      OR project_key = ?
 `);
@@ -394,7 +404,7 @@ exports.deleteProject = async (id) => {
     await deleteProjectTestConfigurations.run(id);
     await deleteProjectTestDataSets.run(id);
     await deleteProjectAiGenerationJobs.run(id);
-    await deleteProjectIntegrations.run(id, id);
+    await clearDeletedProjectIntegrationScope.run(id, id, id, id);
     await deleteProjectAppTypes.run(id);
     await deleteProjectMembers.run(id);
     await deleteProjectRecord.run(id);

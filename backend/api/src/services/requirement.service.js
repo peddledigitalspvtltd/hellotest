@@ -3,8 +3,8 @@ const { v4: uuid } = require("uuid");
 const requirementTestCaseService = require("./requirementTestCase.service");
 const displayIdService = require("./displayId.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
-const integrationService = require("./integration.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 
@@ -45,11 +45,15 @@ const extractJsonPayload = (content) => {
   return JSON.parse(jsonCandidate);
 };
 
-const resolveLlmIntegration = async (integrationId, projectId) => {
-  const integration = integrationId
-    ? await integrationService.getIntegration(integrationId)
-    : await integrationService.getActiveIntegrationByTypeForProject("llm", projectId)
-      || await integrationService.getActiveIntegrationByType("llm");
+const resolveLlmIntegration = async (integrationId, projectId, { userId, usageKey } = {}) => {
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId,
+    userId,
+    usageKey,
+    projectId,
+    fallback: "project-then-global",
+    allowMissing: true
+  });
 
   if (!integration) {
     return null;
@@ -450,7 +454,7 @@ exports.updateRequirement = async (id, data) => {
   return { updated: true };
 };
 
-exports.previewRequirementOptimization = async ({ id, integration_id, additional_context } = {}) => {
+exports.previewRequirementOptimization = async ({ id, integration_id, user_id, additional_context } = {}) => {
   const requirement = await exports.getRequirement(id);
   const linkedTestCases = await selectLinkedTestCases.all(id);
   const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(requirement.project_id, {
@@ -459,7 +463,10 @@ exports.previewRequirementOptimization = async ({ id, integration_id, additional
     module_name: requirement.module_name || null,
     feature_name: requirement.feature_name || null
   });
-  const integration = await resolveLlmIntegration(integration_id, requirement.project_id);
+  const integration = await resolveLlmIntegration(integration_id, requirement.project_id, {
+    userId: user_id,
+    usageKey: "ai.requirement.optimization"
+  });
   let suggestion;
 
   if (integration) {

@@ -106,6 +106,7 @@ module.exports = async function (fastify) {
     return service.previewRequirementOptimization({
       id: req.params.id,
       integration_id: req.body?.integration_id,
+      user_id: req.user.id,
       additional_context: req.body?.additional_context
     });
   });
@@ -136,6 +137,7 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       max_cases: req.body.max_cases,
       status: req.body.status,
       additional_context: req.body.additional_context,
@@ -169,6 +171,7 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       integration_id: req.body.integration_id,
+      user_id: req.user.id,
       max_cases: req.body.max_cases,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,

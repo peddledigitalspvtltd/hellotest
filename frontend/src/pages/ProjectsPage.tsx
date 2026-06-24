@@ -1,13 +1,14 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
+import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
@@ -32,6 +33,7 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { useAuth } from "../auth/AuthContext";
 import { formatAuditTimestamp } from "../lib/auditDisplay";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { hasPermission } from "../lib/permissions";
 import { resolveVisibleEmail } from "../lib/userDisplay";
 import type { AppType, Execution, ExecutionResult, Integration, Project, WorkspaceTransaction } from "../types";
@@ -399,7 +401,8 @@ export function ProjectsPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
   const [projectMemberFilter, setProjectMemberFilter] = useState("all");
-  const [projectViewMode, setProjectViewMode] = useState<"tile" | "list">("tile");
+  const [projectViewMode, setProjectViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [selectedActionProjectIds, setSelectedActionProjectIds] = useState<string[]>([]);
   const defaultAppTypeValue = domainMetadataQuery.data?.app_types.default_type || "web";
   const appTypeTypeOptions = domainMetadataQuery.data?.app_types.types || [];
   const appTypeDropdownOptions = useMemo(
@@ -905,6 +908,15 @@ export function ProjectsPage() {
     userSearchValueById
   ]);
 
+  const areAllFilteredProjectsSelected =
+    Boolean(filteredProjectItems.length) && filteredProjectItems.every((item) => selectedActionProjectIds.includes(item.project.id));
+
+  useEffect(() => {
+    setSelectedActionProjectIds((current) =>
+      current.filter((projectId) => projectPortfolioItems.some((item) => item.project.id === projectId))
+    );
+  }, [projectPortfolioItems]);
+
   const activeProjectFilterCount =
     (projectAppTypeFilter !== "all" ? 1 : 0) + (projectMemberFilter !== "all" ? 1 : 0);
 
@@ -1079,6 +1091,7 @@ export function ProjectsPage() {
       setMessageTone("success");
       setMessage("Project deleted.");
       setFocusedProjectId("");
+      setSelectedActionProjectIds((current) => current.filter((projectId) => projectId !== deletedProjectId));
       if (selectedProjectId === deletedProjectId) {
         setSelectedProjectId("");
       }
@@ -1115,6 +1128,27 @@ export function ProjectsPage() {
     }
 
     await deleteProject.mutateAsync(focusedProject.id);
+  };
+
+  const handleDeleteSelectedProjects = async () => {
+    if (!selectedActionProjectIds.length || deleteProject.isPending) {
+      return;
+    }
+
+    const selectedProjects = projectPortfolioItems.filter((item) => selectedActionProjectIds.includes(item.project.id));
+    const confirmed = await confirmDelete({
+      message: `Delete ${selectedProjects.length} selected project${selectedProjects.length === 1 ? "" : "s"} and all related data?`
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    for (const projectId of selectedActionProjectIds) {
+      await deleteProject.mutateAsync(projectId);
+    }
+
+    setSelectedActionProjectIds([]);
   };
 
   const updateProjectDraft = (input: Partial<ProjectCreateDraft>) => {
@@ -1233,18 +1267,18 @@ export function ProjectsPage() {
     navigate(path);
   };
 
-  const openPortfolioProject = (item: ProjectPortfolioItem) => {
+  const openPortfolioProject = useCallback((item: ProjectPortfolioItem) => {
     setSelectedProjectId(item.project.id);
     setFocusedProjectId(item.project.id);
-  };
+  }, [setSelectedProjectId]);
 
-  const openPortfolioProjectPath = (item: ProjectPortfolioItem, path: string) => {
+  const openPortfolioProjectPath = useCallback((item: ProjectPortfolioItem, path: string) => {
     setSelectedProjectId(item.project.id);
     setFocusedProjectId(item.project.id);
     navigate(path);
-  };
+  }, [navigate, setSelectedProjectId]);
 
-  const getProjectActionItems = (item: ProjectPortfolioItem) => [
+  const getProjectActionItems = useCallback((item: ProjectPortfolioItem) => [
     {
       label: "Open project details",
       icon: <OpenIcon />,
@@ -1285,7 +1319,149 @@ export function ProjectsPage() {
       description: isAdmin ? "Delete this project and related workspace data." : "Only admins can delete projects.",
       tone: "danger" as const
     }
-  ];
+  ], [confirmDelete, deleteProject.isPending, deleteProject.mutateAsync, isAdmin, openPortfolioProject, openPortfolioProjectPath]);
+
+  const projectListColumns = useMemo<Array<DataTableColumn<ProjectPortfolioItem>>>(() => [
+    {
+      key: "select",
+      label: "",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 56,
+      headerRender: () => (
+        <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label="Select all filtered projects"
+            checked={areAllFilteredProjectsSelected}
+            onChange={(event) =>
+              setSelectedActionProjectIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])]
+                  : current.filter((projectId) => !filteredProjectItems.some((item) => item.project.id === projectId))
+              )
+            }
+            type="checkbox"
+          />
+        </label>
+      ),
+      render: (item) => (
+        <div onClick={(event) => event.stopPropagation()}>
+          <input
+            aria-label={`Select ${item.project.name}`}
+            checked={selectedActionProjectIds.includes(item.project.id)}
+            onChange={(event) =>
+              setSelectedActionProjectIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, item.project.id])]
+                  : current.filter((projectId) => projectId !== item.project.id)
+              )
+            }
+            type="checkbox"
+          />
+        </div>
+      )
+    },
+    {
+      key: "id",
+      label: "ID",
+      width: 120,
+      minWidth: 96,
+      sortValue: (item) => item.project.display_id || item.project.id,
+      render: (item) => <DisplayIdBadge value={item.project.display_id || item.project.id} />
+    },
+    {
+      key: "project",
+      label: "Project",
+      canToggle: false,
+      width: 280,
+      minWidth: 180,
+      sortValue: (item) => item.project.name,
+      render: (item) => (
+        <div className="projects-list-primary-cell">
+          <strong>{item.project.name}</strong>
+          <span>{item.project.description || "No description yet."}</span>
+        </div>
+      )
+    },
+    {
+      key: "readiness",
+      label: "Readiness",
+      width: 180,
+      minWidth: 140,
+      sortValue: (item) => item.readinessScore,
+      render: (item) => (
+        <div className="projects-list-status-cell">
+          <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
+          <strong>{item.readinessScore}%</strong>
+          <span>{item.readinessLabel}</span>
+        </div>
+      )
+    },
+    {
+      key: "scope",
+      label: "Scope",
+      width: 240,
+      minWidth: 164,
+      sortValue: (item) => item.appTypeCount,
+      render: (item) => (
+        <div className="projects-list-meta-cell">
+          <strong>{item.appTypeCount} app types</strong>
+          <span>{item.suiteCount} suites / {item.requirementCount} reqs / {item.testCaseCount} cases</span>
+        </div>
+      )
+    },
+    {
+      key: "members",
+      label: "Members",
+      defaultVisible: false,
+      width: 260,
+      minWidth: 180,
+      sortValue: (item) => item.memberCount,
+      render: (item) => item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"
+    },
+    {
+      key: "coverage",
+      label: "Coverage",
+      width: 220,
+      minWidth: 160,
+      sortValue: (item) => item.coverage.coveragePercent,
+      render: (item) => (
+        <div className="projects-list-meta-cell">
+          <span>Req {item.coverage.coveragePercent}%</span>
+          <span>Auto {item.automationCoverage.coveragePercent}%</span>
+          <span>Pass {item.passCoverage.coveragePercent}%</span>
+        </div>
+      )
+    },
+    {
+      key: "latestRun",
+      label: "Latest run",
+      width: 220,
+      minWidth: 160,
+      sortValue: (item) => item.latestExecution?.created_at || item.latestExecution?.started_at || "",
+      render: (item) => (
+        <div className="projects-list-meta-cell">
+          <strong>{item.latestRunLabel}</strong>
+          <span>{item.latestExecution?.status || "No execution"} / {item.latestFailedCount} failed</span>
+          <span>{item.latestDurationLabel}</span>
+        </div>
+      )
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 92,
+      render: (item) => (
+        <div className="projects-list-actions" onClick={(event) => event.stopPropagation()}>
+          <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+        </div>
+      )
+    }
+  ], [areAllFilteredProjectsSelected, filteredProjectItems, getProjectActionItems, selectedActionProjectIds]);
 
   return (
     <div className="page-content">
@@ -1363,6 +1539,75 @@ export function ProjectsPage() {
             subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or app types."
             actions={(
               <div className="projects-catalog-actions">
+                <CatalogSearchFilter
+                  activeFilterCount={activeProjectFilterCount}
+                  ariaLabel="Search projects"
+                  onChange={setProjectSearch}
+                  placeholder="Search projects"
+                  subtitle="Filter projects by app type scope or project members."
+                  title="Filter projects"
+                  type="search"
+                  value={projectSearch}
+                >
+                  <div className="catalog-filter-grid">
+                    <label className="catalog-filter-field">
+                      <span>App type</span>
+                      <select onChange={(event) => setProjectAppTypeFilter(event.target.value)} value={projectAppTypeFilter}>
+                        <option value="all">All app types</option>
+                        <option value="with-app-types">Has app types</option>
+                        <option value="without-app-types">No app types</option>
+                        {appTypeTypeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="catalog-filter-field">
+                      <span>Project member</span>
+                      <select onChange={(event) => setProjectMemberFilter(event.target.value)} value={projectMemberFilter}>
+                        <option value="all">All members</option>
+                        <option value="with-members">Has members</option>
+                        <option value="without-members">No members</option>
+                        {projectMemberOptions.map((user) => (
+                          <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="catalog-filter-actions">
+                      <button
+                        className="ghost-button"
+                        disabled={!activeProjectFilterCount}
+                        onClick={() => {
+                          setProjectAppTypeFilter("all");
+                          setProjectMemberFilter("all");
+                        }}
+                        type="button"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  </div>
+                </CatalogSearchFilter>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!filteredProjectItems.length || areAllFilteredProjectsSelected}
+                  onClick={() =>
+                    setSelectedActionProjectIds((current) => [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])])
+                  }
+                  type="button"
+                >
+                  <SelectAllIcon />
+                  <span>Select all</span>
+                </button>
+                <button
+                  className="ghost-button catalog-selection-button"
+                  disabled={!selectedActionProjectIds.length}
+                  onClick={() => setSelectedActionProjectIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+                <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
                 <button
                   className="ghost-button projects-catalog-create-button"
                   onClick={openCreateProjectModal}
@@ -1371,60 +1616,23 @@ export function ProjectsPage() {
                   <AddIcon />
                   <span>Create New Project</span>
                 </button>
-                <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
+                <CatalogActionMenu
+                  className="project-more-actions"
+                  actions={[
+                    {
+                      label: `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`,
+                      description: isAdmin ? "Delete selected projects and related workspace data." : "Only admins can delete projects.",
+                      icon: <TrashIcon />,
+                      disabled: !isAdmin || !selectedActionProjectIds.length || deleteProject.isPending,
+                      tone: "danger",
+                      onClick: () => void handleDeleteSelectedProjects()
+                    }
+                  ]}
+                  label="Project actions"
+                />
               </div>
             )}
           >
-            <div className="project-list-toolbar">
-              <CatalogSearchFilter
-                activeFilterCount={activeProjectFilterCount}
-                ariaLabel="Search projects"
-                onChange={setProjectSearch}
-                placeholder="Search projects"
-                subtitle="Filter projects by app type scope or project members."
-                title="Filter projects"
-                type="search"
-                value={projectSearch}
-              >
-                <div className="catalog-filter-grid">
-                  <label className="catalog-filter-field">
-                    <span>App type</span>
-                    <select onChange={(event) => setProjectAppTypeFilter(event.target.value)} value={projectAppTypeFilter}>
-                      <option value="all">All app types</option>
-                      <option value="with-app-types">Has app types</option>
-                      <option value="without-app-types">No app types</option>
-                      {appTypeTypeOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="catalog-filter-field">
-                    <span>Project member</span>
-                    <select onChange={(event) => setProjectMemberFilter(event.target.value)} value={projectMemberFilter}>
-                      <option value="all">All members</option>
-                      <option value="with-members">Has members</option>
-                      <option value="without-members">No members</option>
-                      {projectMemberOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="catalog-filter-actions">
-                    <button
-                      className="ghost-button"
-                      disabled={!activeProjectFilterCount}
-                      onClick={() => {
-                        setProjectAppTypeFilter("all");
-                        setProjectMemberFilter("all");
-                      }}
-                      type="button"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                </div>
-              </CatalogSearchFilter>
-            </div>
             {isProjectCatalogLoading ? <TileCardSkeletonGrid className="catalog-grid compact" /> : null}
             {!isProjectCatalogLoading ? (
               projectViewMode === "tile" ? (
@@ -1466,22 +1674,37 @@ export function ProjectsPage() {
                         tabIndex={0}
                       >
                         <div className="project-portfolio-topline">
+                          <div className="tile-card-select-row project-card-select-row">
+                            <label className="checkbox-field" onClick={(event) => event.stopPropagation()}>
+                              <input
+                                aria-label={`Select ${project.name}`}
+                                checked={selectedActionProjectIds.includes(project.id)}
+                                onChange={(event) =>
+                                  setSelectedActionProjectIds((current) =>
+                                    event.target.checked
+                                      ? [...new Set([...current, project.id])]
+                                      : current.filter((projectId) => projectId !== project.id)
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              <DisplayIdBadge value={project.display_id || project.id} />
+                            </label>
+                            <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
+                              <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
+                              <CatalogActionMenu
+                                actions={getProjectActionItems(item)}
+                                label={`${project.name} actions`}
+                              />
+                            </div>
+                          </div>
                           <div className="project-portfolio-title">
                             <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
                               <TileCardProjectIcon />
                             </TileCardIconFrame>
                             <div>
-                              <DisplayIdBadge value={project.display_id || project.id} />
                               <h3>{project.name}</h3>
-                              <span>{item.appTypeSummary}</span>
                             </div>
-                          </div>
-                          <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
-                            <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
-                            <CatalogActionMenu
-                              actions={getProjectActionItems(item)}
-                              label={`${project.name} actions`}
-                            />
                           </div>
                         </div>
 
@@ -1549,51 +1772,20 @@ export function ProjectsPage() {
                     );
                   })}
                 </div>
-              ) : (
-                <div className="projects-list-view" role="table" aria-label="Project relation list">
-                  <div className="projects-list-row projects-list-head" role="row">
-                    <span>Project</span>
-                    <span>Readiness</span>
-                    <span>Scope</span>
-                    <span>Coverage</span>
-                    <span>Latest Run</span>
-                    <span>Actions</span>
-                  </div>
-                  {filteredProjectItems.map((item) => (
-                    <div className="projects-list-row" role="row" key={item.project.id}>
-                      <div className="projects-list-project">
-                        <DisplayIdBadge value={item.project.display_id || item.project.id} />
-                        <strong>{item.project.name}</strong>
-                        <span>{item.project.description || item.appTypeSummary}</span>
-                        <small>{item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"}</small>
-                      </div>
-                      <div>
-                        <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
-                        <strong>{item.readinessScore}%</strong>
-                        <small>{item.readinessLabel}</small>
-                      </div>
-                      <div>
-                        <strong>{item.appTypeCount} app types</strong>
-                        <span>{item.suiteCount} suites · {item.requirementCount} reqs · {item.testCaseCount} cases</span>
-                      </div>
-                      <div className="projects-list-coverage">
-                        <span>Req {item.coverage.coveragePercent}%</span>
-                        <span>Auto {item.automationCoverage.coveragePercent}%</span>
-                        <span>Pass {item.passCoverage.coveragePercent}%</span>
-                      </div>
-                      <div>
-                        <strong>{item.latestRunLabel}</strong>
-                        <span>{item.latestExecution?.status || "No execution"} · {item.latestFailedCount} failed</span>
-                        <small>{item.latestDurationLabel}</small>
-                      </div>
-                      <div className="projects-list-actions">
-                        <button className="ghost-button" onClick={() => openPortfolioProject(item)} type="button">Open</button>
-                        <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
+              ) : filteredProjectItems.length ? (
+                <DataTable
+                  columns={projectListColumns}
+                  enableColumnResize
+                  enableHeaderColumnReorder
+                  emptyMessage="No projects match the current search or filters."
+                  getRowClassName={(item) => (String(selectedProjectId) === String(item.project.id) ? "is-active-row" : "")}
+                  getRowKey={(item) => item.project.id}
+                  hideToolbarCopy
+                  onRowClick={openPortfolioProject}
+                  rows={filteredProjectItems}
+                  storageKey="qaira:projects:list-columns"
+                />
+              ) : null
             ) : null}
             {!isProjectCatalogLoading && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, app types, and the initial team in one flow.</div> : null}
             {!isProjectCatalogLoading && projectItems.length > 0 && !filteredProjectItems.length ? <div className="empty-state compact">No projects match the current search or filters.</div> : null}
@@ -1995,7 +2187,7 @@ export function ProjectsPage() {
                         onClick={() => updateProjectDraft({ memberIds: [] })}
                         type="button"
                       >
-                        Clear selection
+                        Clear
                       </button>
                     </div>
                   </div>

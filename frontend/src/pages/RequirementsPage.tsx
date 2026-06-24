@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, ImportIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, ImportIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -36,6 +36,7 @@ import { appendUniqueImages, parseExternalLinks, readImageFiles } from "../lib/a
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { parseRequirementCsv } from "../lib/requirementImport";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, ExecutionResult, Requirement, TestCase, User } from "../types";
 
@@ -127,7 +128,7 @@ export function RequirementsPage() {
   const [requirementStatusFilter, setRequirementStatusFilter] = useState("all");
   const [requirementPriorityFilter, setRequirementPriorityFilter] = useState("all");
   const [requirementCoverageFilter, setRequirementCoverageFilter] = useState<RequirementCoverageFilter>("all");
-  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">("tile");
+  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [expandedSections, setExpandedSections] = useState<Record<RequirementSectionKey, boolean>>(createDefaultRequirementSections);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -294,8 +295,8 @@ export function RequirementsPage() {
       return;
     }
 
-    if (!integrations.some((integration) => integration.id === integrationId)) {
-      setIntegrationId(integrations[0].id);
+    if (integrationId && !integrations.some((integration) => integration.id === integrationId)) {
+      setIntegrationId("");
     }
   }, [integrationId, integrations]);
 
@@ -1403,23 +1404,28 @@ export function RequirementsPage() {
                   </div>
                 </div>
               </CatalogSearchFilter>
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!filteredRequirements.length || areAllFilteredRequirementsSelected}
+                onClick={() =>
+                  setDeleteSelectedRequirementIds((current) => [...new Set([...current, ...filteredRequirements.map((item) => item.id)])])
+                }
+                type="button"
+              >
+                <SelectAllIcon />
+                <span>Select all</span>
+              </button>
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!deleteSelectedRequirementIds.length}
+                onClick={() => setDeleteSelectedRequirementIds([])}
+                type="button"
+              >
+                <ClearSelectionIcon />
+                <span>Clear</span>
+              </button>
               <CatalogActionMenu
                 actions={[
-                  {
-                    label: "Select all visible",
-                    description: "Mark every requirement currently shown by search and filters.",
-                    icon: <AddIcon />,
-                    disabled: !filteredRequirements.length || areAllFilteredRequirementsSelected,
-                    onClick: () =>
-                      setDeleteSelectedRequirementIds((current) => [...new Set([...current, ...filteredRequirements.map((item) => item.id)])])
-                  },
-                  {
-                    label: "Clear selection",
-                    description: "Remove all selected requirements from the bulk action set.",
-                    icon: <ImportIcon />,
-                    disabled: !deleteSelectedRequirementIds.length,
-                    onClick: () => setDeleteSelectedRequirementIds([])
-                  },
                   {
                     label: `Complete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`,
                     description: "Use AI to improve missing or weak requirement details.",
@@ -1807,7 +1813,7 @@ export function RequirementsPage() {
                         onClick={() => setCreateSelectedTestCaseIds([])}
                         type="button"
                       >
-                        Clear selection
+                        Clear
                       </button>
                     </div>
                   </div>
@@ -1993,7 +1999,7 @@ export function RequirementsPage() {
               <div className="record-grid">
                 <FormField label="LLM integration">
                   <select value={integrationId} onChange={(event) => setIntegrationId(event.target.value)}>
-                    <option value="">Use active local/project LLM</option>
+                    <option value="">Configured prompt LLM or active local/project LLM</option>
                     {integrations.map((integration) => (
                       <option key={integration.id} value={integration.id}>
                         {integration.name}

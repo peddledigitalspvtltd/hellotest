@@ -75,6 +75,11 @@ const normalizeTestEngineVideoMode = (value, fallback = "retain-on-failure") => 
   return ["off", "on", "retain-on-failure"].includes(normalized) ? normalized : fallback;
 };
 
+const normalizeCloudRunProvider = (value, fallback = "browserstack") => {
+  const normalized = normalizeText(value);
+  return ["browserstack", "lambdatest", "saucelabs", "crossbrowser", "other"].includes(normalized) ? normalized : fallback;
+};
+
 const normalizeTestEnginePollIntervalMinutes = (value, fallback = 5) => {
   const parsed = normalizeNumber(value);
   const normalizedFallback = Math.max(0.5, normalizeNumber(fallback) || 5);
@@ -548,6 +553,21 @@ const normalizeConfig = (type, input, username) => {
     };
   }
 
+  if (type === "cloudrun") {
+    return {
+      provider: normalizeCloudRunProvider(raw.provider, String(integrationTypeConfig.provider || "browserstack")),
+      project_id: normalizeText(raw.project_id),
+      remote_url: normalizeText(raw.remote_url),
+      browser: normalizeText(raw.browser) || String(integrationTypeConfig.browser || "Chrome"),
+      os: normalizeText(raw.os) || String(integrationTypeConfig.os || "Windows"),
+      device_name: normalizeText(raw.device_name),
+      platform_version: normalizeText(raw.platform_version),
+      build_name: normalizeText(raw.build_name),
+      session_name: normalizeText(raw.session_name),
+      provider_options: isPlainObject(raw.provider_options) ? raw.provider_options : {}
+    };
+  }
+
   if (type === "ops") {
     return {
       project_id: normalizeText(raw.project_id),
@@ -629,6 +649,22 @@ const validatePayload = (payload) => {
   if (type === "testengine") {
     if (!base_url) {
       throw new Error("Test Engine integrations require a host URL");
+    }
+  }
+
+  if (type === "cloudrun" && is_active) {
+    const cloudConfig = normalizeObject(payload.config);
+
+    if (!base_url && !normalizeText(cloudConfig.remote_url)) {
+      throw new Error("Cloud Run integrations require a remote hub URL");
+    }
+
+    if (!username) {
+      throw new Error("Cloud Run integrations require a provider username");
+    }
+
+    if (!api_key) {
+      throw new Error("Cloud Run integrations require an access key");
     }
   }
 
@@ -776,7 +812,8 @@ exports.updateIntegration = async (id, input) => {
             ...(existing.config || {}),
             ...normalizeObject(input.config),
             ...(isMaskedSecretValue(input.config?.password) ? { password: existing.config?.password || null } : {}),
-            ...(isMaskedSecretValue(input.config?.callback_secret) ? { callback_secret: existing.config?.callback_secret || null } : {})
+            ...(isMaskedSecretValue(input.config?.callback_secret) ? { callback_secret: existing.config?.callback_secret || null } : {}),
+            ...(isMaskedSecretValue(input.config?.mobile_access_key) ? { mobile_access_key: existing.config?.mobile_access_key || null } : {})
           }
         : normalizeObject(input.config);
   const nextApiKey = Object.prototype.hasOwnProperty.call(input, "api_key")
@@ -825,6 +862,81 @@ exports.deleteIntegration = async (id) => {
   `).run(id);
 
   return { deleted: true };
+};
+
+exports.exportIntegrations = async () => {
+  const integrations = await exports.getIntegrations();
+
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    integrations
+  };
+};
+
+exports.importIntegrations = async (input = {}) => {
+  const entries = Array.isArray(input) ? input : input.integrations;
+
+  if (!Array.isArray(entries)) {
+    throw new Error("Integration import requires an integrations array");
+  }
+
+  const result = {
+    imported: 0,
+    updated: 0,
+    failed: 0,
+    failures: []
+  };
+
+  for (const entry of entries) {
+    if (!isPlainObject(entry)) {
+      result.failed += 1;
+      result.failures.push({ name: "Unknown integration", error: "Entry must be an object" });
+      continue;
+    }
+
+    const id = normalizeText(entry.id);
+    const existing = id
+      ? normalizeIntegration(await db.prepare(`SELECT * FROM integrations WHERE id = ?`).get(id) || null)
+      : null;
+    const payload = {
+      type: entry.type,
+      name: entry.name,
+      base_url: entry.base_url,
+      api_key: entry.api_key,
+      model: entry.model,
+      project_key: entry.project_key,
+      username: entry.username,
+      config: entry.config,
+      is_active: entry.is_active
+    };
+
+    try {
+      if (existing) {
+        await exports.updateIntegration(existing.id, payload);
+        result.updated += 1;
+      } else {
+        if (
+          isMaskedSecretValue(payload.api_key)
+          || isMaskedSecretValue(payload.config?.password)
+          || isMaskedSecretValue(payload.config?.mobile_access_key)
+        ) {
+          throw new Error("Masked secrets can only update an existing integration. Provide real credentials to import a new one.");
+        }
+
+        await exports.createIntegration(payload);
+        result.imported += 1;
+      }
+    } catch (error) {
+      result.failed += 1;
+      result.failures.push({
+        name: normalizeText(entry.name) || normalizeText(entry.id) || "Unknown integration",
+        error: error instanceof Error ? error.message : "Import failed"
+      });
+    }
+  }
+
+  return result;
 };
 
 exports.mergeIntegrationConfig = async (id, configUpdates = {}) => {

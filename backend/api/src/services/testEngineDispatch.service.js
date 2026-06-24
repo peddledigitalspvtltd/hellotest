@@ -218,8 +218,56 @@ const normalizeEngineHostUrl = (value) => {
   }
 };
 
+const normalizeFallbackLocator = (value) => {
+  if (typeof value === "string") {
+    const locator = normalizeText(value);
+    return locator ? { locator, strategy: null, confidenceScore: null } : null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const locator = normalizeText(value.locator || value.selector || value.value);
+  if (!locator) {
+    return null;
+  }
+
+  const score = Number(value.confidenceScore ?? value.confidence_score ?? value.confidence);
+  return {
+    locator,
+    strategy: normalizeText(value.strategy || value.locator_kind || value.kind),
+    confidenceScore: Number.isFinite(score) ? score : null
+  };
+};
+
+const normalizeFallbackLocators = (...sources) => {
+  const seen = new Set();
+  const result = [];
+
+  sources.flatMap((source) => Array.isArray(source) ? source : [source]).forEach((item) => {
+    const locator = normalizeFallbackLocator(item);
+    if (locator && !seen.has(locator.locator)) {
+      seen.add(locator.locator);
+      result.push(locator);
+    }
+  });
+
+  return result;
+};
+
 const normalizeObjectRepositoryEntry = (row) => {
   const metadata = normalizeJsonValue(row.metadata, {});
+  const fallbackLocators = normalizeFallbackLocators(
+    metadata.fallback_locators,
+    metadata.locator_candidates
+  );
+  const previousLocators = [
+    ...(Array.isArray(metadata.previous_locators) ? metadata.previous_locators.map(String) : []),
+    normalizeText(metadata.playwright_locator),
+    normalizeText(metadata.primary_playwright_locator),
+    ...fallbackLocators.map((item) => item.locator)
+  ].filter(Boolean);
 
   return {
     id: row.id,
@@ -238,7 +286,9 @@ const normalizeObjectRepositoryEntry = (row) => {
     dom_structure: normalizeText(metadata.dom_structure || metadata.dom_path || metadata.html),
     screenshot_url: normalizeText(metadata.screenshot_url || metadata.screenshot_path),
     fallback_strategy: normalizeText(metadata.fallback_strategy),
-    previous_locators: Array.isArray(metadata.previous_locators) ? metadata.previous_locators.map(String).filter(Boolean) : [],
+    previous_locators: [...new Set(previousLocators)],
+    fallback_locators: fallbackLocators,
+    metadata,
     updated_at: row.updated_at || null
   };
 };

@@ -62,15 +62,25 @@ export function CatalogActionMenu({
       });
     };
 
+    const handleScroll = (event: Event) => {
+      const target = event.target as Node | null;
+
+      if (target && menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
     updateMenuPosition();
     const frameId = window.requestAnimationFrame(updateMenuPosition);
     window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
+    window.addEventListener("scroll", handleScroll, true);
 
     return () => {
       window.cancelAnimationFrame(frameId);
       window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
+      window.removeEventListener("scroll", handleScroll, true);
     };
   }, [isOpen]);
 
