@@ -35,6 +35,20 @@ module.exports = async function (fastify) {
     return agenticWorkflowService.createWorkflow(req.body, req.user.id);
   });
 
+  fastify.post("/agentic-workflows/api-agent-test", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      method: { required: false, type: "string" },
+      url: { required: true, type: "string" },
+      auth: { required: false, type: "string" },
+      responseStyle: { required: false, type: "string" },
+      body: { required: false, type: "string" },
+      credential: { required: false, type: "object" }
+    }, req.body || {});
+
+    return agenticWorkflowService.testApiAgent(req.body || {});
+  });
+
   fastify.get("/agentic-workflows/:id", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);

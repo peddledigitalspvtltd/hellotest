@@ -1614,11 +1614,27 @@ export function ProjectsPage() {
                   type="button"
                 >
                   <AddIcon />
-                  <span>Create New Project</span>
+                  <span>Create Project</span>
+                </button>
+                <button
+                  className="ghost-button danger projects-catalog-delete-button"
+                  disabled={!isAdmin || !selectedActionProjectIds.length || deleteProject.isPending}
+                  onClick={() => void handleDeleteSelectedProjects()}
+                  type="button"
+                >
+                  <TrashIcon />
+                  <span>{deleteProject.isPending ? "Deleting…" : `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`}</span>
                 </button>
                 <CatalogActionMenu
                   className="project-more-actions"
                   actions={[
+                    {
+                      label: "Create Project",
+                      description: "Create a new project with app type scope and initial team members.",
+                      icon: <AddIcon />,
+                      tone: "primary",
+                      onClick: openCreateProjectModal
+                    },
                     {
                       label: `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`,
                       description: isAdmin ? "Delete selected projects and related workspace data." : "Only admins can delete projects.",

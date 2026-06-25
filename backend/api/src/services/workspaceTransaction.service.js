@@ -430,7 +430,9 @@ exports.listTransactions = async ({
   }
 
   if (app_type_id) {
-    query += ` AND workspace_transactions.app_type_id = ?`;
+    query += include_global
+      ? ` AND (workspace_transactions.app_type_id = ? OR workspace_transactions.app_type_id IS NULL)`
+      : ` AND workspace_transactions.app_type_id = ?`;
     params.push(app_type_id);
   }
 
@@ -440,7 +442,7 @@ exports.listTransactions = async ({
   }
 
   query += ` ORDER BY COALESCE(workspace_transactions.updated_at, workspace_transactions.created_at) DESC, workspace_transactions.id DESC LIMIT ?`;
-  params.push(Math.max(1, Math.min(100, Number(limit) || 20)));
+  params.push(Math.max(1, Math.min(500, Number(limit) || 20)));
 
   const rows = await obsDb.prepare(query).all(...params);
   return Promise.all(rows.map(hydrateTransaction));

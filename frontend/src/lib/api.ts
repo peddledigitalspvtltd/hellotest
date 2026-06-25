@@ -222,6 +222,15 @@ type TestCaseImportBatchInput = {
   rows: Array<Record<string, unknown>>;
 };
 
+type AgenticApiAgentTestInput = {
+  method?: string;
+  url: string;
+  auth?: string;
+  responseStyle?: string;
+  body?: string;
+  credential?: Record<string, unknown> | null;
+};
+
 const MAX_IMPORT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_ROWS_PER_BATCH = 250;
 const MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH = 100;
@@ -1073,6 +1082,11 @@ export const api = {
       }),
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/agentic-workflows/${id}`, { method: "DELETE" }),
+    testApiAgent: (input: AgenticApiAgentTestInput) =>
+      request<Record<string, unknown>>("/agentic-workflows/api-agent-test", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     run: (id: string, input?: { trigger_kind?: AgenticWorkflow["trigger_kind"]; input_payload?: Record<string, unknown> }) =>
       request<AgenticWorkflowRun>(`/agentic-workflows/${id}/runs`, {
         method: "POST",

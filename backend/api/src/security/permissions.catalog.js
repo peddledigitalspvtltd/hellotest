@@ -295,6 +295,7 @@ const ROUTE_PERMISSION_RULES = [
   ["POST", "/agentic-workflows", "agentic_workflow.manage"],
   ["PUT", "/agentic-workflows/:id", "agentic_workflow.manage"],
   ["DELETE", "/agentic-workflows/:id", "agentic_workflow.manage"],
+  ["POST", "/agentic-workflows/api-agent-test", "agentic_workflow.run"],
   ["POST", "/agentic-workflows/:id/runs", "agentic_workflow.run"],
   ["GET", "/agentic-workflow-runs", "agentic_workflow.view"],
   ["GET", "/agentic-workflow-runs/:id", "agentic_workflow.view"],

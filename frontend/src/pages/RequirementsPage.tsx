@@ -786,7 +786,9 @@ export function RequirementsPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirements-test-cases", appTypeId] }),
-      queryClient.invalidateQueries({ queryKey: ["test-cases"] })
+      queryClient.invalidateQueries({ queryKey: ["test-cases"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-transaction-events"] })
     ]);
   };
 

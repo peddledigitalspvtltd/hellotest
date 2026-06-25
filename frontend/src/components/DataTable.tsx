@@ -211,7 +211,7 @@ export function DataTable<T>({
   const columnConfigPanelRef = useRef<HTMLDivElement | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
   const lastSavedPreferenceRef = useRef<string>("");
-  const [columnConfigPanelPosition, setColumnConfigPanelPosition] = useState<{ top: number; right: number } | null>(null);
+  const [columnConfigPanelPosition, setColumnConfigPanelPosition] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
 
   useEffect(() => {
     setColumnPreference((current) => normalizeColumnPreference(columns, current));
@@ -307,9 +307,25 @@ export function DataTable<T>({
     }
 
     const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const triggerGap = 8;
+    const preferredMaxHeight = 544;
+    const minimumUsefulHeight = 260;
+    const availableBelow = window.innerHeight - rect.bottom - triggerGap - viewportPadding;
+    const availableAbove = rect.top - triggerGap - viewportPadding;
+    const shouldOpenAbove = availableBelow < minimumUsefulHeight && availableAbove > availableBelow;
+    const maxHeight = Math.max(
+      minimumUsefulHeight,
+      Math.min(preferredMaxHeight, shouldOpenAbove ? availableAbove : availableBelow)
+    );
+    const top = shouldOpenAbove
+      ? Math.max(viewportPadding, rect.top - triggerGap - maxHeight)
+      : Math.min(rect.bottom + triggerGap, window.innerHeight - viewportPadding - maxHeight);
+
     setColumnConfigPanelPosition({
-      top: Math.min(rect.bottom + 8, window.innerHeight - 96),
-      right: Math.max(window.innerWidth - rect.right, 12)
+      top,
+      right: Math.max(window.innerWidth - rect.right, viewportPadding),
+      maxHeight
     });
   };
 
@@ -557,7 +573,11 @@ export function DataTable<T>({
       className="data-table-config-panel"
       ref={columnConfigPanelRef}
       role="menu"
-      style={columnConfigPanelPosition ? { top: columnConfigPanelPosition.top, right: columnConfigPanelPosition.right } : undefined}
+      style={columnConfigPanelPosition ? {
+        top: columnConfigPanelPosition.top,
+        right: columnConfigPanelPosition.right,
+        maxHeight: columnConfigPanelPosition.maxHeight
+      } : undefined}
     >
       <div className="data-table-config-head">
         <div className="data-table-config-title-row">

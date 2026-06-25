@@ -200,12 +200,11 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     enabled: Boolean(session)
   });
   const transactionsQuery = useQuery({
-    queryKey: ["workspace-transactions", "testops", projectId, appTypeId],
+    queryKey: ["workspace-transactions", "testops", projectId],
     queryFn: () => api.workspaceTransactions.list({
       project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
       include_global: true,
-      limit: 150
+      limit: 300
     }),
     enabled: Boolean(projectId && session),
     refetchInterval: (query) =>
