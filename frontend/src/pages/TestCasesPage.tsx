@@ -833,7 +833,7 @@ export function TestCasesPage() {
   const [aiRequirementIds, setAiRequirementIds] = useState<string[]>([]);
   const [integrationId, setIntegrationId] = useState("");
   const [maxCases, setMaxCases] = useState(3);
-  const [parallelRequirementLimit, setParallelRequirementLimit] = useState(5);
+  const parallelRequirementLimit = 1;
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
   const [aiExternalLinksText, setAiExternalLinksText] = useState("");
   const [aiReferenceImages, setAiReferenceImages] = useState<AiDesignImageInput[]>([]);
@@ -1374,7 +1374,6 @@ export function TestCasesPage() {
     setAiRequirementIds([]);
     setAiPreviewCases([]);
     setAiPreviewMessage("");
-    setParallelRequirementLimit(5);
     setSchedulerActionCaseId("");
     setSchedulerActionKind("");
     setRephrasingStepId("");
@@ -4142,7 +4141,6 @@ export function TestCasesPage() {
     const nextRequirementIds = seededRequirementIds.length ? [...new Set(seededRequirementIds)] : requirements[0] ? [requirements[0].id] : [];
 
     setAiRequirementIds(nextRequirementIds);
-    setParallelRequirementLimit(Math.min(Math.max(nextRequirementIds.length || 1, 1), 3));
     setAiPreviewCases([]);
     setAiPreviewMessage("");
     setAiPreviewTone("success");
@@ -7445,7 +7443,6 @@ export function TestCasesPage() {
           }}
           onExternalLinksTextChange={setAiExternalLinksText}
           onIntegrationIdChange={setIntegrationId}
-          onParallelRequirementCountChange={setParallelRequirementLimit}
           onViewExistingCase={openExistingCaseFromAi}
           onPreview={() => void handlePreviewDesignedCases()}
           onSchedule={() => void handleScheduleDesignedCases()}
@@ -7462,7 +7459,6 @@ export function TestCasesPage() {
             setAiPreviewCases((current) => toggleRequirementOnPreviewCase(current, clientId, requirementId, requirement.title));
           }}
           onMaxCasesChange={setMaxCases}
-          parallelRequirementCount={parallelRequirementLimit}
           previewCases={aiPreviewCases}
           previewMessage={aiPreviewMessage}
           promptTemplateAppTypeId={appTypeId}
@@ -7473,7 +7469,7 @@ export function TestCasesPage() {
           requirementHelpText="Select one or more requirements, provide extra context, then review the generated drafts before approving them into the reusable library."
           requirementLabel="Requirements"
           requirements={requirements}
-          scheduleHelperText="Schedule batch AI generation for selected requirements. The worker processes up to five requirements at a time, backs off on LLM rate limits, and returns generated cases as drafts with green accept and red reject actions."
+          scheduleHelperText="Schedule batch AI generation for selected requirements. The worker processes one requirement at a time with a cooldown between requirements to reduce LLM rate-limit pressure, then returns generated cases as drafts with green accept and red reject actions."
           selectedRequirementIds={aiSelectedRequirements.map((requirement) => requirement.id)}
         />
       ) : null}

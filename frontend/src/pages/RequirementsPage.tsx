@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
 import { AddIcon, ClearSelectionIcon, ImportIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
-import { CatalogActionMenu } from "../components/CatalogActionMenu";
+import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -32,13 +32,14 @@ import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { api } from "../lib/api";
+import type { AlmRequirementCandidate } from "../lib/api";
 import { appendUniqueImages, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
-import type { AiDesignImageInput, AiDesignedTestCaseCandidate, ExecutionResult, Requirement, TestCase, User } from "../types";
+import type { AiDesignImageInput, AiDesignedTestCaseCandidate, ExecutionResult, Integration, Requirement, TestCase, User } from "../types";
 
 type RequirementDraft = {
   title: string;
@@ -58,6 +59,7 @@ type RequirementCoverageMetric = {
 };
 
 type RequirementOptimizationSuggestion = Awaited<ReturnType<typeof api.requirements.previewOptimization>>["suggestion"];
+type RequirementImportSource = "csv" | "alm";
 
 const createEmptyRequirementDraft = (defaultStatus = "open"): RequirementDraft => ({
   title: "",
@@ -149,9 +151,14 @@ export function RequirementsPage() {
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTone, setPreviewTone] = useState<"success" | "error">("success");
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [requirementImportSource, setRequirementImportSource] = useState<RequirementImportSource>("csv");
   const [importRows, setImportRows] = useState<Array<{ title: string; description?: string; external_references?: string[]; priority?: number; status?: string }>>([]);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importFileName, setImportFileName] = useState("");
+  const [selectedAlmIntegrationId, setSelectedAlmIntegrationId] = useState("");
+  const [selectedAlmProjectKey, setSelectedAlmProjectKey] = useState("");
+  const [almRequirementSearch, setAlmRequirementSearch] = useState("");
+  const [selectedAlmRequirementKeys, setSelectedAlmRequirementKeys] = useState<string[]>([]);
   const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState(false);
   const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
   const [optimizeRequirementIndex, setOptimizeRequirementIndex] = useState(0);
@@ -204,6 +211,25 @@ export function RequirementsPage() {
     queryFn: () => api.integrations.list({ type: "llm", is_active: true }),
     enabled: Boolean(session)
   });
+  const almIntegrationsQuery = useQuery({
+    queryKey: ["integrations", "alm", "jira"],
+    queryFn: () => api.integrations.list({ type: "jira", is_active: true }),
+    enabled: Boolean(session)
+  });
+  const almProjectsQuery = useQuery({
+    queryKey: ["requirements", "alm-projects", selectedAlmIntegrationId],
+    queryFn: () => api.requirements.listAlmProjects({ integration_id: selectedAlmIntegrationId }),
+    enabled: Boolean(isImportModalOpen && requirementImportSource === "alm" && selectedAlmIntegrationId)
+  });
+  const almRequirementsQuery = useQuery({
+    queryKey: ["requirements", "alm-requirements", selectedAlmIntegrationId, selectedAlmProjectKey, almRequirementSearch],
+    queryFn: () => api.requirements.listAlmRequirements({
+      integration_id: selectedAlmIntegrationId,
+      alm_project_key: selectedAlmProjectKey,
+      query: almRequirementSearch.trim() || undefined
+    }),
+    enabled: Boolean(isImportModalOpen && requirementImportSource === "alm" && selectedAlmIntegrationId && selectedAlmProjectKey)
+  });
   const usersQuery = useQuery({
     queryKey: ["users"],
     queryFn: api.users.list,
@@ -212,6 +238,7 @@ export function RequirementsPage() {
 
   const createRequirement = useMutation({ mutationFn: api.requirements.create });
   const bulkImportRequirements = useMutation({ mutationFn: api.requirements.bulkImport });
+  const bulkImportAlmRequirements = useMutation({ mutationFn: api.requirements.bulkImportAlm });
   const updateRequirement = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.requirements.update>[1] }) =>
       api.requirements.update(id, input)
@@ -242,6 +269,22 @@ export function RequirementsPage() {
   const sharedGroups = sharedGroupsQuery.data || [];
   const suites = suitesQuery.data || [];
   const integrations = integrationsQuery.data || [];
+  const activeAlmIntegrations = useMemo(
+    () => (almIntegrationsQuery.data || []) as Integration[],
+    [almIntegrationsQuery.data]
+  );
+  const almProjects = useMemo(
+    () => almProjectsQuery.data?.projects || [],
+    [almProjectsQuery.data]
+  );
+  const almRequirementCandidates = useMemo(
+    () => almRequirementsQuery.data?.requirements || [],
+    [almRequirementsQuery.data]
+  );
+  const selectedAlmRequirementSet = useMemo(
+    () => new Set(selectedAlmRequirementKeys),
+    [selectedAlmRequirementKeys]
+  );
   const users = (usersQuery.data || []) as User[];
   const userById = useMemo(
     () =>
@@ -750,14 +793,47 @@ export function RequirementsPage() {
     }
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !bulkImportRequirements.isPending) {
+      if (event.key === "Escape" && !bulkImportRequirements.isPending && !bulkImportAlmRequirements.isPending) {
         setIsImportModalOpen(false);
       }
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [bulkImportRequirements.isPending, isImportModalOpen]);
+  }, [bulkImportAlmRequirements.isPending, bulkImportRequirements.isPending, isImportModalOpen]);
+
+  useEffect(() => {
+    if (!isImportModalOpen || requirementImportSource !== "alm" || selectedAlmIntegrationId || !activeAlmIntegrations.length) {
+      return;
+    }
+
+    setSelectedAlmIntegrationId(activeAlmIntegrations[0].id);
+  }, [activeAlmIntegrations, isImportModalOpen, requirementImportSource, selectedAlmIntegrationId]);
+
+  useEffect(() => {
+    if (!isImportModalOpen || requirementImportSource !== "alm") {
+      return;
+    }
+
+    if (!almProjects.length) {
+      setSelectedAlmProjectKey("");
+      return;
+    }
+
+    if (!selectedAlmProjectKey || !almProjects.some((project) => project.key === selectedAlmProjectKey)) {
+      setSelectedAlmProjectKey(almProjects[0].key);
+    }
+  }, [almProjects, isImportModalOpen, requirementImportSource, selectedAlmProjectKey]);
+
+  useEffect(() => {
+    if (!isImportModalOpen || requirementImportSource !== "alm") {
+      return;
+    }
+
+    setSelectedAlmRequirementKeys((current) =>
+      current.filter((key) => almRequirementCandidates.some((requirement) => requirement.key === key))
+    );
+  }, [almRequirementCandidates, isImportModalOpen, requirementImportSource]);
 
   useEffect(() => {
     if (!isAiStudioOpen) {
@@ -811,6 +887,36 @@ export function RequirementsPage() {
     }
 
     setIsCreateModalOpen(false);
+  };
+
+  const openRequirementImportModal = (source: RequirementImportSource = "csv") => {
+    setRequirementImportSource(source);
+    setImportRows([]);
+    setImportWarnings([]);
+    setImportFileName("");
+    setAlmRequirementSearch("");
+    setSelectedAlmRequirementKeys([]);
+    setSelectedAlmIntegrationId(source === "alm" ? activeAlmIntegrations[0]?.id || selectedAlmIntegrationId : selectedAlmIntegrationId);
+    setSelectedAlmProjectKey(source === "alm" ? "" : selectedAlmProjectKey);
+    setIsImportModalOpen(true);
+  };
+
+  const switchRequirementImportSource = (source: RequirementImportSource) => {
+    setRequirementImportSource(source);
+    setImportWarnings([]);
+    setAlmRequirementSearch("");
+    setSelectedAlmRequirementKeys([]);
+
+    if (source === "alm") {
+      setSelectedAlmIntegrationId((current) => current || activeAlmIntegrations[0]?.id || "");
+      setSelectedAlmProjectKey("");
+    }
+  };
+
+  const toggleAlmRequirementKey = (requirementKey: string, checked: boolean) => {
+    setSelectedAlmRequirementKeys((current) =>
+      checked ? [...new Set([...current, requirementKey])] : current.filter((key) => key !== requirementKey)
+    );
   };
 
   const toggleSelectedTestCase = (
@@ -935,6 +1041,30 @@ export function RequirementsPage() {
       await refresh();
     } catch (error) {
       showError(error, "Unable to import requirements");
+    }
+  };
+
+  const handleBulkImportAlmRequirements = async () => {
+    if (!projectId || !selectedAlmIntegrationId || !selectedAlmProjectKey || !selectedAlmRequirementKeys.length) {
+      return;
+    }
+
+    try {
+      const response = await bulkImportAlmRequirements.mutateAsync({
+        project_id: projectId,
+        integration_id: selectedAlmIntegrationId,
+        alm_project_key: selectedAlmProjectKey,
+        requirement_keys: selectedAlmRequirementKeys
+      });
+
+      setMessageTone("success");
+      setMessage(`ALM requirement import queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`);
+      setSelectedAlmRequirementKeys([]);
+      setAlmRequirementSearch("");
+      setIsImportModalOpen(false);
+      await refresh();
+    } catch (error) {
+      showError(error, "Unable to import ALM requirements");
     }
   };
 
@@ -1253,6 +1383,52 @@ export function RequirementsPage() {
     }
   };
 
+  const requirementHeaderActionItems: CatalogActionMenuItem[] = [
+    {
+      label: "Bulk import requirements",
+      description: "Upload a CSV and queue a duplicate-safe requirement import.",
+      icon: <ImportIcon />,
+      disabled: !projectId,
+      onClick: () => openRequirementImportModal("csv")
+    },
+    {
+      label: "Import from ALM",
+      description: activeAlmIntegrations.length
+        ? "Pull selected requirements from an active ALM integration."
+        : "Configure and activate a Jira ALM integration before importing.",
+      icon: <ImportIcon />,
+      disabled: !projectId || !activeAlmIntegrations.length,
+      onClick: () => openRequirementImportModal("alm")
+    },
+    {
+      label: "AI test case generation",
+      description: "Generate or review AI-designed test cases for the selected requirement.",
+      icon: <SparkIcon />,
+      disabled: !requirements.length || !appTypeId,
+      onClick: () => {
+        setAiRequirementId(selectedRequirement?.id || requirements[0]?.id || "");
+        setPreviewCases([]);
+        setPreviewMessage("");
+        setPreviewTone("success");
+        setIsAiStudioOpen(true);
+      }
+    },
+    {
+      label: selectedRequirementActionCount ? `Complete selected (${selectedRequirementActionCount})` : "Complete requirement",
+      description: "Use AI to improve missing or weak requirement details.",
+      icon: <SparkIcon />,
+      disabled: !selectedRequirement && !selectedRequirementActionCount,
+      onClick: () => openRequirementOptimization(selectedRequirementActionCount ? deleteSelectedRequirementIds : undefined)
+    },
+    {
+      label: "Create requirement",
+      description: "Add a new requirement to the selected project.",
+      icon: <AddIcon />,
+      disabled: !projectId,
+      onClick: openCreateRequirementModal
+    }
+  ];
+
   const metrics = useMemo(() => {
     const mapped = requirements.filter((item) => (item.test_case_ids || []).length).length;
     const highPriority = requirements.filter((item) => (item.priority || 3) <= 2).length;
@@ -1283,12 +1459,7 @@ export function RequirementsPage() {
             <button
               className="ghost-button"
               disabled={!projectId}
-              onClick={() => {
-                setImportRows([]);
-                setImportWarnings([]);
-                setImportFileName("");
-                setIsImportModalOpen(true);
-              }}
+              onClick={() => openRequirementImportModal("csv")}
               type="button"
             >
               <ImportIcon />
@@ -1322,6 +1493,7 @@ export function RequirementsPage() {
               <AddIcon />
               Create Requirement
             </button>
+            <CatalogActionMenu actions={requirementHeaderActionItems} label="More requirement header actions" />
           </>
         }
       />
@@ -1845,23 +2017,26 @@ export function RequirementsPage() {
       ) : null}
 
       {isImportModalOpen ? (
-        <div className="modal-backdrop" onClick={() => !bulkImportRequirements.isPending && setIsImportModalOpen(false)} role="presentation">
+        <div
+          className="modal-backdrop"
+          onClick={() => !bulkImportRequirements.isPending && !bulkImportAlmRequirements.isPending && setIsImportModalOpen(false)}
+          role="presentation"
+        >
           <div
             aria-labelledby="bulk-requirement-import-title"
             aria-modal="true"
-            className="modal-card import-modal-card"
+            className="modal-card import-modal-card requirement-import-modal-card"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <div className="import-modal-header">
               <div className="import-modal-title">
                 <div className="modal-title-info-row">
-                  <p className="eyebrow" id="bulk-requirement-import-title">Import requirements from CSV</p>
+                  <p className="eyebrow" id="bulk-requirement-import-title">Bulk requirement import</p>
                   <InfoTooltip
                     content={(
                       <>
-                        Upload many requirements at once. Use columns: <strong>title</strong> (required), plus optional{" "}
-                        <strong>description</strong>, <strong>external_references</strong>, <strong>priority</strong> (1-5), and <strong>status</strong>.
+                        Upload many requirements from CSV or pull selected requirements from an active ALM connection. Matching external references update existing requirements.
                       </>
                     )}
                     label="Requirement import information"
@@ -1871,7 +2046,7 @@ export function RequirementsPage() {
               <button
                 aria-label="Close bulk requirement import dialog"
                 className="ghost-button"
-                disabled={bulkImportRequirements.isPending}
+                disabled={bulkImportRequirements.isPending || bulkImportAlmRequirements.isPending}
                 onClick={() => setIsImportModalOpen(false)}
                 type="button"
               >
@@ -1880,77 +2055,230 @@ export function RequirementsPage() {
             </div>
 
             <div className="import-modal-body">
-              <FormField label="CSV file">
-                <input accept=".csv,text/csv" onChange={(event) => void handleRequirementImportFile(event)} type="file" />
-              </FormField>
-
-              <div className="metric-strip compact">
-                <div className="mini-card">
-                  <strong>{importRows.length}</strong>
-                  <span>Rows ready</span>
-                </div>
+              <div className="requirement-import-source-toggle" role="tablist" aria-label="Requirement import source">
+                <button
+                  aria-selected={requirementImportSource === "csv"}
+                  className={["requirement-import-source-button", requirementImportSource === "csv" ? "is-active" : ""].filter(Boolean).join(" ")}
+                  onClick={() => switchRequirementImportSource("csv")}
+                  role="tab"
+                  type="button"
+                >
+                  <ImportIcon />
+                  CSV upload
+                </button>
+                <button
+                  aria-selected={requirementImportSource === "alm"}
+                  className={["requirement-import-source-button", requirementImportSource === "alm" ? "is-active" : ""].filter(Boolean).join(" ")}
+                  disabled={!activeAlmIntegrations.length}
+                  onClick={() => switchRequirementImportSource("alm")}
+                  role="tab"
+                  type="button"
+                >
+                  <ImportIcon />
+                  ALM connection
+                </button>
               </div>
 
-              <div className="detail-summary">
-                <strong>{importFileName || "No CSV loaded yet"}</strong>
-                <span>Rows apply to the project selected in the workspace scope bar above.</span>
-              </div>
+              {requirementImportSource === "csv" ? (
+                <>
+                  <FormField label="CSV file" hint="Use title as the required column. Optional columns: description, external_references, priority, status.">
+                    <input accept=".csv,text/csv" onChange={(event) => void handleRequirementImportFile(event)} type="file" />
+                  </FormField>
 
-              {importWarnings.length ? (
-                <div className="empty-state compact">
-                  {importWarnings.slice(0, 6).map((warning) => (
-                    <div key={warning}>{warning}</div>
-                  ))}
-                </div>
-              ) : null}
+                  <div className="metric-strip compact">
+                    <div className="mini-card">
+                      <strong>{importRows.length}</strong>
+                      <span>Rows ready</span>
+                    </div>
+                  </div>
 
-              {importRows.length ? (
-                <div className="table-wrap import-preview-table">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Title</th>
-                        <th>References</th>
-                        <th>Priority</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importRows.slice(0, 5).map((row, index) => (
-                        <tr key={`${row.title}-${index}`}>
-                          <td>{row.title}</td>
-                          <td>{formatReferenceList(row.external_references) || "—"}</td>
-                          <td>{row.priority ?? "—"}</td>
-                          <td>{row.status || "—"}</td>
-                        </tr>
+                  <div className="detail-summary">
+                    <strong>{importFileName || "No CSV loaded yet"}</strong>
+                    <span>Rows apply to the project selected in the workspace scope bar above. Existing requirements are updated when references or titles match.</span>
+                  </div>
+
+                  {importWarnings.length ? (
+                    <div className="empty-state compact">
+                      {importWarnings.slice(0, 6).map((warning) => (
+                        <div key={warning}>{warning}</div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  ) : null}
+
+                  {importRows.length ? (
+                    <div className="table-wrap import-preview-table">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Title</th>
+                            <th>References</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importRows.slice(0, 5).map((row, index) => (
+                            <tr key={`${row.title}-${index}`}>
+                              <td>{row.title}</td>
+                              <td>{formatReferenceList(row.external_references) || "—"}</td>
+                              <td>{row.priority ?? "—"}</td>
+                              <td>{row.status || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="alm-import-panel">
+                  {!activeAlmIntegrations.length ? (
+                    <div className="empty-state compact">
+                      Configure and activate a Jira ALM integration before importing requirements from ALM.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="alm-import-controls">
+                        <FormField label="ALM connection">
+                          <select
+                            value={selectedAlmIntegrationId}
+                            onChange={(event) => {
+                              setSelectedAlmIntegrationId(event.target.value);
+                              setSelectedAlmProjectKey("");
+                              setSelectedAlmRequirementKeys([]);
+                            }}
+                          >
+                            {activeAlmIntegrations.map((integration) => (
+                              <option key={integration.id} value={integration.id}>
+                                {integration.name}
+                              </option>
+                            ))}
+                          </select>
+                        </FormField>
+                        <FormField label="ALM project">
+                          <select
+                            disabled={almProjectsQuery.isLoading || !almProjects.length}
+                            value={selectedAlmProjectKey}
+                            onChange={(event) => {
+                              setSelectedAlmProjectKey(event.target.value);
+                              setSelectedAlmRequirementKeys([]);
+                            }}
+                          >
+                            {!almProjects.length ? <option value="">No projects loaded</option> : null}
+                            {almProjects.map((project) => (
+                              <option key={project.key} value={project.key}>
+                                {project.name} ({project.key})
+                              </option>
+                            ))}
+                          </select>
+                        </FormField>
+                        <FormField label="Search ALM requirements">
+                          <input
+                            placeholder="Search key, summary, or description"
+                            value={almRequirementSearch}
+                            onChange={(event) => setAlmRequirementSearch(event.target.value)}
+                          />
+                        </FormField>
+                      </div>
+
+                      <div className="metric-strip compact">
+                        <div className="mini-card">
+                          <strong>{selectedAlmRequirementKeys.length}</strong>
+                          <span>Selected</span>
+                        </div>
+                        <div className="mini-card">
+                          <strong>{almRequirementCandidates.length}</strong>
+                          <span>Loaded from ALM</span>
+                        </div>
+                      </div>
+
+                      {almProjectsQuery.isLoading || almRequirementsQuery.isLoading ? (
+                        <div className="empty-state compact">Loading ALM requirements…</div>
+                      ) : almRequirementCandidates.length ? (
+                        <div className="alm-requirement-picker" role="listbox" aria-label="ALM requirements">
+                          {almRequirementCandidates.map((requirement: AlmRequirementCandidate) => (
+                            <label className="alm-requirement-option" key={requirement.key}>
+                              <input
+                                checked={selectedAlmRequirementSet.has(requirement.key)}
+                                onChange={(event) => toggleAlmRequirementKey(requirement.key, event.target.checked)}
+                                type="checkbox"
+                              />
+                              <span className="alm-requirement-option-main">
+                                <span className="alm-requirement-option-title">
+                                  <strong>{requirement.key}</strong>
+                                  <span>{requirement.title}</span>
+                                </span>
+                                <span className="alm-requirement-option-meta">
+                                  {requirement.issue_type || "Requirement"}
+                                  {requirement.status ? ` · ${requirement.status}` : ""}
+                                  {requirement.priority ? ` · P${requirement.priority}` : ""}
+                                  {requirement.updated_at ? ` · ${formatAuditTimestamp(requirement.updated_at)}` : ""}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="empty-state compact">
+                          {selectedAlmProjectKey ? "No ALM requirements matched this project/search." : "Select an ALM project to load requirements."}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              ) : null}
+              )}
             </div>
 
             <div className="action-row import-modal-actions">
-              <button
-                className="primary-button"
-                disabled={!projectId || !importRows.length || bulkImportRequirements.isPending}
-                onClick={() => void handleBulkImportRequirements()}
-                type="button"
-              >
-                {bulkImportRequirements.isPending ? "Queuing…" : `Queue ${importRows.length || ""} Requirements`}
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!importRows.length || bulkImportRequirements.isPending}
-                onClick={() => {
-                  setImportRows([]);
-                  setImportWarnings([]);
-                  setImportFileName("");
-                }}
-                type="button"
-              >
-                Clear preview
-              </button>
+              {requirementImportSource === "csv" ? (
+                <>
+                  <button
+                    className="primary-button"
+                    disabled={!projectId || !importRows.length || bulkImportRequirements.isPending}
+                    onClick={() => void handleBulkImportRequirements()}
+                    type="button"
+                  >
+                    {bulkImportRequirements.isPending ? "Queuing…" : `Queue ${importRows.length || ""} Requirements`}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    disabled={!importRows.length || bulkImportRequirements.isPending}
+                    onClick={() => {
+                      setImportRows([]);
+                      setImportWarnings([]);
+                      setImportFileName("");
+                    }}
+                    type="button"
+                  >
+                    Clear preview
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="primary-button"
+                    disabled={
+                      !projectId ||
+                      !selectedAlmIntegrationId ||
+                      !selectedAlmProjectKey ||
+                      !selectedAlmRequirementKeys.length ||
+                      bulkImportAlmRequirements.isPending
+                    }
+                    onClick={() => void handleBulkImportAlmRequirements()}
+                    type="button"
+                  >
+                    {bulkImportAlmRequirements.isPending ? "Queuing…" : `Queue ${selectedAlmRequirementKeys.length || ""} ALM Requirements`}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    disabled={!selectedAlmRequirementKeys.length || bulkImportAlmRequirements.isPending}
+                    onClick={() => setSelectedAlmRequirementKeys([])}
+                    type="button"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

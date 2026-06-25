@@ -6,16 +6,16 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const DEFAULT_CASES_PER_REQUIREMENT = 3;
-const DEFAULT_PARALLEL_REQUIREMENTS = Math.max(1, Number(process.env.AI_GENERATION_DEFAULT_PARALLEL_REQUIREMENTS || 2));
+const DEFAULT_PARALLEL_REQUIREMENTS = 1;
 const MAX_CASES_PER_REQUIREMENT = 3;
-const MAX_PARALLEL_REQUIREMENTS = Math.max(1, Number(process.env.AI_GENERATION_MAX_PARALLEL_REQUIREMENTS || 3));
-const REQUIREMENT_BATCH_LIMIT = Math.max(1, Number(process.env.AI_GENERATION_REQUIREMENT_BATCH_LIMIT || 3));
+const MAX_PARALLEL_REQUIREMENTS = 1;
+const REQUIREMENT_BATCH_LIMIT = 1;
 const MAX_LLM_RETRY_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 1_500;
 const MAX_RETRY_DELAY_MS = 60_000;
 const AI_CAPACITY_RECOVERY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMIT_RECOVERY_MS || 60 * 60 * 1000));
 const MAX_JOB_ATTEMPTS = Math.max(1, Number(process.env.AI_GENERATION_MAX_JOB_ATTEMPTS || 5));
-const INTER_BATCH_COOLDOWN_MS = Math.max(0, Number(process.env.AI_GENERATION_INTER_BATCH_COOLDOWN_MS || 5_000));
+const INTER_REQUIREMENT_COOLDOWN_MS = Math.max(0, Number(process.env.AI_GENERATION_INTER_REQUIREMENT_COOLDOWN_MS || process.env.AI_GENERATION_INTER_BATCH_COOLDOWN_MS || 5_000));
 const QUEUED_AI_JOB_LIMIT = Math.max(1, Number(process.env.AI_GENERATION_DUE_JOB_LIMIT || 1));
 const STALE_RUNNING_JOB_MS = Math.max(30 * 60 * 1000, Number(process.env.AI_GENERATION_STALE_RUNNING_MS || 2 * 60 * 60 * 1000));
 
@@ -464,16 +464,20 @@ async function runJob(jobId) {
           processed_items: 0,
           generated_cases_count: 0,
           progress_percent: 0,
-          current_phase: "ai-generation"
+          current_phase: "ai-generation",
+          worker_count: 1,
+          batch_size: 1,
+          inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
         }
       });
       await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
         phase: "run",
-        message: `Processing ${requirements.length} requirement${requirements.length === 1 ? "" : "s"} in batches of ${REQUIREMENT_BATCH_LIMIT} with up to ${workerCount} worker${workerCount === 1 ? "" : "s"}.`,
+        message: `Processing ${requirements.length} requirement${requirements.length === 1 ? "" : "s"} one at a time with a ${INTER_REQUIREMENT_COOLDOWN_MS}ms cooldown between requirements.`,
         details: {
           requirement_count: requirements.length,
-          worker_count: workerCount,
-          batch_size: REQUIREMENT_BATCH_LIMIT
+          worker_count: 1,
+          batch_size: 1,
+          inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
         }
       });
     }
@@ -491,7 +495,7 @@ async function runJob(jobId) {
       if (linkedTransaction) {
         await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
           phase: "batch",
-          message: `Processing AI generation batch ${batchIndex + 1} of ${requirementBatches.length}.`,
+          message: `Processing AI generation requirement ${batchIndex + 1} of ${requirementBatches.length}.`,
           details: {
             batch_index: batchIndex + 1,
             batch_count: requirementBatches.length,
@@ -587,7 +591,10 @@ async function runJob(jobId) {
                     processed_requirements: processedRequirements,
                     generated_cases_count: generatedCasesCount,
                     progress_percent: requirements.length ? Math.round((processedRequirements / requirements.length) * 100) : 0,
-                    current_phase: "ai-generation"
+                    current_phase: "ai-generation",
+                    worker_count: 1,
+                    batch_size: 1,
+                    inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
                   }
                 });
               }
@@ -597,7 +604,19 @@ async function runJob(jobId) {
       );
 
       if (batchIndex < requirementBatches.length - 1) {
-        await sleep(INTER_BATCH_COOLDOWN_MS);
+        if (linkedTransaction && INTER_REQUIREMENT_COOLDOWN_MS > 0) {
+          await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
+            phase: "cooldown",
+            message: `Waiting ${INTER_REQUIREMENT_COOLDOWN_MS}ms before the next requirement to reduce LLM rate-limit pressure.`,
+            details: {
+              batch_index: batchIndex + 1,
+              next_batch_index: batchIndex + 2,
+              inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
+            }
+          });
+        }
+
+        await sleep(INTER_REQUIREMENT_COOLDOWN_MS);
       }
     }
 
@@ -635,6 +654,9 @@ async function runJob(jobId) {
           generated_cases_count: generatedCasesCount,
           progress_percent: 100,
           current_phase: finalStatus === "completed" ? (errors.length ? "completed-with-issues" : "completed") : "failed",
+          worker_count: 1,
+          batch_size: 1,
+          inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS,
           error: finalError
         },
         completed_at: new Date().toISOString()
@@ -781,7 +803,10 @@ exports.createJob = async ({
         fallback: DEFAULT_PARALLEL_REQUIREMENTS,
         min: 1,
         max: MAX_PARALLEL_REQUIREMENTS
-      })
+      }),
+      worker_count: 1,
+      batch_size: 1,
+      inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
     },
     related_kind: "ai_test_case_generation_job",
     related_id: id,
@@ -792,7 +817,10 @@ exports.createJob = async ({
     message: `Queued AI test case generation for ${requirements.length} requirement${requirements.length === 1 ? "" : "s"}.`,
     details: {
       requirement_ids: requirements.map((requirement) => requirement.id),
-      requirement_titles: requirements.map((requirement) => requirement.title)
+      requirement_titles: requirements.map((requirement) => requirement.title),
+      worker_count: 1,
+      batch_size: 1,
+      inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
     }
   });
 

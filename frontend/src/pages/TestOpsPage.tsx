@@ -142,6 +142,16 @@ function formatLabel(value?: string | null) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function truncateProcessName(value?: string | null, limit = 46) {
+  const normalized = String(value || "Batch process").trim();
+
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
 function resolveScopedIntegration(integrations: Integration[], type: Integration["type"], projectId: string) {
   const active = integrations.filter((integration) => integration.type === type && integration.is_active);
   const scoped = projectId
@@ -375,9 +385,11 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       minWidth: 180,
       sortValue: (transaction) => transaction.title,
       render: (transaction) => (
-        <div className="data-table-multiline">
-          <strong>{transaction.title}</strong>
-          <span className="data-table-multiline-line">{transaction.description || formatLabel(transaction.category)}</span>
+        <div className="data-table-multiline batch-process-name-cell">
+          <strong title={transaction.title}>{truncateProcessName(transaction.title)}</strong>
+          <span className="data-table-multiline-line" title={transaction.description || formatLabel(transaction.category)}>
+            {truncateProcessName(transaction.description || formatLabel(transaction.category), 64)}
+          </span>
         </div>
       )
     },

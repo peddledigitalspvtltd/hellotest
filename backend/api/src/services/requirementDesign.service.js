@@ -479,6 +479,7 @@ exports.previewRequirementTestCases = async ({
   requirement,
   appType,
   integration_id,
+  user_id,
   max_cases,
   additional_context,
   external_links,

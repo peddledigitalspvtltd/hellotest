@@ -5454,10 +5454,26 @@ body.is-resizing-data-table-column * {
   min-width: 0;
 }
 
+.batch-process-name-cell > strong {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .data-table-multiline-line {
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.batch-process-name-cell .data-table-multiline-line {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .data-table-parameter-list {
@@ -12415,6 +12431,111 @@ textarea:disabled,
   background: var(--panel-strong);
 }
 
+.requirement-import-modal-card {
+  width: min(62rem, 100%);
+}
+
+.requirement-import-modal-card .import-modal-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  max-height: min(58vh, 36rem);
+}
+
+.requirement-import-source-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.requirement-import-source-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.requirement-import-source-button.is-active {
+  border-color: rgba(37, 99, 235, 0.42);
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary-strong);
+}
+
+.requirement-import-source-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.alm-import-panel {
+  display: grid;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.alm-import-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  align-items: end;
+}
+
+.alm-requirement-picker {
+  display: grid;
+  gap: 0.6rem;
+  max-height: min(34vh, 22rem);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.alm-requirement-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  cursor: pointer;
+}
+
+.alm-requirement-option input {
+  margin-top: 0.18rem;
+}
+
+.alm-requirement-option-main {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.alm-requirement-option-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.alm-requirement-option-title span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alm-requirement-option-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
 .people-modal-card {
   width: min(42rem, 100%);
   max-height: min(86vh, 46rem);
@@ -15904,6 +16025,10 @@ textarea {
   .suite-create-modal-body,
   .import-modal-body,
   .step-parameter-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .alm-import-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -909,6 +909,16 @@ function formatWorkspaceTransactionActionLabel(value: string | null | undefined)
   return normalized.replace(/_/g, " ");
 }
 
+function truncateProcessName(value?: string | null, limit = 46) {
+  const normalized = String(value || "Batch process").trim();
+
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
 function formatWorkspaceTransactionMetadataLabel(key: string) {
   return WORKSPACE_TRANSACTION_METADATA_LABELS[key] || key.replace(/_/g, " ");
 }
@@ -4392,9 +4402,11 @@ export function ExecutionsPage() {
         });
 
         return (
-          <div className="data-table-multiline">
-            <strong>{transaction.title}</strong>
-            <span className="data-table-multiline-line">{presentation.eyebrow}</span>
+          <div className="data-table-multiline batch-process-name-cell">
+            <strong title={transaction.title}>{truncateProcessName(transaction.title)}</strong>
+            <span className="data-table-multiline-line" title={presentation.eyebrow}>
+              {truncateProcessName(presentation.eyebrow, 64)}
+            </span>
           </div>
         );
       }

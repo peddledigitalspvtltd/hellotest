@@ -3,6 +3,7 @@ const { v4: uuid } = require("uuid");
 const requirementTestCaseService = require("./requirementTestCase.service");
 const displayIdService = require("./displayId.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
+const integrationService = require("./integration.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
@@ -23,6 +24,208 @@ const normalizeText = (value) => {
 
   const normalized = value.trim();
   return normalized || null;
+};
+
+const normalizeMatchText = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+const buildAlmReference = (provider, key) => {
+  const normalizedProvider = normalizeText(provider) || "alm";
+  const normalizedKey = normalizeText(key);
+  return normalizedKey ? `${normalizedProvider}:${normalizedKey}` : null;
+};
+
+const mergeReferences = (...referenceLists) =>
+  normalizeReferenceList(referenceLists.flatMap((references) => normalizeReferenceList(references)));
+
+const findExistingRequirementForImport = async ({ project_id, title, external_references }) => {
+  const normalizedReferences = new Set(
+    normalizeReferenceList(external_references).map((reference) => reference.toLowerCase())
+  );
+  const normalizedTitle = normalizeMatchText(title);
+  const candidates = await db.prepare(`
+    SELECT *
+    FROM requirements
+    WHERE project_id = ?
+  `).all(project_id);
+
+  if (normalizedReferences.size) {
+    const referenceMatch = candidates.find((candidate) =>
+      normalizeStoredReferenceList(candidate.external_references).some((reference) =>
+        normalizedReferences.has(reference.toLowerCase())
+      )
+    );
+
+    if (referenceMatch) {
+      return referenceMatch;
+    }
+  }
+
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  return candidates.find((candidate) => normalizeMatchText(candidate.title) === normalizedTitle) || null;
+};
+
+const upsertRequirementFromImport = async ({
+  project_id,
+  title,
+  description,
+  external_references,
+  priority,
+  status,
+  created_by
+}) => {
+  const normalizedTitle = normalizeText(title);
+
+  if (!project_id || !normalizedTitle) {
+    throw new Error("Missing required fields");
+  }
+
+  const existing = await findExistingRequirementForImport({
+    project_id,
+    title: normalizedTitle,
+    external_references
+  });
+
+  if (existing) {
+    const nextReferences = mergeReferences(existing.external_references, external_references);
+
+    await exports.updateRequirement(existing.id, {
+      project_id,
+      title: normalizedTitle,
+      description: description !== undefined && description !== null ? description : existing.description,
+      external_references: nextReferences,
+      priority: priority ?? existing.priority,
+      status: status || existing.status,
+      updated_by: created_by
+    });
+
+    return {
+      action: "updated",
+      id: existing.id,
+      title: normalizedTitle
+    };
+  }
+
+  const created = await exports.createRequirement({
+    project_id,
+    title: normalizedTitle,
+    description,
+    external_references,
+    priority,
+    status,
+    created_by
+  });
+
+  return {
+    action: "created",
+    id: created.id,
+    title: normalizedTitle
+  };
+};
+
+const toJiraBaseUrl = (integration) => String(integration.base_url || "").replace(/\/+$/, "");
+
+const buildJiraAuthHeader = (integration) => {
+  const token = normalizeText(integration.api_key);
+  const username = normalizeText(integration.username);
+
+  if (!token) {
+    throw new Error("Jira integration is missing an API token");
+  }
+
+  return username
+    ? `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`
+    : `Bearer ${token}`;
+};
+
+const jiraFetch = async (integration, path, options = {}) => {
+  const baseUrl = toJiraBaseUrl(integration);
+
+  if (!baseUrl) {
+    throw new Error("Jira integration is missing a base URL");
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: buildJiraAuthHeader(integration),
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    throw new Error(`Jira request failed (${response.status}): ${raw.slice(0, 500)}`);
+  }
+
+  return response.json();
+};
+
+const assertActiveJiraIntegration = async (integrationId) => {
+  const integration = await integrationService.getIntegration(integrationId);
+
+  if (integration.type !== "jira") {
+    throw new Error("Selected ALM integration must be Jira");
+  }
+
+  if (!integration.is_active) {
+    throw new Error("Selected Jira integration is inactive");
+  }
+
+  return integration;
+};
+
+const extractJiraText = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractJiraText).filter(Boolean).join("\n");
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.text === "string") {
+      return value.text;
+    }
+
+    if (Array.isArray(value.content)) {
+      return value.content.map(extractJiraText).filter(Boolean).join(value.type === "paragraph" ? " " : "\n");
+    }
+  }
+
+  return "";
+};
+
+const mapJiraIssueToRequirementRow = (issue, integration) => {
+  const key = normalizeText(issue.key);
+  const fields = issue.fields || {};
+  const title = normalizeText(fields.summary) || key || "Imported ALM requirement";
+  const reference = buildAlmReference("jira", key);
+  const browseUrl = key ? `${toJiraBaseUrl(integration)}/browse/${encodeURIComponent(key)}` : null;
+  const priorityName = normalizeText(fields.priority?.name);
+  const priorityNumber = priorityName?.match(/\d+/)?.[0];
+
+  return {
+    title,
+    description: extractJiraText(fields.description),
+    external_references: mergeReferences([reference, browseUrl].filter(Boolean)),
+    priority: priorityNumber ? Math.max(1, Math.min(5, Number(priorityNumber))) : undefined,
+    status: normalizeText(fields.status?.name) || undefined,
+    alm_key: key
+  };
 };
 
 const extractJsonPayload = (content) => {
@@ -211,6 +414,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
   }
 
   const created = [];
+  const updated = [];
   const errors = [];
   const transaction = transaction_id
     ? await workspaceTransactionService.updateTransaction(transaction_id, {
@@ -265,7 +469,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         throw new Error("Title must be at least 2 characters");
       }
 
-      const response = await exports.createRequirement({
+      const response = await upsertRequirementFromImport({
         project_id,
         title,
         description: typeof row?.description === "string" ? row.description : undefined,
@@ -275,7 +479,8 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         created_by
       });
 
-      created.push({
+      const bucket = response.action === "updated" ? updated : created;
+      bucket.push({
         row: index + 1,
         id: response.id,
         title
@@ -292,11 +497,12 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
 
     if (processed === 1 || processed === rows.length || processed % 10 === 0) {
       await workspaceTransactionService.updateTransaction(transaction.id, {
-        description: `Imported ${created.length} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} so far.`,
+        description: `Processed ${processed} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} so far.`,
         metadata: {
           processed_items: processed,
           total_items: rows.length,
           imported: created.length,
+          updated: updated.length,
           failed: errors.length,
           progress_percent: rows.length ? Math.round((processed / rows.length) * 100) : 0,
           current_phase: "import"
@@ -309,6 +515,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
           processed_items: processed,
           total_items: rows.length,
           imported: created.length,
+          updated: updated.length,
           failed: errors.length
         }
       });
@@ -317,15 +524,17 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
 
   const response = {
     imported: created.length,
+    updated: updated.length,
     failed: errors.length,
     created,
+    updated_records: updated,
     errors
   };
 
   await workspaceTransactionService.updateTransaction(transaction.id, {
-    status: created.length ? "completed" : "failed",
-    description: created.length
-      ? `Imported ${created.length} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} from CSV.`
+    status: created.length || updated.length ? "completed" : "failed",
+    description: created.length || updated.length
+      ? `Imported ${created.length} and updated ${updated.length} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} from CSV.`
       : "No requirements were imported from the CSV file.",
     metadata: {
       import_source: "csv",
@@ -333,6 +542,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
       total_items: rows.length,
       processed_items: rows.length,
       imported: created.length,
+      updated: updated.length,
       failed: errors.length,
       progress_percent: 100,
       current_phase: "completed"
@@ -340,19 +550,265 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
     completed_at: new Date().toISOString()
   });
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {
-    level: created.length ? "success" : "error",
+    level: created.length || updated.length ? "success" : "error",
     phase: "complete",
-    message: created.length
-      ? `Imported ${created.length} requirement${created.length === 1 ? "" : "s"} with ${errors.length} failure${errors.length === 1 ? "" : "s"}.`
+    message: created.length || updated.length
+      ? `Imported ${created.length}, updated ${updated.length}, with ${errors.length} failure${errors.length === 1 ? "" : "s"}.`
       : "Requirement import completed with no created records.",
     details: {
       imported: created.length,
+      updated: updated.length,
       failed: errors.length,
       sample_errors: errors.slice(0, 10)
     }
   });
 
   return response;
+};
+
+exports.listAlmProjects = async ({ integration_id } = {}) => {
+  const integration = await assertActiveJiraIntegration(integration_id);
+  const payload = await jiraFetch(integration, "/rest/api/3/project/search?maxResults=100");
+  const values = Array.isArray(payload?.values) ? payload.values : Array.isArray(payload) ? payload : [];
+
+  return {
+    integration_id: integration.id,
+    provider: "jira",
+    projects: values.map((project) => ({
+      id: String(project.id || project.key || ""),
+      key: String(project.key || project.id || ""),
+      name: String(project.name || project.key || "Unnamed project")
+    })).filter((project) => project.key)
+  };
+};
+
+exports.listAlmRequirements = async ({ integration_id, alm_project_key, query } = {}) => {
+  const integration = await assertActiveJiraIntegration(integration_id);
+  const projectKey = normalizeText(alm_project_key || integration.project_key);
+
+  if (!projectKey) {
+    throw new Error("Select an ALM project before loading requirements");
+  }
+
+  const searchText = normalizeText(query);
+  const jql = [
+    `project = "${projectKey.replace(/"/g, '\\"')}"`,
+    searchText ? `text ~ "${searchText.replace(/"/g, '\\"')}"` : null
+  ].filter(Boolean).join(" AND ") + " ORDER BY updated DESC";
+  const payload = await jiraFetch(integration, "/rest/api/3/search", {
+    method: "POST",
+    body: JSON.stringify({
+      jql,
+      maxResults: 100,
+      fields: ["summary", "description", "status", "priority", "issuetype", "updated"]
+    })
+  });
+  const issues = Array.isArray(payload?.issues) ? payload.issues : [];
+
+  return {
+    integration_id: integration.id,
+    provider: "jira",
+    project_key: projectKey,
+    requirements: issues.map((issue) => {
+      const fields = issue.fields || {};
+      const mapped = mapJiraIssueToRequirementRow(issue, integration);
+      return {
+        key: mapped.alm_key,
+        title: mapped.title,
+        description: mapped.description,
+        status: mapped.status || null,
+        priority: mapped.priority || null,
+        issue_type: fields.issuetype?.name || null,
+        updated_at: fields.updated || null,
+        external_references: mapped.external_references
+      };
+    }).filter((item) => item.key)
+  };
+};
+
+exports.importRequirementsFromAlm = async ({
+  project_id,
+  integration_id,
+  alm_project_key,
+  requirement_keys = [],
+  created_by,
+  transaction_id
+} = {}) => {
+  if (!project_id) {
+    throw new Error("project_id is required");
+  }
+
+  const keys = normalizeReferenceList(requirement_keys);
+
+  if (!keys.length) {
+    throw new Error("Select at least one ALM requirement to import");
+  }
+
+  const project = await db.prepare(`SELECT id FROM projects WHERE id = ?`).get(project_id);
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  const integration = await assertActiveJiraIntegration(integration_id);
+  const projectKey = normalizeText(alm_project_key || integration.project_key);
+  const created = [];
+  const updated = [];
+  const errors = [];
+  const transaction = transaction_id
+    ? await workspaceTransactionService.updateTransaction(transaction_id, {
+        project_id,
+        category: "bulk_import",
+        action: "alm_requirement_import",
+        status: "running",
+        title: "ALM requirement import",
+        description: `Pulling ${keys.length} requirement${keys.length === 1 ? "" : "s"} from ${integration.name}.`,
+        metadata: {
+          provider: "jira",
+          integration_id: integration.id,
+          alm_project_key: projectKey,
+          total_items: keys.length,
+          processed_items: 0,
+          imported: 0,
+          updated: 0,
+          failed: 0,
+          progress_percent: 0,
+          current_phase: "pulling"
+        },
+        started_at: new Date().toISOString()
+      })
+    : await workspaceTransactionService.createTransaction({
+        project_id,
+        category: "bulk_import",
+        action: "alm_requirement_import",
+        status: "running",
+        title: "ALM requirement import",
+        description: `Pulling ${keys.length} requirement${keys.length === 1 ? "" : "s"} from ${integration.name}.`,
+        metadata: {
+          provider: "jira",
+          integration_id: integration.id,
+          alm_project_key: projectKey,
+          total_items: keys.length,
+          processed_items: 0,
+          imported: 0,
+          updated: 0,
+          failed: 0,
+          progress_percent: 0,
+          current_phase: "pulling"
+        },
+        created_by,
+        started_at: new Date().toISOString()
+      });
+
+  await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+    phase: "pull",
+    message: `Started ALM requirement import from ${integration.name}.`,
+    details: {
+      provider: "jira",
+      alm_project_key: projectKey,
+      selected_requirements: keys.length
+    }
+  });
+
+  for (const [index, key] of keys.entries()) {
+    try {
+      const issue = await jiraFetch(integration, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,updated,project`);
+      const issueProjectKey = normalizeText(issue.fields?.project?.key) || normalizeText(String(issue.key || "").split("-")[0]);
+
+      if (projectKey && issueProjectKey && issueProjectKey !== projectKey) {
+        throw new Error(`ALM requirement ${key} belongs to ${issueProjectKey}, not ${projectKey}`);
+      }
+
+      const row = mapJiraIssueToRequirementRow(issue, integration);
+      const response = await upsertRequirementFromImport({
+        project_id,
+        title: row.title,
+        description: row.description,
+        external_references: row.external_references,
+        priority: row.priority,
+        status: row.status,
+        created_by
+      });
+      const bucket = response.action === "updated" ? updated : created;
+      bucket.push({
+        key,
+        id: response.id,
+        title: response.title
+      });
+    } catch (error) {
+      errors.push({
+        key,
+        message: error.message || "Unable to import ALM requirement"
+      });
+    }
+
+    const processed = index + 1;
+    await workspaceTransactionService.updateTransaction(transaction.id, {
+      description: `Pulled ${processed} of ${keys.length} ALM requirement${keys.length === 1 ? "" : "s"}.`,
+      metadata: {
+        processed_items: processed,
+        total_items: keys.length,
+        imported: created.length,
+        updated: updated.length,
+        failed: errors.length,
+        progress_percent: keys.length ? Math.round((processed / keys.length) * 100) : 0,
+        current_phase: "import"
+      }
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      phase: "import",
+      message: `Processed ${processed} of ${keys.length} ALM requirement${keys.length === 1 ? "" : "s"}.`,
+      details: {
+        key,
+        processed_items: processed,
+        total_items: keys.length,
+        imported: created.length,
+        updated: updated.length,
+        failed: errors.length
+      }
+    });
+  }
+
+  const completedAt = new Date().toISOString();
+
+  await workspaceTransactionService.updateTransaction(transaction.id, {
+    status: created.length || updated.length ? "completed" : "failed",
+    description: created.length || updated.length
+      ? `Imported ${created.length} and updated ${updated.length} requirement${keys.length === 1 ? "" : "s"} from ${integration.name}.`
+      : "No ALM requirements were imported.",
+    metadata: {
+      provider: "jira",
+      integration_id: integration.id,
+      alm_project_key: projectKey,
+      total_items: keys.length,
+      processed_items: keys.length,
+      imported: created.length,
+      updated: updated.length,
+      failed: errors.length,
+      progress_percent: 100,
+      current_phase: "completed"
+    },
+    completed_at: completedAt
+  });
+  await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+    level: created.length || updated.length ? "success" : "error",
+    phase: "complete",
+    message: `ALM import created ${created.length}, updated ${updated.length}, failed ${errors.length}.`,
+    details: {
+      imported: created.length,
+      updated: updated.length,
+      failed: errors.length,
+      sample_errors: errors.slice(0, 10)
+    }
+  });
+
+  return {
+    imported: created.length,
+    updated: updated.length,
+    failed: errors.length,
+    created,
+    updated_records: updated,
+    errors
+  };
 };
 
 exports.createRequirement = async ({ project_id, title, description, external_references, priority, status, created_by }) => {

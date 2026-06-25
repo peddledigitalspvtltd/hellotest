@@ -231,6 +231,23 @@ type AgenticApiAgentTestInput = {
   credential?: Record<string, unknown> | null;
 };
 
+export type AlmRequirementProject = {
+  id: string;
+  key: string;
+  name: string;
+};
+
+export type AlmRequirementCandidate = {
+  key: string;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  issue_type?: string | null;
+  updated_at?: string | null;
+  external_references?: string[];
+};
+
 const MAX_IMPORT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_ROWS_PER_BATCH = 250;
 const MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH = 100;
@@ -435,6 +452,15 @@ export const api = {
       request<{ id: string }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     bulkImport: (input: { project_id: string; rows: Array<Record<string, unknown>> }) =>
       request<BatchQueueResponse>("/requirements/import", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
+    listAlmProjects: (query: { integration_id: string }) =>
+      request<{ integration_id: string; provider: string; projects: AlmRequirementProject[] }>(`/requirements/alm/projects${toQueryString(query)}`),
+    listAlmRequirements: (query: { integration_id: string; alm_project_key: string; query?: string }) =>
+      request<{ integration_id: string; provider: string; project_key: string; requirements: AlmRequirementCandidate[] }>(`/requirements/alm/requirements${toQueryString(query)}`),
+    bulkImportAlm: (input: { project_id: string; integration_id: string; alm_project_key: string; requirement_keys: string[] }) =>
+      request<BatchQueueResponse>("/requirements/import/alm", {
         method: "POST",
         body: JSON.stringify(input)
       }),

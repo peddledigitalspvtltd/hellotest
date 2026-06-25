@@ -46,6 +46,56 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/requirements/alm/projects", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      integration_id: { required: true, type: "string" }
+    }, req.query);
+
+    return service.listAlmProjects({
+      integration_id: req.query.integration_id
+    });
+  });
+
+  fastify.get("/requirements/alm/requirements", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      integration_id: { required: true, type: "string" },
+      alm_project_key: { required: true, type: "string" },
+      query: { required: false, type: "string" }
+    }, req.query);
+
+    return service.listAlmRequirements({
+      integration_id: req.query.integration_id,
+      alm_project_key: req.query.alm_project_key,
+      query: req.query.query
+    });
+  });
+
+  fastify.post("/requirements/import/alm", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      integration_id: { required: true, type: "string" },
+      alm_project_key: { required: true, type: "string" },
+      requirement_keys: { required: true, type: "array", items: "string" }
+    }, req.body);
+
+    if (!req.body.requirement_keys.length) {
+      throw new Error("Select at least one ALM requirement to import");
+    }
+
+    await projectService.getProject(req.body.project_id, req.user.id);
+
+    return batchProcessService.queueAlmRequirementImport({
+      ...req.body,
+      created_by: req.user.id
+    });
+  });
+
   fastify.get("/requirements", async (req) => {
     await fastify.authenticate(req);
     const { project_id, status, priority } = req.query;

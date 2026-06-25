@@ -359,6 +359,31 @@ exports.queueRequirementImport = async ({ project_id, rows = [], created_by } = 
     }
   });
 
+exports.queueAlmRequirementImport = async ({ project_id, integration_id, alm_project_key, requirement_keys = [], created_by } = {}) =>
+  exports.queueBatchJob({
+    project_id,
+    category: "bulk_import",
+    action: "alm_requirement_import",
+    title: "ALM requirement import",
+    description: `Queued ${Array.isArray(requirement_keys) ? requirement_keys.length : 0} ALM requirement${Array.isArray(requirement_keys) && requirement_keys.length === 1 ? "" : "s"} for import.`,
+    metadata: {
+      provider: "jira",
+      integration_id,
+      alm_project_key,
+      total_rows: Array.isArray(requirement_keys) ? requirement_keys.length : 0,
+      total_items: Array.isArray(requirement_keys) ? requirement_keys.length : 0
+    },
+    created_by,
+    operation: "alm_requirement_import",
+    payload: {
+      project_id,
+      integration_id,
+      alm_project_key,
+      requirement_keys,
+      created_by
+    }
+  });
+
 exports.queueTestCaseImport = async ({
   app_type_id,
   requirement_id,
@@ -492,6 +517,15 @@ async function runRequirementImport(job) {
   const requirementService = require("./requirement.service");
   const payload = parseJsonValue(job.payload, {});
   return requirementService.bulkImportRequirements({
+    ...payload,
+    transaction_id: job.transaction_id
+  });
+}
+
+async function runAlmRequirementImport(job) {
+  const requirementService = require("./requirement.service");
+  const payload = parseJsonValue(job.payload, {});
+  return requirementService.importRequirementsFromAlm({
     ...payload,
     transaction_id: job.transaction_id
   });
@@ -639,6 +673,7 @@ async function runAutomationBuild(job) {
 const JOB_HANDLERS = {
   user_import: runUserImport,
   requirement_import: runRequirementImport,
+  alm_requirement_import: runAlmRequirementImport,
   test_case_import: runTestCaseImport,
   test_case_export: runTestCaseExport,
   automation_build: runAutomationBuild
