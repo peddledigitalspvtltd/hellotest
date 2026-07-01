@@ -30,7 +30,6 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -213,7 +212,7 @@ export function DesignPage() {
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
   const [selectedSuiteActionIds, setSelectedSuiteActionIds] = useState<string[]>([]);
@@ -1054,60 +1053,6 @@ export function DesignPage() {
     setIsTestCaseEditorModalOpen(true);
   };
 
-  const handleProjectChange = (value: string) => {
-    setProjectId(value);
-    setSelectedSuiteId("");
-    setSelectedSuiteActionIds([]);
-    setSelectedTestCaseId("");
-    setSuiteSearchTerm("");
-    setSearchTerm("");
-    setStatusFilter("all");
-    setSuitePlacementFilter("all");
-    setSuiteMappedCasesFilter("all");
-    setSuiteChildrenFilter("all");
-    setCasePriorityFilter("all");
-    setCaseStepFilter("all");
-    setCaseRunFilter("all");
-    setIsCreatingCase(false);
-    setIsTestCaseEditorModalOpen(false);
-    setIsCreateExecutionModalOpen(false);
-    setExecutionName("");
-    setSelectedExecutionAssigneeId("");
-    resetExecutionContextSelection();
-    setExpandedSections(createDefaultSuiteCaseSections());
-    setExpandedStepIds([]);
-    setDraftSteps([]);
-    setNewStepDraft(EMPTY_STEP_DRAFT);
-    setMessage("");
-  };
-
-  const handleAppTypeChange = (value: string) => {
-    setAppTypeId(value);
-    setSelectedSuiteId("");
-    setSelectedSuiteActionIds([]);
-    setSelectedTestCaseId("");
-    setSuiteSearchTerm("");
-    setIsCreatingCase(false);
-    setIsTestCaseEditorModalOpen(false);
-    setIsCreateExecutionModalOpen(false);
-    setExecutionName("");
-    setSelectedExecutionAssigneeId("");
-    resetExecutionContextSelection();
-    setSearchTerm("");
-    setStatusFilter("all");
-    setSuitePlacementFilter("all");
-    setSuiteMappedCasesFilter("all");
-    setSuiteChildrenFilter("all");
-    setCasePriorityFilter("all");
-    setCaseStepFilter("all");
-    setCaseRunFilter("all");
-    setExpandedSections(createDefaultSuiteCaseSections());
-    setExpandedStepIds([]);
-    setDraftSteps([]);
-    setNewStepDraft(EMPTY_STEP_DRAFT);
-    setMessage("");
-  };
-
   const handleSuiteSave = async (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => {
     try {
       let suiteId = selectedSuiteId;
@@ -1664,15 +1609,6 @@ export function DesignPage() {
       ) : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={handleAppTypeChange}
-        onProjectChange={handleProjectChange}
-        projectId={projectId}
-        projects={projects}
-      />
 
       <WorkspaceSectionTabs ariaLabel="Test authoring sections" items={authoringSectionItems} />
 

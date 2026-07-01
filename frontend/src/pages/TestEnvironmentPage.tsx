@@ -15,7 +15,6 @@ import { ToastMessage } from "../components/ToastMessage";
 import { TileCardStatusIndicator } from "../components/TileCardPrimitives";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -387,7 +386,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const queryClient = useQueryClient();
   const domainMetadataQuery = useDomainMetadata();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -994,15 +993,6 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       />
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={setAppTypeId}
-        onProjectChange={setProjectId}
-        projectId={projectId}
-        projects={projects}
-      />
 
       <WorkspaceSectionTabs
         ariaLabel="Test environment sections"

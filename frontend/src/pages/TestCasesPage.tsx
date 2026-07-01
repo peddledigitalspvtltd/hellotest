@@ -45,7 +45,6 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { VisualTestBuilder } from "../components/VisualTestBuilder";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -732,7 +731,7 @@ export function TestCasesPage() {
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -1145,19 +1144,6 @@ export function TestCasesPage() {
     setMessageTone("error");
     setMessage(error instanceof Error ? error.message : fallback);
   };
-
-  function clearScopedSearchParams() {
-    if (!searchParams.has("project") && !searchParams.has("appType")) {
-      return;
-    }
-
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete("project");
-      next.delete("appType");
-      return next;
-    }, { replace: true });
-  }
 
   function syncTestCaseSearchParams(nextCaseId?: string | null) {
     const currentCaseId = searchParams.get("case") || "";
@@ -5856,27 +5842,6 @@ export function TestCasesPage() {
           <strong>{generationQueueSummary.title}</strong>
           <span>{generationQueueSummary.detail}</span>
         </div>
-      ) : null}
-
-      {!isCaseWorkspaceOpen ? (
-        <WorkspaceScopeBar
-          appTypeId={appTypeId}
-          appTypes={appTypes}
-          onAppTypeChange={(value) => {
-            clearScopedSearchParams();
-            setAppTypeId(value);
-            setSelectedExecutionAssigneeId("");
-            resetExecutionContextSelection();
-          }}
-          onProjectChange={(value) => {
-            clearScopedSearchParams();
-            setProjectId(value);
-            setSelectedExecutionAssigneeId("");
-            resetExecutionContextSelection();
-          }}
-          projectId={projectId}
-          projects={projects}
-        />
       ) : null}
 
       <WorkspaceSectionTabs ariaLabel="Test authoring sections" items={authoringSectionItems} />

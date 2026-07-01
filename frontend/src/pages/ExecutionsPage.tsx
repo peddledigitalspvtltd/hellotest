@@ -36,7 +36,6 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { VirtualList } from "../components/VirtualList";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
@@ -1967,7 +1966,6 @@ export function ExecutionsPage() {
     currentExecutionStatus === "running"
     && Boolean(testEngineLiveViewUrl)
     && (selectedExecutionAppTypeKind === "web" || selectedExecutionAppTypeKind === "unified");
-  const isExecutionScopeReadOnly = false;
   const isExecutionStarted = currentExecutionStatus === "running";
   const isExecutionLocked =
     currentExecutionStatus === "completed" || currentExecutionStatus === "failed" || currentExecutionStatus === "aborted";
@@ -4830,34 +4828,6 @@ export function ExecutionsPage() {
         ]}
         onChange={handleTestRunsViewChange}
         value={testRunsView}
-      />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        appTypeValueLabel={undefined}
-        disabled={isExecutionScopeReadOnly}
-        onAppTypeChange={(value) => {
-          setAppTypeId(value);
-          setSelectedExecutionId("");
-          setFocusedSuiteId("");
-          setSelectedTestCaseId("");
-          setSelectedSuiteIds([]);
-          resetExecutionContextSelection();
-          syncExecutionSearchParams("", null);
-        }}
-        onProjectChange={(value) => {
-          setProjectId(value);
-          setSelectedExecutionId("");
-          setFocusedSuiteId("");
-          setSelectedTestCaseId("");
-          setSelectedSuiteIds([]);
-          resetExecutionContextSelection();
-          syncExecutionSearchParams("", null);
-        }}
-        projectId={projectId}
-        projectValueLabel={undefined}
-        projects={projects}
       />
 
       <WorkspaceMasterDetail

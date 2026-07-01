@@ -1,0 +1,11 @@
+{
+  "qaira.outputDir": "out/qaira-output",
+  "qaira.learningDir": "out/qaira-learning",
+  "qaira.import.apiTests.enabled": true,
+  "qaira.import.webuiPages.enabled": true,
+  "qaira.import.apiTestsUrl": "http://localhost:8080/api/test-cases/import",
+  "qaira.import.webuiPagesUrl": "http://localhost:8080/api/test-cases/automation/learning-cache/import",
+  "qaira.import.appTypeId": "fb1192f3-9421-4012-b616-c13bbcb5bbe3",
+  "qaira.import.authMode": "bearer",
+  "qaira.import.confirmBeforeSending": true
+}

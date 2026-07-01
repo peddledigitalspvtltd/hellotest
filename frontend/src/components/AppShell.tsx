@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
-import { ProjectDropdown } from "./ProjectDropdown";
+import { AppTypeInlineValue } from "./AppTypeDropdown";
 import { BrandWordmark } from "./BrandWordmark";
 import { UserProfileDialog } from "./UserProfileDialog";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
 import { canAccessPath, hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
@@ -116,6 +117,20 @@ const navigation = [
   }
 ] as const;
 
+type SidebarScopeSelectorProps = {
+  isCollapsed: boolean;
+  isLoadingProjects: boolean;
+  onProjectChange: (value: string | number) => void;
+  projectId: string;
+  projects: Array<{ id: string | number; display_id?: string | null; name: string; description: string | null }>;
+};
+
+type SidebarScopePopoverPosition = {
+  left: number;
+  top: number;
+  width: number;
+};
+
 function isNavigationItemActive(item: { to: string; matchPaths?: readonly string[] }, pathname: string) {
   if (item.to === "/") {
     return pathname === "/";
@@ -134,6 +149,252 @@ function navItemPermissions(item: { to: string; matchPaths?: readonly string[] }
 
 function getNavigationItemLabel(item: { label: string; shortLabel?: string }, shouldCollapseSidebar: boolean) {
   return shouldCollapseSidebar ? item.shortLabel || item.label : item.label;
+}
+
+function SidebarScopeSelector({
+  isCollapsed,
+  isLoadingProjects,
+  onProjectChange,
+  projectId,
+  projects
+}: SidebarScopeSelectorProps) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [popoverPosition, setPopoverPosition] = useState<SidebarScopePopoverPosition | null>(null);
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
+  const appTypesQuery = useQuery({
+    queryKey: ["app-types", projectId],
+    queryFn: () => api.appTypes.list({ project_id: projectId }),
+    enabled: Boolean(projectId),
+    retry: 1,
+    staleTime: 60 * 1000
+  });
+
+  const appTypes = appTypesQuery.data || [];
+  const currentProject = projects.find((project) => String(project.id) === String(projectId)) || null;
+  const currentAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+
+    if (!query) {
+      return projects;
+    }
+
+    return projects.filter((project) =>
+      [project.name, project.display_id || "", project.description || ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [projectSearch, projects]);
+
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+
+    if (!trigger || typeof window === "undefined") {
+      return;
+    }
+
+    const bounds = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const width = Math.min(390, Math.max(240, window.innerWidth - viewportPadding * 2));
+    const estimatedHeight = Math.min(430, window.innerHeight - viewportPadding * 2);
+    const preferredLeft = isCollapsed ? bounds.right + 10 : bounds.left;
+    const preferredTop = isCollapsed ? bounds.top : bounds.bottom + 8;
+    const left = Math.min(Math.max(viewportPadding, preferredLeft), window.innerWidth - width - viewportPadding);
+    const top = Math.min(
+      Math.max(viewportPadding, preferredTop),
+      Math.max(viewportPadding, window.innerHeight - estimatedHeight - viewportPadding)
+    );
+
+    setPopoverPosition({ left, top, width });
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    if (!appTypesQuery.isPending && projectId && appTypes.length && !appTypes.some((appType) => appType.id === appTypeId)) {
+      setAppTypeId(appTypes[0].id);
+    }
+
+    if (!appTypesQuery.isPending && projectId && !appTypes.length && appTypeId) {
+      setAppTypeId("");
+    }
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    updatePopoverPosition();
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+
+      if (!target || triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, updatePopoverPosition]);
+
+  const currentProjectName =
+    currentProject?.name || (isLoadingProjects ? "Loading project" : projects.length ? "Select project" : "No projects");
+  const currentAppTypeName =
+    currentAppType?.name || (appTypesQuery.isPending ? "Loading app type" : projectId ? "Select app type" : "Choose project first");
+
+  const handleTriggerClick = () => {
+    if (!isOpen) {
+      updatePopoverPosition();
+    }
+
+    setIsOpen((current) => !current);
+  };
+
+  const selectorPopover =
+    isOpen && popoverPosition
+      ? createPortal(
+          <div
+            className="sidebar-scope-popover"
+            ref={popoverRef}
+            role="dialog"
+            aria-label="Select project and app type"
+            style={{
+              left: popoverPosition.left,
+              top: popoverPosition.top,
+              width: popoverPosition.width
+            }}
+          >
+            <div className="sidebar-scope-popover-head">
+              <span>Workspace Scope</span>
+              <strong>{currentProjectName}</strong>
+            </div>
+            <label className="sidebar-scope-search">
+              <span>Project</span>
+              <input
+                autoFocus
+                onChange={(event) => setProjectSearch(event.target.value)}
+                placeholder="Search projects"
+                type="search"
+                value={projectSearch}
+              />
+            </label>
+            <div className="sidebar-scope-project-list" role="listbox" aria-label="Projects">
+              {filteredProjects.map((project) => {
+                const isSelected = String(project.id) === String(projectId);
+
+                return (
+                  <button
+                    aria-selected={isSelected}
+                    className={isSelected ? "sidebar-scope-project-option is-selected" : "sidebar-scope-project-option"}
+                    key={project.id}
+                    onClick={() => {
+                      onProjectChange(project.id);
+                      setProjectSearch("");
+                    }}
+                    role="option"
+                    type="button"
+                  >
+                    <strong>{project.name}</strong>
+                    <span>{project.display_id || project.description || "Project workspace"}</span>
+                  </button>
+                );
+              })}
+              {!filteredProjects.length ? (
+                <div className="sidebar-scope-empty">No matching projects.</div>
+              ) : null}
+            </div>
+            <div className="sidebar-scope-app-types" aria-label="App types">
+              <span>App Type</span>
+              {appTypes.length ? (
+                <div className="sidebar-scope-app-type-list">
+                  {appTypes.map((appType) => {
+                    const isSelected = appType.id === appTypeId;
+
+                    return (
+                      <button
+                        aria-pressed={isSelected}
+                        className={isSelected ? "sidebar-scope-app-type-option is-selected" : "sidebar-scope-app-type-option"}
+                        key={appType.id}
+                        onClick={() => {
+                          setAppTypeId(appType.id);
+                          setIsOpen(false);
+                        }}
+                        type="button"
+                      >
+                        <AppTypeInlineValue
+                          isUnified={appType.is_unified}
+                          label={appType.name}
+                          type={appType.type}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="sidebar-scope-empty">
+                  {projectId ? "No app types available for this project." : "Choose a project first."}
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <div className={isCollapsed ? "sidebar-scope-selector is-collapsed" : "sidebar-scope-selector"}>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label="Select project and app type"
+        className="sidebar-scope-trigger"
+        disabled={isLoadingProjects || !projects.length}
+        onClick={handleTriggerClick}
+        ref={triggerRef}
+        title={isCollapsed ? `${currentProjectName} - ${currentAppTypeName}` : undefined}
+        type="button"
+      >
+        <span className="sidebar-scope-icon" aria-hidden="true">
+          <ProjectScopeIcon />
+        </span>
+        {!isCollapsed ? (
+          <>
+            <span className="sidebar-scope-copy">
+              <span>Current Project</span>
+              <strong>{currentProjectName}</strong>
+              <em>{currentAppTypeName}</em>
+            </span>
+            <span className="sidebar-scope-caret" aria-hidden="true">
+              <ChevronIcon />
+            </span>
+          </>
+        ) : null}
+      </button>
+      {selectorPopover}
+    </div>
+  );
 }
 
 export function AppShell() {
@@ -405,30 +666,18 @@ export function AppShell() {
             ) : null}
           </div>
 
-          {!shouldCollapseSidebar ? (
-            hasNoProjects ? (
-              <div className="sidebar-notice">
-                <p>No projects assigned yet.</p>
-                <p className="text-muted">Ask an admin to add you to a project.</p>
-              </div>
-            ) : (
-              <div className="sidebar-project-picker">
-                <span>Current Project</span>
-                <ProjectDropdown
-                  ariaLabel="Select a project"
-                  onChange={setSidebarProjectId}
-                  projects={projects}
-                  value={sidebarProjectId}
-                />
-              </div>
-            )
-          ) : null}
-
-          {!shouldCollapseSidebar ? (
-            <div className="sidebar-context-card" aria-label="Current workspace context">
-              <span className="sidebar-context-kicker">Current Workspace</span>
-              <strong>{currentSection}</strong>
-              <span>{currentProjectName}</span>
+          {!hasNoProjects ? (
+            <SidebarScopeSelector
+              isCollapsed={shouldCollapseSidebar}
+              isLoadingProjects={projectsQuery.isPending}
+              onProjectChange={setSidebarProjectId}
+              projectId={sidebarProjectId}
+              projects={projects}
+            />
+          ) : !shouldCollapseSidebar ? (
+            <div className="sidebar-notice">
+              <p>No projects assigned yet.</p>
+              <p className="text-muted">Ask an admin to add you to a project.</p>
             </div>
           ) : null}
         </div>
@@ -631,6 +880,17 @@ function UserIcon() {
 
 function FolderIcon() {
   return <IconFrame><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v9A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5z" /><path d="M9 12v5" /><path d="M13 14v3" /></IconFrame>;
+}
+
+function ProjectScopeIcon() {
+  return (
+    <IconFrame>
+      <rect height="4.5" rx="1" width="4.5" x="4.5" y="5" />
+      <rect height="4.5" rx="1" width="4.5" x="15" y="14.5" />
+      <path d="M9 7.25h3.25a2.5 2.5 0 0 1 2.5 2.5v4.75" />
+      <path d="M7 9.5v4a3 3 0 0 0 3 3h5" />
+    </IconFrame>
+  );
 }
 
 function ServerIcon() {

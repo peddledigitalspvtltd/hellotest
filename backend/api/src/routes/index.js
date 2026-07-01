@@ -12,6 +12,7 @@ module.exports = async function (fastify) {
     fastify.register(require("./integrations.routes"));
     fastify.register(require("./settings.routes"));
     fastify.register(require("./requirementTestCases.routes"));
+    fastify.register(require("./requirementDefects.routes"));
     fastify.register(require("./testSuites.routes"));
     fastify.register(require("./suiteTestCases.routes"));
     fastify.register(require("./testCases.routes"));

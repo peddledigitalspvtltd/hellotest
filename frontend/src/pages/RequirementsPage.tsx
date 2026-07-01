@@ -1,10 +1,10 @@
-import { ChangeEvent, Dispatch, FormEvent, ReactNode, SetStateAction, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, ClearSelectionIcon, ImportIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
-import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
+import { AddIcon, ClearSelectionIcon, ImportIcon, OpenIcon, SearchIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -27,7 +27,6 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -39,23 +38,41 @@ import { formatReferenceList, parseReferenceList } from "../lib/externalReferenc
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
-import type { AiDesignImageInput, AiDesignedTestCaseCandidate, ExecutionResult, Integration, Requirement, TestCase, User } from "../types";
+import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, TestCase, User } from "../types";
 
 type RequirementDraft = {
   title: string;
   description: string;
   externalReferencesText: string;
+  labelsText: string;
+  sprint: string;
+  fixVersion: string;
+  release: string;
   priority: number;
   status: string;
 };
 
-type RequirementSectionKey = "details" | "library";
+type RequirementSectionKey = "details" | "library" | "defects" | "runHistory";
 type RequirementCoverageFilter = "all" | "linked" | "unlinked";
 
 type RequirementCoverageMetric = {
   total: number;
   covered: number;
   percent: number;
+};
+
+type RequirementRunHistoryRow = {
+  key: string;
+  executionId: string;
+  executionName: string;
+  executionStatus: string | null;
+  testCaseId: string;
+  testCaseTitle: string;
+  resultStatus: ExecutionResult["status"];
+  defects: string[];
+  createdAt?: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
 };
 
 type RequirementOptimizationSuggestion = Awaited<ReturnType<typeof api.requirements.previewOptimization>>["suggestion"];
@@ -65,13 +82,19 @@ const createEmptyRequirementDraft = (defaultStatus = "open"): RequirementDraft =
   title: "",
   description: "",
   externalReferencesText: "",
+  labelsText: "",
+  sprint: "",
+  fixVersion: "",
+  release: "",
   priority: 3,
   status: defaultStatus
 });
 
 const createDefaultRequirementSections = (): Record<RequirementSectionKey, boolean> => ({
   details: true,
-  library: false
+  library: false,
+  defects: false,
+  runHistory: false
 });
 
 const getRequirementCoverageTone = (covered: number, total: number) => {
@@ -119,19 +142,28 @@ export function RequirementsPage() {
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedRequirementId, setSelectedRequirementId] = useState("");
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
+  const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
   const [linkedPreviewCaseId, setLinkedPreviewCaseId] = useState("");
   const [deleteSelectedRequirementIds, setDeleteSelectedRequirementIds] = useState<string[]>([]);
   const [isDeletingSelectedRequirements, setIsDeletingSelectedRequirements] = useState(false);
   const [requirementSearchTerm, setRequirementSearchTerm] = useState("");
   const [requirementStatusFilter, setRequirementStatusFilter] = useState("all");
   const [requirementPriorityFilter, setRequirementPriorityFilter] = useState("all");
+  const [requirementLabelFilter, setRequirementLabelFilter] = useState("all");
+  const [requirementSprintFilter, setRequirementSprintFilter] = useState("all");
+  const [requirementFixVersionFilter, setRequirementFixVersionFilter] = useState("all");
+  const [requirementReleaseFilter, setRequirementReleaseFilter] = useState("all");
   const [requirementCoverageFilter, setRequirementCoverageFilter] = useState<RequirementCoverageFilter>("all");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [expandedSections, setExpandedSections] = useState<Record<RequirementSectionKey, boolean>>(createDefaultRequirementSections);
+  const [detailTestCaseSearchTerm, setDetailTestCaseSearchTerm] = useState("");
+  const [isDetailTestCaseSearchActive, setIsDetailTestCaseSearchActive] = useState(false);
+  const [defectSearchTerm, setDefectSearchTerm] = useState("");
+  const [isDefectSearchLoaded, setIsDefectSearchLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const defaultRequirementStatus = domainMetadataQuery.data?.requirements.default_status || "open";
@@ -139,7 +171,6 @@ export function RequirementsPage() {
   const [draft, setDraft] = useState<RequirementDraft>(() => createEmptyRequirementDraft());
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<RequirementDraft>(() => createEmptyRequirementDraft());
-  const [createSelectedTestCaseIds, setCreateSelectedTestCaseIds] = useState<string[]>([]);
   const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
   const [aiRequirementId, setAiRequirementId] = useState("");
   const [integrationId, setIntegrationId] = useState("");
@@ -152,7 +183,7 @@ export function RequirementsPage() {
   const [previewTone, setPreviewTone] = useState<"success" | "error">("success");
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [requirementImportSource, setRequirementImportSource] = useState<RequirementImportSource>("csv");
-  const [importRows, setImportRows] = useState<Array<{ title: string; description?: string; external_references?: string[]; priority?: number; status?: string }>>([]);
+  const [importRows, setImportRows] = useState<Array<{ title: string; description?: string; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; priority?: number; status?: string }>>([]);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importFileName, setImportFileName] = useState("");
   const [selectedAlmIntegrationId, setSelectedAlmIntegrationId] = useState("");
@@ -195,6 +226,16 @@ export function RequirementsPage() {
     queryKey: ["requirements-execution-results", appTypeId],
     queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId)
+  });
+  const executionsQuery = useQuery({
+    queryKey: ["requirements-executions", projectId, appTypeId],
+    queryFn: () => api.executions.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
+    enabled: Boolean(projectId)
+  });
+  const issuesQuery = useQuery({
+    queryKey: ["requirements-issues"],
+    queryFn: () => api.issues.list(),
+    enabled: Boolean(session && isDefectSearchLoaded)
   });
   const sharedGroupsQuery = useQuery({
     queryKey: ["requirements-shared-step-groups", appTypeId],
@@ -248,6 +289,10 @@ export function RequirementsPage() {
     mutationFn: ({ requirementId, testCaseIds }: { requirementId: string; testCaseIds: string[] }) =>
       api.requirementTestCases.replace(requirementId, testCaseIds)
   });
+  const replaceDefectMappings = useMutation({
+    mutationFn: ({ requirementId, issueIds }: { requirementId: string; issueIds: string[] }) =>
+      api.requirementDefects.replace(requirementId, issueIds)
+  });
   const previewDesignedCases = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1] }) =>
       api.requirements.previewDesignedTestCases(requirementId, input)
@@ -266,6 +311,8 @@ export function RequirementsPage() {
   const requirements = requirementsQuery.data || [];
   const testCases = testCasesQuery.data || [];
   const executionResults = executionResultsQuery.data || [];
+  const executions = (executionsQuery.data || []) as Execution[];
+  const issues = (issuesQuery.data || []) as Issue[];
   const sharedGroups = sharedGroupsQuery.data || [];
   const suites = suitesQuery.data || [];
   const integrations = integrationsQuery.data || [];
@@ -297,7 +344,8 @@ export function RequirementsPage() {
   const isRequirementCatalogLoading =
     projectsQuery.isLoading ||
     (Boolean(projectId) && requirementsQuery.isLoading) ||
-    (Boolean(appTypeId) && executionResultsQuery.isLoading);
+    (Boolean(appTypeId) && executionResultsQuery.isLoading) ||
+    (Boolean(projectId) && executionsQuery.isLoading);
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -372,7 +420,6 @@ export function RequirementsPage() {
     [optimizeRequirementIds, requirements]
   );
   const activeOptimizeRequirement = optimizeTargets[optimizeRequirementIndex] || selectedRequirement;
-  const selectedRequirementActionCount = deleteSelectedRequirementIds.length;
 
   const latestResultByCaseId = useMemo(() => {
     const map: Record<string, ExecutionResult> = {};
@@ -455,13 +502,163 @@ export function RequirementsPage() {
     return coverage;
   }, [linkedCaseIdsByRequirementId, requirements, testCases]);
 
+  const issueById = useMemo(() => {
+    const map = new Map<string, Issue | RequirementDefectLink>();
+
+    requirements.forEach((requirement) => {
+      (requirement.defects || []).forEach((defect) => {
+        map.set(defect.id, defect);
+      });
+    });
+
+    issues.forEach((issue) => {
+      map.set(issue.id, issue);
+    });
+
+    return map;
+  }, [issues, requirements]);
+
+  const defectsByRequirementId = useMemo(() => {
+    const map: Record<string, RequirementDefectLink[]> = {};
+
+    requirements.forEach((requirement) => {
+      const linkedDefects = requirement.defects || [];
+      const defectIds = requirement.defect_ids || linkedDefects.map((defect) => defect.id);
+
+      map[requirement.id] = defectIds
+        .map((defectId) => {
+          const issue = issueById.get(defectId);
+
+          if (!issue) {
+            return linkedDefects.find((defect) => defect.id === defectId) || null;
+          }
+
+          return {
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            link_source: "link_source" in issue ? issue.link_source : linkedDefects.find((defect) => defect.id === issue.id)?.link_source,
+            created_at: issue.created_at
+          } satisfies RequirementDefectLink;
+        })
+        .filter(Boolean) as RequirementDefectLink[];
+    });
+
+    return map;
+  }, [issueById, requirements]);
+
+  const bugResolutionByRequirementId = useMemo(() => {
+    const coverage: Record<string, RequirementCoverageMetric> = {};
+    const openStatus = domainMetadataQuery.data?.issues.default_status || "open";
+
+    requirements.forEach((requirement) => {
+      const defects = defectsByRequirementId[requirement.id] || [];
+      const total = defects.length;
+      const covered = defects.filter((defect) => (defect.status || openStatus) !== openStatus).length;
+
+      coverage[requirement.id] = {
+        total,
+        covered,
+        percent: total ? Math.round((covered / total) * 100) : 0
+      };
+    });
+
+    return coverage;
+  }, [defectsByRequirementId, domainMetadataQuery.data?.issues.default_status, requirements]);
+
+  const executionById = useMemo(
+    () => new Map(executions.map((execution) => [execution.id, execution])),
+    [executions]
+  );
+
+  const runHistoryByRequirementId = useMemo(() => {
+    const map: Record<string, RequirementRunHistoryRow[]> = {};
+    const testCaseById = new Map(testCases.map((testCase) => [testCase.id, testCase]));
+    const latestResultByExecutionCase = new Map<string, ExecutionResult>();
+
+    executionResults.forEach((result) => {
+      const key = `${result.execution_id}:${result.test_case_id}`;
+      const current = latestResultByExecutionCase.get(key);
+      const currentTime = current?.created_at ? new Date(current.created_at).getTime() || 0 : 0;
+      const nextTime = result.created_at ? new Date(result.created_at).getTime() || 0 : 0;
+
+      if (!current || nextTime >= currentTime) {
+        latestResultByExecutionCase.set(key, result);
+      }
+    });
+
+    requirements.forEach((requirement) => {
+      const linkedCaseIds = new Set(linkedCaseIdsByRequirementId[requirement.id] || []);
+
+      map[requirement.id] = Array.from(latestResultByExecutionCase.values())
+        .filter((result) => linkedCaseIds.has(result.test_case_id))
+        .map((result) => {
+          const execution = executionById.get(result.execution_id);
+          const testCase = testCaseById.get(result.test_case_id);
+
+          return {
+            key: `${result.execution_id}:${result.test_case_id}`,
+            executionId: result.execution_id,
+            executionName: execution?.name || result.execution_id,
+            executionStatus: execution?.status || null,
+            testCaseId: result.test_case_id,
+            testCaseTitle: result.test_case_title || testCase?.title || result.test_case_id,
+            resultStatus: result.status,
+            defects: result.defects || [],
+            createdAt: result.created_at,
+            startedAt: execution?.started_at || null,
+            endedAt: execution?.ended_at || null
+          };
+        })
+        .sort((left, right) => {
+          const leftTime = new Date(left.endedAt || left.createdAt || left.startedAt || 0).getTime() || 0;
+          const rightTime = new Date(right.endedAt || right.createdAt || right.startedAt || 0).getTime() || 0;
+          return rightTime - leftTime;
+        });
+    });
+
+    return map;
+  }, [executionById, executionResults, linkedCaseIdsByRequirementId, requirements, testCases]);
+
+  const predefinedRequirementStatuses = domainMetadataQuery.data?.requirements.statuses || [];
   const requirementStatusOptions = useMemo(
-    () => Array.from(new Set(requirements.map((item) => item.status || defaultRequirementStatus))).sort((left, right) => left.localeCompare(right)),
-    [defaultRequirementStatus, requirements]
+    () =>
+      Array.from(new Set([
+        ...predefinedRequirementStatuses.map((option) => option.value),
+        ...requirements.map((item) => item.status || defaultRequirementStatus)
+      ])).sort((left, right) => left.localeCompare(right)),
+    [defaultRequirementStatus, predefinedRequirementStatuses, requirements]
   );
   const requirementPriorityOptions = useMemo(
     () =>
       Array.from(new Set(requirements.map((item) => String(item.priority ?? 3)))).sort((left, right) => Number(left) - Number(right)),
+    [requirements]
+  );
+  const requirementLabelOptions = useMemo(
+    () => {
+      const labels = new Map<string, string>();
+
+      requirements.flatMap((item) => item.labels || []).forEach((label) => {
+        const normalizedLabel = label.trim();
+        if (normalizedLabel && !labels.has(normalizedLabel.toLowerCase())) {
+          labels.set(normalizedLabel.toLowerCase(), normalizedLabel);
+        }
+      });
+
+      return Array.from(labels.values()).sort((left, right) => left.localeCompare(right));
+    },
+    [requirements]
+  );
+  const requirementSprintOptions = useMemo(
+    () => Array.from(new Set(requirements.map((item) => item.sprint || "").filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [requirements]
+  );
+  const requirementFixVersionOptions = useMemo(
+    () => Array.from(new Set(requirements.map((item) => item.fix_version || "").filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [requirements]
+  );
+  const requirementReleaseOptions = useMemo(
+    () => Array.from(new Set(requirements.map((item) => item.release || "").filter(Boolean))).sort((left, right) => left.localeCompare(right)),
     [requirements]
   );
 
@@ -478,7 +675,12 @@ export function RequirementsPage() {
           item.title,
           item.description || "",
           ...(item.external_references || []),
+          ...(item.labels || []),
+          item.sprint || "",
+          item.fix_version || "",
+          item.release || "",
           ...(item.test_case_ids || []),
+          ...(item.defects || []).flatMap((defect) => [defect.id, defect.title, defect.status || ""]),
           item.status || defaultRequirementStatus,
           `p${item.priority ?? 3}`,
           `priority ${item.priority ?? 3}`
@@ -496,6 +698,22 @@ export function RequirementsPage() {
         return false;
       }
 
+      if (requirementLabelFilter !== "all" && !(item.labels || []).includes(requirementLabelFilter)) {
+        return false;
+      }
+
+      if (requirementSprintFilter !== "all" && (item.sprint || "") !== requirementSprintFilter) {
+        return false;
+      }
+
+      if (requirementFixVersionFilter !== "all" && (item.fix_version || "") !== requirementFixVersionFilter) {
+        return false;
+      }
+
+      if (requirementReleaseFilter !== "all" && (item.release || "") !== requirementReleaseFilter) {
+        return false;
+      }
+
       if (requirementCoverageFilter === "linked" && !linkedCaseCount) {
         return false;
       }
@@ -506,11 +724,15 @@ export function RequirementsPage() {
 
       return true;
     });
-  }, [defaultRequirementStatus, linkedCaseIdsByRequirementId, requirementCoverageFilter, requirementPriorityFilter, requirementSearchTerm, requirementStatusFilter, requirements]);
+  }, [defaultRequirementStatus, linkedCaseIdsByRequirementId, requirementCoverageFilter, requirementFixVersionFilter, requirementLabelFilter, requirementPriorityFilter, requirementReleaseFilter, requirementSearchTerm, requirementSprintFilter, requirementStatusFilter, requirements]);
 
   const activeRequirementFilterCount =
     Number(requirementStatusFilter !== "all") +
     Number(requirementPriorityFilter !== "all") +
+    Number(requirementLabelFilter !== "all") +
+    Number(requirementSprintFilter !== "all") +
+    Number(requirementFixVersionFilter !== "all") +
+    Number(requirementReleaseFilter !== "all") +
     Number(requirementCoverageFilter !== "all");
 
   const areAllFilteredRequirementsSelected =
@@ -567,39 +789,81 @@ export function RequirementsPage() {
       key: "title",
       label: "Requirement",
       canToggle: false,
+      sortValue: (item) => item.title,
       render: (item) => <strong>{item.title}</strong>
     },
     {
       key: "description",
       label: "Description",
       defaultVisible: false,
+      sortValue: (item) => item.description || "",
       render: (item) => item.description || currentAppTypeName
     },
     {
       key: "externalReferences",
       label: "References",
       defaultVisible: false,
+      sortValue: (item) => formatReferenceList(item.external_references),
       render: (item) => formatReferenceList(item.external_references) || "—"
+    },
+    {
+      key: "labels",
+      label: "Labels",
+      defaultVisible: false,
+      sortValue: (item) => formatReferenceList(item.labels),
+      render: (item) => formatReferenceList(item.labels) || "—"
+    },
+    {
+      key: "sprint",
+      label: "Sprint",
+      defaultVisible: false,
+      sortValue: (item) => item.sprint || "",
+      render: (item) => item.sprint || "—"
+    },
+    {
+      key: "fixVersion",
+      label: "Fix Version",
+      defaultVisible: false,
+      sortValue: (item) => item.fix_version || "",
+      render: (item) => item.fix_version || "—"
+    },
+    {
+      key: "release",
+      label: "Release",
+      defaultVisible: false,
+      sortValue: (item) => item.release || "",
+      render: (item) => item.release || "—"
     },
     {
       key: "status",
       label: "Status",
+      sortValue: (item) => item.status || defaultRequirementStatus,
       render: (item) => formatTileCardLabel(item.status, "Open")
     },
     {
       key: "priority",
       label: "Priority",
+      sortValue: (item) => item.priority ?? 3,
       render: (item) => `P${item.priority ?? 3}`
     },
     {
       key: "linkedCases",
       label: "Linked cases",
+      sortValue: (item) => (linkedCaseIdsByRequirementId[item.id] || []).length,
       render: (item) => (linkedCaseIdsByRequirementId[item.id] || []).length
+    },
+    {
+      key: "linkedDefects",
+      label: "Linked defects",
+      defaultVisible: false,
+      sortValue: (item) => (defectsByRequirementId[item.id] || []).length,
+      render: (item) => (defectsByRequirementId[item.id] || []).length
     },
     {
       key: "passRate",
       label: "Pass rate",
       defaultVisible: false,
+      sortValue: (item) => passCoverageByRequirementId[item.id]?.percent || 0,
       render: (item) => {
         const metric = passCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
         const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
@@ -610,6 +874,7 @@ export function RequirementsPage() {
       key: "automationCoverage",
       label: "Automation coverage",
       defaultVisible: false,
+      sortValue: (item) => automationCoverageByRequirementId[item.id]?.percent || 0,
       render: (item) => {
         const metric = automationCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
         const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
@@ -617,27 +882,41 @@ export function RequirementsPage() {
       }
     },
     {
+      key: "bugResolution",
+      label: "Bug resolution",
+      defaultVisible: false,
+      sortValue: (item) => bugResolutionByRequirementId[item.id]?.percent || 0,
+      render: (item) => {
+        const metric = bugResolutionByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
+        return metric.total ? `${metric.percent}%` : "—";
+      }
+    },
+    {
       key: "createdBy",
       label: "Created by",
       defaultVisible: false,
+      sortValue: (item) => resolveAuditUserLabel(item.created_by, userById),
       render: (item) => resolveAuditUserLabel(item.created_by, userById)
     },
     {
       key: "createdAt",
       label: "Created at",
       defaultVisible: false,
+      sortValue: (item) => item.created_at || "",
       render: (item) => formatAuditTimestamp(item.created_at)
     },
     {
       key: "updatedBy",
       label: "Last updated by",
       defaultVisible: false,
+      sortValue: (item) => resolveAuditUserLabel(item.updated_by || item.created_by, userById),
       render: (item) => resolveAuditUserLabel(item.updated_by || item.created_by, userById)
     },
     {
       key: "updatedAt",
       label: "Last updated at",
       defaultVisible: false,
+      sortValue: (item) => item.updated_at || item.created_at || "",
       render: (item) => formatAuditTimestamp(item.updated_at || item.created_at)
     },
     {
@@ -676,9 +955,12 @@ export function RequirementsPage() {
     }
   ], [
     automationCoverageByRequirementId,
+    bugResolutionByRequirementId,
     currentAppTypeName,
+    defaultRequirementStatus,
     deleteSelectedRequirementIds,
     deleteRequirement.isPending,
+    defectsByRequirementId,
     handleDeleteRequirementItem,
     linkedCaseIdsByRequirementId,
     openRequirementAiStudio,
@@ -692,6 +974,38 @@ export function RequirementsPage() {
   const selectedRequirementAutomationCoverage = selectedRequirement
     ? automationCoverageByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
     : { total: 0, covered: 0, percent: 0 };
+  const selectedRequirementBugResolution = selectedRequirement
+    ? bugResolutionByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
+    : { total: 0, covered: 0, percent: 0 };
+  const selectedRequirementRunHistory = selectedRequirement
+    ? runHistoryByRequirementId[selectedRequirement.id] || []
+    : [];
+  const selectedRequirementDefects = useMemo(() => {
+    if (!selectedRequirement) {
+      return [];
+    }
+
+    const linkedDefects = defectsByRequirementId[selectedRequirement.id] || [];
+    const linkedById = new Map(linkedDefects.map((defect) => [defect.id, defect]));
+
+    return selectedDefectIds
+      .map((defectId) => {
+        const issue = issueById.get(defectId);
+
+        if (issue) {
+          return {
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            link_source: "link_source" in issue ? issue.link_source : linkedById.get(issue.id)?.link_source,
+            created_at: issue.created_at
+          } satisfies RequirementDefectLink;
+        }
+
+        return linkedById.get(defectId) || null;
+      })
+      .filter(Boolean) as RequirementDefectLink[];
+  }, [defectsByRequirementId, issueById, selectedDefectIds, selectedRequirement]);
 
   const associatedCases = useMemo(() => {
     if (!aiRequirement) {
@@ -749,6 +1063,7 @@ export function RequirementsPage() {
     if (!selectedRequirement) {
       setDraft(emptyRequirementDraft);
       setSelectedTestCaseIds([]);
+      setSelectedDefectIds([]);
       return;
     }
 
@@ -756,14 +1071,23 @@ export function RequirementsPage() {
       title: selectedRequirement.title,
       description: selectedRequirement.description || "",
       externalReferencesText: formatReferenceList(selectedRequirement.external_references),
+      labelsText: formatReferenceList(selectedRequirement.labels),
+      sprint: selectedRequirement.sprint || "",
+      fixVersion: selectedRequirement.fix_version || "",
+      release: selectedRequirement.release || "",
       priority: selectedRequirement.priority ?? 3,
       status: selectedRequirement.status || defaultRequirementStatus
     });
     setSelectedTestCaseIds(selectedRequirement.test_case_ids || []);
-  }, [selectedRequirement]);
+    setSelectedDefectIds(selectedRequirement.defect_ids || []);
+  }, [defaultRequirementStatus, emptyRequirementDraft, selectedRequirement]);
 
   useEffect(() => {
     setExpandedSections(createDefaultRequirementSections());
+    setDetailTestCaseSearchTerm("");
+    setIsDetailTestCaseSearchActive(false);
+    setDefectSearchTerm("");
+    setIsDefectSearchLoaded(false);
   }, [selectedRequirement?.id]);
 
   useEffect(() => {
@@ -778,14 +1102,14 @@ export function RequirementsPage() {
     }
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !createRequirement.isPending && !replaceMappings.isPending) {
+      if (event.key === "Escape" && !createRequirement.isPending) {
         setIsCreateModalOpen(false);
       }
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [createRequirement.isPending, isCreateModalOpen, replaceMappings.isPending]);
+  }, [createRequirement.isPending, isCreateModalOpen]);
 
   useEffect(() => {
     if (!isImportModalOpen) {
@@ -850,18 +1174,13 @@ export function RequirementsPage() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [acceptDesignedCases.isPending, isAiStudioOpen, previewDesignedCases.isPending]);
 
-  useEffect(() => {
-    if (!isCreateModalOpen) {
-      return;
-    }
-
-    setCreateSelectedTestCaseIds((current) => current.filter((id) => testCases.some((testCase) => testCase.id === id)));
-  }, [isCreateModalOpen, testCases]);
-
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirements-test-cases", appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirements-execution-results", appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirements-executions", projectId, appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirements-issues"] }),
       queryClient.invalidateQueries({ queryKey: ["test-cases"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-transaction-events"] })
@@ -870,7 +1189,6 @@ export function RequirementsPage() {
 
   const openCreateRequirementModal = () => {
     setCreateDraft(emptyRequirementDraft);
-    setCreateSelectedTestCaseIds([]);
     setIsCreateModalOpen(true);
   };
 
@@ -878,11 +1196,16 @@ export function RequirementsPage() {
     setSelectedRequirementId("");
     setDraft(emptyRequirementDraft);
     setSelectedTestCaseIds([]);
+    setSelectedDefectIds([]);
+    setDetailTestCaseSearchTerm("");
+    setIsDetailTestCaseSearchActive(false);
+    setDefectSearchTerm("");
+    setIsDefectSearchLoaded(false);
     setExpandedSections(createDefaultRequirementSections());
   };
 
   const closeCreateRequirementModal = () => {
-    if (createRequirement.isPending || replaceMappings.isPending) {
+    if (createRequirement.isPending) {
       return;
     }
 
@@ -926,13 +1249,6 @@ export function RequirementsPage() {
   ) => {
     setter((current) => (checked ? [...new Set([...current, testCaseId])] : current.filter((id) => id !== testCaseId)));
   };
-  const allReusableTestCaseIds = useMemo(
-    () => testCases.map((testCase) => testCase.id),
-    [testCases]
-  );
-  const areAllCreateRequirementCasesSelected =
-    Boolean(allReusableTestCaseIds.length) && createSelectedTestCaseIds.length === allReusableTestCaseIds.length;
-
   const handleCreateRequirement = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -947,19 +1263,18 @@ export function RequirementsPage() {
         title: createDraft.title,
         description: createDraft.description || undefined,
         external_references: parseReferenceList(createDraft.externalReferencesText),
+        labels: parseReferenceList(createDraft.labelsText),
+        sprint: createDraft.sprint || undefined,
+        fix_version: createDraft.fixVersion || undefined,
+        release: createDraft.release || undefined,
         priority: createDraft.priority,
         status: createDraft.status
       });
-
-      if (createSelectedTestCaseIds.length) {
-        await replaceMappings.mutateAsync({ requirementId: response.id, testCaseIds: createSelectedTestCaseIds });
-      }
 
       setSelectedRequirementId(response.id);
       setAiRequirementId(response.id);
       setIsCreateModalOpen(false);
       setCreateDraft(emptyRequirementDraft);
-      setCreateSelectedTestCaseIds([]);
       showSuccess("Requirement created.");
       await refresh();
     } catch (error) {
@@ -981,12 +1296,17 @@ export function RequirementsPage() {
           title: draft.title,
           description: draft.description,
           external_references: parseReferenceList(draft.externalReferencesText),
+          labels: parseReferenceList(draft.labelsText),
+          sprint: draft.sprint,
+          fix_version: draft.fixVersion,
+          release: draft.release,
           priority: draft.priority,
           status: draft.status
         }
       });
 
       await replaceMappings.mutateAsync({ requirementId: selectedRequirement.id, testCaseIds: selectedTestCaseIds });
+      await replaceDefectMappings.mutateAsync({ requirementId: selectedRequirement.id, issueIds: selectedDefectIds });
       showSuccess("Requirement updated.");
       await refresh();
     } catch (error) {
@@ -1078,6 +1398,7 @@ export function RequirementsPage() {
       setSelectedRequirementId("");
       setDraft(emptyRequirementDraft);
       setSelectedTestCaseIds([]);
+      setSelectedDefectIds([]);
       setPreviewCases([]);
       showSuccess("Requirement deleted.");
       await refresh();
@@ -1105,6 +1426,7 @@ export function RequirementsPage() {
         setSelectedRequirementId("");
         setDraft(emptyRequirementDraft);
         setSelectedTestCaseIds([]);
+        setSelectedDefectIds([]);
         setPreviewCases([]);
       }
 
@@ -1325,6 +1647,10 @@ export function RequirementsPage() {
           title: activeOptimizeRequirement.title,
           description: activeOptimizeRequirement.description || "",
           externalReferencesText: formatReferenceList(activeOptimizeRequirement.external_references),
+          labelsText: formatReferenceList(activeOptimizeRequirement.labels),
+          sprint: activeOptimizeRequirement.sprint || "",
+          fixVersion: activeOptimizeRequirement.fix_version || "",
+          release: activeOptimizeRequirement.release || "",
           priority: activeOptimizeRequirement.priority ?? 3,
           status: activeOptimizeRequirement.status || defaultRequirementStatus
         };
@@ -1337,6 +1663,10 @@ export function RequirementsPage() {
       title: optimizationFields.title ? optimizationSuggestion.title : baseDraft.title,
       description: nextDescription,
       externalReferencesText: optimizationFields.external_references ? formatReferenceList(optimizationSuggestion.external_references) : baseDraft.externalReferencesText,
+      labelsText: baseDraft.labelsText,
+      sprint: baseDraft.sprint,
+      fixVersion: baseDraft.fixVersion,
+      release: baseDraft.release,
       priority: optimizationFields.priority ? optimizationSuggestion.priority : baseDraft.priority,
       status: optimizationFields.status ? optimizationSuggestion.status : baseDraft.status
     };
@@ -1352,6 +1682,10 @@ export function RequirementsPage() {
           title: nextDraft.title,
           description: nextDraft.description,
           external_references: parseReferenceList(nextDraft.externalReferencesText),
+          labels: parseReferenceList(nextDraft.labelsText),
+          sprint: nextDraft.sprint,
+          fix_version: nextDraft.fixVersion,
+          release: nextDraft.release,
           priority: nextDraft.priority,
           status: nextDraft.status
         }
@@ -1382,52 +1716,6 @@ export function RequirementsPage() {
       showError(error, "Unable to apply AI requirement changes");
     }
   };
-
-  const requirementHeaderActionItems: CatalogActionMenuItem[] = [
-    {
-      label: "Bulk import requirements",
-      description: "Upload a CSV and queue a duplicate-safe requirement import.",
-      icon: <ImportIcon />,
-      disabled: !projectId,
-      onClick: () => openRequirementImportModal("csv")
-    },
-    {
-      label: "Import from ALM",
-      description: activeAlmIntegrations.length
-        ? "Pull selected requirements from an active ALM integration."
-        : "Configure and activate a Jira ALM integration before importing.",
-      icon: <ImportIcon />,
-      disabled: !projectId || !activeAlmIntegrations.length,
-      onClick: () => openRequirementImportModal("alm")
-    },
-    {
-      label: "AI test case generation",
-      description: "Generate or review AI-designed test cases for the selected requirement.",
-      icon: <SparkIcon />,
-      disabled: !requirements.length || !appTypeId,
-      onClick: () => {
-        setAiRequirementId(selectedRequirement?.id || requirements[0]?.id || "");
-        setPreviewCases([]);
-        setPreviewMessage("");
-        setPreviewTone("success");
-        setIsAiStudioOpen(true);
-      }
-    },
-    {
-      label: selectedRequirementActionCount ? `Complete selected (${selectedRequirementActionCount})` : "Complete requirement",
-      description: "Use AI to improve missing or weak requirement details.",
-      icon: <SparkIcon />,
-      disabled: !selectedRequirement && !selectedRequirementActionCount,
-      onClick: () => openRequirementOptimization(selectedRequirementActionCount ? deleteSelectedRequirementIds : undefined)
-    },
-    {
-      label: "Create requirement",
-      description: "Add a new requirement to the selected project.",
-      icon: <AddIcon />,
-      disabled: !projectId,
-      onClick: openCreateRequirementModal
-    }
-  ];
 
   const metrics = useMemo(() => {
     const mapped = requirements.filter((item) => (item.test_case_ids || []).length).length;
@@ -1482,32 +1770,22 @@ export function RequirementsPage() {
             </button>
             <button
               className="ghost-button"
-              disabled={!selectedRequirement && !selectedRequirementActionCount}
-              onClick={() => openRequirementOptimization(selectedRequirementActionCount ? deleteSelectedRequirementIds : undefined)}
+              disabled={!projectId || !activeAlmIntegrations.length}
+              onClick={() => openRequirementImportModal("alm")}
               type="button"
             >
-              <SparkIcon />
-              {selectedRequirementActionCount ? `Complete Selected (${selectedRequirementActionCount})` : "Complete Requirement"}
+              <ImportIcon />
+              Import from ALM
             </button>
             <button className="primary-button" disabled={!projectId} onClick={openCreateRequirementModal} type="button">
               <AddIcon />
               Create Requirement
             </button>
-            <CatalogActionMenu actions={requirementHeaderActionItems} label="More requirement header actions" />
           </>
         }
       />
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={setAppTypeId}
-        onProjectChange={setProjectId}
-        projectId={projectId}
-        projects={projects}
-      />
 
       <WorkspaceSectionTabs ariaLabel="Test authoring sections" items={authoringSectionItems} />
 
@@ -1551,6 +1829,54 @@ export function RequirementsPage() {
                   </label>
 
                   <label className="catalog-filter-field">
+                    <span>Labels</span>
+                    <select value={requirementLabelFilter} onChange={(event) => setRequirementLabelFilter(event.target.value)}>
+                      <option value="all">All labels</option>
+                      {requirementLabelOptions.map((label) => (
+                        <option key={label} value={label}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="catalog-filter-field">
+                    <span>Sprint</span>
+                    <select value={requirementSprintFilter} onChange={(event) => setRequirementSprintFilter(event.target.value)}>
+                      <option value="all">All sprints</option>
+                      {requirementSprintOptions.map((sprint) => (
+                        <option key={sprint} value={sprint}>
+                          {sprint}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="catalog-filter-field">
+                    <span>Fix Version</span>
+                    <select value={requirementFixVersionFilter} onChange={(event) => setRequirementFixVersionFilter(event.target.value)}>
+                      <option value="all">All fix versions</option>
+                      {requirementFixVersionOptions.map((fixVersion) => (
+                        <option key={fixVersion} value={fixVersion}>
+                          {fixVersion}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="catalog-filter-field">
+                    <span>Release</span>
+                    <select value={requirementReleaseFilter} onChange={(event) => setRequirementReleaseFilter(event.target.value)}>
+                      <option value="all">All releases</option>
+                      {requirementReleaseOptions.map((release) => (
+                        <option key={release} value={release}>
+                          {release}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="catalog-filter-field">
                     <span>Linked cases</span>
                     <select
                       value={requirementCoverageFilter}
@@ -1569,6 +1895,10 @@ export function RequirementsPage() {
                       onClick={() => {
                         setRequirementStatusFilter("all");
                         setRequirementPriorityFilter("all");
+                        setRequirementLabelFilter("all");
+                        setRequirementSprintFilter("all");
+                        setRequirementFixVersionFilter("all");
+                        setRequirementReleaseFilter("all");
                         setRequirementCoverageFilter("all");
                       }}
                       type="button"
@@ -1598,26 +1928,24 @@ export function RequirementsPage() {
                 <ClearSelectionIcon />
                 <span>Clear</span>
               </button>
-              <CatalogActionMenu
-                actions={[
-                  {
-                    label: `Complete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`,
-                    description: "Use AI to improve missing or weak requirement details.",
-                    icon: <SparkIcon />,
-                    disabled: !deleteSelectedRequirementIds.length,
-                    onClick: () => openRequirementOptimization(deleteSelectedRequirementIds)
-                  },
-                  {
-                    label: isDeletingSelectedRequirements ? "Deleting selected" : `Delete selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`,
-                    description: "Delete selected requirements while keeping linked test cases in the library.",
-                    icon: <TrashIcon />,
-                    disabled: !deleteSelectedRequirementIds.length || isDeletingSelectedRequirements,
-                    onClick: () => void handleDeleteSelectedRequirements(),
-                    tone: "danger"
-                  }
-                ]}
-                label="More requirement actions"
-              />
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!deleteSelectedRequirementIds.length}
+                onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
+                type="button"
+              >
+                <SparkIcon />
+                <span>{`AI improve Requirement${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}</span>
+              </button>
+              <button
+                className="ghost-button danger catalog-selection-button"
+                disabled={!deleteSelectedRequirementIds.length || isDeletingSelectedRequirements}
+                onClick={() => void handleDeleteSelectedRequirements()}
+                type="button"
+              >
+                <TrashIcon />
+                <span>{isDeletingSelectedRequirements ? "Deleting Selected" : `Delete Selected${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}</span>
+              </button>
             </div>
 
             {deleteSelectedRequirementIds.length ? (
@@ -1795,12 +2123,12 @@ export function RequirementsPage() {
           >
             {selectedRequirement ? (
               <div className="detail-stack">
-                <div className="metric-strip compact">
+                <div className="metric-strip compact requirement-metric-strip">
                   <div className="mini-card">
                     <strong>{`${selectedRequirementPassCoverage.percent}%`}</strong>
                     <span>
                       {selectedRequirementPassCoverage.total
-                        ? `Pass rate · ${selectedRequirementPassCoverage.covered}/${selectedRequirementPassCoverage.total} passed`
+                        ? `Pass ${selectedRequirementPassCoverage.covered}/${selectedRequirementPassCoverage.total}`
                         : "Pass rate"}
                     </span>
                   </div>
@@ -1808,8 +2136,16 @@ export function RequirementsPage() {
                     <strong>{`${selectedRequirementAutomationCoverage.percent}%`}</strong>
                     <span>
                       {selectedRequirementAutomationCoverage.total
-                        ? `Automation coverage · ${selectedRequirementAutomationCoverage.covered}/${selectedRequirementAutomationCoverage.total} automated`
-                        : "Automation coverage"}
+                        ? `Auto ${selectedRequirementAutomationCoverage.covered}/${selectedRequirementAutomationCoverage.total}`
+                        : "Automation"}
+                    </span>
+                  </div>
+                  <div className="mini-card">
+                    <strong>{`${selectedRequirementBugResolution.percent}%`}</strong>
+                    <span>
+                      {selectedRequirementBugResolution.total
+                        ? `Bugs ${selectedRequirementBugResolution.covered}/${selectedRequirementBugResolution.total}`
+                        : "Bug resolution"}
                     </span>
                   </div>
                 </div>
@@ -1822,12 +2158,18 @@ export function RequirementsPage() {
                     title="Requirement header details"
                   >
                     <form className="form-grid" onSubmit={(event) => void handleSaveRequirement(event)}>
-                      <div className="record-grid">
+                      <div className="record-grid requirement-detail-metadata-grid">
                         <FormField label="Title" required>
                           <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
                         </FormField>
                         <FormField label="Status">
-                          <input value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))} />
+                          <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                            {requirementStatusOptions.map((status) => (
+                              <option key={status} value={status}>
+                                {formatTileCardLabel(status, "Open")}
+                              </option>
+                            ))}
+                          </select>
                         </FormField>
                         <FormField label="Priority">
                           <input min="1" max="5" type="number" value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: Number(event.target.value) || 3 }))} />
@@ -1836,6 +2178,22 @@ export function RequirementsPage() {
                       <FormField label="Description">
                         <textarea rows={4} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
                       </FormField>
+                      <div className="record-grid requirement-compact-metadata-grid">
+                        <RequirementLabelsField
+                          options={requirementLabelOptions}
+                          value={draft.labelsText}
+                          onChange={(labelsText) => setDraft((current) => ({ ...current, labelsText }))}
+                        />
+                        <FormField label="Sprint">
+                          <input value={draft.sprint} onChange={(event) => setDraft((current) => ({ ...current, sprint: event.target.value }))} />
+                        </FormField>
+                        <FormField label="Fix Version">
+                          <input value={draft.fixVersion} onChange={(event) => setDraft((current) => ({ ...current, fixVersion: event.target.value }))} />
+                        </FormField>
+                        <FormField label="Release">
+                          <input value={draft.release} onChange={(event) => setDraft((current) => ({ ...current, release: event.target.value }))} />
+                        </FormField>
+                      </div>
                       <FormField label="External references" hint="Ticket links or IDs, separated with commas.">
                         <input value={draft.externalReferencesText} onChange={(event) => setDraft((current) => ({ ...current, externalReferencesText: event.target.value }))} />
                       </FormField>
@@ -1854,8 +2212,8 @@ export function RequirementsPage() {
                           <SparkIcon />
                           AI complete
                         </button>
-                        <button className="primary-button" disabled={updateRequirement.isPending || replaceMappings.isPending} type="submit">
-                          {updateRequirement.isPending || replaceMappings.isPending ? "Saving…" : "Save requirement"}
+                        <button className="primary-button" disabled={updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending} type="submit">
+                          {updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending ? "Saving…" : "Save requirement"}
                         </button>
                         <button className="ghost-button danger" disabled={deleteRequirement.isPending} onClick={() => void handleDeleteRequirement()} type="button">
                           Delete requirement
@@ -1865,7 +2223,7 @@ export function RequirementsPage() {
                   </RequirementAccordionSection>
 
                   <RequirementAccordionSection
-                    countLabel={`${testCases.length} available`}
+                    countLabel={`${selectedTestCaseIds.length} linked`}
                     isExpanded={expandedSections.library}
                     onToggle={() => setExpandedSections((current) => ({ ...current, library: !current.library }))}
                     summary="Browse all reusable cases in the active app type and choose what should stay linked to this requirement."
@@ -1874,13 +2232,48 @@ export function RequirementsPage() {
                     <RequirementTestCasePicker
                       compactTitlesOnly
                       emptyText={appTypeId ? "No reusable test cases are available for this app type." : "Select an app type first to link reusable test cases."}
+                      isSearchActive={isDetailTestCaseSearchActive}
+                      onSearch={() => setIsDetailTestCaseSearchActive(true)}
                       onView={openTestCaseWorkspace}
                       pickerClassName="requirement-link-picker--workspace"
+                      searchTerm={detailTestCaseSearchTerm}
+                      onSearchTermChange={setDetailTestCaseSearchTerm}
                       selectedIds={selectedTestCaseIds}
                       sortLinkedFirst
                       testCases={testCases}
                       onToggle={(testCaseId, checked) => toggleSelectedTestCase(setSelectedTestCaseIds, testCaseId, checked)}
                     />
+                  </RequirementAccordionSection>
+
+                  <RequirementAccordionSection
+                    countLabel={`${selectedDefectIds.length} linked`}
+                    isExpanded={expandedSections.defects}
+                    onToggle={() => setExpandedSections((current) => ({ ...current, defects: !current.defects }))}
+                    summary="Show linked issues, then search the defect library when you need to link more or unlink existing defects."
+                    title="Link or unlink Defects"
+                  >
+                    <RequirementDefectPicker
+                      defects={issues}
+                      emptyText={issuesQuery.isLoading ? "Loading defects…" : "No defects are available yet."}
+                      isLoading={issuesQuery.isLoading}
+                      isSearchActive={isDefectSearchLoaded}
+                      linkedDefects={selectedRequirementDefects}
+                      onSearch={() => setIsDefectSearchLoaded(true)}
+                      searchTerm={defectSearchTerm}
+                      onSearchTermChange={setDefectSearchTerm}
+                      selectedIds={selectedDefectIds}
+                      onToggle={(issueId, checked) => toggleSelectedTestCase(setSelectedDefectIds, issueId, checked)}
+                    />
+                  </RequirementAccordionSection>
+
+                  <RequirementAccordionSection
+                    countLabel={`${selectedRequirementRunHistory.length} runs`}
+                    isExpanded={expandedSections.runHistory}
+                    onToggle={() => setExpandedSections((current) => ({ ...current, runHistory: !current.runHistory }))}
+                    summary="Execution history is derived from linked test cases and deduped by run plus case."
+                    title="Run History"
+                  >
+                    <RequirementRunHistoryTable rows={selectedRequirementRunHistory} />
                   </RequirementAccordionSection>
                 </div>
               </div>
@@ -1911,29 +2304,35 @@ export function RequirementsPage() {
                   />
                 </div>
               </div>
-              <button className="ghost-button" disabled={createRequirement.isPending || replaceMappings.isPending} onClick={closeCreateRequirementModal} type="button">
+              <button className="ghost-button" disabled={createRequirement.isPending} onClick={closeCreateRequirementModal} type="button">
                 Close
               </button>
             </div>
 
             <form className="requirement-create-modal-form" onSubmit={(event) => void handleCreateRequirement(event)}>
-              <div className="requirement-create-modal-body">
-                <div className="form-grid">
-                  <FormField label="Title" inputId="create-requirement-title-input" required>
-                    <input
-                      autoFocus
-                      id="create-requirement-title-input"
-                      required
-                      value={createDraft.title}
-                      onChange={(event) => setCreateDraft((current) => ({ ...current, title: event.target.value }))}
-                    />
-                  </FormField>
-                  <div className="record-grid">
-                    <FormField label="Status">
+              <div className="requirement-create-modal-body requirement-create-modal-body--stacked">
+                <div className="form-grid requirement-create-details-grid">
+                  <div className="record-grid requirement-detail-metadata-grid">
+                    <FormField label="Title" inputId="create-requirement-title-input" required>
                       <input
+                        autoFocus
+                        id="create-requirement-title-input"
+                        required
+                        value={createDraft.title}
+                        onChange={(event) => setCreateDraft((current) => ({ ...current, title: event.target.value }))}
+                      />
+                    </FormField>
+                    <FormField label="Status">
+                      <select
                         value={createDraft.status}
                         onChange={(event) => setCreateDraft((current) => ({ ...current, status: event.target.value }))}
-                      />
+                      >
+                        {requirementStatusOptions.map((status) => (
+                          <option key={status} value={status}>
+                            {formatTileCardLabel(status, "Open")}
+                          </option>
+                        ))}
+                      </select>
                     </FormField>
                     <FormField label="Priority">
                       <input
@@ -1953,6 +2352,31 @@ export function RequirementsPage() {
                       onChange={(event) => setCreateDraft((current) => ({ ...current, description: event.target.value }))}
                     />
                   </FormField>
+                  <div className="record-grid requirement-compact-metadata-grid">
+                    <RequirementLabelsField
+                      options={requirementLabelOptions}
+                      value={createDraft.labelsText}
+                      onChange={(labelsText) => setCreateDraft((current) => ({ ...current, labelsText }))}
+                    />
+                    <FormField label="Sprint">
+                      <input
+                        value={createDraft.sprint}
+                        onChange={(event) => setCreateDraft((current) => ({ ...current, sprint: event.target.value }))}
+                      />
+                    </FormField>
+                    <FormField label="Fix Version">
+                      <input
+                        value={createDraft.fixVersion}
+                        onChange={(event) => setCreateDraft((current) => ({ ...current, fixVersion: event.target.value }))}
+                      />
+                    </FormField>
+                    <FormField label="Release">
+                      <input
+                        value={createDraft.release}
+                        onChange={(event) => setCreateDraft((current) => ({ ...current, release: event.target.value }))}
+                      />
+                    </FormField>
+                  </div>
                   <FormField label="External references" hint="Ticket links or IDs, separated with commas.">
                     <input
                       value={createDraft.externalReferencesText}
@@ -1961,54 +2385,14 @@ export function RequirementsPage() {
                   </FormField>
                 </div>
 
-                <section className="requirement-link-section">
-                  <div className="panel-head">
-                    <div>
-                      <div className="panel-title-row">
-                        <p>Existing test cases</p>
-                        <InfoTooltip
-                          content={appTypeId ? `Select reusable cases from ${currentAppTypeName} to link immediately.` : "Select an app type first to link existing reusable test cases."}
-                          label="Existing test cases information"
-                        />
-                      </div>
-                    </div>
-                    <div className="panel-head-actions">
-                      <button
-                        className="ghost-button"
-                        disabled={!allReusableTestCaseIds.length || areAllCreateRequirementCasesSelected}
-                        onClick={() => setCreateSelectedTestCaseIds(allReusableTestCaseIds)}
-                        type="button"
-                      >
-                        Select all
-                      </button>
-                      <button
-                        className="ghost-button"
-                        disabled={!createSelectedTestCaseIds.length}
-                        onClick={() => setCreateSelectedTestCaseIds([])}
-                        type="button"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-
-                  <RequirementTestCasePicker
-                    compactTitlesOnly
-                    emptyText={appTypeId ? "No reusable test cases are available for this app type." : "Select an app type first to link reusable test cases."}
-                    onView={openTestCaseWorkspace}
-                    selectedIds={createSelectedTestCaseIds}
-                    testCases={testCases}
-                    onToggle={(testCaseId, checked) => toggleSelectedTestCase(setCreateSelectedTestCaseIds, testCaseId, checked)}
-                  />
-                </section>
               </div>
 
               <div className="action-row requirement-create-modal-actions">
-                <button className="ghost-button" disabled={createRequirement.isPending || replaceMappings.isPending} onClick={closeCreateRequirementModal} type="button">
+                <button className="ghost-button" disabled={createRequirement.isPending} onClick={closeCreateRequirementModal} type="button">
                   Cancel
                 </button>
-                <button className="primary-button" disabled={createRequirement.isPending || replaceMappings.isPending} type="submit">
-                  {createRequirement.isPending || replaceMappings.isPending ? "Creating…" : "Create requirement"}
+                <button className="primary-button" disabled={createRequirement.isPending} type="submit">
+                  {createRequirement.isPending ? "Creating…" : "Create requirement"}
                 </button>
               </div>
             </form>
@@ -2081,7 +2465,7 @@ export function RequirementsPage() {
 
               {requirementImportSource === "csv" ? (
                 <>
-                  <FormField label="CSV file" hint="Use title as the required column. Optional columns: description, external_references, priority, status.">
+                  <FormField label="CSV file" hint="Use title as the required column. Optional columns: description, external_references, labels, sprint, fix_version, release, priority, status.">
                     <input accept=".csv,text/csv" onChange={(event) => void handleRequirementImportFile(event)} type="file" />
                   </FormField>
 
@@ -2112,6 +2496,10 @@ export function RequirementsPage() {
                           <tr>
                             <th>Title</th>
                             <th>References</th>
+                            <th>Labels</th>
+                            <th>Sprint</th>
+                            <th>Fix Version</th>
+                            <th>Release</th>
                             <th>Priority</th>
                             <th>Status</th>
                           </tr>
@@ -2121,6 +2509,10 @@ export function RequirementsPage() {
                             <tr key={`${row.title}-${index}`}>
                               <td>{row.title}</td>
                               <td>{formatReferenceList(row.external_references) || "—"}</td>
+                              <td>{formatReferenceList(row.labels) || "—"}</td>
+                              <td>{row.sprint || "—"}</td>
+                              <td>{row.fix_version || "—"}</td>
+                              <td>{row.release || "—"}</td>
                               <td>{row.priority ?? "—"}</td>
                               <td>{row.status || "—"}</td>
                             </tr>
@@ -2491,6 +2883,166 @@ export function RequirementsPage() {
   );
 }
 
+function RequirementLabelsField({
+  value,
+  options,
+  onChange
+}: {
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  const [draftLabel, setDraftLabel] = useState("");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const selectedLabels = useMemo(() => {
+    const seen = new Set<string>();
+
+    return parseReferenceList(value).filter((label) => {
+      const key = label.toLowerCase();
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  }, [value]);
+  const selectableLabels = useMemo(
+    () => {
+      const selectedKeys = new Set(selectedLabels.map((label) => label.toLowerCase()));
+      return options.filter((option) => !selectedKeys.has(option.toLowerCase()));
+    },
+    [options, selectedLabels]
+  );
+  const filteredLabels = useMemo(() => {
+    const query = draftLabel.trim().toLowerCase();
+
+    if (!query) {
+      return selectableLabels;
+    }
+
+    return selectableLabels.filter((label) => label.toLowerCase().includes(query));
+  }, [draftLabel, selectableLabels]);
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+
+      if (!target || pickerRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsMenuOpen(false);
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isMenuOpen]);
+
+  const commitLabel = (rawLabel: string) => {
+    const normalizedLabel = rawLabel.trim();
+
+    if (!normalizedLabel) {
+      return;
+    }
+
+    if (selectedLabels.some((label) => label.toLowerCase() === normalizedLabel.toLowerCase())) {
+      setDraftLabel("");
+      return;
+    }
+
+    onChange(formatReferenceList([...selectedLabels, normalizedLabel]));
+    setDraftLabel("");
+    setIsMenuOpen(false);
+  };
+
+  const removeLabel = (labelToRemove: string) => {
+    onChange(formatReferenceList(selectedLabels.filter((label) => label.toLowerCase() !== labelToRemove.toLowerCase())));
+  };
+
+  return (
+    <FormField label="Labels">
+      <div className="requirement-label-picker" ref={pickerRef}>
+        <div className="requirement-label-combobox">
+          <div className="requirement-label-entry">
+            <input
+              aria-autocomplete="list"
+              aria-expanded={isMenuOpen}
+              aria-label="Select or add labels"
+              placeholder="Select or add label"
+              role="combobox"
+              value={draftLabel}
+              onChange={(event) => {
+                setDraftLabel(event.target.value);
+                setIsMenuOpen(true);
+              }}
+              onFocus={() => setIsMenuOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  if (draftLabel.trim()) {
+                    commitLabel(draftLabel);
+                  }
+                }
+
+                if (event.key === "Escape") {
+                  setIsMenuOpen(false);
+                }
+              }}
+            />
+            {draftLabel.trim() ? (
+              <button className="ghost-button requirement-label-add-button" disabled={!draftLabel.trim()} onClick={() => commitLabel(draftLabel)} type="button">
+                Add
+              </button>
+            ) : null}
+          </div>
+          {isMenuOpen && (filteredLabels.length || draftLabel.trim()) ? (
+            <div className="requirement-label-menu" role="listbox" aria-label="Available labels">
+              {filteredLabels.map((label) => (
+                <button
+                  className="requirement-label-menu-option"
+                  key={label}
+                  onClick={() => commitLabel(label)}
+                  role="option"
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+              {draftLabel.trim() && !filteredLabels.some((label) => label.toLowerCase() === draftLabel.trim().toLowerCase()) ? (
+                <button className="requirement-label-menu-option is-add" onClick={() => commitLabel(draftLabel)} role="option" type="button">
+                  Add "{draftLabel.trim()}"
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {selectedLabels.length ? (
+          <div className="requirement-label-chip-row">
+            {selectedLabels.map((label) => (
+              <button
+                className="requirement-label-chip"
+                key={label}
+                onClick={() => removeLabel(label)}
+                title={`Remove ${label}`}
+                type="button"
+              >
+                <span>{label}</span>
+                <strong aria-hidden="true">x</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </FormField>
+  );
+}
+
 function RequirementTestCasePicker({
   testCases,
   selectedIds,
@@ -2499,7 +3051,11 @@ function RequirementTestCasePicker({
   pickerClassName,
   onView,
   sortLinkedFirst = false,
-  compactTitlesOnly = false
+  compactTitlesOnly = false,
+  searchTerm,
+  onSearchTermChange,
+  isSearchActive,
+  onSearch
 }: {
   testCases: TestCase[];
   selectedIds: string[];
@@ -2509,27 +3065,77 @@ function RequirementTestCasePicker({
   onView?: (testCaseId: string) => void;
   sortLinkedFirst?: boolean;
   compactTitlesOnly?: boolean;
+  searchTerm: string;
+  onSearchTermChange: (value: string) => void;
+  isSearchActive: boolean;
+  onSearch: () => void;
 }) {
-  if (!testCases.length) {
-    return <div className="empty-state compact">{emptyText}</div>;
-  }
+  const selectedSet = new Set(selectedIds);
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const linkedTestCases = testCases.filter((testCase) => selectedSet.has(testCase.id));
+  const searchedTestCases = isSearchActive
+    ? testCases.filter((testCase) =>
+        !normalizedSearch ||
+        [
+          testCase.display_id || "",
+          testCase.id,
+          testCase.title,
+          testCase.description || "",
+          testCase.status || "",
+          `p${testCase.priority ?? 3}`
+        ].some((value) => value.toLowerCase().includes(normalizedSearch))
+      )
+    : [];
+  const optionMap = new Map<string, TestCase>();
+  const linkedFirst = [...linkedTestCases].sort((left, right) => left.title.localeCompare(right.title));
+  const searchedOrdered = [...searchedTestCases].sort((left, right) => {
+    const leftLinked = selectedSet.has(left.id);
+    const rightLinked = selectedSet.has(right.id);
 
-  const orderedTestCases = sortLinkedFirst
-    ? [...testCases].sort((left, right) => {
-        const leftLinked = selectedIds.includes(left.id);
-        const rightLinked = selectedIds.includes(right.id);
+    if (sortLinkedFirst && leftLinked !== rightLinked) {
+      return leftLinked ? -1 : 1;
+    }
 
-        if (leftLinked !== rightLinked) {
-          return leftLinked ? -1 : 1;
-        }
+    return left.title.localeCompare(right.title);
+  });
 
-        return left.title.localeCompare(right.title);
-      })
-    : testCases;
+  linkedFirst.forEach((testCase) => optionMap.set(testCase.id, testCase));
+  searchedOrdered.forEach((testCase) => optionMap.set(testCase.id, testCase));
+
+  const orderedTestCases = Array.from(optionMap.values());
+  const shouldShowEmpty =
+    !orderedTestCases.length ||
+    (isSearchActive && !searchedTestCases.length && !linkedTestCases.length);
 
   return (
-    <div className={pickerClassName ? `modal-case-picker requirement-link-picker ${pickerClassName}` : "modal-case-picker requirement-link-picker"}>
-      {orderedTestCases.map((testCase) => {
+    <div className={pickerClassName ? `requirement-link-picker-shell ${pickerClassName}` : "requirement-link-picker-shell"}>
+      <div className="requirement-link-search-row">
+        <input
+          placeholder="Search test cases"
+          value={searchTerm}
+          onChange={(event) => onSearchTermChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSearch();
+            }
+          }}
+        />
+        <button className="ghost-button" onClick={onSearch} type="button">
+          <SearchIcon />
+          <span>Search</span>
+        </button>
+      </div>
+
+      {!isSearchActive && !linkedTestCases.length ? (
+        <div className="empty-state compact">Search to load reusable test cases.</div>
+      ) : null}
+
+      {shouldShowEmpty && isSearchActive ? <div className="empty-state compact">{testCases.length ? "No test cases match this search." : emptyText}</div> : null}
+
+      {orderedTestCases.length ? (
+        <div className="modal-case-picker requirement-link-picker">
+          {orderedTestCases.map((testCase) => {
         const isLinked = selectedIds.includes(testCase.id);
 
         return (
@@ -2579,7 +3185,175 @@ function RequirementTestCasePicker({
             </div>
           </div>
         );
-      })}
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RequirementDefectPicker({
+  defects,
+  linkedDefects,
+  selectedIds,
+  onToggle,
+  emptyText,
+  searchTerm,
+  onSearchTermChange,
+  isSearchActive,
+  isLoading,
+  onSearch
+}: {
+  defects: Issue[];
+  linkedDefects: RequirementDefectLink[];
+  selectedIds: string[];
+  onToggle: (issueId: string, checked: boolean) => void;
+  emptyText: string;
+  searchTerm: string;
+  onSearchTermChange: (value: string) => void;
+  isSearchActive: boolean;
+  isLoading: boolean;
+  onSearch: () => void;
+}) {
+  const selectedSet = new Set(selectedIds);
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const linkedById = new Map(linkedDefects.map((defect) => [defect.id, defect]));
+  const searchedDefects = isSearchActive
+    ? defects.filter((defect) =>
+        !normalizedSearch ||
+        [
+          defect.id,
+          defect.title,
+          defect.message,
+          defect.status || ""
+        ].some((value) => value.toLowerCase().includes(normalizedSearch))
+      )
+    : [];
+  const optionMap = new Map<string, RequirementDefectLink>();
+
+  linkedDefects.forEach((defect) => optionMap.set(defect.id, defect));
+  searchedDefects.forEach((defect) => {
+    optionMap.set(defect.id, {
+      id: defect.id,
+      title: defect.title,
+      status: defect.status,
+      link_source: linkedById.get(defect.id)?.link_source,
+      created_at: defect.created_at
+    });
+  });
+
+  const orderedDefects = Array.from(optionMap.values()).sort((left, right) => {
+    const leftLinked = selectedSet.has(left.id);
+    const rightLinked = selectedSet.has(right.id);
+
+    if (leftLinked !== rightLinked) {
+      return leftLinked ? -1 : 1;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
+
+  return (
+    <div className="requirement-link-picker-shell">
+      <div className="requirement-link-search-row">
+        <input
+          placeholder="Search defects"
+          value={searchTerm}
+          onChange={(event) => onSearchTermChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSearch();
+            }
+          }}
+        />
+        <button className="ghost-button" onClick={onSearch} type="button">
+          <SearchIcon />
+          <span>Search</span>
+        </button>
+      </div>
+
+      {!isSearchActive && !linkedDefects.length ? (
+        <div className="empty-state compact">Search to load defects.</div>
+      ) : null}
+
+      {isLoading ? <div className="empty-state compact">Loading defects…</div> : null}
+
+      {!isLoading && isSearchActive && !searchedDefects.length && !linkedDefects.length ? (
+        <div className="empty-state compact">{defects.length ? "No defects match this search." : emptyText}</div>
+      ) : null}
+
+      {orderedDefects.length ? (
+        <div className="requirement-defect-list">
+          <div className="requirement-defect-list-head">
+            <span>NO</span>
+            <span>Title</span>
+            <span>Status</span>
+            <span />
+          </div>
+          {orderedDefects.map((defect) => {
+            const isLinked = selectedSet.has(defect.id);
+
+            return (
+              <div className={isLinked ? "requirement-defect-row is-linked" : "requirement-defect-row"} key={defect.id}>
+                <DisplayIdBadge value={defect.id} />
+                <strong>{defect.title}</strong>
+                <StatusBadge value={formatTileCardLabel(defect.status, "Open")} />
+                <button
+                  aria-label={isLinked ? `Unlink ${defect.title}` : `Link ${defect.title}`}
+                  className={[
+                    "ghost-button requirement-link-toggle requirement-link-toggle--icon-only",
+                    isLinked ? "is-linked" : ""
+                  ].filter(Boolean).join(" ")}
+                  onClick={() => onToggle(defect.id, !isLinked)}
+                  title={isLinked ? "Unlink defect" : "Link defect"}
+                  type="button"
+                >
+                  {isLinked ? <RequirementUnlinkIcon /> : <RequirementLinkIcon />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RequirementRunHistoryTable({ rows }: { rows: RequirementRunHistoryRow[] }) {
+  if (!rows.length) {
+    return <div className="empty-state compact">No runs found for the linked test cases.</div>;
+  }
+
+  return (
+    <div className="table-wrap requirement-run-history-table">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Test Case</th>
+            <th>Status</th>
+            <th>Defects</th>
+            <th>Executed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>
+                <div className="data-table-multiline">
+                  <strong>{row.executionName}</strong>
+                  <span>{row.executionStatus ? formatTileCardLabel(row.executionStatus, "Queued") : row.executionId}</span>
+                </div>
+              </td>
+              <td>{row.testCaseTitle}</td>
+              <td><StatusBadge value={formatTileCardLabel(row.resultStatus, "Running")} /></td>
+              <td>{row.defects.length ? row.defects.join(", ") : "—"}</td>
+              <td>{formatAuditTimestamp(row.endedAt || row.createdAt || row.startedAt || undefined)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

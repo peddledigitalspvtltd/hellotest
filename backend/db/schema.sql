@@ -127,6 +127,10 @@ CREATE TABLE requirements (
   title TEXT NOT NULL,
   description TEXT,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  sprint TEXT,
+  fix_version TEXT,
+  release TEXT,
   priority INTEGER DEFAULT 3,
   status TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -141,6 +145,16 @@ CREATE TABLE feedback (
   status TEXT DEFAULT 'open',
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE requirement_defects (
+  requirement_id TEXT NOT NULL,
+  issue_id TEXT NOT NULL,
+  link_source TEXT NOT NULL DEFAULT 'manual' CHECK(link_source IN ('manual','automatic')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (requirement_id, issue_id),
+  FOREIGN KEY (requirement_id) REFERENCES requirements(id) ON DELETE CASCADE,
+  FOREIGN KEY (issue_id) REFERENCES feedback(id) ON DELETE CASCADE
 );
 
 CREATE TABLE integrations (
@@ -578,6 +592,23 @@ ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS sprint TEXT;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS fix_version TEXT;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS release TEXT;
+
+CREATE TABLE IF NOT EXISTS requirement_defects (
+  requirement_id TEXT NOT NULL,
+  issue_id TEXT NOT NULL,
+  link_source TEXT NOT NULL DEFAULT 'manual' CHECK(link_source IN ('manual','automatic')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (requirement_id, issue_id),
+  FOREIGN KEY (requirement_id) REFERENCES requirements(id) ON DELETE CASCADE,
+  FOREIGN KEY (issue_id) REFERENCES feedback(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_requirement_defects_issue
+  ON requirement_defects (issue_id);
 
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN;

@@ -141,6 +141,14 @@ const TEST_CASE_AUTOMATED_OPTIONS = freezeOptions([
   { value: "yes", label: "Yes", description: "Case is marked as automated and counts toward automation coverage." }
 ]);
 
+const REQUIREMENT_STATUS_OPTIONS = freezeOptions([
+  { value: "open", label: "Open", description: "Captured but not yet ready for delivery." },
+  { value: "in_progress", label: "In Progress", description: "Being refined or implemented." },
+  { value: "ready", label: "Ready", description: "Ready for testing and release coverage." },
+  { value: "blocked", label: "Blocked", description: "Waiting on a decision, dependency, or missing detail." },
+  { value: "done", label: "Done", description: "Completed and accepted." }
+]);
+
 const TEST_STEP_GROUP_KIND_OPTIONS = freezeOptions([
   { value: "local", label: "Local", description: "Scoped only to the current test case." },
   { value: "reusable", label: "Reusable", description: "Linked shared group reused across test cases." }
@@ -221,6 +229,7 @@ const DOMAIN_METADATA = Object.freeze({
   },
   requirements: {
     default_status: "open",
+    statuses: REQUIREMENT_STATUS_OPTIONS,
     priority_scale: PRIORITY_SCALE
   },
   test_cases: {
@@ -267,6 +276,8 @@ module.exports = {
   APP_TYPE_VALUES: optionValues(APP_TYPE_OPTIONS),
   INTEGRATION_TYPE_OPTIONS,
   INTEGRATION_TYPE_VALUES: optionValues(INTEGRATION_TYPE_OPTIONS),
+  REQUIREMENT_STATUS_OPTIONS,
+  REQUIREMENT_STATUS_VALUES: optionValues(REQUIREMENT_STATUS_OPTIONS),
   TEST_CASE_STATUS_OPTIONS,
   TEST_CASE_STATUS_VALUES: optionValues(TEST_CASE_STATUS_OPTIONS),
   TEST_CASE_AUTOMATED_OPTIONS,

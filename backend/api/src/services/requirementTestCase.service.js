@@ -1,4 +1,5 @@
 const db = require("../db");
+const requirementDefectService = require("./requirementDefect.service");
 
 const listForRequirement = db.prepare(`
   SELECT test_case_id
@@ -107,6 +108,7 @@ exports.replaceMappingsForRequirement = async (requirementId, testCaseIds = []) 
   });
 
   await transaction();
+  await requirementDefectService.syncAutomaticDefectsForRequirement(requirementId);
 
   return { updated: true, mapped: uniqueIds.length };
 };
@@ -144,4 +146,5 @@ exports.syncMappingsForTestCase = async (testCaseId, requirementIds = []) => {
   });
 
   await transaction();
+  await requirementDefectService.syncAutomaticDefectsForTestCase(testCaseId, []);
 };

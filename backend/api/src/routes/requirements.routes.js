@@ -13,6 +13,10 @@ module.exports = async function (fastify) {
       title: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       external_references: { required: false, type: "array", items: "string" },
+      labels: { required: false, type: "array", items: "string" },
+      sprint: { required: false, type: "string" },
+      fix_version: { required: false, type: "string" },
+      release: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" }
     }, req.body);
@@ -128,6 +132,10 @@ module.exports = async function (fastify) {
       title: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       external_references: { required: false, type: "array", items: "string" },
+      labels: { required: false, type: "array", items: "string" },
+      sprint: { required: false, type: "string" },
+      fix_version: { required: false, type: "string" },
+      release: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" }
     }, req.body);

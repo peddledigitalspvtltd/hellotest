@@ -13,7 +13,6 @@ import { RecorderStartControls, type RecorderStartOptions } from "../components/
 import { StatusBadge } from "../components/StatusBadge";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
@@ -173,7 +172,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [view, setView] = useState<TestOpsView>(initialView);
   const [selectedTransactionId, setSelectedTransactionId] = useState("");
@@ -686,26 +685,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
           { label: "Running", value: runningCount },
           { label: "OPS board", value: opsBoardUrl ? "Ready" : "Not configured" }
         ]}
-      />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={(value) => {
-          setAppTypeId(value);
-          setSelectedCaseId("");
-          setSelectedCaseIds([]);
-          setRecorderSession(null);
-        }}
-        onProjectChange={(value) => {
-          setProjectId(value);
-          setSelectedTransactionId("");
-          setSelectedCaseId("");
-          setSelectedCaseIds([]);
-          setRecorderSession(null);
-        }}
-        projectId={projectId}
-        projects={projects}
       />
 
       <WorkspaceSectionTabs

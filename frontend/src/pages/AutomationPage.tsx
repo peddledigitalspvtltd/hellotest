@@ -28,7 +28,6 @@ import {
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useAuth } from "../auth/AuthContext";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
@@ -920,7 +919,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [view, setView] = useState<AutomationView>(initialView);
   const [selectedAutomatedCaseId, setSelectedAutomatedCaseId] = useState("");
@@ -3235,27 +3234,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       />
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={(value) => {
-          setAppTypeId(value);
-          setSelectedAutomatedCaseId("");
-          setSelectedCaseId("");
-          setSelectedManualCaseId("");
-          setRecorderSession(null);
-        }}
-        onProjectChange={(value) => {
-          setProjectId(value);
-          setSelectedAutomatedCaseId("");
-          setSelectedCaseId("");
-          setSelectedManualCaseId("");
-          setRecorderSession(null);
-        }}
-        projectId={projectId}
-        projects={projects}
-      />
 
       <WorkspaceSectionTabs
         ariaLabel="Automation sections"

@@ -448,7 +448,7 @@ export const api = {
   requirements: {
     list: (query?: { project_id?: string; status?: string; priority?: number }) =>
       request<Requirement[]>(`/requirements${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; external_references?: string[]; priority?: number; status?: string }) =>
+    create: (input: { project_id: string; title: string; description?: string; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; priority?: number; status?: string }) =>
       request<{ id: string }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     bulkImport: (input: { project_id: string; rows: Array<Record<string, unknown>> }) =>
       request<BatchQueueResponse>("/requirements/import", {
@@ -500,7 +500,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; external_references: string[]; priority: number; status: string }>) =>
+    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; priority: number; status: string }>) =>
       request<{ updated: boolean }>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/requirements/${id}`, { method: "DELETE" })
   },
@@ -576,6 +576,15 @@ export const api = {
       request<{ updated: boolean; mapped: number }>(`/requirement-test-cases/replace`, {
         method: "PUT",
         body: JSON.stringify({ requirement_id, test_case_ids })
+      })
+  },
+  requirementDefects: {
+    list: (query?: { requirement_id?: string; issue_id?: string }) =>
+      request<Array<{ requirement_id: string; issue_id: string; link_source: string; created_at?: string }>>(`/requirement-defects${toQueryString(query)}`),
+    replace: (requirement_id: string, issue_ids: string[]) =>
+      request<{ updated: boolean; mapped: number }>("/requirement-defects/replace", {
+        method: "PUT",
+        body: JSON.stringify({ requirement_id, issue_ids })
       })
   },
   testSuites: {

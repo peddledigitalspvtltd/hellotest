@@ -87,13 +87,27 @@ export type Requirement = {
   title: string;
   description: string | null;
   external_references?: string[];
+  labels?: string[];
+  sprint?: string | null;
+  fix_version?: string | null;
+  release?: string | null;
   priority: number | null;
   status: string | null;
   test_case_ids?: string[];
+  defect_ids?: string[];
+  defects?: RequirementDefectLink[];
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type RequirementDefectLink = {
+  id: string;
+  title: string;
+  status: string | null;
+  link_source?: "manual" | "automatic" | string;
+  created_at?: string;
 };
 
 export type Issue = {
@@ -153,6 +167,7 @@ export type DomainMetadata = {
   };
   requirements: {
     default_status: string;
+    statuses: DomainOption[];
     priority_scale: number[];
   };
   test_cases: {

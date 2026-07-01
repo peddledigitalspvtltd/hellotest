@@ -4,6 +4,10 @@ export type ImportedRequirementRow = {
   title: string;
   description?: string;
   external_references?: string[];
+  labels?: string[];
+  sprint?: string;
+  fix_version?: string;
+  release?: string;
   priority?: number;
   status?: string;
 };
@@ -18,6 +22,10 @@ const HEADER_ALIASES: Record<keyof ImportedRequirementRow, string[]> = {
   title: ["title", "requirement", "requirementtitle", "name", "summary"],
   description: ["description", "details", "notes", "acceptancecriteria", "story"],
   external_references: ["externalreferences", "externalreference", "references", "reference", "externallinks", "externaltickets", "ticketlinks", "tickets", "jira", "issue", "issues"],
+  labels: ["labels", "label", "tags", "tag"],
+  sprint: ["sprint", "iteration"],
+  fix_version: ["fixversion", "fixversions", "targetversion", "version"],
+  release: ["release", "releaseversion", "targetrelease"],
   priority: ["priority", "severity"],
   status: ["status", "state"]
 };
@@ -71,6 +79,11 @@ export function parseRequirementCsv(text: string): ParsedCsv {
 
         if (key === "external_references") {
           accumulator.external_references = parseReferenceList(value);
+          return accumulator;
+        }
+
+        if (key === "labels") {
+          accumulator.labels = parseReferenceList(value);
           return accumulator;
         }
 

@@ -2,6 +2,7 @@ const db = require("../db");
 const { v4: uuid } = require("uuid");
 const { EXECUTION_RESULT_STATUS_VALUES } = require("../domain/catalog");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
+const requirementDefectService = require("./requirementDefect.service");
 
 const getPrimarySuiteForTestCase = db.prepare(`
   SELECT test_suites.id, test_suites.name
@@ -99,6 +100,7 @@ exports.createExecutionResult = async (data) => {
   }
 
   const id = uuid();
+  const normalizedDefects = normalizeReferenceList(defects);
 
   await db.prepare(`
     INSERT INTO execution_results
@@ -117,9 +119,11 @@ exports.createExecutionResult = async (data) => {
     error || null,
     logs || null,
     normalizeReferenceList(external_references),
-    normalizeReferenceList(defects),
+    normalizedDefects,
     executed_by || null
   );
+
+  await requirementDefectService.syncAutomaticDefectsForTestCase(test_case_id, normalizedDefects);
 
   return { id };
 };
@@ -193,6 +197,10 @@ exports.updateExecutionResult = async (id, data) => {
     throw new Error("Invalid status");
   }
 
+  const normalizedDefects = data.defects !== undefined
+    ? normalizeReferenceList(data.defects)
+    : normalizeStoredReferenceList(existing.defects);
+
   await db.prepare(`
     UPDATE execution_results
     SET status = ?, duration_ms = ?, error = ?, logs = ?, external_references = ?, defects = ?, executed_by = ?
@@ -205,12 +213,14 @@ exports.updateExecutionResult = async (id, data) => {
     data.external_references !== undefined
       ? normalizeReferenceList(data.external_references)
       : normalizeStoredReferenceList(existing.external_references),
-    data.defects !== undefined
-      ? normalizeReferenceList(data.defects)
-      : normalizeStoredReferenceList(existing.defects),
+    normalizedDefects,
     data.executed_by ?? existing.executed_by,
     id
   );
+
+  if (data.defects !== undefined) {
+    await requirementDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id, normalizedDefects);
+  }
 
   return { updated: true };
 };

@@ -30,7 +30,6 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
@@ -172,7 +171,7 @@ export function SharedStepsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const [projectId, setProjectId] = useCurrentProject();
+  const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -1115,17 +1114,6 @@ export function SharedStepsPage() {
       />
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={appTypes}
-        onAppTypeChange={setAppTypeId}
-        onProjectChange={(value) => {
-          setProjectId(value);
-        }}
-        projectId={projectId}
-        projects={projects}
-      />
 
       <WorkspaceSectionTabs ariaLabel="Test authoring sections" items={authoringSectionItems} />
 

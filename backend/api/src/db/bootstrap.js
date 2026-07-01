@@ -480,9 +480,16 @@ const statements = [
   `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS external_references JSONB`,
+  `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS labels JSONB`,
+  `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS sprint TEXT`,
+  `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS fix_version TEXT`,
+  `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS release TEXT`,
   `UPDATE requirements SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
+  `UPDATE requirements SET labels = '[]'::jsonb WHERE labels IS NULL`,
   `ALTER TABLE requirements ALTER COLUMN external_references SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE requirements ALTER COLUMN external_references SET NOT NULL`,
+  `ALTER TABLE requirements ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
+  `ALTER TABLE requirements ALTER COLUMN labels SET NOT NULL`,
   `UPDATE requirements SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT`,
@@ -678,6 +685,42 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_execution_results_app_type_created_at ON execution_results (app_type_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_suite_test_cases_test_case_sort ON suite_test_cases (test_case_id, sort_order)`,
   `CREATE INDEX IF NOT EXISTS idx_requirement_test_cases_test_case ON requirement_test_cases (test_case_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS requirement_defects (
+      requirement_id TEXT NOT NULL,
+      issue_id TEXT NOT NULL,
+      link_source TEXT NOT NULL DEFAULT 'manual',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (requirement_id, issue_id),
+      FOREIGN KEY (requirement_id) REFERENCES requirements(id) ON DELETE CASCADE,
+      FOREIGN KEY (issue_id) REFERENCES feedback(id) ON DELETE CASCADE
+    )
+  `,
+  `ALTER TABLE requirement_defects ADD COLUMN IF NOT EXISTS link_source TEXT NOT NULL DEFAULT 'manual'`,
+  `ALTER TABLE requirement_defects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `UPDATE requirement_defects SET link_source = 'manual' WHERE link_source IS NULL OR BTRIM(link_source) = ''`,
+  `ALTER TABLE requirement_defects DROP CONSTRAINT IF EXISTS requirement_defects_link_source_check`,
+  `ALTER TABLE requirement_defects ADD CONSTRAINT requirement_defects_link_source_check CHECK (link_source IN ('manual', 'automatic'))`,
+  `CREATE INDEX IF NOT EXISTS idx_requirement_defects_issue ON requirement_defects (issue_id)`,
+  `
+    INSERT INTO requirement_defects (requirement_id, issue_id, link_source)
+    SELECT DISTINCT derived.requirement_id, derived.issue_id, 'automatic'
+    FROM (
+      SELECT requirement_test_cases.requirement_id, feedback.id AS issue_id
+      FROM requirement_test_cases
+      JOIN execution_results ON execution_results.test_case_id = requirement_test_cases.test_case_id
+      CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(execution_results.defects, '[]'::jsonb)) AS defect_ref(value)
+      JOIN feedback ON feedback.id = defect_ref.value
+      UNION
+      SELECT test_cases.requirement_id, feedback.id AS issue_id
+      FROM test_cases
+      JOIN execution_results ON execution_results.test_case_id = test_cases.id
+      CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(execution_results.defects, '[]'::jsonb)) AS defect_ref(value)
+      JOIN feedback ON feedback.id = defect_ref.value
+      WHERE test_cases.requirement_id IS NOT NULL
+    ) AS derived
+    ON CONFLICT (requirement_id, issue_id) DO NOTHING
+  `,
   `CREATE INDEX IF NOT EXISTS idx_project_members_project_user ON project_members (project_id, user_id)`,
   `
     CREATE TABLE IF NOT EXISTS permissions (

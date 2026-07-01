@@ -536,6 +536,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /requirement-defects:
+    get:
+      tags: [Requirements]
+      summary: List requirement defect mappings
+      parameters:
+        - $ref: "#/components/parameters/RequirementIdQuery"
+        - name: issue_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Requirement defect mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RequirementDefectMapping"
+  /requirement-defects/replace:
+    put:
+      tags: [Requirements]
+      summary: Replace linked defects for a requirement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceRequirementDefectsRequest"
+      responses:
+        "200":
+          description: Replace result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: boolean }
+                  mapped: { type: integer }
+
   /test-suites:
     get:
       tags: [Test Suites]
@@ -1575,11 +1615,51 @@ components:
       type: object
       properties:
         id: { type: string }
+        display_id: { type: string, nullable: true }
         project_id: { type: string }
         title: { type: string }
         description: { type: string, nullable: true }
+        external_references:
+          type: array
+          items: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        sprint: { type: string, nullable: true }
+        fix_version: { type: string, nullable: true }
+        release: { type: string, nullable: true }
         priority: { type: integer, nullable: true }
         status: { type: string, nullable: true }
+        test_case_ids:
+          type: array
+          items: { type: string }
+        defect_ids:
+          type: array
+          items: { type: string }
+        defects:
+          type: array
+          items:
+            $ref: "#/components/schemas/RequirementDefectLink"
+        created_at: { type: string }
+        updated_at: { type: string, nullable: true }
+    RequirementDefectLink:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        status: { type: string, nullable: true }
+        link_source:
+          type: string
+          enum: [manual, automatic]
+        created_at: { type: string }
+    RequirementDefectMapping:
+      type: object
+      properties:
+        requirement_id: { type: string }
+        issue_id: { type: string }
+        link_source:
+          type: string
+          enum: [manual, automatic]
         created_at: { type: string }
     CreateRequirementRequest:
       type: object
@@ -1588,6 +1668,15 @@ components:
         project_id: { type: string }
         title: { type: string }
         description: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        sprint: { type: string }
+        fix_version: { type: string }
+        release: { type: string }
         priority: { type: integer }
         status: { type: string }
     UpdateRequirementRequest:
@@ -1596,8 +1685,25 @@ components:
         project_id: { type: string }
         title: { type: string }
         description: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        sprint: { type: string }
+        fix_version: { type: string }
+        release: { type: string }
         priority: { type: integer }
         status: { type: string }
+    ReplaceRequirementDefectsRequest:
+      type: object
+      required: [requirement_id, issue_ids]
+      properties:
+        requirement_id: { type: string }
+        issue_ids:
+          type: array
+          items: { type: string }
     BulkImportRequirementsRequest:
       type: object
       required: [project_id, rows]
@@ -1610,6 +1716,15 @@ components:
             properties:
               title: { type: string }
               description: { type: string }
+              external_references:
+                type: array
+                items: { type: string }
+              labels:
+                type: array
+                items: { type: string }
+              sprint: { type: string }
+              fix_version: { type: string }
+              release: { type: string }
               priority: { type: integer }
               status: { type: string }
     BulkImportRequirementsResponse:

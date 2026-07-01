@@ -22,7 +22,6 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
 import { ToastMessage } from "../components/ToastMessage";
-import { WorkspaceScopeBar } from "../components/WorkspaceScopeBar";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
@@ -1268,15 +1267,6 @@ export function AgenticWorkflowsPage() {
             </button>
           </>
         )}
-      />
-
-      <WorkspaceScopeBar
-        appTypeId={appTypeId}
-        appTypes={scopedAppTypes}
-        onAppTypeChange={setAppTypeId}
-        onProjectChange={setProjectId}
-        projectId={projectId}
-        projects={projects}
       />
 
       <div className="agentic-workflows-tabs" role="tablist" aria-label="Agentic workflow sections">

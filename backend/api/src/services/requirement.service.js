@@ -1,6 +1,7 @@
 const db = require("../db");
 const { v4: uuid } = require("uuid");
 const requirementTestCaseService = require("./requirementTestCase.service");
+const requirementDefectService = require("./requirementDefect.service");
 const displayIdService = require("./displayId.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const integrationService = require("./integration.service");
@@ -76,6 +77,10 @@ const upsertRequirementFromImport = async ({
   title,
   description,
   external_references,
+  labels,
+  sprint,
+  fix_version,
+  release,
   priority,
   status,
   created_by
@@ -100,6 +105,10 @@ const upsertRequirementFromImport = async ({
       title: normalizedTitle,
       description: description !== undefined && description !== null ? description : existing.description,
       external_references: nextReferences,
+      labels: labels !== undefined ? labels : existing.labels,
+      sprint: sprint !== undefined ? sprint : existing.sprint,
+      fix_version: fix_version !== undefined ? fix_version : existing.fix_version,
+      release: release !== undefined ? release : existing.release,
       priority: priority ?? existing.priority,
       status: status || existing.status,
       updated_by: created_by
@@ -117,6 +126,10 @@ const upsertRequirementFromImport = async ({
     title: normalizedTitle,
     description,
     external_references,
+    labels,
+    sprint,
+    fix_version,
+    release,
     priority,
     status,
     created_by
@@ -392,7 +405,10 @@ const hydrateTestCaseIds = async (requirement) => {
   return {
     ...requirement,
     external_references: normalizeStoredReferenceList(requirement.external_references),
-    test_case_ids: await requirementTestCaseService.getTestCaseIdsForRequirement(requirement.id)
+    labels: normalizeStoredReferenceList(requirement.labels),
+    test_case_ids: await requirementTestCaseService.getTestCaseIdsForRequirement(requirement.id),
+    defect_ids: await requirementDefectService.getDefectIdsForRequirement(requirement.id),
+    defects: await requirementDefectService.getDefectsForRequirement(requirement.id)
   };
 };
 
@@ -474,6 +490,10 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         title,
         description: typeof row?.description === "string" ? row.description : undefined,
         external_references: normalizeReferenceList(row?.external_references || row?.externalReferences || row?.reference || row?.references),
+        labels: row?.labels !== undefined || row?.label !== undefined ? normalizeReferenceList(row?.labels || row?.label) : undefined,
+        sprint: typeof row?.sprint === "string" ? row.sprint : undefined,
+        fix_version: typeof row?.fix_version === "string" ? row.fix_version : typeof row?.fixVersion === "string" ? row.fixVersion : undefined,
+        release: typeof row?.release === "string" ? row.release : undefined,
         priority: typeof row?.priority === "number" && Number.isFinite(row.priority) ? row.priority : undefined,
         status: typeof row?.status === "string" ? row.status : undefined,
         created_by
@@ -811,7 +831,7 @@ exports.importRequirementsFromAlm = async ({
   };
 };
 
-exports.createRequirement = async ({ project_id, title, description, external_references, priority, status, created_by }) => {
+exports.createRequirement = async ({ project_id, title, description, external_references, labels, sprint, fix_version, release, priority, status, created_by }) => {
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
@@ -826,8 +846,8 @@ exports.createRequirement = async ({ project_id, title, description, external_re
   const display_id = await displayIdService.createDisplayId("requirement");
 
   await db.prepare(`
-    INSERT INTO requirements (id, display_id, project_id, title, description, external_references, priority, status, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO requirements (id, display_id, project_id, title, description, external_references, labels, sprint, fix_version, release, priority, status, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     display_id,
@@ -835,6 +855,10 @@ exports.createRequirement = async ({ project_id, title, description, external_re
     title,
     description || null,
     normalizeReferenceList(external_references),
+    normalizeReferenceList(labels),
+    normalizeText(sprint),
+    normalizeText(fix_version),
+    normalizeText(release),
     priority ?? 3,
     status || null,
     created_by || null,
@@ -892,7 +916,7 @@ exports.updateRequirement = async (id, data) => {
 
   await db.prepare(`
     UPDATE requirements
-    SET project_id = ?, title = ?, description = ?, external_references = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET project_id = ?, title = ?, description = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     data.project_id ?? existing.project_id,
@@ -901,6 +925,12 @@ exports.updateRequirement = async (id, data) => {
     data.external_references !== undefined
       ? normalizeReferenceList(data.external_references)
       : normalizeStoredReferenceList(existing.external_references),
+    data.labels !== undefined
+      ? normalizeReferenceList(data.labels)
+      : normalizeStoredReferenceList(existing.labels),
+    data.sprint !== undefined ? normalizeText(data.sprint) : existing.sprint,
+    data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
+    data.release !== undefined ? normalizeText(data.release) : existing.release,
     data.priority ?? existing.priority,
     data.status ?? existing.status,
     data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
