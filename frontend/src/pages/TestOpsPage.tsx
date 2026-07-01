@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { ActivityIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -10,6 +11,7 @@ import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
+import { RichTextContent } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
@@ -171,6 +173,7 @@ function isManualCase(testCase: TestCase) {
 export function TestOpsPage({ initialView = "batch-process" }: { initialView?: TestOpsView } = {}) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -324,6 +327,31 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     Boolean(visibleBatchTransactionIds.length) && visibleBatchTransactionIds.every((id) => selectedBatchLogIds.includes(id));
   const selectedTransaction = batchTransactions.find((transaction) => transaction.id === selectedTransactionId) || null;
 
+  const syncProcessSearchParams = (transactionId?: string | null) => {
+    const targetTransactionId = transactionId || "";
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetTransactionId) {
+        next.set("process", targetTransactionId);
+      } else {
+        next.delete("process");
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const openBatchProcess = (transactionId: string) => {
+    syncProcessSearchParams(transactionId);
+    setSelectedTransactionId(transactionId);
+    setView("batch-process");
+  };
+
+  const closeBatchProcess = () => {
+    syncProcessSearchParams(null);
+    setSelectedTransactionId("");
+  };
+
   const toggleBatchLogSelection = (transactionId: string, checked: boolean) => {
     setSelectedBatchLogIds((current) =>
       checked
@@ -336,10 +364,29 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     const availableIds = new Set(batchTransactions.map((transaction) => transaction.id));
     setSelectedBatchLogIds((current) => current.filter((id) => availableIds.has(id)));
 
+    const requestedTransactionId = searchParams.get("process");
+    if (requestedTransactionId) {
+      if (availableIds.has(requestedTransactionId)) {
+        if (view !== "batch-process") {
+          setView("batch-process");
+        }
+        if (selectedTransactionId !== requestedTransactionId) {
+          setSelectedTransactionId(requestedTransactionId);
+        }
+        return;
+      }
+
+      if (transactionsQuery.isLoading || transactionsQuery.isFetching || selectedTransactionId === requestedTransactionId) {
+        return;
+      }
+
+      syncProcessSearchParams(null);
+    }
+
     if (selectedTransactionId && !availableIds.has(selectedTransactionId)) {
       setSelectedTransactionId("");
     }
-  }, [batchTransactions, selectedTransactionId]);
+  }, [batchTransactions, searchParams, selectedTransactionId, transactionsQuery.isFetching, transactionsQuery.isLoading, view]);
 
   const batchProcessListColumns = useMemo<Array<DataTableColumn<WorkspaceTransaction>>>(() => [
     {
@@ -513,6 +560,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
     void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
     void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
+    void transactionsQuery.refetch();
   };
 
   const buildSingleAutomation = useMutation({
@@ -528,8 +576,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     },
     onSuccess: (response) => {
       setBuilderMessage(`Automation generator queued as ${response.transaction_id}.`);
-      setSelectedTransactionId(response.transaction_id);
-      setView("batch-process");
+      openBatchProcess(response.transaction_id);
       invalidateAutomationViews();
     },
     onError: (error) => setBuilderMessage(error instanceof Error ? error.message : "Unable to build automation.")
@@ -550,8 +597,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     },
     onSuccess: (response) => {
       setBuilderMessage(`Batch AI automation queued as ${response.transaction_id}.`);
-      setSelectedTransactionId(response.transaction_id);
-      setView("batch-process");
+      openBatchProcess(response.transaction_id);
       invalidateAutomationViews();
     },
     onError: (error) => setBuilderMessage(error instanceof Error ? error.message : "Unable to queue batch automation.")
@@ -609,7 +655,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     mutationFn: (transactionId: string) => api.workspaceTransactions.delete(transactionId),
     onSuccess: async (_, transactionId) => {
       if (selectedTransactionId === transactionId) {
-        setSelectedTransactionId("");
+        closeBatchProcess();
       }
 
       setSelectedBatchLogIds((current) => current.filter((id) => id !== transactionId));
@@ -743,7 +789,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                           </div>
                           <StatusBadge value={testCase.status || "draft"} />
                         </div>
-                        <p className="tile-card-description">{testCase.description || "No description recorded yet."}</p>
+                        <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description recorded yet." />
                         <div className="integration-card-footer">
                           <button className="ghost-button compact" onClick={() => setSelectedCaseId(testCase.id)} type="button">
                             <SparkIcon size={16} />
@@ -992,7 +1038,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   enableRowSelection={false}
                   getRowClassName={(transaction) => (selectedTransactionId === transaction.id ? "is-active-row" : "")}
                   getRowKey={(transaction) => transaction.id}
-                  onRowClick={(transaction) => setSelectedTransactionId(transaction.id)}
+                  onRowClick={(transaction) => openBatchProcess(transaction.id)}
                   rows={filteredBatchTransactions}
                   storageKey="qaira:testops:batch-process:list-columns"
                 />
@@ -1007,7 +1053,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                         aria-selected={isActive}
                         className={isActive ? "record-card tile-card batch-process-card is-active" : "record-card tile-card batch-process-card"}
                         key={transaction.id}
-                        onClick={() => setSelectedTransactionId(transaction.id)}
+                        onClick={() => openBatchProcess(transaction.id)}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) {
                             return;
@@ -1015,7 +1061,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
 
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedTransactionId(transaction.id);
+                            openBatchProcess(transaction.id);
                           }
                         }}
                         role="button"
@@ -1074,7 +1120,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                               className="ghost-button compact-button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setSelectedTransactionId(transaction.id);
+                                openBatchProcess(transaction.id);
                               }}
                               type="button"
                             >
@@ -1104,7 +1150,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
               subtitle="The latest metadata and event timeline for this operation."
               actions={
                 <div className="testops-action-row batch-process-detail-actions">
-                  <WorkspaceBackButton label="Back to batch process logs" onClick={() => setSelectedTransactionId("")} />
+                  <WorkspaceBackButton label="Back to batch process logs" onClick={closeBatchProcess} />
                   {isAdmin ? (
                     <button
                       className="ghost-button danger"
@@ -1228,7 +1274,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
               className="testops-panel testops-detail-panel batch-process-detail-panel"
               title="Process trace"
               subtitle="Choose a batch process log to inspect its trace."
-              actions={<WorkspaceBackButton label="Back to batch process logs" onClick={() => setSelectedTransactionId("")} />}
+              actions={<WorkspaceBackButton label="Back to batch process logs" onClick={closeBatchProcess} />}
             >
               <div className="empty-state compact">Choose a process log to review its metadata and trace log.</div>
             </Panel>

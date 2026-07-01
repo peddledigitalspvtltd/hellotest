@@ -1,6 +1,6 @@
 import { ChangeEvent, Dispatch, FormEvent, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
 import { AddIcon, ClearSelectionIcon, ImportIcon, OpenIcon, SearchIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
@@ -15,6 +15,7 @@ import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   TileCardFact,
@@ -36,6 +37,7 @@ import { appendUniqueImages, parseExternalLinks, readImageFiles } from "../lib/a
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { parseRequirementCsv } from "../lib/requirementImport";
+import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, TestCase, User } from "../types";
@@ -139,6 +141,7 @@ function RequirementProgressBar({
 export function RequirementsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
@@ -392,6 +395,32 @@ export function RequirementsPage() {
   }, [integrationId, integrations]);
 
   useEffect(() => {
+    if (requirementsQuery.isLoading || requirementsQuery.isFetching) {
+      return;
+    }
+
+    const requestedRequirementId = searchParams.get("requirement");
+    const requestedRequirement = findByRoutableId(requirements, requestedRequirementId);
+
+    if (requestedRequirement) {
+      if (selectedRequirementId !== requestedRequirement.id) {
+        setSelectedRequirementId(requestedRequirement.id);
+      }
+      return;
+    }
+
+    if (requestedRequirementId) {
+      if (selectedRequirementId === requestedRequirementId) {
+        return;
+      }
+
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("requirement");
+        return next;
+      }, { replace: true });
+    }
+
     if (!requirements.length) {
       if (selectedRequirementId) {
         setSelectedRequirementId("");
@@ -402,7 +431,7 @@ export function RequirementsPage() {
     if (selectedRequirementId && !requirements.some((item) => item.id === selectedRequirementId)) {
       setSelectedRequirementId("");
     }
-  }, [requirements, selectedRequirementId]);
+  }, [requirements, requirementsQuery.isFetching, requirementsQuery.isLoading, searchParams, selectedRequirementId, setSearchParams]);
 
   useEffect(() => {
     setDeleteSelectedRequirementIds((current) => current.filter((id) => requirements.some((item) => item.id === id)));
@@ -412,6 +441,32 @@ export function RequirementsPage() {
     () => requirements.find((item) => item.id === selectedRequirementId) || null,
     [requirements, selectedRequirementId]
   );
+
+  const syncRequirementSearchParams = (requirementId?: string | null) => {
+    const currentRequirementId = searchParams.get("requirement") || "";
+    const targetRequirementId = requirementId || "";
+
+    if (currentRequirementId === targetRequirementId) {
+      return;
+    }
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetRequirementId) {
+        next.set("requirement", targetRequirementId);
+      } else {
+        next.delete("requirement");
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const openRequirementWorkspace = (requirementId: string) => {
+    const targetRequirement = requirements.find((item) => item.id === requirementId) || null;
+
+    syncRequirementSearchParams(getRoutableId(targetRequirement) || requirementId);
+    setSelectedRequirementId(requirementId);
+  };
   const optimizeTargets = useMemo(
     () =>
       optimizeRequirementIds
@@ -796,8 +851,8 @@ export function RequirementsPage() {
       key: "description",
       label: "Description",
       defaultVisible: false,
-      sortValue: (item) => item.description || "",
-      render: (item) => item.description || currentAppTypeName
+      sortValue: (item) => richTextToPlainText(item.description),
+      render: (item) => richTextToPlainText(item.description) || currentAppTypeName
     },
     {
       key: "externalReferences",
@@ -931,7 +986,7 @@ export function RequirementsPage() {
                 label: "Open requirement",
                 description: "Open this requirement in the detail workspace.",
                 icon: <OpenIcon />,
-                onClick: () => setSelectedRequirementId(item.id)
+                onClick: () => openRequirementWorkspace(item.id)
               },
               {
                 label: "AI test cases",
@@ -1193,6 +1248,7 @@ export function RequirementsPage() {
   };
 
   const closeRequirementDetail = () => {
+    syncRequirementSearchParams(null);
     setSelectedRequirementId("");
     setDraft(emptyRequirementDraft);
     setSelectedTestCaseIds([]);
@@ -1271,6 +1327,7 @@ export function RequirementsPage() {
         status: createDraft.status
       });
 
+      syncRequirementSearchParams(response.id);
       setSelectedRequirementId(response.id);
       setAiRequirementId(response.id);
       setIsCreateModalOpen(false);
@@ -1395,6 +1452,7 @@ export function RequirementsPage() {
 
     try {
       await deleteRequirement.mutateAsync(selectedRequirement.id);
+      syncRequirementSearchParams(null);
       setSelectedRequirementId("");
       setDraft(emptyRequirementDraft);
       setSelectedTestCaseIds([]);
@@ -1408,7 +1466,7 @@ export function RequirementsPage() {
   };
 
   function openRequirementAiStudio(requirementId: string) {
-    setSelectedRequirementId(requirementId);
+    openRequirementWorkspace(requirementId);
     setAiRequirementId(requirementId);
     setIsAiStudioOpen(true);
   }
@@ -1423,6 +1481,7 @@ export function RequirementsPage() {
       setDeleteSelectedRequirementIds((current) => current.filter((id) => id !== requirement.id));
 
       if (selectedRequirementId === requirement.id) {
+        syncRequirementSearchParams(null);
         setSelectedRequirementId("");
         setDraft(emptyRequirementDraft);
         setSelectedTestCaseIds([]);
@@ -1468,6 +1527,7 @@ export function RequirementsPage() {
       setDeleteSelectedRequirementIds((current) => current.filter((id) => !deletedIds.includes(id)));
 
       if (deletedIds.includes(selectedRequirementId)) {
+        syncRequirementSearchParams(null);
         setSelectedRequirementId("");
       }
 
@@ -1979,7 +2039,7 @@ export function RequirementsPage() {
                         label: "Open requirement",
                         description: "Open this requirement in the detail workspace.",
                         icon: <OpenIcon />,
-                        onClick: () => setSelectedRequirementId(item.id)
+                        onClick: () => openRequirementWorkspace(item.id)
                       },
                       {
                         label: "AI test cases",
@@ -2012,7 +2072,7 @@ export function RequirementsPage() {
                           isActive ? "is-active" : "",
                           isSelectedForDelete ? "is-marked-for-delete" : ""
                         ].filter(Boolean).join(" ")}
-                        onClick={() => setSelectedRequirementId(item.id)}
+                        onClick={() => openRequirementWorkspace(item.id)}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) {
                             return;
@@ -2020,7 +2080,7 @@ export function RequirementsPage() {
 
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedRequirementId(item.id);
+                            openRequirementWorkspace(item.id);
                           }
                         }}
                         role="button"
@@ -2050,7 +2110,7 @@ export function RequirementsPage() {
                               <strong>{item.title}</strong>
                             </div>
                           </div>
-                          <p className="tile-card-description">{item.description || "No requirement description captured yet."}</p>
+                          <RichTextContent className="tile-card-description" value={item.description} fallback="No requirement description captured yet." />
                           <div className="requirement-progress-stack">
                             <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />
                             <RequirementProgressBar detail={automationCoverageTitle} label="Automation coverage" metric={automationCoverage} />
@@ -2090,7 +2150,7 @@ export function RequirementsPage() {
                   emptyMessage="No requirements match the current search."
                   getRowClassName={(item) => (selectedRequirement?.id === item.id ? "is-active-row" : "")}
                   getRowKey={(item) => item.id}
-                  onRowClick={(item) => setSelectedRequirementId(item.id)}
+                  onRowClick={(item) => openRequirementWorkspace(item.id)}
                   rows={filteredRequirements}
                   storageKey="qaira:requirements:list-columns"
                 />
@@ -2176,7 +2236,11 @@ export function RequirementsPage() {
                         </FormField>
                       </div>
                       <FormField label="Description">
-                        <textarea rows={4} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+                        <RichTextEditor
+                          rows={4}
+                          value={draft.description}
+                          onChange={(description) => setDraft((current) => ({ ...current, description }))}
+                        />
                       </FormField>
                       <div className="record-grid requirement-compact-metadata-grid">
                         <RequirementLabelsField
@@ -2345,11 +2409,11 @@ export function RequirementsPage() {
                     </FormField>
                   </div>
                   <FormField label="Description" inputId="create-requirement-description-input">
-                    <textarea
+                    <RichTextEditor
                       id="create-requirement-description-input"
                       rows={4}
                       value={createDraft.description}
-                      onChange={(event) => setCreateDraft((current) => ({ ...current, description: event.target.value }))}
+                      onChange={(description) => setCreateDraft((current) => ({ ...current, description }))}
                     />
                   </FormField>
                   <div className="record-grid requirement-compact-metadata-grid">
@@ -3080,7 +3144,7 @@ function RequirementTestCasePicker({
           testCase.display_id || "",
           testCase.id,
           testCase.title,
-          testCase.description || "",
+          richTextToPlainText(testCase.description),
           testCase.status || "",
           `p${testCase.priority ?? 3}`
         ].some((value) => value.toLowerCase().includes(normalizedSearch))
@@ -3149,7 +3213,7 @@ function RequirementTestCasePicker({
           >
             <div className="requirement-link-option-copy">
               <strong>{testCase.title}</strong>
-              {!compactTitlesOnly ? <span>{testCase.description || "No description available."}</span> : null}
+              {!compactTitlesOnly ? <span>{richTextToPlainText(testCase.description) || "No description available."}</span> : null}
               {!compactTitlesOnly ? (
                 <span className="requirement-link-option-meta">
                   Priority P{testCase.priority ?? 3} · {testCase.status || "draft"}

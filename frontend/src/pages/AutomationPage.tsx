@@ -12,6 +12,7 @@ import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SubnavTabs } from "../components/SubnavTabs";
@@ -33,6 +34,7 @@ import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { AUTOMATION_SECTION_ITEMS } from "../lib/workspaceSections";
 import {
@@ -1341,7 +1343,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         </head>
         <body>
           <h1>${escapeAutomationPdfHtml(activeCase.title)}</h1>
-          <p>${escapeAutomationPdfHtml(activeCase.description || "No description recorded.")}</p>
+          <p>${escapeAutomationPdfHtml(richTextToPlainText(activeCase.description) || "No description recorded.")}</p>
           <section class="meta">
             ${metadataRows.map(([label, value]) => `<div><span>${escapeAutomationPdfHtml(label)}</span><strong>${escapeAutomationPdfHtml(value)}</strong></div>`).join("")}
           </section>
@@ -1417,6 +1419,31 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const inspectRecorderLiveUrl = inspectRecorderSession?.live_view_url || "";
   const selectedLocators = selectedRepositoryEntry ? getRepositoryLocators(selectedRepositoryEntry) : [];
 
+  const syncRepositorySearchParams = useCallback((repositoryId?: string | null) => {
+    const targetRepositoryId = repositoryId || "";
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetRepositoryId) {
+        next.delete("case");
+        next.set("repository", targetRepositoryId);
+      } else {
+        next.delete("repository");
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const selectRepositoryEntry = useCallback((repositoryId: string, screenName?: string) => {
+    if (screenName && screenName !== selectedScreenName) {
+      setSelectedScreenName(screenName);
+    }
+
+    setSelectedRepositoryId(repositoryId);
+    setFieldDetailTab("locators");
+    syncRepositorySearchParams(repositoryId);
+  }, [selectedScreenName, syncRepositorySearchParams]);
+
   const openRepositoryInspect = (page: typeof activePageObject = activePageObject) => {
     const targetPage = page || activePageObject;
     if (targetPage?.screenName) {
@@ -1475,11 +1502,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   useEffect(() => {
     const requestedCaseId = searchParams.get("case") || "";
-    if (initialView !== "cases" || !requestedCaseId || selectedCaseId === requestedCaseId || testCasesQuery.isLoading || testCasesQuery.isFetching) {
+    const requestedCase = findByRoutableId(automatedCases, requestedCaseId);
+
+    if (
+      initialView !== "cases"
+      || !requestedCaseId
+      || selectedCaseId === requestedCase?.id
+      || testCasesQuery.isLoading
+      || testCasesQuery.isFetching
+    ) {
       return;
     }
 
-    const requestedCase = automatedCases.find((testCase) => testCase.id === requestedCaseId);
     if (requestedCase) {
       setView("cases");
       setSelectedCaseId(requestedCase.id);
@@ -1501,10 +1535,52 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [activeManualCase, selectedManualCaseId]);
 
   useEffect(() => {
+    const requestedRepositoryId = searchParams.get("repository") || "";
+
+    if (
+      initialView !== "repository"
+      || !requestedRepositoryId
+      || learningCacheQuery.isLoading
+      || learningCacheQuery.isFetching
+    ) {
+      return;
+    }
+
+    const requestedEntry = groupedRepository
+      .flatMap(([screenName, entries]) => entries.map((entry) => ({ screenName, entry })))
+      .find(({ entry }) => entry.id === requestedRepositoryId && !isNonElementRepositoryEntry(entry));
+
+    if (requestedEntry) {
+      setView("repository");
+      selectRepositoryEntry(requestedEntry.entry.id, requestedEntry.screenName);
+      return;
+    }
+
+    if (selectedRepositoryId === requestedRepositoryId) {
+      return;
+    }
+
+    syncRepositorySearchParams(null);
+  }, [
+    groupedRepository,
+    initialView,
+    learningCacheQuery.isFetching,
+    learningCacheQuery.isLoading,
+    searchParams,
+    selectRepositoryEntry,
+    selectedRepositoryId,
+    syncRepositorySearchParams
+  ]);
+
+  useEffect(() => {
+    if (searchParams.get("repository")) {
+      return;
+    }
+
     if (selectedRepositoryEntry && selectedRepositoryId !== selectedRepositoryEntry.id) {
       setSelectedRepositoryId(selectedRepositoryEntry.id);
     }
-  }, [selectedRepositoryEntry, selectedRepositoryId]);
+  }, [searchParams, selectedRepositoryEntry, selectedRepositoryId]);
 
   useEffect(() => {
     if (activeScreenName && selectedScreenName !== activeScreenName) {
@@ -1725,14 +1801,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const selectAutomationCase = useCallback((testCaseId: string) => {
+    const targetCase = automatedCases.find((testCase) => testCase.id === testCaseId) || null;
+
     setSelectedCaseId(testCaseId);
     setSelectedAutomatedCaseId(testCaseId);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.set("case", testCaseId);
+      next.delete("repository");
+      next.set("case", getRoutableId(targetCase) || testCaseId);
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [automatedCases, setSearchParams]);
 
   const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => [
     {
@@ -1793,7 +1872,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       render: (testCase) => (
         <div className="automation-list-primary-cell">
           <strong>{testCase.title}</strong>
-          <span>{testCase.description || "Automation is mapped to the original manual case definition."}</span>
+          <span>{richTextToPlainText(testCase.description) || "Automation is mapped to the original manual case definition."}</span>
         </div>
       )
     },
@@ -1848,7 +1927,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       defaultVisible: false,
       width: 320,
       minWidth: 180,
-      render: (testCase) => testCase.description || "No automation description yet."
+      render: (testCase) => richTextToPlainText(testCase.description) || "No automation description yet."
     },
     {
       key: "actions",
@@ -2733,7 +2812,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       setIsAddingRepositoryField(false);
       showSuccess("Object repository field added manually.");
       if (entry?.id) {
-        setSelectedRepositoryId(entry.id);
+        selectRepositoryEntry(entry.id, activeScreenName);
       }
       setNewRepositoryFieldDraft({
         screen_name: activeScreenName,
@@ -2786,6 +2865,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       showSuccess(response.invalidated_cases.length
         ? `Object repository field deleted. ${response.invalidated_cases.length} automation case${response.invalidated_cases.length === 1 ? " is" : "s are"} now incomplete.`
         : "Object repository field deleted.");
+      syncRepositorySearchParams(null);
       setSelectedRepositoryId("");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
@@ -3393,7 +3473,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <strong>{testCase.title}</strong>
                             </div>
                           </div>
-                          <p className="tile-card-description">{testCase.description || "Automation is mapped to the original manual case definition."}</p>
+                          <RichTextContent className="tile-card-description" value={testCase.description} fallback="Automation is mapped to the original manual case definition." />
                           <div className="tile-card-facts">
                             <TileCardFact label={testCase.automation_status === "incomplete" ? "Incomplete" : "Ready"} title="Automation state" tone={testCase.automation_status === "incomplete" ? "neutral" : "success"}><SparkIcon /></TileCardFact>
                             <TileCardFact label={`${history.length} runs`} title="Recent run history" tone={history.length ? "info" : "neutral"}><TileCardRunsIcon /></TileCardFact>
@@ -3494,7 +3574,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                    </div>
 	                    <label className="form-field">
 	                      <span>Description</span>
-	                      <textarea rows={3} value={caseDraft.description} onChange={(event) => setCaseDraft((current) => ({ ...current, description: event.target.value }))} />
+	                      <RichTextEditor rows={3} value={caseDraft.description} onChange={(description) => setCaseDraft((current) => ({ ...current, description }))} />
 	                    </label>
 	                    <section className="automation-test-data-panel step-parameter-list" aria-label="Automation test data inherited from manual case">
 	                      <div className="automation-section-heading">
@@ -4067,7 +4147,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   </label>
                   <label className="form-field"><span>Screenshot URL / data URL</span><input value={newRepositoryScreenDraft.screenshot_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screenshot_url: event.target.value }))} placeholder="Captured during inspect when blank" /></label>
                   <label className="form-field repository-span-two"><span>Purpose and intended flow</span><textarea rows={3} value={newRepositoryScreenDraft.business_meaning} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Customer reviews cart, enters payment, and submits an order." /></label>
-                  <label className="form-field repository-span-two"><span>Description</span><textarea rows={2} value={newRepositoryScreenDraft.description} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Page context used when selecting stable fields." /></label>
+                  <label className="form-field repository-span-two"><span>Description</span><RichTextEditor rows={2} value={newRepositoryScreenDraft.description} onChange={(description) => setNewRepositoryScreenDraft((current) => ({ ...current, description }))} placeholder="Page context used when selecting stable fields." /></label>
                   <label className="form-field repository-span-two"><span>DOM / accessibility structure</span><textarea rows={6} value={newRepositoryScreenDraft.dom_structure} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, dom_structure: event.target.value }))} placeholder="<main><input aria-label='Card number' />...</main>" /></label>
                 </div>
                 <div className="testops-action-row">
@@ -4135,7 +4215,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           <span>URL match rule</span>
                           <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
                         </label>
-                        <label className="form-field repository-span-two"><span>Description</span><textarea rows={3} value={screenInfoDraft.description} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, description: event.target.value }))} placeholder="What this screen represents." /></label>
+                        <label className="form-field repository-span-two"><span>Description</span><RichTextEditor rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="What this screen represents." /></label>
                         <label className="form-field repository-span-two"><span>Intended flows</span><textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, continue as guest." /></label>
                       </div>
                       <div className="testops-action-row">
@@ -4182,10 +4262,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           <span>Primary locator</span>
                         </div>
                         {activePageObject.members.map((member) => (
-	                          <button className={`pom-member-row${selectedRepositoryEntry?.id === member.entry.id ? " is-active" : ""}${highlightedRepositoryId === member.entry.id ? " is-highlighted" : ""}`} key={member.entry.id} onClick={() => {
-	                            setSelectedRepositoryId(member.entry.id);
-	                            setFieldDetailTab("locators");
-	                          }} type="button">
+	                          <button className={`pom-member-row${selectedRepositoryEntry?.id === member.entry.id ? " is-active" : ""}${highlightedRepositoryId === member.entry.id ? " is-highlighted" : ""}`} key={member.entry.id} onClick={() => selectRepositoryEntry(member.entry.id, activePageObject.screenName)} type="button">
                             <code>{member.memberName}</code>
                             <span>{member.htmlTag} · {member.role}</span>
                             <small>{member.entry.locator}</small>
@@ -4328,7 +4405,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 ) : null}
                 {fieldDetailTab === "meaning" ? (
                   <div className="record-grid testops-builder-form">
-                    <label className="form-field repository-span-two"><span>AI-generated description</span><textarea rows={3} value={repositoryDraft.description} onChange={(event) => setRepositoryDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+                    <label className="form-field repository-span-two"><span>AI-generated description</span><RichTextEditor rows={3} value={repositoryDraft.description} onChange={(description) => setRepositoryDraft((current) => ({ ...current, description }))} /></label>
                     <label className="form-field repository-span-two"><span>Business meaning</span><textarea rows={3} value={repositoryDraft.business_meaning} onChange={(event) => setRepositoryDraft((current) => ({ ...current, business_meaning: event.target.value }))} /></label>
                     <label className="form-field"><span>Usage keywords</span><input value={repositoryDraft.usage_keywords} onChange={(event) => setRepositoryDraft((current) => ({ ...current, usage_keywords: event.target.value }))} placeholder="login, submit, authenticate" /></label>
                     <label className="form-field repository-span-two"><span>Healing guidance</span><textarea rows={3} value={repositoryDraft.fallback_strategy} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_strategy: event.target.value }))} /></label>
@@ -4569,7 +4646,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     </label>
                     <label className="form-field">
                       <span>Description</span>
-                      <textarea rows={3} value={screenInfoDraft.description} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Purpose and boundaries of this screen." />
+                      <RichTextEditor rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="Purpose and boundaries of this screen." />
                     </label>
                     <details className="object-repository-advanced-evidence">
                       <summary>Advanced evidence and DOM</summary>

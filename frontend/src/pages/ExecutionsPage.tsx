@@ -27,6 +27,7 @@ import {
 } from "../components/StepAutomationEditor";
 import { ProjectDropdown } from "../components/ProjectDropdown";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { richTextToPlainText } from "../components/RichTextEditor";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StatusBadge } from "../components/StatusBadge";
@@ -1924,10 +1925,24 @@ export function ExecutionsPage() {
       return;
     }
 
+    if (executionsQuery.isLoading || executionsQuery.isFetching || selectedExecutionQuery.isLoading || selectedExecutionQuery.isFetching) {
+      return;
+    }
+
     if (selectedExecutionId && !executions.some((execution) => execution.id === selectedExecutionId)) {
       setSelectedExecutionId("");
     }
-  }, [executions, searchParams, selectedExecutionId, selectedExecutionQuery.data, testRunsView]);
+  }, [
+    executions,
+    executionsQuery.isFetching,
+    executionsQuery.isLoading,
+    searchParams,
+    selectedExecutionId,
+    selectedExecutionQuery.data,
+    selectedExecutionQuery.isFetching,
+    selectedExecutionQuery.isLoading,
+    testRunsView
+  ]);
 
   useEffect(() => {
     if (!isExecutionRunsView(testRunsView)) {
@@ -2524,6 +2539,44 @@ export function ExecutionsPage() {
       queryClient.invalidateQueries({ queryKey: ["execution-results"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
     ]);
+
+    await Promise.all([
+      executionsQuery.refetch(),
+      allExecutionResultsQuery.refetch(),
+      executionId
+        ? queryClient.fetchQuery({
+            queryKey: ["execution", executionId],
+            queryFn: () => api.executions.get(executionId)
+          })
+        : Promise.resolve(),
+      executionId
+        ? queryClient.fetchQuery({
+            queryKey: ["execution-results", executionId],
+            queryFn: () => api.executionResults.list({ execution_id: executionId })
+          })
+        : Promise.resolve(),
+      workspaceTransactionsQuery.refetch()
+    ]);
+  };
+
+  const patchExecutionCache = (executionId: string, patch: Partial<Execution>) => {
+    queryClient.setQueryData<Execution>(["execution", executionId], (current) =>
+      current ? { ...current, ...patch } : current
+    );
+    queryClient.setQueriesData<Execution[]>({ queryKey: ["executions"] }, (current) =>
+      Array.isArray(current)
+        ? current.map((execution) => (execution.id === executionId ? { ...execution, ...patch } : execution))
+        : current
+    );
+  };
+
+  const scheduleExecutionRefresh = (executionId: string) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.setTimeout(() => void refreshExecutionScope(executionId), 750);
+    window.setTimeout(() => void refreshExecutionScope(executionId), 2500);
   };
 
   const refreshExecutionSchedules = async () => {
@@ -2653,7 +2706,12 @@ export function ExecutionsPage() {
 
     try {
       await completeExecution.mutateAsync({ id: selectedExecution.id, status });
-      await refreshExecutionScope();
+      patchExecutionCache(selectedExecution.id, {
+        status,
+        ended_at: new Date().toISOString()
+      });
+      scheduleExecutionRefresh(selectedExecution.id);
+      await refreshExecutionScope(selectedExecution.id);
     } catch (error) {
       showError(error, failureMessage);
     } finally {
@@ -2765,6 +2823,14 @@ export function ExecutionsPage() {
       closeExecutionBuilder();
       focusExecution(response.id);
       setFocusedSuiteId("");
+      if (executionStartMode !== "manual") {
+        patchExecutionCache(response.id, {
+          status: "running",
+          started_at: new Date().toISOString(),
+          trigger: executionStartMode === "local" ? "local" : "ci"
+        });
+        scheduleExecutionRefresh(response.id);
+      }
       showSuccess(
         executionCreateMode === "smart"
           ? `AI smart run created with ${selectedSmartCaseIds.length} impacted case${selectedSmartCaseIds.length === 1 ? "" : "s"} under Default.`
@@ -2902,7 +2968,13 @@ export function ExecutionsPage() {
             ? { execution_mode: "remote" }
             : undefined
       });
-      await refreshExecutionScope();
+      patchExecutionCache(selectedExecution.id, {
+        status: "running",
+        started_at: new Date().toISOString(),
+        trigger: mode === "local" ? "local" : mode === "remote" ? "ci" : selectedExecution.trigger || "manual"
+      });
+      scheduleExecutionRefresh(selectedExecution.id);
+      await refreshExecutionScope(selectedExecution.id);
       showSuccess(summarizeExecutionStart(response));
     } catch (error) {
       showError(error, "Unable to start run");
@@ -3036,8 +3108,10 @@ export function ExecutionsPage() {
       stepStatusesPatch?: Record<string, ExecutionStepStatus>;
       stepNotesPatch?: Record<string, string>;
       stepEvidencePatch?: Record<string, ExecutionStepEvidence | null>;
-    }
+    },
+    options: { refresh?: boolean } = {}
   ) => {
+    const shouldRefresh = options.refresh !== false;
     const scopedAppTypeId = selectedExecution?.app_type_id;
     const currentCaseSnapshot = snapshotCases.find((snapshot) => snapshot.test_case_id === testCaseId);
 
@@ -3091,6 +3165,9 @@ export function ExecutionsPage() {
             : item
         )
       );
+      if (shouldRefresh) {
+        await refreshExecutionScope(selectedExecution.id);
+      }
       return;
     }
 
@@ -3134,6 +3211,9 @@ export function ExecutionsPage() {
       },
       ...current
     ]);
+    if (shouldRefresh) {
+      await refreshExecutionScope(selectedExecution.id);
+    }
   };
 
   const handleRecordStep = async (stepId: string, status: "passed" | "failed") => {
@@ -3484,7 +3564,7 @@ export function ExecutionsPage() {
         ...suiteCases.flatMap((testCase) => [
           testCase.id,
           testCase.title,
-          testCase.description || "",
+          richTextToPlainText(testCase.description),
           testCase.suite_name || ""
         ])
       ];
@@ -3506,7 +3586,7 @@ export function ExecutionsPage() {
       const searchableValues = [
         testCase.id,
         testCase.title,
-        testCase.description || "",
+        richTextToPlainText(testCase.description),
         testCase.suite_name || "",
         status,
         `P${testCase.priority || 3}`,
@@ -3532,7 +3612,7 @@ export function ExecutionsPage() {
         const searchableValues = [
           testCase.id,
           testCase.title,
-          testCase.description || "",
+          richTextToPlainText(testCase.description),
           testCase.suite_name || "",
           status,
           `P${testCase.priority || 3}`,
@@ -4000,6 +4080,14 @@ export function ExecutionsPage() {
       return;
     }
 
+    if (executionsQuery.isLoading || executionsQuery.isFetching || selectedExecutionQuery.isLoading || selectedExecutionQuery.isFetching) {
+      return;
+    }
+
+    if (searchParams.get("execution") && selectedExecutionQuery.data?.id === selectedExecutionId) {
+      return;
+    }
+
     if (availableExecutionCatalogRows.some((execution) => execution.id === selectedExecutionId)) {
       return;
     }
@@ -4008,7 +4096,17 @@ export function ExecutionsPage() {
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
     syncExecutionSearchParams("", null);
-  }, [availableExecutionCatalogRows, selectedExecutionId, testRunsView]);
+  }, [
+    availableExecutionCatalogRows,
+    executionsQuery.isFetching,
+    executionsQuery.isLoading,
+    searchParams,
+    selectedExecutionId,
+    selectedExecutionQuery.data,
+    selectedExecutionQuery.isFetching,
+    selectedExecutionQuery.isLoading,
+    testRunsView
+  ]);
 
   const executionSuiteListColumns = useMemo<Array<DataTableColumn<ExecutionSuiteNode>>>(() => [
     {
@@ -4102,7 +4200,7 @@ export function ExecutionsPage() {
       render: (testCase) => (
         <div className="automation-list-primary-cell">
           <strong>{testCase.title}</strong>
-          <span>{testCase.description || testCase.id}</span>
+          <span>{richTextToPlainText(testCase.description) || testCase.id}</span>
         </div>
       ),
       sortValue: (testCase) => testCase.title
@@ -4608,7 +4706,7 @@ export function ExecutionsPage() {
             acc[step.id] = status;
             return acc;
           }, {});
-          await persistCaseResult(testCase.id, { stepStatusesPatch: patch });
+          await persistCaseResult(testCase.id, { stepStatusesPatch: patch }, { refresh: false });
         } else {
           await persistCaseOutcomeOnly(testCase.id, status);
         }
@@ -9238,7 +9336,7 @@ function ExecutionCreateModal({
                                   />
                                   <div className="execution-smart-requirement-copy">
                                     <strong>{requirement.title}</strong>
-                                    <span>{requirement.description || "Requirement-linked coverage available in this app type."}</span>
+                                    <span>{richTextToPlainText(requirement.description) || "Requirement-linked coverage available in this app type."}</span>
                                   </div>
                                   <span className="execution-smart-requirement-count">
                                     {requirement.linkedCaseCount} case{requirement.linkedCaseCount === 1 ? "" : "s"}
@@ -9364,7 +9462,7 @@ function ExecutionCreateModal({
                             <div className="execution-smart-impact-top">
                               <div className="execution-smart-impact-heading">
                                 <strong>{testCase.title}</strong>
-                                <span>{testCase.description || "No description available."}</span>
+                                <span>{richTextToPlainText(testCase.description) || "No description available."}</span>
                               </div>
                               <div className="execution-smart-impact-facts">
                                 <span className={`execution-smart-impact-level is-${testCase.impact_level}`}>

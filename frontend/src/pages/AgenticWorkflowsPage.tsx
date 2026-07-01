@@ -20,6 +20,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { AddIcon, ClearSelectionIcon, PlayIcon, SaveIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { ToastMessage } from "../components/ToastMessage";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
@@ -864,9 +865,9 @@ export function AgenticWorkflowsPage() {
       minWidth: 240,
       sortValue: (workflow) => workflow.name,
       render: (workflow) => (
-        <div className="agentic-table-primary" title={workflow.description || workflow.name}>
+        <div className="agentic-table-primary" title={richTextToPlainText(workflow.description) || workflow.name}>
           <strong>{workflow.name}</strong>
-          <span>{workflow.description || "No description"}</span>
+          <span>{richTextToPlainText(workflow.description) || "No description"}</span>
         </div>
       )
     },
@@ -1388,7 +1389,7 @@ export function AgenticWorkflowsPage() {
                           </div>
                           <StatusBadge value={workflow.status} />
                         </div>
-                        <p className="tile-card-description" title={workflow.description || ""}>{workflow.description || "No description"}</p>
+                        <RichTextContent className="tile-card-description" title={richTextToPlainText(workflow.description)} value={workflow.description} fallback="No description" />
                         <div className="tile-card-facts">
                           <span><strong>{workflow.nodes.length}</strong><small>Steps</small></span>
                           <span><strong>{workflow.run_count || 0}</strong><small>Runs</small></span>
@@ -1551,8 +1552,9 @@ export function AgenticWorkflowsPage() {
                     </label>
                     <label className="agentic-workflow-form-wide">
                       <span>Description</span>
-                      <input
-                        onChange={(event) => setDraft((current) => current ? { ...current, description: event.target.value } : current)}
+                      <RichTextEditor
+                        rows={3}
+                        onChange={(description) => setDraft((current) => current ? { ...current, description } : current)}
                         value={draft.description}
                       />
                     </label>

@@ -5,6 +5,7 @@ import { normalizeStepParameterValues } from "../lib/stepParameters";
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
+import { richTextToPlainText } from "./RichTextEditor";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { ToastMessage } from "./ToastMessage";
 
@@ -186,7 +187,7 @@ export function AiCaseAuthoringModal({
               {selectedRequirement ? (
                 <div className="detail-summary compact-summary">
                   <strong>{selectedRequirement.title}</strong>
-                  <span>{selectedRequirement.description || "No requirement description available yet."}</span>
+                  <span>{richTextToPlainText(selectedRequirement.description) || "No requirement description available yet."}</span>
                 </div>
               ) : (
                 <div className="empty-state compact">Choose the requirement this case should satisfy before generating.</div>
@@ -233,7 +234,7 @@ export function AiCaseAuthoringModal({
 
               <div className="detail-summary compact-summary">
                 <strong>{sourceDraft.title || "Untitled case draft"}</strong>
-                <span>{sourceDraft.description || "No case description written yet."}</span>
+                <span>{richTextToPlainText(sourceDraft.description) || "No case description written yet."}</span>
               </div>
 
               <div className="ai-case-authoring-source-list">

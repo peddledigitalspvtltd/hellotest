@@ -14,6 +14,7 @@ import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
   TileCardAppTypesIcon,
   TileCardCaseIcon,
@@ -1380,7 +1381,7 @@ export function ProjectsPage() {
       render: (item) => (
         <div className="projects-list-primary-cell">
           <strong>{item.project.name}</strong>
-          <span>{item.project.description || "No description yet."}</span>
+          <span>{richTextToPlainText(item.project.description) || "No description yet."}</span>
         </div>
       )
     },
@@ -1464,7 +1465,7 @@ export function ProjectsPage() {
   ], [areAllFilteredProjectsSelected, filteredProjectItems, getProjectActionItems, selectedActionProjectIds]);
 
   return (
-    <div className="page-content">
+    <div className="page-content projects-page">
       {confirmationDialog}
       <ToastMessage
         message={message}
@@ -1818,7 +1819,7 @@ export function ProjectsPage() {
                 <div className="detail-stack">
                   <div className="detail-summary">
                     <strong>{focusedProject.name}</strong>
-                    <span>{focusedProject.description || "No description provided yet."}</span>
+                    <RichTextContent value={focusedProject.description} fallback="No description provided yet." />
                   </div>
                   <div className="metric-strip">
                     <button
@@ -2115,9 +2116,9 @@ export function ProjectsPage() {
                     />
                   </FormField>
                   <FormField label="Description" inputId="project-description-input">
-                    <textarea
+                    <RichTextEditor
                       id="project-description-input"
-                      onChange={(event) => updateProjectDraft({ description: event.target.value })}
+                      onChange={(description) => updateProjectDraft({ description })}
                       rows={3}
                       value={projectDraft.description}
                     />

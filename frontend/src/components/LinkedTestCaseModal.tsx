@@ -9,6 +9,7 @@ import { StatusBadge } from "./StatusBadge";
 import { StepParameterDialog } from "./StepParameterDialog";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { AutomationCodeIcon, CodePreviewDialog } from "./StepAutomationEditor";
+import { RichTextContent } from "./RichTextEditor";
 import { WorkspaceBackButton } from "./WorkspaceMasterDetail";
 
 const linkedCaseHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -207,7 +208,7 @@ export function LinkedTestCaseModal({
                           <div className="stack-item">
                             <div>
                               <strong>Description</strong>
-                              <span>{testCase.description || "No description available for this reusable test case."}</span>
+                              <RichTextContent value={testCase.description} fallback="No description available for this reusable test case." />
                             </div>
                           </div>
                           <div className="stack-item">

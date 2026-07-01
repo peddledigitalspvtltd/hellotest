@@ -18,6 +18,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
@@ -70,6 +71,7 @@ import { appendUniqueImages, parseExternalLinks, readImageFiles, toggleRequireme
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
+import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import {
   buildCaseAutomationCode,
   buildGroupAutomationCode,
@@ -879,10 +881,16 @@ export function TestCasesPage() {
     queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId)
   });
+  const requestedCaseRouteId = searchParams.get("case") || "";
   const testCasesQuery = useQuery({
     queryKey: ["global-test-cases", appTypeId],
     queryFn: () => api.testCases.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId)
+  });
+  const deepLinkTestCasesQuery = useQuery({
+    queryKey: ["global-test-cases", "deep-link", requestedCaseRouteId],
+    queryFn: () => api.testCases.list(),
+    enabled: Boolean(session && requestedCaseRouteId)
   });
   const generationJobsQuery = useQuery({
     queryKey: ["ai-test-case-generation-jobs", appTypeId],
@@ -1059,6 +1067,7 @@ export function TestCasesPage() {
   const requirements = requirementsQuery.data || [];
   const suites = suitesQuery.data || [];
   const testCases = testCasesQuery.data || [];
+  const deepLinkTestCases = deepLinkTestCasesQuery.data || [];
   const generationJobs = generationJobsQuery.data || [];
   const executions = executionsQuery.data || [];
   const sharedStepGroups = sharedStepGroupsQuery.data || [];
@@ -1167,6 +1176,13 @@ export function TestCasesPage() {
       return next;
     }, { replace: true });
   }
+
+  const openTestCaseWorkspace = (testCaseId: string) => {
+    const targetTestCase = testCases.find((item) => item.id === testCaseId) || null;
+
+    syncTestCaseSearchParams(getRoutableId(targetTestCase) || testCaseId);
+    setSelectedTestCaseId(testCaseId);
+  };
 
   const resetExecutionContextSelection = () => {
     setSelectedExecutionEnvironmentId("");
@@ -1313,7 +1329,9 @@ export function TestCasesPage() {
   }, [integrationId, integrations]);
 
   useEffect(() => {
-    syncTestCaseSearchParams(null);
+    if (!searchParams.get("case")) {
+      syncTestCaseSearchParams(null);
+    }
     setCreateSuiteContextId("");
     setSelectedTestCaseId("");
     setIsCreating(false);
@@ -1845,6 +1863,33 @@ export function TestCasesPage() {
       return;
     }
 
+    const requestedCaseId = searchParams.get("case");
+    if (requestedCaseId) {
+      const requestedCase = findByRoutableId(testCases, requestedCaseId);
+      if (requestedCase) {
+        setSelectedTestCaseId(requestedCase.id);
+        return;
+      }
+
+      if (deepLinkTestCasesQuery.isLoading || deepLinkTestCasesQuery.isFetching) {
+        return;
+      }
+
+      const deepLinkedCase = findByRoutableId(deepLinkTestCases, requestedCaseId);
+      if (deepLinkedCase?.app_type_id && deepLinkedCase.app_type_id !== appTypeId) {
+        setAppTypeId(deepLinkedCase.app_type_id);
+        return;
+      }
+
+      if (deepLinkedCase && selectedTestCaseId === deepLinkedCase.id) {
+        return;
+      }
+
+      if (selectedTestCaseId === requestedCaseId) {
+        return;
+      }
+    }
+
     syncTestCaseSearchParams(null);
     setSelectedTestCaseId("");
     setCaseDraft(emptyCaseDraft);
@@ -1852,11 +1897,18 @@ export function TestCasesPage() {
     defaultTestCaseAutomated,
     defaultTestCaseStatus,
     emptyCaseDraft,
+    appTypeId,
+    deepLinkTestCases,
+    deepLinkTestCasesQuery.isFetching,
+    deepLinkTestCasesQuery.isLoading,
     isCreating,
     selectedTestCase,
     selectedTestCaseId,
+    searchParams,
+    setAppTypeId,
     testCasesQuery.isFetching,
-    testCasesQuery.isLoading
+    testCasesQuery.isLoading,
+    testCases
   ]);
 
   useEffect(() => {
@@ -1931,10 +1983,41 @@ export function TestCasesPage() {
       return;
     }
 
-    if (testCases.some((item) => item.id === requestedCaseId)) {
-      setSelectedTestCaseId(requestedCaseId);
+    const requestedCase = findByRoutableId(testCases, requestedCaseId);
+    if (requestedCase) {
+      setSelectedTestCaseId(requestedCase.id);
+      if (requestedCase.display_id && requestedCaseId !== requestedCase.display_id) {
+        syncTestCaseSearchParams(requestedCase.display_id);
+      }
+      return;
     }
-  }, [isCreating, searchParams, selectedTestCaseId, testCases, testCasesQuery.isFetching, testCasesQuery.isLoading]);
+
+    if (deepLinkTestCasesQuery.isLoading || deepLinkTestCasesQuery.isFetching) {
+      return;
+    }
+
+    const deepLinkedCase = findByRoutableId(deepLinkTestCases, requestedCaseId);
+    if (deepLinkedCase?.app_type_id && deepLinkedCase.app_type_id !== appTypeId) {
+      setAppTypeId(deepLinkedCase.app_type_id);
+      return;
+    }
+
+    if (deepLinkedCase) {
+      setSelectedTestCaseId(deepLinkedCase.id);
+    }
+  }, [
+    appTypeId,
+    deepLinkTestCases,
+    deepLinkTestCasesQuery.isFetching,
+    deepLinkTestCasesQuery.isLoading,
+    isCreating,
+    searchParams,
+    selectedTestCaseId,
+    setAppTypeId,
+    testCases,
+    testCasesQuery.isFetching,
+    testCasesQuery.isLoading
+  ]);
 
   useEffect(() => {
     if (!selectedCaseSuiteIds.length) {
@@ -5156,8 +5239,7 @@ export function TestCasesPage() {
   const getRequirementTitleForCase = (testCase: TestCase) =>
     (testCase.requirement_ids || [testCase.requirement_id]).map((id) => (id ? requirementTitleById[id] || "" : "")).find(Boolean) || "";
   const openLibraryCase = (testCaseId: string) => {
-    syncTestCaseSearchParams(testCaseId);
-    setSelectedTestCaseId(testCaseId);
+    openTestCaseWorkspace(testCaseId);
     setIsCreating(false);
     setDraftSteps([]);
   };
@@ -5246,7 +5328,7 @@ export function TestCasesPage() {
       defaultVisible: false,
       width: 320,
       minWidth: 180,
-      render: (testCase) => testCase.description || "No description yet for this test case."
+      render: (testCase) => richTextToPlainText(testCase.description) || "No description yet for this test case."
     },
     {
       key: "externalReferences",
@@ -6188,8 +6270,7 @@ export function TestCasesPage() {
                         ].filter(Boolean).join(" ")}
                         key={testCase.id}
                         onClick={() => {
-                          syncTestCaseSearchParams(testCase.id);
-                          setSelectedTestCaseId(testCase.id);
+                          openTestCaseWorkspace(testCase.id);
                           setIsCreating(false);
                           setDraftSteps([]);
                         }}
@@ -6200,8 +6281,7 @@ export function TestCasesPage() {
 
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            syncTestCaseSearchParams(testCase.id);
-                            setSelectedTestCaseId(testCase.id);
+                            openTestCaseWorkspace(testCase.id);
                             setIsCreating(false);
                             setDraftSteps([]);
                           }
@@ -6244,7 +6324,7 @@ export function TestCasesPage() {
                             </span>
                             <p>{requirementTitle || "No requirement linked"}</p>
                           </div>
-                          <p className="tile-card-description">{testCase.description || "No description yet for this test case."}</p>
+                          <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
                           <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
                             <span title={requirementTitle || "No requirement linked"}>
                               <strong>{requirementTitle ? "Linked" : "Open"}</strong>
@@ -6400,10 +6480,10 @@ export function TestCasesPage() {
                           </FormField>
                         </div>
                         <FormField label="Description">
-                          <textarea
+                          <RichTextEditor
                             rows={4}
                             value={caseDraft.description}
-                            onChange={(event) => setCaseDraft((current) => ({ ...current, description: event.target.value }))}
+                            onChange={(description) => setCaseDraft((current) => ({ ...current, description }))}
                           />
                         </FormField>
                         <FormField label="External references" hint="Ticket links or IDs, separated with commas.">

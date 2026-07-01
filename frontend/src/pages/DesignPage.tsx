@@ -1,6 +1,6 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AddIcon, ClearSelectionIcon, EyeIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
 import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
@@ -24,6 +24,7 @@ import {
   formatTileCardLabel
 } from "../components/TileCardPrimitives";
 import { RunHooksBuilder, type RunHookSelection } from "../components/RunHooksBuilder";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { SuiteCasePicker, SuiteScopePicker } from "../components/SuiteCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
@@ -43,6 +44,7 @@ import {
   type StepParameterDefinition
 } from "../lib/stepParameters";
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
+import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestStep, TestSuite, User } from "../types";
@@ -209,6 +211,7 @@ function StepKindIconBadge({
 export function DesignPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
@@ -554,6 +557,32 @@ export function DesignPage() {
     [appTypeCases.length, requirements.length, sharedGroups.length, suites.length]
   );
   const selectedSuite = suites.find((suite) => suite.id === selectedSuiteId) || null;
+  const syncSuiteSearchParams = (suiteId?: string | null) => {
+    const currentSuiteId = searchParams.get("suite") || "";
+    const targetSuiteId = suiteId || "";
+
+    if (currentSuiteId === targetSuiteId) {
+      return;
+    }
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetSuiteId) {
+        next.set("suite", targetSuiteId);
+      } else {
+        next.delete("suite");
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const openSuiteWorkspace = (suiteId: string) => {
+    const targetSuite = suites.find((suite) => suite.id === suiteId) || null;
+
+    syncSuiteSearchParams(getRoutableId(targetSuite) || suiteId);
+    setSelectedSuiteId(suiteId);
+  };
+
   const selectedTestCase = appTypeCases.find((testCase) => testCase.id === selectedTestCaseId) || null;
   const selectedSuiteCaseIdSet = useMemo(
     () => new Set(orderedSuiteCases.map((testCase) => testCase.id)),
@@ -810,13 +839,39 @@ export function DesignPage() {
   ) : null;
 
   useEffect(() => {
+    if (suitesQuery.isLoading || suitesQuery.isFetching) {
+      return;
+    }
+
+    const requestedSuiteId = searchParams.get("suite");
+    const requestedSuite = findByRoutableId(suites, requestedSuiteId);
+
+    if (requestedSuite) {
+      if (selectedSuiteId !== requestedSuite.id) {
+        setSelectedSuiteId(requestedSuite.id);
+      }
+      return;
+    }
+
+    if (requestedSuiteId) {
+      if (selectedSuiteId === requestedSuiteId) {
+        return;
+      }
+
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("suite");
+        return next;
+      }, { replace: true });
+    }
+
     if (selectedSuiteId && !suites.some((suite) => suite.id === selectedSuiteId)) {
       setSelectedSuiteId("");
       setSelectedTestCaseId("");
       setIsCreatingCase(false);
       setIsTestCaseEditorModalOpen(false);
     }
-  }, [selectedSuiteId, suites]);
+  }, [searchParams, selectedSuiteId, setSearchParams, suites, suitesQuery.isFetching, suitesQuery.isLoading]);
 
   useEffect(() => {
     setSelectedSuiteActionIds((current) => current.filter((suiteId) => suites.some((suite) => suite.id === suiteId)));
@@ -1085,6 +1140,9 @@ export function DesignPage() {
         });
       }
 
+      if (suiteId) {
+        syncSuiteSearchParams(suiteId);
+      }
       setSelectedSuiteId(suiteId);
       setIsSuiteModalOpen(false);
       showSuccess(suiteModalMode === "create" ? "Suite created." : "Suite updated.");
@@ -1131,6 +1189,7 @@ export function DesignPage() {
         };
 
         updateCasesCache((current) => [optimisticCase, ...current]);
+        syncSuiteSearchParams(suiteId);
         setSelectedSuiteId(suiteId);
         setSelectedTestCaseId(response.id);
         setIsCreatingCase(false);
@@ -1183,6 +1242,7 @@ export function DesignPage() {
   };
 
   const closeSuiteWorkspace = () => {
+    syncSuiteSearchParams(null);
     setSelectedSuiteId("");
     setSelectedTestCaseId("");
     setIsCreatingCase(false);
@@ -1220,6 +1280,7 @@ export function DesignPage() {
       setSelectedSuiteActionIds((current) => current.filter((id) => !deletedIds.includes(id)));
 
       if (deletedIds.includes(selectedSuiteId)) {
+        syncSuiteSearchParams(null);
         setSelectedSuiteId("");
         setSelectedTestCaseId("");
         setIsCreatingCase(false);
@@ -1629,7 +1690,7 @@ export function DesignPage() {
             activeFilterCount={activeSuiteFilterCount}
             selectedSuiteActionIds={selectedSuiteActionIds}
             areAllVisibleSuitesSelected={areAllFilteredSuitesSelected}
-            onSelectSuite={setSelectedSuiteId}
+            onSelectSuite={openSuiteWorkspace}
             onSuiteSearchChange={setSuiteSearchTerm}
             onSuitePlacementFilter={setSuitePlacementFilter}
             onSuiteMappedCasesFilter={setSuiteMappedCasesFilter}
@@ -2442,7 +2503,7 @@ function TestCaseList({
       key: "description",
       label: "Description",
       defaultVisible: false,
-      render: (testCase) => testCase.description || "No description yet for this test case."
+      render: (testCase) => richTextToPlainText(testCase.description) || "No description yet for this test case."
     },
     {
       key: "status",
@@ -2710,7 +2771,7 @@ function TestCaseList({
                         </span>
                         <p>{requirement?.title || "No requirement linked"}</p>
                       </div>
-                      <p className="tile-card-description">{testCase.description || "No description yet for this test case."}</p>
+                      <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
                       <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
                         <span title={requirement?.title || "No requirement linked"}>
                           <strong>{requirement ? "Linked" : "Open"}</strong>
@@ -2994,10 +3055,10 @@ function SuiteCaseEditorModal({
                 </div>
 
                 <FormField label="Description">
-                  <textarea
+                  <RichTextEditor
                     rows={4}
                     value={caseDraft.description}
-                    onChange={(event) => onCaseDraftChange({ ...caseDraft, description: event.target.value })}
+                    onChange={(description) => onCaseDraftChange({ ...caseDraft, description })}
                   />
                 </FormField>
 

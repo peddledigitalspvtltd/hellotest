@@ -1,6 +1,6 @@
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, ClearSelectionIcon, LayersIcon, OpenIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -12,6 +12,7 @@ import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
@@ -36,6 +37,7 @@ import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
+import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import {
   buildGroupAutomationCode,
   normalizeApiRequest,
@@ -169,6 +171,7 @@ const aggregateRunStatus = (
 
 export function SharedStepsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
@@ -340,6 +343,36 @@ export function SharedStepsPage() {
     () => sharedGroups.find((group) => group.id === selectedGroupId) || null,
     [selectedGroupId, sharedGroups]
   );
+
+  useEffect(() => {
+    if (sharedGroupsQuery.isLoading || sharedGroupsQuery.isFetching) {
+      return;
+    }
+
+    const requestedGroupId = searchParams.get("group");
+    const requestedGroup = findByRoutableId(sharedGroups, requestedGroupId);
+
+    if (requestedGroup) {
+      if (selectedGroupId !== requestedGroup.id) {
+        setSelectedGroupId(requestedGroup.id);
+        setIsCreating(false);
+      }
+      return;
+    }
+
+    if (requestedGroupId) {
+      if (selectedGroupId === requestedGroupId) {
+        return;
+      }
+
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("group");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, selectedGroupId, setSearchParams, sharedGroups, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
+
   const detectedSharedParameters = useMemo<StepParameterDefinition[]>(
     () =>
       collectStepParameters(
@@ -460,7 +493,29 @@ export function SharedStepsPage() {
 
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
+  const syncSharedGroupSearchParams = (groupId?: string | null) => {
+    const currentGroupId = searchParams.get("group") || "";
+    const targetGroupId = groupId || "";
+
+    if (currentGroupId === targetGroupId) {
+      return;
+    }
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetGroupId) {
+        next.set("group", targetGroupId);
+      } else {
+        next.delete("group");
+      }
+      return next;
+    }, { replace: true });
+  };
+
   const openSharedGroupWorkspace = (groupId: string) => {
+    const targetGroup = sharedGroups.find((group) => group.id === groupId) || null;
+
+    syncSharedGroupSearchParams(getRoutableId(targetGroup) || groupId);
     setSelectedGroupId(groupId);
     setIsCreating(false);
     setSelectedStepIds([]);
@@ -482,6 +537,7 @@ export function SharedStepsPage() {
       setSelectedGroupIds((current) => current.filter((groupId) => groupId !== group.id));
 
       if (selectedGroupId === group.id) {
+        syncSharedGroupSearchParams(null);
         setSelectedGroupId("");
         setGroupDraft(EMPTY_GROUP_DRAFT);
         setIsUsageDialogOpen(false);
@@ -548,7 +604,7 @@ export function SharedStepsPage() {
       key: "description",
       label: "Description",
       defaultVisible: false,
-      render: (group) => group.description || "Reusable shared step group"
+      render: (group) => richTextToPlainText(group.description) || "Reusable shared step group"
     },
     {
       key: "preview",
@@ -676,6 +732,7 @@ export function SharedStepsPage() {
   };
 
   const beginCreateGroup = () => {
+    syncSharedGroupSearchParams(null);
     setIsCreating(true);
     setSelectedGroupId("");
     setGroupDraft({
@@ -689,6 +746,7 @@ export function SharedStepsPage() {
   };
 
   const closeWorkspace = () => {
+    syncSharedGroupSearchParams(null);
     setSelectedGroupId("");
     setIsCreating(false);
     setGroupDraft(EMPTY_GROUP_DRAFT);
@@ -923,6 +981,7 @@ export function SharedStepsPage() {
 
         upsertSharedStepGroupInCache(queryClient, appTypeId, createdGroup);
 
+        syncSharedGroupSearchParams(getRoutableId(createdGroup) || createdGroup.id);
         setSelectedGroupId(createdGroup.id);
         setIsCreating(false);
         setGroupDraft(draftFromGroup(createdGroup));
@@ -968,6 +1027,7 @@ export function SharedStepsPage() {
     try {
       await deleteSharedGroup.mutateAsync(selectedGroup.id);
       removeSharedStepGroupFromCache(queryClient, appTypeId, selectedGroup.id);
+      syncSharedGroupSearchParams(null);
       setSelectedGroupId("");
       setGroupDraft(EMPTY_GROUP_DRAFT);
       resetStepComposer();
@@ -1001,6 +1061,7 @@ export function SharedStepsPage() {
       setSelectedGroupIds((current) => current.filter((groupId) => !deletedIds.includes(groupId)));
 
       if (selectedGroupId && deletedIds.includes(selectedGroupId)) {
+        syncSharedGroupSearchParams(null);
         setSelectedGroupId("");
         setGroupDraft(EMPTY_GROUP_DRAFT);
         resetStepComposer();
@@ -1221,7 +1282,7 @@ export function SharedStepsPage() {
                               <strong>{group.name}</strong>
                             </div>
                           </div>
-                          <p className="tile-card-description">{group.description || preview}</p>
+                          <RichTextContent className="tile-card-description" value={group.description} fallback={preview} />
                           <div className="tile-card-facts" aria-label={`${group.name} facts`}>
                             <TileCardFact
                               label={String(stepCount)}
@@ -1319,10 +1380,10 @@ export function SharedStepsPage() {
                       </div>
 
                       <FormField label="Description">
-                        <textarea
+                        <RichTextEditor
                           rows={3}
                           value={groupDraft.description}
-                          onChange={(event) => setGroupDraft((current) => ({ ...current, description: event.target.value }))}
+                          onChange={(description) => setGroupDraft((current) => ({ ...current, description }))}
                         />
                       </FormField>
                     </div>

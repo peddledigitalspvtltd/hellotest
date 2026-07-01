@@ -8,6 +8,7 @@ import { DataTable } from "../components/DataTable";
 import { AddIcon, TrashIcon, OpenIcon, SparkIcon } from "../components/AppIcons";
 import { ToastMessage } from "../components/ToastMessage";
 import { FormField } from "../components/FormField";
+import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 
 const agentEducationTemplates = [
@@ -238,7 +239,7 @@ export function KnowledgeRepoPage() {
           sections.push(`- ID: ${requirement.display_id || requirement.id}`);
           sections.push(`- Priority: P${requirement.priority ?? 3}`);
           sections.push(`- Status: ${requirement.status || "open"}`);
-          sections.push(requirement.description || "No description recorded.");
+          sections.push(richTextToPlainText(requirement.description) || "No description recorded.");
           sections.push("");
         });
       }
@@ -427,7 +428,7 @@ export function KnowledgeRepoPage() {
                 {
                   key: "description",
                   label: "Description",
-                  render: (item: any) => item.description || "—"
+                  render: (item: any) => richTextToPlainText(item.description) || "—"
                 },
                 {
                   key: "status",
@@ -490,10 +491,10 @@ export function KnowledgeRepoPage() {
                 </FormField>
 
                 <FormField label="Description">
-                  <input
-                    type="text"
+                  <RichTextEditor
+                    rows={3}
                     value={draft.description}
-                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                    onChange={(description) => setDraft({ ...draft, description })}
                     placeholder="Brief summary of this knowledge"
                   />
                 </FormField>

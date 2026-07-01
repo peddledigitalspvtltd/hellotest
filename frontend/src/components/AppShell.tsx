@@ -840,10 +840,6 @@ export function AppShell() {
               <MenuIcon />
               <span>Navigation</span>
             </button>
-            <div className="mobile-sidebar-copy">
-              <span className="mobile-sidebar-section">{currentSection}</span>
-              <span className="mobile-sidebar-context">{currentProjectName}</span>
-            </div>
           </div>
         ) : null}
         {canAccessCurrentRoute ? (

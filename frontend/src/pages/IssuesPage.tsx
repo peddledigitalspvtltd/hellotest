@@ -9,6 +9,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { TileCardStatusIndicator, formatTileCardLabel, getTileCardTone } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
@@ -109,6 +110,29 @@ export function IssuesPage() {
     () => items.find((item) => item.id === selectedIssueId) || null,
     [items, selectedIssueId]
   );
+  const syncIssueSearchParams = (issueId?: string | null) => {
+    const currentIssueId = searchParams.get("issue") || "";
+    const targetIssueId = issueId || "";
+
+    if (currentIssueId === targetIssueId) {
+      return;
+    }
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetIssueId) {
+        next.set("issue", targetIssueId);
+      } else {
+        next.delete("issue");
+      }
+      return next;
+    }, { replace: true });
+  };
+  const openIssueWorkspace = (issueId: string) => {
+    syncIssueSearchParams(issueId);
+    setSelectedIssueId(issueId);
+    setIsCreating(false);
+  };
   const issueListColumns = useMemo<Array<DataTableColumn<Issue>>>(() => [
     {
       key: "title",
@@ -120,7 +144,7 @@ export function IssuesPage() {
       render: (item) => (
         <div className="data-table-multiline">
           <strong>{item.title}</strong>
-          <span className="data-table-multiline-line">{item.message}</span>
+          <span className="data-table-multiline-line">{richTextToPlainText(item.message)}</span>
         </div>
       )
     },
@@ -146,7 +170,7 @@ export function IssuesPage() {
       defaultVisible: false,
       width: 360,
       minWidth: 200,
-      render: (item) => item.message
+      render: (item) => richTextToPlainText(item.message)
     }
   ], [defaultIssueStatus]);
 
@@ -161,8 +185,37 @@ export function IssuesPage() {
 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("create");
+    nextParams.delete("issue");
     setSearchParams(nextParams, { replace: true });
   }, [defaultIssueStatus, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (issues.isLoading || issues.isFetching) {
+      return;
+    }
+
+    const requestedIssueId = searchParams.get("issue");
+
+    if (requestedIssueId && items.some((item) => item.id === requestedIssueId)) {
+      if (selectedIssueId !== requestedIssueId) {
+        setSelectedIssueId(requestedIssueId);
+        setIsCreating(false);
+      }
+      return;
+    }
+
+    if (requestedIssueId) {
+      if (selectedIssueId === requestedIssueId) {
+        return;
+      }
+
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("issue");
+        return next;
+      }, { replace: true });
+    }
+  }, [issues.isFetching, issues.isLoading, items, searchParams, selectedIssueId, setSearchParams]);
 
   useEffect(() => {
     if (isCreating) {
@@ -223,6 +276,7 @@ export function IssuesPage() {
     onSuccess: async () => {
       setMessageTone("success");
       setMessage("Issue deleted.");
+      syncIssueSearchParams(null);
       setSelectedIssueId("");
       setDraft(emptyDraft);
       setIsCreating(false);
@@ -248,6 +302,7 @@ export function IssuesPage() {
         message: draft.message,
         status: draft.status
       });
+      syncIssueSearchParams(response.id);
       setSelectedIssueId(response.id);
       setIsCreating(false);
       return;
@@ -264,6 +319,7 @@ export function IssuesPage() {
   };
 
   const closeIssueWorkspace = () => {
+    syncIssueSearchParams(null);
     setSelectedIssueId("");
     setIsCreating(false);
     setDraft(emptyDraft);
@@ -285,6 +341,7 @@ export function IssuesPage() {
           <button
             className="primary-button"
             onClick={() => {
+              syncIssueSearchParams(null);
               setIsCreating(true);
               setSelectedIssueId("");
               setDraft(emptyDraft);
@@ -356,10 +413,7 @@ export function IssuesPage() {
                   <button
                     key={item.id}
                     className={selectedIssueId === item.id ? "record-card tile-card is-active" : "record-card tile-card"}
-                    onClick={() => {
-                      setSelectedIssueId(item.id);
-                      setIsCreating(false);
-                    }}
+                    onClick={() => openIssueWorkspace(item.id)}
                     type="button"
                   >
                     <div className="tile-card-main">
@@ -386,7 +440,7 @@ export function IssuesPage() {
                         </div>
                         <TileCardStatusIndicator title={issueStatus} tone={issueTone} />
                       </div>
-                      <p className="tile-card-description">{item.message}</p>
+                      <RichTextContent className="tile-card-description" value={item.message} />
                       <div className="issue-card-footer">
                         <span className="count-pill">{issueStatus}</span>
                       </div>
@@ -406,10 +460,7 @@ export function IssuesPage() {
                 getRowClassName={(item) => (selectedIssueId === item.id ? "is-active-row" : "")}
                 getRowKey={(item) => item.id}
                 hideToolbarCopy
-                onRowClick={(item) => {
-                  setSelectedIssueId(item.id);
-                  setIsCreating(false);
-                }}
+                onRowClick={(item) => openIssueWorkspace(item.id)}
                 rows={filteredItems}
                 storageKey="qaira:issues:list-columns"
               />
@@ -438,7 +489,12 @@ export function IssuesPage() {
                   </select>
                 </FormField>
                 <FormField label="Message">
-                  <textarea required rows={8} value={draft.message} onChange={(event) => setDraft((current) => ({ ...current, message: event.target.value }))} />
+                  <RichTextEditor
+                    required
+                    rows={8}
+                    value={draft.message}
+                    onChange={(message) => setDraft((current) => ({ ...current, message }))}
+                  />
                 </FormField>
                 <div className="action-row">
                   <button className="primary-button" type="submit">{isCreating ? "Save issue" : "Update issue"}</button>

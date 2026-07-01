@@ -12,6 +12,7 @@ import {
 import { AiPromptTemplatePicker } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
+import { richTextToPlainText } from "./RichTextEditor";
 import { ToastMessage } from "./ToastMessage";
 
 export function AiDesignStudioModal({
@@ -277,7 +278,7 @@ export function AiDesignStudioModal({
               />
               <div>
                 <strong>{requirement.title}</strong>
-                <span>{requirement.description || "No description available."}</span>
+                <span>{richTextToPlainText(requirement.description) || "No description available."}</span>
                 <span className="requirement-link-option-meta">Priority P{requirement.priority ?? 3} · {requirement.status || "open"}</span>
               </div>
             </label>
@@ -614,7 +615,7 @@ export function AiDesignStudioModal({
                         </button>
                       </div>
 
-                      <span>{item.description || "No description generated."}</span>
+                      <span>{richTextToPlainText(item.description) || "No description generated."}</span>
 
                       {scopedPreviewRequirements.length ? (
                         <div className="ai-case-requirements">

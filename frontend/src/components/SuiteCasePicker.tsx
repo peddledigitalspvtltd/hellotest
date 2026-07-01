@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { richTextToPlainText } from "./RichTextEditor";
 import type { TestCase, TestSuite } from "../types";
 
 type SuiteCasePickerProps = {
@@ -62,7 +63,7 @@ export function SuiteCasePicker({
       cases.map((testCase) => ({
         id: testCase.id,
         title: testCase.title,
-        description: testCase.description || "No description yet for this test case."
+        description: richTextToPlainText(testCase.description) || "No description yet for this test case."
       })),
     [cases]
   );

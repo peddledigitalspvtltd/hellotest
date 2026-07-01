@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { AddIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -9,6 +10,7 @@ import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -384,6 +386,7 @@ const formatConfigurationTarget = (configuration: Pick<TestConfiguration, "brows
 
 export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView }) {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const domainMetadataQuery = useDomainMetadata();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
@@ -544,7 +547,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       render: (environment) => (
         <div className="data-table-multiline">
           <strong>{environment.name}</strong>
-          <span className="data-table-multiline-line">{environment.base_url || environment.description || "No URL configured"}</span>
+          <span className="data-table-multiline-line">{environment.base_url || richTextToPlainText(environment.description) || "No URL configured"}</span>
         </div>
       )
     },
@@ -577,7 +580,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       defaultVisible: false,
       width: 280,
       minWidth: 160,
-      render: (environment) => environment.description || "No description"
+      render: (environment) => richTextToPlainText(environment.description) || "No description"
     }
   ], [selectedAppTypeName]);
   const configurationListColumns = useMemo<Array<DataTableColumn<TestConfiguration>>>(() => [
@@ -591,7 +594,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       render: (configuration) => (
         <div className="data-table-multiline">
           <strong>{configuration.name}</strong>
-          <span className="data-table-multiline-line">{formatConfigurationTarget(configuration) || configuration.description || "Draft profile"}</span>
+          <span className="data-table-multiline-line">{formatConfigurationTarget(configuration) || richTextToPlainText(configuration.description) || "Draft profile"}</span>
         </div>
       )
     },
@@ -624,7 +627,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       defaultVisible: false,
       width: 280,
       minWidth: 160,
-      render: (configuration) => configuration.description || "No description"
+      render: (configuration) => richTextToPlainText(configuration.description) || "No description"
     }
   ], [selectedAppTypeName]);
   const dataSetListColumns = useMemo<Array<DataTableColumn<TestDataSet>>>(() => [
@@ -638,7 +641,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       render: (dataSet) => (
         <div className="data-table-multiline">
           <strong>{dataSet.name}</strong>
-          <span className="data-table-multiline-line">{dataSet.description || (dataSet.mode === "table" ? "Table mode" : "Key/value mode")}</span>
+          <span className="data-table-multiline-line">{richTextToPlainText(dataSet.description) || (dataSet.mode === "table" ? "Table mode" : "Key/value mode")}</span>
         </div>
       )
     },
@@ -672,7 +675,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       defaultVisible: false,
       width: 280,
       minWidth: 160,
-      render: (dataSet) => dataSet.description || "No description"
+      render: (dataSet) => richTextToPlainText(dataSet.description) || "No description"
     }
   ], []);
   const selectedEnvironment = environments.find((item) => item.id === selectedEnvironmentId) || null;
@@ -688,6 +691,38 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         ? "Maintain reusable browser, device, and platform combinations so runs stay consistent."
         : "Store JSON, spreadsheet-style data, and key/value sets that can be attached to runs on demand.";
   const currentViewCount = view === "environments" ? environments.length : view === "configurations" ? configurations.length : dataSets.length;
+
+  const syncResourceSearchParams = (key: "environment" | "configuration" | "dataSet", value?: string | null) => {
+    const targetValue = value || "";
+
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (targetValue) {
+        next.delete("environment");
+        next.delete("configuration");
+        next.delete("dataSet");
+        next.set(key, targetValue);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const openEnvironmentWorkspace = (environmentId: string) => {
+    syncResourceSearchParams("environment", environmentId);
+    setSelectedEnvironmentId(environmentId);
+  };
+
+  const openConfigurationWorkspace = (configurationId: string) => {
+    syncResourceSearchParams("configuration", configurationId);
+    setSelectedConfigurationId(configurationId);
+  };
+
+  const openDataSetWorkspace = (dataSetId: string) => {
+    syncResourceSearchParams("dataSet", dataSetId);
+    setSelectedDataSetId(dataSetId);
+  };
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -723,18 +758,81 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
+    if (view !== "environments" || environmentsQuery.isLoading || environmentsQuery.isFetching) {
+      return;
+    }
+
+    const requestedEnvironmentId = searchParams.get("environment");
+
+    if (requestedEnvironmentId && environments.some((item) => item.id === requestedEnvironmentId)) {
+      if (selectedEnvironmentId !== requestedEnvironmentId) {
+        setSelectedEnvironmentId(requestedEnvironmentId);
+      }
+      return;
+    }
+
+    if (requestedEnvironmentId) {
+      if (selectedEnvironmentId === requestedEnvironmentId) {
+        return;
+      }
+
+      syncResourceSearchParams("environment", null);
+    }
+
     setSelectedEnvironmentId((current) => (current && environments.some((item) => item.id === current) ? current : ""));
-  }, [environments]);
+  }, [environments, environmentsQuery.isFetching, environmentsQuery.isLoading, searchParams, selectedEnvironmentId, view]);
 
   useEffect(() => {
+    if (view !== "configurations" || configurationsQuery.isLoading || configurationsQuery.isFetching) {
+      return;
+    }
+
+    const requestedConfigurationId = searchParams.get("configuration");
+
+    if (requestedConfigurationId && configurations.some((item) => item.id === requestedConfigurationId)) {
+      if (selectedConfigurationId !== requestedConfigurationId) {
+        setSelectedConfigurationId(requestedConfigurationId);
+      }
+      return;
+    }
+
+    if (requestedConfigurationId) {
+      if (selectedConfigurationId === requestedConfigurationId) {
+        return;
+      }
+
+      syncResourceSearchParams("configuration", null);
+    }
+
     setSelectedConfigurationId((current) =>
       current && configurations.some((item) => item.id === current) ? current : ""
     );
-  }, [configurations]);
+  }, [configurations, configurationsQuery.isFetching, configurationsQuery.isLoading, searchParams, selectedConfigurationId, view]);
 
   useEffect(() => {
+    if (view !== "data" || dataSetsQuery.isLoading || dataSetsQuery.isFetching) {
+      return;
+    }
+
+    const requestedDataSetId = searchParams.get("dataSet");
+
+    if (requestedDataSetId && dataSets.some((item) => item.id === requestedDataSetId)) {
+      if (selectedDataSetId !== requestedDataSetId) {
+        setSelectedDataSetId(requestedDataSetId);
+      }
+      return;
+    }
+
+    if (requestedDataSetId) {
+      if (selectedDataSetId === requestedDataSetId) {
+        return;
+      }
+
+      syncResourceSearchParams("dataSet", null);
+    }
+
     setSelectedDataSetId((current) => (current && dataSets.some((item) => item.id === current) ? current : ""));
-  }, [dataSets]);
+  }, [dataSets, dataSetsQuery.isFetching, dataSetsQuery.isLoading, searchParams, selectedDataSetId, view]);
 
   useEffect(() => {
     if (selectedEnvironment) {
@@ -787,15 +885,18 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
   const closeResourceWorkspace = () => {
     if (view === "environments") {
+      syncResourceSearchParams("environment", null);
       setSelectedEnvironmentId("");
       return;
     }
 
     if (view === "configurations") {
+      syncResourceSearchParams("configuration", null);
       setSelectedConfigurationId("");
       return;
     }
 
+    syncResourceSearchParams("dataSet", null);
     setSelectedDataSetId("");
   };
 
@@ -812,6 +913,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         variables: normalizeVariableRows(createEnvironmentDraft.variables)
       });
       setIsCreateEnvironmentModalOpen(false);
+      syncResourceSearchParams("environment", response.id);
       setSelectedEnvironmentId(response.id);
       showSuccess("Test environment created.");
       await refreshResources();
@@ -853,6 +955,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
     try {
       await deleteEnvironment.mutateAsync(selectedEnvironment.id);
+      syncResourceSearchParams("environment", null);
       setSelectedEnvironmentId("");
       showSuccess("Test environment deleted.");
       await refreshResources();
@@ -876,6 +979,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         variables: normalizeVariableRows(createConfigurationDraft.variables)
       });
       setIsCreateConfigurationModalOpen(false);
+      syncResourceSearchParams("configuration", response.id);
       setSelectedConfigurationId(response.id);
       showSuccess("Test configuration created.");
       await refreshResources();
@@ -919,6 +1023,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
     try {
       await deleteConfiguration.mutateAsync(selectedConfiguration.id);
+      syncResourceSearchParams("configuration", null);
       setSelectedConfigurationId("");
       showSuccess("Test configuration deleted.");
       await refreshResources();
@@ -934,6 +1039,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       const { payload, didSanitizeInvalidChars } = buildDataSetPayload(projectId, appTypeId || undefined, createDataSetDraft);
       const response = await createDataSet.mutateAsync(payload);
       setIsCreateDataSetModalOpen(false);
+      syncResourceSearchParams("dataSet", response.id);
       setSelectedDataSetId(response.id);
       showSuccess(didSanitizeInvalidChars ? "Test data created. Invalid characters were removed automatically." : "Test data created.");
       await refreshResources();
@@ -969,6 +1075,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
     try {
       await deleteDataSet.mutateAsync(selectedDataSet.id);
+      syncResourceSearchParams("dataSet", null);
       setSelectedDataSetId("");
       showSuccess("Test data deleted.");
       await refreshResources();
@@ -1058,7 +1165,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                       <button
                         className={selectedEnvironmentId === environment.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={environment.id}
-                        onClick={() => setSelectedEnvironmentId(environment.id)}
+                        onClick={() => openEnvironmentWorkspace(environment.id)}
                         type="button"
                       >
                         <div className="tile-card-main">
@@ -1087,7 +1194,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                             </div>
                             <TileCardStatusIndicator title={environment.base_url ? "Base URL configured" : "Draft target"} tone={environment.base_url ? "success" : "neutral"} />
                           </div>
-                          <p className="tile-card-description">{environment.base_url || environment.description || "No environment URL or summary defined yet."}</p>
+                          {environment.base_url ? <p className="tile-card-description">{environment.base_url}</p> : <RichTextContent className="tile-card-description" value={environment.description} fallback="No environment URL or summary defined yet." />}
                           <div className="resource-card-footer">
                             <span className="count-pill">{environment.variables.length} variable{environment.variables.length === 1 ? "" : "s"}</span>
                           </div>
@@ -1105,7 +1212,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     getRowClassName={(environment) => (selectedEnvironmentId === environment.id ? "is-active-row" : "")}
                     getRowKey={(environment) => environment.id}
                     hideToolbarCopy
-                    onRowClick={(environment) => setSelectedEnvironmentId(environment.id)}
+                    onRowClick={(environment) => openEnvironmentWorkspace(environment.id)}
                     rows={filteredEnvironments}
                     storageKey="qaira:test-environments:list-columns"
                   />
@@ -1190,7 +1297,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                       <button
                         className={selectedConfigurationId === configuration.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={configuration.id}
-                        onClick={() => setSelectedConfigurationId(configuration.id)}
+                        onClick={() => openConfigurationWorkspace(configuration.id)}
                         type="button"
                       >
                         <div className="tile-card-main">
@@ -1219,7 +1326,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                             </div>
                             <TileCardStatusIndicator title={formatConfigurationTarget(configuration) ? "Target configured" : "Draft profile"} tone={formatConfigurationTarget(configuration) ? "success" : "neutral"} />
                           </div>
-                          <p className="tile-card-description">{formatConfigurationTarget(configuration) || configuration.description || "No browser, mobile OS, or version defined yet."}</p>
+                          {formatConfigurationTarget(configuration) ? <p className="tile-card-description">{formatConfigurationTarget(configuration)}</p> : <RichTextContent className="tile-card-description" value={configuration.description} fallback="No browser, mobile OS, or version defined yet." />}
                           <div className="resource-card-footer">
                             <span className="count-pill">{configuration.variables.length} variable{configuration.variables.length === 1 ? "" : "s"}</span>
                           </div>
@@ -1237,7 +1344,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     getRowClassName={(configuration) => (selectedConfigurationId === configuration.id ? "is-active-row" : "")}
                     getRowKey={(configuration) => configuration.id}
                     hideToolbarCopy
-                    onRowClick={(configuration) => setSelectedConfigurationId(configuration.id)}
+                    onRowClick={(configuration) => openConfigurationWorkspace(configuration.id)}
                     rows={filteredConfigurations}
                     storageKey="qaira:test-configurations:list-columns"
                   />
@@ -1324,7 +1431,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                       <button
                         className={selectedDataSetId === dataSet.id ? "record-card tile-card is-active" : "record-card tile-card"}
                         key={dataSet.id}
-                        onClick={() => setSelectedDataSetId(dataSet.id)}
+                        onClick={() => openDataSetWorkspace(dataSet.id)}
                         type="button"
                       >
                         <div className="tile-card-main">
@@ -1353,7 +1460,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                             </div>
                             <TileCardStatusIndicator title={dataSet.mode === "table" ? "Table data set" : "Key/value data set"} tone={dataSet.rows.length ? "success" : "neutral"} />
                           </div>
-                          <p className="tile-card-description">{dataSet.description || "No test data summary defined yet."}</p>
+                          <RichTextContent className="tile-card-description" value={dataSet.description} fallback="No test data summary defined yet." />
                           <div className="resource-card-footer">
                             <span className="count-pill">{dataSet.mode === "table" ? `${dataSet.rows.length} rows · ${dataSet.columns.length} columns` : `${dataSet.rows.length} key/value pairs`}</span>
                           </div>
@@ -1371,7 +1478,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     getRowClassName={(dataSet) => (selectedDataSetId === dataSet.id ? "is-active-row" : "")}
                     getRowKey={(dataSet) => dataSet.id}
                     hideToolbarCopy
-                    onRowClick={(dataSet) => setSelectedDataSetId(dataSet.id)}
+                    onRowClick={(dataSet) => openDataSetWorkspace(dataSet.id)}
                     rows={filteredDataSets}
                     storageKey="qaira:test-data:list-columns"
                   />
@@ -1546,7 +1653,7 @@ function EnvironmentForm({
         </div>
 
         <FormField label="Description">
-          <textarea rows={3} value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
+          <RichTextEditor rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         <KeyValueEditor
@@ -1614,7 +1721,7 @@ function ConfigurationForm({
         </div>
 
         <FormField label="Description">
-          <textarea rows={3} value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
+          <RichTextEditor rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         <KeyValueEditor
@@ -1738,7 +1845,7 @@ function DataSetForm({
         </div>
 
         <FormField label="Description">
-          <textarea rows={3} value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
+          <RichTextEditor rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         {importFeedback ? <p className={importFeedbackTone === "error" ? "form-error resource-import-feedback" : "form-success resource-import-feedback"}>{importFeedback}</p> : null}
