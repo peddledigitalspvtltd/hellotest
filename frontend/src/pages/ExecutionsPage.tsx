@@ -13,6 +13,7 @@ import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { InfoTooltip } from "../components/InfoTooltip";
+import { MultiAssigneePicker } from "../components/MultiAssigneePicker";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import {
@@ -1237,7 +1238,10 @@ export function ExecutionsPage() {
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
-  const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
+  const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
+  const [executionRelease, setExecutionRelease] = useState("");
+  const [executionSprint, setExecutionSprint] = useState("");
+  const [executionBuild, setExecutionBuild] = useState("");
   const [scheduleCadence, setScheduleCadence] = useState<ExecutionScheduleCadence>("weekly");
   const [scheduleIntervalMinutes, setScheduleIntervalMinutes] = useState(5);
   const [scheduleNextRunAt, setScheduleNextRunAt] = useState("");
@@ -1292,7 +1296,7 @@ export function ExecutionsPage() {
   const [isReportEmailModalOpen, setIsReportEmailModalOpen] = useState(false);
   const [reportEmailDraft, setReportEmailDraft] = useState("");
   const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string } | null>(null);
-  const [executionAssignmentDraft, setExecutionAssignmentDraft] = useState("");
+  const [executionAssignmentDraftIds, setExecutionAssignmentDraftIds] = useState<string[]>([]);
   const [caseAssignmentDraft, setCaseAssignmentDraft] = useState("");
   const [caseReferenceDraft, setCaseReferenceDraft] = useState("");
   const [caseDefectDraft, setCaseDefectDraft] = useState("");
@@ -1396,7 +1400,7 @@ export function ExecutionsPage() {
 
   const createExecution = useMutation({ mutationFn: api.executions.create });
   const updateExecutionAssignment = useMutation({
-    mutationFn: ({ id, assigned_to }: { id: string; assigned_to?: string }) => api.executions.update(id, { assigned_to })
+    mutationFn: ({ id, assigned_to_ids }: { id: string; assigned_to_ids: string[] }) => api.executions.update(id, { assigned_to_ids })
   });
   const updateExecutionCaseAssignment = useMutation({
     mutationFn: ({ executionId, testCaseId, assigned_to }: { executionId: string; testCaseId: string; assigned_to?: string }) =>
@@ -1655,7 +1659,10 @@ export function ExecutionsPage() {
   const resetScheduleBuilder = () => {
     setExecutionName("");
     setSelectedSuiteIds([]);
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     setScheduleCadence("weekly");
     setScheduleIntervalMinutes(5);
     setScheduleNextRunAt("");
@@ -1666,7 +1673,10 @@ export function ExecutionsPage() {
 
   const resetSmartExecutionBuilder = () => {
     setExecutionCreateMode("manual");
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     setSmartExecutionIntegrationId("");
     setSmartExecutionReleaseScope("");
     setSmartExecutionAdditionalContext("");
@@ -1682,6 +1692,10 @@ export function ExecutionsPage() {
     setExecutionParallelEnabled(false);
     setExecutionParallelCount(1);
     setExecutionHookDraft(emptyExecutionHookDraft());
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     resetExecutionContextSelection();
     resetSmartExecutionBuilder();
   };
@@ -1715,7 +1729,10 @@ export function ExecutionsPage() {
     setSelectedExecutionEnvironmentId(schedule.test_environment_id || "");
     setSelectedExecutionConfigurationId(schedule.test_configuration_id || "");
     setSelectedExecutionDataSetId(schedule.test_data_set_id || "");
-    setSelectedExecutionAssigneeId(schedule.assigned_to || "");
+    setSelectedExecutionAssigneeIds(schedule.assigned_to_ids?.length ? schedule.assigned_to_ids : schedule.assigned_to ? [schedule.assigned_to] : []);
+    setExecutionRelease(schedule.release || "");
+    setExecutionSprint(schedule.sprint || "");
+    setExecutionBuild(schedule.build || "");
     setScheduleCadence(
       isIntervalCadence(schedule.cadence)
         ? "interval_minutes"
@@ -1731,7 +1748,7 @@ export function ExecutionsPage() {
   const handleExecutionProjectChange = (value: string) => {
     setProjectId(value);
     setSelectedSuiteIds([]);
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
     setSelectedSmartRequirementIds([]);
     setSmartExecutionRequirementSearch("");
     resetExecutionContextSelection();
@@ -1872,24 +1889,26 @@ export function ExecutionsPage() {
       return;
     }
 
-    if (selectedExecutionAssigneeId && !assigneeOptions.some((option) => option.id === selectedExecutionAssigneeId)) {
-      setSelectedExecutionAssigneeId("");
+    const validAssigneeIds = new Set(assigneeOptions.map((option) => option.id));
+    if (selectedExecutionAssigneeIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
+      setSelectedExecutionAssigneeIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
-  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeId, usersQuery.isPending]);
+  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds, usersQuery.isPending]);
 
   useEffect(() => {
     if (usersQuery.isPending || projectMembersQuery.isPending) {
       return;
     }
 
-    if (executionAssignmentDraft && !assigneeOptions.some((option) => option.id === executionAssignmentDraft)) {
-      setExecutionAssignmentDraft("");
+    const validAssigneeIds = new Set(assigneeOptions.map((option) => option.id));
+    if (executionAssignmentDraftIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
+      setExecutionAssignmentDraftIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
 
     if (caseAssignmentDraft && !assigneeOptions.some((option) => option.id === caseAssignmentDraft)) {
       setCaseAssignmentDraft("");
     }
-  }, [assigneeOptions, caseAssignmentDraft, executionAssignmentDraft, projectMembersQuery.isPending, usersQuery.isPending]);
+  }, [assigneeOptions, caseAssignmentDraft, executionAssignmentDraftIds, projectMembersQuery.isPending, usersQuery.isPending]);
 
   useEffect(() => {
     const requestedExecutionId = searchParams.get("execution");
@@ -2004,8 +2023,8 @@ export function ExecutionsPage() {
   );
 
   useEffect(() => {
-    setExecutionAssignmentDraft(selectedExecution?.assigned_to || "");
-  }, [selectedExecution?.assigned_to, selectedExecution?.id]);
+    setExecutionAssignmentDraftIds(selectedExecution?.assigned_to_ids?.length ? selectedExecution.assigned_to_ids : selectedExecution?.assigned_to ? [selectedExecution.assigned_to] : []);
+  }, [selectedExecution?.assigned_to, selectedExecution?.assigned_to_ids, selectedExecution?.id]);
 
   useEffect(() => {
     if (currentExecutionStatus !== "running") {
@@ -2591,13 +2610,13 @@ export function ExecutionsPage() {
     try {
       await updateExecutionAssignment.mutateAsync({
         id: selectedExecution.id,
-        assigned_to: executionAssignmentDraft || ""
+        assigned_to_ids: executionAssignmentDraftIds
       });
       await refreshExecutionScope(selectedExecution.id);
       showSuccess(
-        executionAssignmentDraft
-          ? "Run assignee updated. Unoverridden test cases now follow this owner."
-          : "Run assignee cleared."
+        executionAssignmentDraftIds.length
+          ? "Run assignees updated. Unoverridden test cases now follow the primary tester."
+          : "Run assignees cleared."
       );
     } catch (error) {
       showError(error, "Unable to update run assignee");
@@ -2815,7 +2834,10 @@ export function ExecutionsPage() {
         parallel_count: executionParallelEnabled ? executionParallelCount : 1,
         execution_mode: executionStartMode,
         engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
-        assigned_to: selectedExecutionAssigneeId || undefined,
+        assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
+        release: executionRelease.trim() || undefined,
+        sprint: executionSprint.trim() || undefined,
+        build: executionBuild.trim() || undefined,
         name: executionName || undefined,
         created_by: session.user.id
       });
@@ -2901,7 +2923,10 @@ export function ExecutionsPage() {
             test_environment_id: selectedExecutionEnvironmentId || "",
             test_configuration_id: selectedExecutionConfigurationId || "",
             test_data_set_id: selectedExecutionDataSetId || "",
-            assigned_to: selectedExecutionAssigneeId || ""
+            release: executionRelease.trim() || "",
+            sprint: executionSprint.trim() || "",
+            build: executionBuild.trim() || "",
+            assigned_to_ids: selectedExecutionAssigneeIds
           }
         });
       } else {
@@ -2915,7 +2940,10 @@ export function ExecutionsPage() {
           test_environment_id: selectedExecutionEnvironmentId || undefined,
           test_configuration_id: selectedExecutionConfigurationId || undefined,
           test_data_set_id: selectedExecutionDataSetId || undefined,
-          assigned_to: selectedExecutionAssigneeId || undefined,
+          release: executionRelease.trim() || undefined,
+          sprint: executionSprint.trim() || undefined,
+          build: executionBuild.trim() || undefined,
+          assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
           created_by: session.user.id
         });
       }
@@ -3022,6 +3050,14 @@ export function ExecutionsPage() {
       params.set("runName", selectedExecution.name);
     }
 
+    if (selectedExecution.test_environment?.name) {
+      params.set("environment", selectedExecution.test_environment.name);
+    }
+
+    if (selectedExecution.build) {
+      params.set("build", selectedExecution.build);
+    }
+
     params.set("message", [
       "Reported from run details.",
       "",
@@ -3029,6 +3065,8 @@ export function ExecutionsPage() {
       selectedExecution.name ? `Run name: ${selectedExecution.name}` : "",
       `Run status: ${currentExecutionStatus}`,
       `Run trigger: ${selectedExecution.trigger || "manual"}`,
+      selectedExecution.test_environment?.name ? `Environment: ${selectedExecution.test_environment.name}` : "",
+      selectedExecution.build ? `Build: ${selectedExecution.build}` : "",
       `Run totals: ${executionProgress.totalCases} cases, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked`,
       "",
       "Issue details:"
@@ -3780,7 +3818,10 @@ export function ExecutionsPage() {
     projects.find((project) => project.id === selectedExecution?.project_id)?.name ||
     selectedExecution?.project_id ||
     "No project scoped";
-  const hasExecutionAssignmentChange = executionAssignmentDraft !== (selectedExecution?.assigned_to || "");
+  const currentExecutionAssigneeIds = selectedExecution?.assigned_to_ids?.length ? selectedExecution.assigned_to_ids : selectedExecution?.assigned_to ? [selectedExecution.assigned_to] : [];
+  const hasExecutionAssignmentChange =
+    executionAssignmentDraftIds.length !== currentExecutionAssigneeIds.length
+    || executionAssignmentDraftIds.some((assigneeId) => !currentExecutionAssigneeIds.includes(assigneeId));
   const hasCaseAssignmentChange = caseAssignmentDraft !== selectedExecutionCaseExplicitAssigneeId;
   const hasCaseReferenceChange =
     caseReferenceDraft.trim() !== selectedExecutionCaseReferenceText
@@ -3957,7 +3998,7 @@ export function ExecutionsPage() {
 
     return executions.filter((execution) => {
       const projectName = projectNameById[execution.project_id] || "";
-      const assigneeLabel = execution.assigned_user ? resolveUserPrimaryLabel(execution.assigned_user) : "";
+      const assigneeLabel = resolveExecutionAssigneeSummary(execution);
       const summary = executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY;
       const executionStatus = normalizeExecutionStatus(execution.status);
       const hasIssues = summary.failed + summary.blocked > 0;
@@ -3967,6 +4008,9 @@ export function ExecutionsPage() {
         execution.name || "",
         projectName,
         assigneeLabel,
+        execution.release || "",
+        execution.sprint || "",
+        execution.build || "",
         ...(execution.suite_ids || []),
         ...(execution.case_snapshots || []).flatMap((snapshot) => [snapshot.test_case_id, snapshot.test_case_title, snapshot.suite_id || "", snapshot.suite_name || ""]),
         ...(execution.step_snapshots || []).flatMap((snapshot) => [snapshot.snapshot_step_id, snapshot.test_case_id, snapshot.group_id || "", snapshot.reusable_group_id || ""])
@@ -4039,7 +4083,7 @@ export function ExecutionsPage() {
 
     return executionSchedules.filter((schedule) => {
       const appTypeName = appTypeNameById[schedule.app_type_id || ""] || "";
-      const assigneeLabel = schedule.assigned_user ? resolveUserPrimaryLabel(schedule.assigned_user) : "";
+      const assigneeLabel = resolveExecutionAssigneeSummary(schedule);
       const nextRunLabel = schedule.next_run_at || "";
 
       return !search || [
@@ -4048,6 +4092,9 @@ export function ExecutionsPage() {
         appTypeName,
         assigneeLabel,
         nextRunLabel,
+        schedule.release,
+        schedule.sprint,
+        schedule.build,
         ...(schedule.suite_ids || []),
         ...(schedule.test_case_ids || [])
       ].some((value) => String(value || "").toLowerCase().includes(search));
@@ -4297,9 +4344,28 @@ export function ExecutionsPage() {
       render: (execution) => formatExecutionTimestamp(execution.created_at, "Not recorded")
     },
     {
+      key: "release",
+      label: "Release",
+      sortValue: (execution) => execution.release || "",
+      render: (execution) => execution.release || "—"
+    },
+    {
+      key: "sprint",
+      label: "Sprint",
+      sortValue: (execution) => execution.sprint || "",
+      render: (execution) => execution.sprint || "—"
+    },
+    {
+      key: "build",
+      label: "Build",
+      sortValue: (execution) => execution.build || "",
+      render: (execution) => execution.build || "—"
+    },
+    {
       key: "assignee",
-      label: "Assignee",
-      render: (execution) => (execution.assigned_user ? resolveUserPrimaryLabel(execution.assigned_user) : "Unassigned")
+      label: "Assigned To",
+      sortValue: (execution) => resolveExecutionAssigneeSummary(execution),
+      render: (execution) => resolveExecutionAssigneeSummary(execution)
     },
     {
       key: "suites",
@@ -4403,17 +4469,40 @@ export function ExecutionsPage() {
     {
       key: "status",
       label: "Status",
+      sortValue: (schedule) => schedule.is_active ? "active" : "inactive",
       render: (schedule) => (schedule.is_active ? "Active" : "Inactive")
     },
     {
       key: "cadence",
       label: "Cadence",
+      sortValue: (schedule) => formatScheduleCadence(schedule.cadence),
       render: (schedule) => formatScheduleCadence(schedule.cadence)
     },
     {
       key: "assignee",
-      label: "Assignee",
-      render: (schedule) => (schedule.assigned_user ? resolveUserPrimaryLabel(schedule.assigned_user) : "Unassigned")
+      label: "Assigned To",
+      sortValue: (schedule) => resolveExecutionAssigneeSummary(schedule),
+      render: (schedule) => resolveExecutionAssigneeSummary(schedule)
+    },
+    {
+      key: "release",
+      label: "Release",
+      sortValue: (schedule) => schedule.release || "",
+      render: (schedule) => schedule.release || "Not set"
+    },
+    {
+      key: "sprint",
+      label: "Sprint",
+      defaultVisible: false,
+      sortValue: (schedule) => schedule.sprint || "",
+      render: (schedule) => schedule.sprint || "Not set"
+    },
+    {
+      key: "build",
+      label: "Build",
+      defaultVisible: false,
+      sortValue: (schedule) => schedule.build || "",
+      render: (schedule) => schedule.build || "Not set"
     },
     {
       key: "suites",
@@ -5345,6 +5434,7 @@ export function ExecutionsPage() {
                     <strong>{selectedSchedule.name}</strong>
                     <span>{selectedSchedule.is_active ? "Active schedule" : "Inactive schedule"} · {formatScheduleCadence(selectedSchedule.cadence)}</span>
                     <span>Next run: {formatExecutionTimestamp(selectedSchedule.next_run_at, "Not set")}</span>
+                    <span>{[selectedSchedule.release ? `Release ${selectedSchedule.release}` : null, selectedSchedule.sprint ? `Sprint ${selectedSchedule.sprint}` : null, selectedSchedule.build ? `Build ${selectedSchedule.build}` : null].filter(Boolean).join(" · ") || "Release, sprint, and build not set"}</span>
                   </div>
                   <div className="metric-strip compact">
                     <div className="mini-card">
@@ -5356,8 +5446,16 @@ export function ExecutionsPage() {
                       <span>Direct cases</span>
                     </div>
                     <div className="mini-card">
-                      <strong>{selectedSchedule.assigned_user ? resolveUserPrimaryLabel(selectedSchedule.assigned_user) : "Unassigned"}</strong>
-                      <span>Assignee</span>
+                      <strong>{resolveExecutionAssigneeSummary(selectedSchedule)}</strong>
+                      <span>Assigned To</span>
+                    </div>
+                    <div className="mini-card">
+                      <strong>{selectedSchedule.release || "Not set"}</strong>
+                      <span>Release</span>
+                    </div>
+                    <div className="mini-card">
+                      <strong>{selectedSchedule.build || selectedSchedule.sprint || "Not set"}</strong>
+                      <span>{selectedSchedule.build ? "Build" : selectedSchedule.sprint ? "Sprint" : "Build / Sprint"}</span>
                     </div>
                   </div>
                   <div className="action-row">
@@ -5958,7 +6056,14 @@ export function ExecutionsPage() {
                         <div className="execution-health-status-row">
                           <StatusBadge value={currentExecutionStatus} />
                           <span className="count-pill">{selectedExecutionAppTypeLabel}</span>
-                          <ExecutionAssigneeChip className="execution-card-assignee--compact" user={selectedExecution?.assigned_user || null} />
+                          <ExecutionAssigneeChip
+                            className="execution-card-assignee--compact"
+                            labelOverride={resolveExecutionAssigneeSummary(selectedExecution)}
+                            user={selectedExecution?.assigned_users?.[0] || selectedExecution?.assigned_user || null}
+                          />
+                          {selectedExecution.release ? <span className="count-pill">Release {selectedExecution.release}</span> : null}
+                          {selectedExecution.sprint ? <span className="count-pill">Sprint {selectedExecution.sprint}</span> : null}
+                          {selectedExecution.build ? <span className="count-pill">Build {selectedExecution.build}</span> : null}
                           <span className="execution-health-trigger">{(selectedExecution.trigger || "manual").toUpperCase()} trigger</span>
                         </div>
 
@@ -6074,24 +6179,16 @@ export function ExecutionsPage() {
 
                     <div className="execution-assignment-panel">
                       <div className="execution-assignment-copy">
-                        <strong>Run assignee</strong>
-                        <span>Set the default owner for this run. Test cases without their own override will follow this assignee.</span>
+                        <strong>Run assignees</strong>
+                        <span>Set the tester group for this run. Test cases without their own override follow the primary tester.</span>
                       </div>
                       <div className="execution-assignment-actions">
-                        <select
+                        <MultiAssigneePicker
                           disabled={!assigneeOptions.length || updateExecutionAssignment.isPending}
-                          value={executionAssignmentDraft}
-                          onChange={(event) => setExecutionAssignmentDraft(event.target.value)}
-                        >
-                          <option value="">
-                            {assigneeOptions.length ? "Unassigned" : "No project members available"}
-                          </option>
-                          {assigneeOptions.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.caption ? `${option.label} · ${option.caption}` : option.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={assigneeOptions}
+                          selectedIds={executionAssignmentDraftIds}
+                          onChange={setExecutionAssignmentDraftIds}
+                        />
                         <button
                           className="ghost-button"
                           disabled={!assigneeOptions.length || !hasExecutionAssignmentChange || updateExecutionAssignment.isPending}
@@ -6099,7 +6196,7 @@ export function ExecutionsPage() {
                           type="button"
                         >
                           <ExecutionAssigneeIcon />
-                          <span>{updateExecutionAssignment.isPending ? "Saving…" : "Update assignee"}</span>
+                          <span>{updateExecutionAssignment.isPending ? "Saving…" : "Update assignees"}</span>
                         </button>
                       </div>
                     </div>
@@ -6597,7 +6694,7 @@ export function ExecutionsPage() {
           isPreviewingSmartExecution={previewSmartExecution.isPending}
           isSubmitting={createExecution.isPending}
           libraryCases={smartExecutionLibraryCases}
-          onAssigneeChange={setSelectedExecutionAssigneeId}
+          onAssigneeChange={setSelectedExecutionAssigneeIds}
           onConfigurationChange={handleExecutionConfigurationChange}
           onDataSetChange={handleExecutionDataSetChange}
           onEnvironmentChange={handleExecutionEnvironmentChange}
@@ -6608,6 +6705,9 @@ export function ExecutionsPage() {
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionNameChange={setExecutionName}
+          onExecutionReleaseChange={setExecutionRelease}
+          onExecutionSprintChange={setExecutionSprint}
+          onExecutionBuildChange={setExecutionBuild}
           onExecutionHookDraftChange={setExecutionHookDraft}
           onPreviewSmartExecution={() => void handlePreviewSmartExecution()}
           onProjectChange={handleExecutionProjectChange}
@@ -6636,7 +6736,10 @@ export function ExecutionsPage() {
           projectId={projectId}
           projects={projects}
           selectedConfigurationId={selectedExecutionConfigurationId}
-          selectedExecutionAssigneeId={selectedExecutionAssigneeId}
+          selectedExecutionAssigneeIds={selectedExecutionAssigneeIds}
+          executionRelease={executionRelease}
+          executionSprint={executionSprint}
+          executionBuild={executionBuild}
           scopeSuites={scopeSuites}
           selectedAppType={selectedAppType?.name || ""}
           selectedDataSetId={selectedExecutionDataSetId}
@@ -6667,8 +6770,11 @@ export function ExecutionsPage() {
           isSubmitting={createExecutionSchedule.isPending || updateExecutionSchedule.isPending}
           mode={scheduleModalMode}
           nextRunAt={scheduleNextRunAt}
-          onAssigneeChange={setSelectedExecutionAssigneeId}
+          onAssigneeChange={setSelectedExecutionAssigneeIds}
           onCadenceChange={setScheduleCadence}
+          onExecutionBuildChange={setExecutionBuild}
+          onExecutionReleaseChange={setExecutionRelease}
+          onExecutionSprintChange={setExecutionSprint}
           onIntervalMinutesChange={setScheduleIntervalMinutes}
           onClose={closeScheduleBuilder}
           onConfigurationChange={setSelectedExecutionConfigurationId}
@@ -6681,11 +6787,14 @@ export function ExecutionsPage() {
           projectId={projectId}
           projectName={selectedProject?.name || ""}
           scopeSuites={scopeSuites}
-          selectedAssigneeId={selectedExecutionAssigneeId}
+          selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
           selectedDataSetId={selectedExecutionDataSetId}
           selectedEnvironmentId={selectedExecutionEnvironmentId}
           selectedSuiteIds={selectedSuiteIds}
+          executionRelease={executionRelease}
+          executionSprint={executionSprint}
+          executionBuild={executionBuild}
         />
       ) : null}
     </div>
@@ -7150,13 +7259,15 @@ function ExecutionAccordionChevronIcon() {
 function ExecutionAssigneeChip({
   user,
   className = "",
-  fallback = "Unassigned"
+  fallback = "Unassigned",
+  labelOverride
 }: {
   user?: { name?: string | null; email?: string | null } | null;
   className?: string;
   fallback?: string;
+  labelOverride?: string;
 }) {
-  const label = user ? resolveUserPrimaryLabel(user) : fallback;
+  const label = labelOverride || (user ? resolveUserPrimaryLabel(user) : fallback);
   const detail = user ? resolveUserSecondaryLabel(user) : null;
 
   return (
@@ -7167,6 +7278,24 @@ function ExecutionAssigneeChip({
       <span>{label}</span>
     </span>
   );
+}
+
+function resolveExecutionAssigneeSummary(execution?: Pick<Execution, "assigned_user" | "assigned_users"> | null) {
+  const users = execution?.assigned_users?.length
+    ? execution.assigned_users
+    : execution?.assigned_user
+      ? [execution.assigned_user]
+      : [];
+
+  if (!users.length) {
+    return "Unassigned";
+  }
+
+  if (users.length <= 2) {
+    return users.map((user) => resolveUserPrimaryLabel(user)).join(", ");
+  }
+
+  return `${users.slice(0, 2).map((user) => resolveUserPrimaryLabel(user)).join(", ")} +${users.length - 2}`;
 }
 
 function ExecutionListCard({
@@ -7261,7 +7390,10 @@ function ExecutionListCard({
           </div>
           <div className="tile-card-title-group">
             <strong>{execution.name || "Unnamed run"}</strong>
-            <ExecutionAssigneeChip user={execution.assigned_user} />
+            <ExecutionAssigneeChip
+              labelOverride={resolveExecutionAssigneeSummary(execution)}
+              user={execution.assigned_users?.[0] || execution.assigned_user}
+            />
             <span className="tile-card-kicker">Created {createdLabel}</span>
           </div>
           <ExecutionStatusIndicator status={executionStatus} />
@@ -7321,6 +7453,22 @@ function ExecutionListCard({
             tone={executionStatus === "aborted" ? "warning" : "neutral"}
           >
             <ExecutionTimeIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact
+            ariaLabel={`Release ${execution.release || "not set"}`}
+            label={execution.release || "Release —"}
+            title={`Release: ${execution.release || "Not set"}`}
+            tone={execution.release ? "info" : "neutral"}
+          >
+            <ExecutionReferenceIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact
+            ariaLabel={`Build ${execution.build || "not set"}`}
+            label={execution.build || "Build —"}
+            title={`Sprint: ${execution.sprint || "Not set"} • Build: ${execution.build || "Not set"}`}
+            tone={execution.build || execution.sprint ? "info" : "neutral"}
+          >
+            <ExecutionReferenceIcon />
           </ExecutionCardFact>
         </div>
 
@@ -7386,7 +7534,9 @@ function ExecutionScheduleCard({
   onDelete: () => void;
 }) {
   const nextRunLabel = formatExecutionTimestamp(schedule.next_run_at, "Not scheduled");
-  const assigneeLabel = schedule.assigned_user ? resolveUserPrimaryLabel(schedule.assigned_user) : "Unassigned";
+  const assigneeLabel = resolveExecutionAssigneeSummary(schedule);
+  const releaseLabel = schedule.release || "Release not set";
+  const buildLabel = schedule.build || schedule.sprint || "Build not set";
 
   return (
     <div className={isActive ? "record-card tile-card execution-card virtual-card is-active" : "record-card tile-card execution-card virtual-card"}>
@@ -7422,6 +7572,12 @@ function ExecutionScheduleCard({
           </ExecutionCardFact>
           <ExecutionCardFact ariaLabel={`Assigned to ${assigneeLabel}`} label={assigneeLabel} title={`Assigned to ${assigneeLabel}`}>
             <ExecutionAssigneeIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact ariaLabel={releaseLabel} label={releaseLabel} title={releaseLabel}>
+            <ExecutionReleaseIcon />
+          </ExecutionCardFact>
+          <ExecutionCardFact ariaLabel={buildLabel} label={buildLabel} title={buildLabel}>
+            <ExecutionBuildIcon />
           </ExecutionCardFact>
           <ExecutionCardFact ariaLabel={`Next run ${nextRunLabel}`} label={nextRunLabel} title={`Next run ${nextRunLabel}`}>
             <ExecutionTimeIcon />
@@ -7701,6 +7857,29 @@ function ExecutionScheduleIcon() {
       <path d="M16 3v4" />
       <path d="M4 10h16" />
       <path d="m10 15 1.5 1.5L15 13" />
+    </ExecutionIconShell>
+  );
+}
+
+function ExecutionReleaseIcon() {
+  return (
+    <ExecutionIconShell>
+      <path d="M5 5h14v14H5z" />
+      <path d="M8 9h8" />
+      <path d="M8 13h5" />
+      <path d="M15 15h2" />
+    </ExecutionIconShell>
+  );
+}
+
+function ExecutionBuildIcon() {
+  return (
+    <ExecutionIconShell>
+      <path d="M8 7h8" />
+      <path d="M7 12h10" />
+      <path d="M9 17h6" />
+      <path d="M5 9v6" />
+      <path d="M19 9v6" />
     </ExecutionIconShell>
   );
 }
@@ -8964,7 +9143,10 @@ function ExecutionCreateModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
-  selectedExecutionAssigneeId,
+  selectedExecutionAssigneeIds,
+  executionRelease,
+  executionSprint,
+  executionBuild,
   assigneeOptions,
   integrations,
   executionHookDraft,
@@ -8980,6 +9162,9 @@ function ExecutionCreateModal({
   smartExecutionPreviewMessage,
   smartExecutionPreviewTone,
   onExecutionNameChange,
+  onExecutionReleaseChange,
+  onExecutionSprintChange,
+  onExecutionBuildChange,
   onExecutionHookDraftChange,
   onEnvironmentChange,
   onConfigurationChange,
@@ -9025,7 +9210,10 @@ function ExecutionCreateModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
-  selectedExecutionAssigneeId: string;
+  selectedExecutionAssigneeIds: string[];
+  executionRelease: string;
+  executionSprint: string;
+  executionBuild: string;
   assigneeOptions: ExecutionAssigneeOption[];
   integrations: Integration[];
   executionHookDraft: ExecutionHookDraft;
@@ -9041,11 +9229,14 @@ function ExecutionCreateModal({
   smartExecutionPreviewMessage: string;
   smartExecutionPreviewTone: "success" | "error";
   onExecutionNameChange: (value: string) => void;
+  onExecutionReleaseChange: (value: string) => void;
+  onExecutionSprintChange: (value: string) => void;
+  onExecutionBuildChange: (value: string) => void;
   onExecutionHookDraftChange: (value: ExecutionHookDraft) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
-  onAssigneeChange: (value: string) => void;
+  onAssigneeChange: (value: string[]) => void;
   onSuiteSelectionChange: (nextIds: string[]) => void;
   onPreviewSmartExecution: () => void;
   onSmartExecutionIntegrationChange: (value: string) => void;
@@ -9153,21 +9344,25 @@ function ExecutionCreateModal({
                 <input value={executionName} onChange={(event) => onExecutionNameChange(event.target.value)} />
               </FormField>
 
-              <FormField label="Assign to" hint="Sets the default owner for this run and any snapped test case that does not override it later.">
-                <select
+              <FormField label="Assign to" hint="Select one or more testers for this run.">
+                <MultiAssigneePicker
                   disabled={!projectId || !assigneeOptions.length}
-                  value={selectedExecutionAssigneeId}
-                  onChange={(event) => onAssigneeChange(event.target.value)}
-                >
-                  <option value="">
-                    {!projectId ? "Select a project first" : assigneeOptions.length ? "Unassigned" : "No project members available"}
-                  </option>
-                  {assigneeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.caption ? `${option.label} · ${option.caption}` : option.label}
-                    </option>
-                  ))}
-                </select>
+                  options={assigneeOptions}
+                  selectedIds={selectedExecutionAssigneeIds}
+                  onChange={onAssigneeChange}
+                />
+              </FormField>
+            </div>
+
+            <div className="execution-create-grid execution-create-grid--metadata">
+              <FormField label="Release">
+                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+              </FormField>
+              <FormField label="Sprint">
+                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+              </FormField>
+              <FormField label="Build">
+                <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
             </div>
 
@@ -9555,7 +9750,10 @@ function CreateExecutionScheduleModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
-  selectedAssigneeId,
+  selectedAssigneeIds,
+  executionRelease,
+  executionSprint,
+  executionBuild,
   assigneeOptions,
   cadence,
   intervalMinutes,
@@ -9566,6 +9764,9 @@ function CreateExecutionScheduleModal({
   onConfigurationChange,
   onDataSetChange,
   onAssigneeChange,
+  onExecutionReleaseChange,
+  onExecutionSprintChange,
+  onExecutionBuildChange,
   onSuiteSelectionChange,
   onCadenceChange,
   onIntervalMinutesChange,
@@ -9584,7 +9785,10 @@ function CreateExecutionScheduleModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
-  selectedAssigneeId: string;
+  selectedAssigneeIds: string[];
+  executionRelease: string;
+  executionSprint: string;
+  executionBuild: string;
   assigneeOptions: ExecutionAssigneeOption[];
   cadence: ExecutionScheduleCadence;
   intervalMinutes: number;
@@ -9594,7 +9798,10 @@ function CreateExecutionScheduleModal({
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
-  onAssigneeChange: (value: string) => void;
+  onAssigneeChange: (value: string[]) => void;
+  onExecutionReleaseChange: (value: string) => void;
+  onExecutionSprintChange: (value: string) => void;
+  onExecutionBuildChange: (value: string) => void;
   onSuiteSelectionChange: (nextIds: string[]) => void;
   onCadenceChange: (value: ExecutionScheduleCadence) => void;
   onIntervalMinutesChange: (value: number) => void;
@@ -9636,21 +9843,25 @@ function CreateExecutionScheduleModal({
               <FormField label="Schedule name">
                 <input value={executionName} onChange={(event) => onExecutionNameChange(event.target.value)} />
               </FormField>
-              <FormField label="Assign to" hint="This user becomes the default owner each time the scheduled run creates a fresh run.">
-                <select
-                  disabled={!projectId || !assigneeOptions.length}
-                  value={selectedAssigneeId}
-                  onChange={(event) => onAssigneeChange(event.target.value)}
-                >
-                  <option value="">
-                    {!projectId ? "Select a project first" : assigneeOptions.length ? "Unassigned" : "No project members available"}
-                  </option>
-                  {assigneeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.caption ? `${option.label} · ${option.caption}` : option.label}
-                    </option>
-                  ))}
-                </select>
+              <FormField label="Assign to" hint="These users become the default tester group each time the schedule creates a fresh run.">
+                <MultiAssigneePicker
+                  disabled={!projectId || !assigneeOptions.length || isSubmitting}
+                  options={assigneeOptions}
+                  selectedIds={selectedAssigneeIds}
+                  onChange={onAssigneeChange}
+                />
+              </FormField>
+            </div>
+
+            <div className="execution-create-grid execution-create-grid--metadata">
+              <FormField label="Release">
+                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+              </FormField>
+              <FormField label="Sprint">
+                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+              </FormField>
+              <FormField label="Build">
+                <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
             </div>
 

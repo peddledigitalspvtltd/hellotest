@@ -149,6 +149,20 @@ export type Issue = {
   user_email?: string | null;
   title: string;
   message: string;
+  steps_to_reproduce?: string | null;
+  expected_result?: string | null;
+  actual_result?: string | null;
+  severity?: string | null;
+  priority?: string | null;
+  environment?: string | null;
+  build?: string | null;
+  jira_bug_key?: string | null;
+  linked_test_run_id?: string | null;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
+  assignee_email?: string | null;
+  root_cause?: string | null;
+  retest_result?: string | null;
   status: string | null;
   created_at?: string;
 };
@@ -858,7 +872,11 @@ export type Execution = {
     name: string;
     snapshot: ExecutionDataSetSnapshot | null;
   } | null;
+  release?: string | null;
+  sprint?: string | null;
+  build?: string | null;
   assigned_to?: string | null;
+  assigned_to_ids?: string[];
   parallel_enabled?: boolean | null;
   parallel_count?: number | null;
   assigned_user?: {
@@ -867,6 +885,12 @@ export type Execution = {
     name: string | null;
     avatar_data_url?: string | null;
   } | null;
+  assigned_users?: Array<{
+    id: string;
+    email: string;
+    name: string | null;
+    avatar_data_url?: string | null;
+  }>;
   created_by: string | null;
   created_at?: string;
   updated_at?: string;
@@ -887,7 +911,17 @@ export type ExecutionSchedule = {
   test_environment_id?: string | null;
   test_configuration_id?: string | null;
   test_data_set_id?: string | null;
+  release?: string | null;
+  sprint?: string | null;
+  build?: string | null;
   assigned_to?: string | null;
+  assigned_to_ids?: string[];
+  assigned_users?: Array<{
+    id: string;
+    email: string;
+    name: string | null;
+    avatar_data_url?: string | null;
+  }>;
   assigned_user?: {
     id: string;
     email: string;

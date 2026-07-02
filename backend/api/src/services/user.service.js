@@ -135,6 +135,12 @@ const clearExecutionScheduleAssignments = db.prepare(`
   WHERE assigned_to = ?
 `);
 
+const clearIssueAssignees = db.prepare(`
+  UPDATE feedback
+  SET assignee_id = NULL
+  WHERE assignee_id = ?
+`);
+
 const clearExecutionsCreatedBy = db.prepare(`
   UPDATE executions
   SET created_by = NULL
@@ -463,6 +469,7 @@ exports.deleteUser = async (id) => {
     await clearExecutionAssignments.run(id);
     await clearExecutionCaseAssignments.run(id);
     await clearExecutionScheduleAssignments.run(id);
+    await clearIssueAssignees.run(id);
     await clearExecutionsCreatedBy.run(id);
     await clearExecutionResultExecutors.run(id);
     await deleteFeedbackForUser.run(id);

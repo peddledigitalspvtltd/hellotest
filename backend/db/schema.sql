@@ -142,10 +142,36 @@ CREATE TABLE feedback (
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
+  steps_to_reproduce TEXT,
+  expected_result TEXT,
+  actual_result TEXT,
+  severity TEXT,
+  priority TEXT,
+  environment TEXT,
+  build TEXT,
+  jira_bug_key TEXT,
+  linked_test_run_id TEXT,
+  assignee_id TEXT,
+  root_cause TEXT,
+  retest_result TEXT,
   status TEXT DEFAULT 'open',
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS steps_to_reproduce TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS expected_result TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS actual_result TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS severity TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS priority TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS environment TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS build TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
 
 CREATE TABLE requirement_defects (
   requirement_id TEXT NOT NULL,
@@ -385,6 +411,11 @@ CREATE TABLE executions (
   test_data_set_id TEXT,
   test_data_set_name TEXT,
   test_data_set_snapshot JSONB,
+  release TEXT,
+  sprint TEXT,
+  build TEXT,
+  assigned_to TEXT,
+  assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMPTZ,
@@ -735,6 +766,16 @@ ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT;
 
 ALTER TABLE executions
   ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS release TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS sprint TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS build TEXT;
+UPDATE executions
+SET assigned_to_ids = CASE
+  WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb
+  ELSE jsonb_build_array(assigned_to)
+END
+WHERE assigned_to_ids IS NULL OR assigned_to_ids = '[]'::jsonb;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_count INTEGER NOT NULL DEFAULT 1;
 
@@ -761,12 +802,27 @@ CREATE TABLE IF NOT EXISTS execution_schedules (
   test_environment_id TEXT,
   test_configuration_id TEXT,
   test_data_set_id TEXT,
+  release TEXT,
+  sprint TEXT,
+  build TEXT,
   assigned_to TEXT,
+  assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_by TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS release TEXT;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS sprint TEXT;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS build TEXT;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+UPDATE execution_schedules
+SET assigned_to_ids = CASE
+  WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb
+  ELSE jsonb_build_array(assigned_to)
+END
+WHERE assigned_to_ids IS NULL OR assigned_to_ids = '[]'::jsonb;
 
 ALTER TABLE execution_schedules DROP CONSTRAINT IF EXISTS execution_schedules_cadence_check;
 ALTER TABLE execution_schedules

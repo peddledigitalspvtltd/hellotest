@@ -178,7 +178,7 @@ const selectExecutionCaseSnapshot = db.prepare(`
 
 const updateExecutionAssignment = db.prepare(`
   UPDATE executions
-  SET assigned_to = ?
+  SET assigned_to = ?, assigned_to_ids = ?
   WHERE id = ?
 `);
 
@@ -236,6 +236,22 @@ function normalizeText(value) {
 
   const normalized = value.trim();
   return normalized || null;
+}
+
+function normalizeTextList(values = []) {
+  const input = Array.isArray(values) ? values : [values];
+  const seen = new Set();
+  const normalized = [];
+
+  input.forEach((value) => {
+    const text = normalizeText(value);
+    if (text && !seen.has(text)) {
+      seen.add(text);
+      normalized.push(text);
+    }
+  });
+
+  return normalized;
 }
 
 function normalizeBoolean(value, fallback = false) {
@@ -548,18 +564,38 @@ async function attachExecutionAssignee(execution) {
     return execution;
   }
 
-  if (!execution.assigned_to) {
+  const assignedToIds = normalizeTextList(parseJsonValue(execution.assigned_to_ids, []));
+  const legacyAssignedTo = normalizeText(execution.assigned_to);
+  const resolvedAssignedToIds = assignedToIds.length
+    ? assignedToIds
+    : legacyAssignedTo
+      ? [legacyAssignedTo]
+      : [];
+
+  if (!resolvedAssignedToIds.length) {
     return {
       ...execution,
+      assigned_to_ids: [],
+      assigned_users: [],
       assigned_user: null
     };
   }
 
-  const assignedUser = await selectExecutionAssignee.get(execution.assigned_to);
+  const assignedUsers = [];
+
+  for (const userId of resolvedAssignedToIds) {
+    const assignedUser = shapeAssignedUser(await selectExecutionAssignee.get(userId));
+    if (assignedUser) {
+      assignedUsers.push(assignedUser);
+    }
+  }
 
   return {
     ...execution,
-    assigned_user: shapeAssignedUser(assignedUser)
+    assigned_to: resolvedAssignedToIds[0] || null,
+    assigned_to_ids: resolvedAssignedToIds,
+    assigned_user: assignedUsers[0] || null,
+    assigned_users: assignedUsers
   };
 }
 
@@ -606,26 +642,40 @@ async function validateExecutionAssignee(projectId, assignedTo) {
   return assignedUser;
 }
 
+async function validateExecutionAssignees(projectId, assignedToIds = []) {
+  const normalizedIds = normalizeTextList(assignedToIds);
+
+  for (const userId of normalizedIds) {
+    await validateExecutionAssignee(projectId, userId);
+  }
+
+  return normalizedIds;
+}
+
 function resolveExecutionAssignee(assignedTo, createdBy) {
   return normalizeText(assignedTo) || normalizeText(createdBy) || null;
 }
 
-async function resolveExecutionAssigneeForCreate(projectId, assignedTo, createdBy) {
-  const explicitAssignee = normalizeText(assignedTo);
+async function resolveExecutionAssigneesForCreate(projectId, assignedToIds = [], assignedTo, createdBy) {
+  const explicitAssignees = normalizeTextList([...normalizeTextList(assignedToIds), assignedTo]);
 
-  if (explicitAssignee) {
-    await validateExecutionAssignee(projectId, explicitAssignee);
-    return explicitAssignee;
+  if (explicitAssignees.length) {
+    return validateExecutionAssignees(projectId, explicitAssignees);
   }
 
   const creatorId = normalizeText(createdBy);
 
   if (!creatorId) {
-    return null;
+    return [];
   }
 
   const creatorMembership = await selectProjectMember.get(projectId, creatorId);
-  return creatorMembership ? creatorId : null;
+  return creatorMembership ? [creatorId] : [];
+}
+
+async function resolveExecutionAssigneeForCreate(projectId, assignedTo, createdBy) {
+  const assignees = await resolveExecutionAssigneesForCreate(projectId, [], assignedTo, createdBy);
+  return assignees[0] || null;
 }
 
 async function resolveExecutionOwnershipCandidate(projectId, ...candidateIds) {
@@ -904,6 +954,10 @@ exports.createExecution = async ({
   execution_mode = "manual",
   engine_base_url,
   assigned_to,
+  assigned_to_ids = [],
+  release,
+  sprint,
+  build,
   name,
   created_by,
   trigger = "manual",
@@ -925,7 +979,8 @@ exports.createExecution = async ({
 
   if (!user) throw new Error("Invalid user");
 
-  const resolvedAssignedTo = await resolveExecutionAssigneeForCreate(project_id, assigned_to, created_by);
+  const resolvedAssignedToIds = await resolveExecutionAssigneesForCreate(project_id, assigned_to_ids, assigned_to, created_by);
+  const resolvedAssignedTo = resolvedAssignedToIds[0] || null;
 
   if (app_type_id) {
     const appType = await db.prepare(`
@@ -1067,13 +1122,17 @@ exports.createExecution = async ({
         test_data_set_id,
         test_data_set_name,
         test_data_set_snapshot,
+        release,
+        sprint,
+        build,
         execution_hooks,
         parallel_enabled,
         parallel_count,
         assigned_to,
+        assigned_to_ids,
         created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       project_id,
@@ -1090,10 +1149,14 @@ exports.createExecution = async ({
       selectedDataSet?.id || null,
       selectedDataSet?.name || null,
       selectedDataSet?.snapshot || null,
+      normalizeText(release),
+      normalizeText(sprint),
+      normalizeText(build),
       Array.isArray(execution_hooks) ? execution_hooks : [],
       normalizedParallelEnabled,
       normalizedParallelCount,
       resolvedAssignedTo,
+      resolvedAssignedToIds,
       created_by
     );
 
@@ -1328,10 +1391,14 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         test_data_set_id,
         test_data_set_name,
         test_data_set_snapshot,
+        release,
+        sprint,
+        build,
         assigned_to,
+        assigned_to_ids,
         created_by
       )
-      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       nextExecutionId,
       sourceExecution.project_id,
@@ -1346,7 +1413,11 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       sourceExecution.test_data_set?.id || null,
       sourceExecution.test_data_set?.name || null,
       rerunDataSetSnapshot,
+      sourceExecution.release || null,
+      sourceExecution.sprint || null,
+      sourceExecution.build || null,
       rerunAssignedTo,
+      normalizeTextList(sourceExecution.assigned_to_ids || [rerunAssignedTo]),
       created_by
     );
 
@@ -1847,19 +1918,37 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
 };
 
 exports.updateExecution = async (id, input = {}) => {
-  if (!Object.prototype.hasOwnProperty.call(input, "assigned_to")) {
-    throw new Error("assigned_to is required");
-  }
-
   const execution = await selectExecutionRecord.get(id);
 
   if (!execution) {
     throw new Error("Execution not found");
   }
 
-  const assignedTo = normalizeText(input.assigned_to);
-  await validateExecutionAssignee(execution.project_id, assignedTo);
-  await updateExecutionAssignment.run(assignedTo, id);
+  if (Object.prototype.hasOwnProperty.call(input, "assigned_to_ids") || Object.prototype.hasOwnProperty.call(input, "assigned_to")) {
+    const assignedToIds = Object.prototype.hasOwnProperty.call(input, "assigned_to_ids")
+      ? normalizeTextList(input.assigned_to_ids)
+      : normalizeTextList(input.assigned_to);
+    await validateExecutionAssignees(execution.project_id, assignedToIds);
+    await updateExecutionAssignment.run(assignedToIds[0] || null, assignedToIds, id);
+  }
+
+  const metadataFields = [];
+  const metadataValues = [];
+
+  ["release", "sprint", "build"].forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      metadataFields.push(`${field} = ?`);
+      metadataValues.push(normalizeText(input[field]));
+    }
+  });
+
+  if (metadataFields.length) {
+    await db.prepare(`
+      UPDATE executions
+      SET ${metadataFields.join(", ")}
+      WHERE id = ?
+    `).run(...metadataValues, id);
+  }
 
   return { updated: true };
 };

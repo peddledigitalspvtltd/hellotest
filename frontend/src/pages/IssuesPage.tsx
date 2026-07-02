@@ -23,6 +23,18 @@ import type { Issue } from "../types";
 type IssueDraft = {
   title: string;
   message: string;
+  steps_to_reproduce: string;
+  expected_result: string;
+  actual_result: string;
+  severity: string;
+  priority: string;
+  environment: string;
+  build: string;
+  jira_bug_key: string;
+  linked_test_run_id: string;
+  assignee_id: string;
+  root_cause: string;
+  retest_result: string;
   status: string;
 };
 
@@ -33,9 +45,45 @@ const DEFAULT_ISSUE_STATUS_OPTIONS = [
   { value: "closed", label: "Closed" }
 ];
 
+const ISSUE_SEVERITY_OPTIONS = [
+  { value: "", label: "Not set" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" }
+];
+
+const ISSUE_PRIORITY_OPTIONS = [
+  { value: "", label: "Not set" },
+  { value: "p1", label: "P1" },
+  { value: "p2", label: "P2" },
+  { value: "p3", label: "P3" },
+  { value: "p4", label: "P4" }
+];
+
+const ISSUE_RETEST_RESULT_OPTIONS = [
+  { value: "", label: "Not started" },
+  { value: "passed", label: "Passed" },
+  { value: "failed", label: "Failed" },
+  { value: "blocked", label: "Blocked" },
+  { value: "not_required", label: "Not required" }
+];
+
 const createEmptyIssueDraft = (defaultStatus = "open"): IssueDraft => ({
   title: "",
   message: "",
+  steps_to_reproduce: "",
+  expected_result: "",
+  actual_result: "",
+  severity: "",
+  priority: "",
+  environment: "",
+  build: "",
+  jira_bug_key: "",
+  linked_test_run_id: "",
+  assignee_id: "",
+  root_cause: "",
+  retest_result: "",
   status: defaultStatus
 });
 
@@ -55,16 +103,51 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
   return {
     title,
     message,
+    steps_to_reproduce: "",
+    expected_result: "",
+    actual_result: "",
+    severity: "",
+    priority: "",
+    environment: searchParams.get("environment") || "",
+    build: searchParams.get("build") || "",
+    jira_bug_key: searchParams.get("jira") || searchParams.get("jiraBugKey") || "",
+    linked_test_run_id: runId,
+    assignee_id: "",
+    root_cause: "",
+    retest_result: "",
     status: defaultStatus
   };
 };
+
+const optionalDraftValue = (value: string) => {
+  return value.trim();
+};
+
+const buildIssuePayload = (draft: IssueDraft, userId: string) => ({
+  user_id: userId,
+  title: draft.title,
+  message: draft.message,
+  steps_to_reproduce: optionalDraftValue(draft.steps_to_reproduce),
+  expected_result: optionalDraftValue(draft.expected_result),
+  actual_result: optionalDraftValue(draft.actual_result),
+  severity: optionalDraftValue(draft.severity),
+  priority: optionalDraftValue(draft.priority),
+  environment: optionalDraftValue(draft.environment),
+  build: optionalDraftValue(draft.build),
+  jira_bug_key: optionalDraftValue(draft.jira_bug_key),
+  linked_test_run_id: optionalDraftValue(draft.linked_test_run_id),
+  assignee_id: optionalDraftValue(draft.assignee_id),
+  root_cause: optionalDraftValue(draft.root_cause),
+  retest_result: optionalDraftValue(draft.retest_result),
+  status: draft.status
+});
 
 export function IssuesPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const { issues } = useWorkspaceData();
+  const { issues, users, executions } = useWorkspaceData();
   const [searchParams, setSearchParams] = useSearchParams();
   const issueMetadata = domainMetadataQuery.data?.issues || domainMetadataQuery.data?.feedback;
   const defaultIssueStatus = issueMetadata?.default_status || "open";
@@ -80,6 +163,25 @@ export function IssuesPage() {
   const [issueSearch, setIssueSearch] = useState("");
 
   const items = issues.data || [];
+  const userItems = users.data || [];
+  const executionItems = executions.data || [];
+  const executionById = useMemo(() => new Map(executionItems.map((execution) => [execution.id, execution])), [executionItems]);
+  const assigneeLabelById = useMemo(
+    () => new Map(userItems.map((user) => [user.id, user.name || user.email || user.id])),
+    [userItems]
+  );
+  const runLabelById = useMemo(
+    () => new Map(executionItems.map((execution) => [
+      execution.id,
+      [
+        execution.name || execution.id,
+        execution.status || null,
+        execution.release ? `Release ${execution.release}` : null,
+        execution.build ? `Build ${execution.build}` : null
+      ].filter(Boolean).join(" · ")
+    ])),
+    [executionItems]
+  );
   const filteredItems = useMemo(() => {
     const normalizedSearch = issueSearch.trim().toLowerCase();
 
@@ -93,6 +195,22 @@ export function IssuesPage() {
         item.title,
         item.message,
         item.status,
+        item.severity,
+        item.priority,
+        item.environment,
+        item.build,
+        item.jira_bug_key,
+        item.linked_test_run_id,
+        runLabelById.get(item.linked_test_run_id || ""),
+        item.assignee_id,
+        assigneeLabelById.get(item.assignee_id || ""),
+        item.assignee_name,
+        item.assignee_email,
+        item.steps_to_reproduce,
+        item.expected_result,
+        item.actual_result,
+        item.root_cause,
+        item.retest_result,
         item.user_name,
         item.user_email,
         item.user_id
@@ -102,7 +220,7 @@ export function IssuesPage() {
         .toLowerCase()
         .includes(normalizedSearch)
     );
-  }, [issueSearch, items]);
+  }, [assigneeLabelById, issueSearch, items, runLabelById]);
   const visibleIssueIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
   const areAllFilteredIssuesSelected = visibleIssueIds.length > 0 && visibleIssueIds.every((id) => selectedActionIssueIds.includes(id));
   const openIssueCount = items.filter((item) => (item.status || defaultIssueStatus) === defaultIssueStatus).length;
@@ -157,8 +275,68 @@ export function IssuesPage() {
       render: (item) => formatTileCardLabel(item.status, "Open")
     },
     {
+      key: "jira",
+      label: "Jira Bug Key",
+      width: 150,
+      minWidth: 120,
+      sortValue: (item) => item.jira_bug_key || "",
+      render: (item) => item.jira_bug_key || "—"
+    },
+    {
+      key: "severity",
+      label: "Severity",
+      width: 132,
+      minWidth: 104,
+      sortValue: (item) => item.severity || "",
+      render: (item) => formatTileCardLabel(item.severity, "Not set")
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      width: 120,
+      minWidth: 96,
+      sortValue: (item) => item.priority || "",
+      render: (item) => formatTileCardLabel(item.priority, "Not set")
+    },
+    {
+      key: "linkedRun",
+      label: "Linked Test Run",
+      defaultVisible: false,
+      width: 240,
+      minWidth: 160,
+      sortValue: (item) => runLabelById.get(item.linked_test_run_id || "") || item.linked_test_run_id || "",
+      render: (item) => runLabelById.get(item.linked_test_run_id || "") || item.linked_test_run_id || "—"
+    },
+    {
+      key: "environment",
+      label: "Environment",
+      defaultVisible: false,
+      width: 160,
+      minWidth: 120,
+      sortValue: (item) => item.environment || "",
+      render: (item) => item.environment || "—"
+    },
+    {
+      key: "build",
+      label: "Build",
+      defaultVisible: false,
+      width: 150,
+      minWidth: 110,
+      sortValue: (item) => item.build || "",
+      render: (item) => item.build || "—"
+    },
+    {
+      key: "assignee",
+      label: "Assignee",
+      width: 220,
+      minWidth: 150,
+      sortValue: (item) => item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "",
+      render: (item) => item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "Unassigned"
+    },
+    {
       key: "reporter",
       label: "Reporter",
+      defaultVisible: false,
       width: 220,
       minWidth: 150,
       sortValue: (item) => item.user_name || item.user_email || item.user_id || "",
@@ -172,7 +350,7 @@ export function IssuesPage() {
       minWidth: 200,
       render: (item) => richTextToPlainText(item.message)
     }
-  ], [defaultIssueStatus]);
+  ], [assigneeLabelById, defaultIssueStatus, runLabelById]);
 
   useEffect(() => {
     if (searchParams.get("create") !== "1") {
@@ -231,6 +409,18 @@ export function IssuesPage() {
       setDraft({
         title: selectedItem.title,
         message: selectedItem.message,
+        steps_to_reproduce: selectedItem.steps_to_reproduce || "",
+        expected_result: selectedItem.expected_result || "",
+        actual_result: selectedItem.actual_result || "",
+        severity: selectedItem.severity || "",
+        priority: selectedItem.priority || "",
+        environment: selectedItem.environment || "",
+        build: selectedItem.build || "",
+        jira_bug_key: selectedItem.jira_bug_key || "",
+        linked_test_run_id: selectedItem.linked_test_run_id || "",
+        assignee_id: selectedItem.assignee_id || "",
+        root_cause: selectedItem.root_cause || "",
+        retest_result: selectedItem.retest_result || "",
         status: selectedItem.status || defaultIssueStatus
       });
       return;
@@ -296,12 +486,7 @@ export function IssuesPage() {
     }
 
     if (isCreating || !selectedItem) {
-      const response = await createIssue.mutateAsync({
-        user_id: session.user.id,
-        title: draft.title,
-        message: draft.message,
-        status: draft.status
-      });
+      const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id));
       syncIssueSearchParams(response.id);
       setSelectedIssueId(response.id);
       setIsCreating(false);
@@ -310,11 +495,7 @@ export function IssuesPage() {
 
     await updateIssue.mutateAsync({
       id: selectedItem.id,
-      input: {
-        title: draft.title,
-        message: draft.message,
-        status: draft.status
-      }
+      input: buildIssuePayload(draft, selectedItem.user_id)
     });
   };
 
@@ -329,9 +510,9 @@ export function IssuesPage() {
     <div className="page-content">
       {confirmationDialog}
       <PageHeader
-        eyebrow="Issues"
-        title="Issues"
-        description="Capture bugs, product requests, and run follow-ups in a shared queue the whole team can track."
+        eyebrow="Defects"
+        title="Report Issue"
+        description="Capture Jira-ready bugs with reproduction details, run context, ownership, root cause, and retest outcome."
         meta={[
           { label: "Issues", value: items.length },
           { label: "Open", value: openIssueCount },
@@ -358,14 +539,14 @@ export function IssuesPage() {
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Issues" titleVariant="eyebrow" subtitle="Open one issue at a time from a card-first queue without keeping a split panel on screen.">
+          <Panel title="Issues" titleVariant="eyebrow" subtitle="Open one issue at a time from a card-first queue with severity, priority, Jira, and run context visible.">
             <div className="design-list-toolbar issue-catalog-toolbar">
               <CatalogSearchFilter
                 activeFilterCount={issueSearch.trim() ? 1 : 0}
                 ariaLabel="Search issues"
                 onChange={setIssueSearch}
                 placeholder="Search issues"
-                subtitle="Search by title, message, status, or reporter."
+                subtitle="Search by title, description, Jira key, run, status, severity, priority, assignee, or reporter."
                 title="Issue search"
                 type="search"
                 value={issueSearch}
@@ -436,13 +617,22 @@ export function IssuesPage() {
                         <span className="issue-card-badge">IS</span>
                         <div className="tile-card-title-group">
                           <strong>{item.title}</strong>
-                          <span className="tile-card-kicker">{item.user_name || item.user_email || item.user_id}</span>
+                          <span className="tile-card-kicker">
+                            {[
+                              item.jira_bug_key || null,
+                              item.severity ? `Severity ${formatTileCardLabel(item.severity, "Not set")}` : null,
+                              item.priority ? `Priority ${formatTileCardLabel(item.priority, "Not set")}` : null
+                            ].filter(Boolean).join(" · ") || item.user_name || item.user_email || item.user_id}
+                          </span>
                         </div>
                         <TileCardStatusIndicator title={issueStatus} tone={issueTone} />
                       </div>
                       <RichTextContent className="tile-card-description" value={item.message} />
                       <div className="issue-card-footer">
                         <span className="count-pill">{issueStatus}</span>
+                        {item.build ? <span className="count-pill">Build {item.build}</span> : null}
+                        {item.linked_test_run_id ? <span className="count-pill">{runLabelById.get(item.linked_test_run_id) || item.linked_test_run_id}</span> : null}
+                        <span className="count-pill">{item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "Unassigned"}</span>
                       </div>
                     </div>
                   </button>
@@ -473,29 +663,139 @@ export function IssuesPage() {
         detailView={(
           <Panel
             actions={<WorkspaceBackButton label="Back to issue tiles" onClick={closeIssueWorkspace} />}
-            title={isCreating ? "New issue" : selectedItem ? "Selected issue" : "Issue editor"}
-            subtitle="Use this space to capture bugs, requests, or run follow-ups and keep the thread visible to the whole team."
+            title={isCreating ? "Report issue" : selectedItem ? "Issue details" : "Issue editor"}
+            subtitle="Capture the defect in a Jira-ready structure with run context, reproduction evidence, ownership, and retest outcome."
           >
             {(isCreating || selectedItem) ? (
-              <form className="form-grid" onSubmit={(event) => void handleSave(event)}>
-                <FormField label="Title">
-                  <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
-                </FormField>
-                <FormField label="Status">
-                  <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
-                    {issueStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Message">
-                  <RichTextEditor
-                    required
-                    rows={8}
-                    value={draft.message}
-                    onChange={(message) => setDraft((current) => ({ ...current, message }))}
-                  />
-                </FormField>
+              <form className="issue-report-form" onSubmit={(event) => void handleSave(event)}>
+                <section className="issue-form-section">
+                  <div className="issue-form-section-head">
+                    <strong>Issue summary</strong>
+                    <span>Title, classification, ownership, and linked execution context.</span>
+                  </div>
+                  <div className="issue-form-grid">
+                    <FormField label="Title" required>
+                      <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
+                    </FormField>
+                    <FormField label="Jira Bug Key">
+                      <input placeholder="BUG-123" value={draft.jira_bug_key} onChange={(event) => setDraft((current) => ({ ...current, jira_bug_key: event.target.value }))} />
+                    </FormField>
+                  </div>
+
+                  <div className="issue-form-grid issue-form-grid--triple">
+                    <FormField label="Status">
+                      <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                        {issueStatusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Severity">
+                      <select value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value }))}>
+                        {ISSUE_SEVERITY_OPTIONS.map((option) => (
+                          <option key={option.value || "none"} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Priority">
+                      <select value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}>
+                        {ISSUE_PRIORITY_OPTIONS.map((option) => (
+                          <option key={option.value || "none"} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+
+                  <div className="issue-form-grid issue-form-grid--triple">
+                    <FormField label="Assignee">
+                      <select value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
+                        <option value="">Unassigned</option>
+                        {userItems.map((user) => (
+                          <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Environment">
+                      <input placeholder="QA, UAT, iOS 18, Chrome" value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))} />
+                    </FormField>
+                    <FormField label="Build">
+                      <input placeholder="2026.07.02" value={draft.build} onChange={(event) => setDraft((current) => ({ ...current, build: event.target.value }))} />
+                    </FormField>
+                  </div>
+
+                  <FormField label="Linked Test Run">
+                    <select value={draft.linked_test_run_id} onChange={(event) => setDraft((current) => ({ ...current, linked_test_run_id: event.target.value }))}>
+                      <option value="">No linked run</option>
+                      {draft.linked_test_run_id && !executionById.has(draft.linked_test_run_id) ? (
+                        <option value={draft.linked_test_run_id}>{draft.linked_test_run_id}</option>
+                      ) : null}
+                      {executionItems.map((execution) => (
+                        <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                </section>
+
+                <section className="issue-form-section">
+                  <div className="issue-form-section-head">
+                    <strong>Failure evidence</strong>
+                    <span>Description, reproduction steps, expected result, and actual result.</span>
+                  </div>
+                  <FormField label="Description" required>
+                    <RichTextEditor
+                      required
+                      rows={6}
+                      value={draft.message}
+                      onChange={(message) => setDraft((current) => ({ ...current, message }))}
+                    />
+                  </FormField>
+                  <div className="issue-form-grid issue-form-rich-grid">
+                    <FormField label="Steps to Reproduce">
+                      <RichTextEditor
+                        rows={6}
+                        value={draft.steps_to_reproduce}
+                        onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
+                      />
+                    </FormField>
+                    <FormField label="Expected Result">
+                      <RichTextEditor
+                        rows={5}
+                        value={draft.expected_result}
+                        onChange={(expected_result) => setDraft((current) => ({ ...current, expected_result }))}
+                      />
+                    </FormField>
+                    <FormField label="Actual Result">
+                      <RichTextEditor
+                        rows={5}
+                        value={draft.actual_result}
+                        onChange={(actual_result) => setDraft((current) => ({ ...current, actual_result }))}
+                      />
+                    </FormField>
+                  </div>
+                </section>
+
+                <section className="issue-form-section">
+                  <div className="issue-form-section-head">
+                    <strong>Resolution tracking</strong>
+                    <span>Root cause and retest result for closure readiness.</span>
+                  </div>
+                  <div className="issue-form-grid">
+                    <FormField label="Root Cause">
+                      <RichTextEditor
+                        rows={4}
+                        value={draft.root_cause}
+                        onChange={(root_cause) => setDraft((current) => ({ ...current, root_cause }))}
+                      />
+                    </FormField>
+                    <FormField label="Retest Result">
+                      <select value={draft.retest_result} onChange={(event) => setDraft((current) => ({ ...current, retest_result: event.target.value }))}>
+                        {ISSUE_RETEST_RESULT_OPTIONS.map((option) => (
+                          <option key={option.value || "none"} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
+                </section>
                 <div className="action-row">
                   <button className="primary-button" type="submit">{isCreating ? "Save issue" : "Update issue"}</button>
                   {!isCreating && selectedItem ? (

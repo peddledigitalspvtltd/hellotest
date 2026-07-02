@@ -12,6 +12,7 @@ import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
+import { MultiAssigneePicker } from "../components/MultiAssigneePicker";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RunTypeSelector } from "../components/RunTypeSelector";
@@ -235,7 +236,10 @@ export function DesignPage() {
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
-  const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
+  const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
+  const [executionRelease, setExecutionRelease] = useState("");
+  const [executionSprint, setExecutionSprint] = useState("");
+  const [executionBuild, setExecutionBuild] = useState("");
   const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
   const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
   const [executionParallelCount, setExecutionParallelCount] = useState(1);
@@ -397,7 +401,10 @@ export function DesignPage() {
   const closeCreateExecutionModal = () => {
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     resetExecutionContextSelection();
     setExecutionStartMode("manual");
     setExecutionParallelEnabled(false);
@@ -439,10 +446,11 @@ export function DesignPage() {
       return;
     }
 
-    if (selectedExecutionAssigneeId && !assigneeOptions.some((option) => option.id === selectedExecutionAssigneeId)) {
-      setSelectedExecutionAssigneeId("");
+    const validAssigneeIds = new Set(assigneeOptions.map((option) => option.id));
+    if (selectedExecutionAssigneeIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
+      setSelectedExecutionAssigneeIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
-  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeId, usersQuery.isPending]);
+  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds, usersQuery.isPending]);
 
   const appTypeCases = useMemo(() => allTestCases, [allTestCases]);
 
@@ -1332,7 +1340,10 @@ export function DesignPage() {
         parallel_enabled: executionParallelEnabled || undefined,
         parallel_count: executionParallelEnabled ? executionParallelCount : undefined,
         execution_hooks: executionHookDraft.length ? executionHookDraft : undefined,
-        assigned_to: selectedExecutionAssigneeId || undefined,
+        assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
+        release: executionRelease.trim() || undefined,
+        sprint: executionSprint.trim() || undefined,
+        build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
         created_by: session.user.id
       });
@@ -1818,17 +1829,23 @@ export function DesignPage() {
           canCreateExecution={Boolean(projectId && appTypeId && executionTargetSuiteIds.length && session?.user.id)}
           executionHookDraft={executionHookDraft}
           executionName={executionName}
+          executionRelease={executionRelease}
+          executionSprint={executionSprint}
+          executionBuild={executionBuild}
           executionParallelCount={executionParallelCount}
           executionParallelEnabled={executionParallelEnabled}
           executionStartMode={executionStartMode}
           isSubmitting={createExecutionMutation.isPending}
-          onAssigneeChange={setSelectedExecutionAssigneeId}
+          onAssigneeChange={setSelectedExecutionAssigneeIds}
           onClose={closeCreateExecutionModal}
           onConfigurationChange={setSelectedExecutionConfigurationId}
           onDataSetChange={setSelectedExecutionDataSetId}
           onEnvironmentChange={setSelectedExecutionEnvironmentId}
           onExecutionHookDraftChange={setExecutionHookDraft}
           onExecutionNameChange={setExecutionName}
+          onExecutionReleaseChange={setExecutionRelease}
+          onExecutionSprintChange={setExecutionSprint}
+          onExecutionBuildChange={setExecutionBuild}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
           onExecutionStartModeChange={setExecutionStartMode}
@@ -1836,7 +1853,7 @@ export function DesignPage() {
           onSubmit={handleCreateExecution}
           appTypeId={appTypeId}
           projectId={projectId}
-          selectedAssigneeId={selectedExecutionAssigneeId}
+          selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
           selectedAppType={selectedAppType?.name || ""}
           selectedDataSetId={selectedExecutionDataSetId}
@@ -3396,7 +3413,10 @@ function SuiteExecutionModal({
   projectId,
   selectedSuiteIds,
   executionName,
-  selectedAssigneeId,
+  executionRelease,
+  executionSprint,
+  executionBuild,
+  selectedAssigneeIds,
   assigneeOptions,
   selectedEnvironmentId,
   selectedConfigurationId,
@@ -3414,6 +3434,9 @@ function SuiteExecutionModal({
   onDataSetChange,
   onExecutionHookDraftChange,
   onExecutionNameChange,
+  onExecutionReleaseChange,
+  onExecutionSprintChange,
+  onExecutionBuildChange,
   onExecutionParallelCountChange,
   onExecutionParallelEnabledChange,
   onExecutionStartModeChange,
@@ -3428,7 +3451,10 @@ function SuiteExecutionModal({
   projectId: string;
   selectedSuiteIds: string[];
   executionName: string;
-  selectedAssigneeId: string;
+  executionRelease: string;
+  executionSprint: string;
+  executionBuild: string;
+  selectedAssigneeIds: string[];
   assigneeOptions: SuiteExecutionAssigneeOption[];
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
@@ -3440,12 +3466,15 @@ function SuiteExecutionModal({
   testCases: TestCase[];
   canCreateExecution: boolean;
   isSubmitting: boolean;
-  onAssigneeChange: (value: string) => void;
+  onAssigneeChange: (value: string[]) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
   onExecutionHookDraftChange: (nextHooks: RunHookSelection[]) => void;
   onExecutionNameChange: (value: string) => void;
+  onExecutionReleaseChange: (value: string) => void;
+  onExecutionSprintChange: (value: string) => void;
+  onExecutionBuildChange: (value: string) => void;
   onExecutionParallelCountChange: (value: number) => void;
   onExecutionParallelEnabledChange: (value: boolean) => void;
   onExecutionStartModeChange: (value: ExecutionStartMode) => void;
@@ -3495,21 +3524,25 @@ function SuiteExecutionModal({
                   onChange={(event) => onExecutionNameChange(event.target.value)}
                 />
               </FormField>
-              <FormField label="Assign to" hint="Sets the default owner for this run and the test cases snapped into it.">
-                <select
+              <FormField label="Assign to" hint="Select one or more testers for this run.">
+                <MultiAssigneePicker
                   disabled={!projectId || !assigneeOptions.length}
-                  value={selectedAssigneeId}
-                  onChange={(event) => onAssigneeChange(event.target.value)}
-                >
-                  <option value="">
-                    {!projectId ? "Select a project first" : assigneeOptions.length ? "Unassigned" : "No project members available"}
-                  </option>
-                  {assigneeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.caption ? `${option.label} · ${option.caption}` : option.label}
-                    </option>
-                  ))}
-                </select>
+                  options={assigneeOptions}
+                  selectedIds={selectedAssigneeIds}
+                  onChange={onAssigneeChange}
+                />
+              </FormField>
+            </div>
+
+            <div className="execution-create-grid execution-create-grid--metadata">
+              <FormField label="Release">
+                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+              </FormField>
+              <FormField label="Sprint">
+                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+              </FormField>
+              <FormField label="Build">
+                <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
             </div>
 

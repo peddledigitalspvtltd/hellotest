@@ -14,6 +14,7 @@ import { ExecutionContextSelector } from "../components/ExecutionContextSelector
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
+import { MultiAssigneePicker } from "../components/MultiAssigneePicker";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
@@ -993,7 +994,10 @@ export function TestCasesPage() {
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
-  const [selectedExecutionAssigneeId, setSelectedExecutionAssigneeId] = useState("");
+  const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
+  const [executionRelease, setExecutionRelease] = useState("");
+  const [executionSprint, setExecutionSprint] = useState("");
+  const [executionBuild, setExecutionBuild] = useState("");
   const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
   const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
   const [executionParallelCount, setExecutionParallelCount] = useState(1);
@@ -1451,7 +1455,10 @@ export function TestCasesPage() {
   const closeCreateExecutionModal = () => {
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     setExecutionStartMode("manual");
     setExecutionParallelEnabled(false);
     setExecutionParallelCount(1);
@@ -1536,10 +1543,11 @@ export function TestCasesPage() {
       return;
     }
 
-    if (selectedExecutionAssigneeId && !assigneeOptions.some((option) => option.id === selectedExecutionAssigneeId)) {
-      setSelectedExecutionAssigneeId("");
+    const validAssigneeIds = new Set(assigneeOptions.map((option) => option.id));
+    if (selectedExecutionAssigneeIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
+      setSelectedExecutionAssigneeIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
-  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeId, usersQuery.isPending]);
+  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds, usersQuery.isPending]);
 
   useEffect(() => {
     const requestedProjectId = searchParams.get("project");
@@ -1605,7 +1613,10 @@ export function TestCasesPage() {
     setIsCreateSuiteModalOpen(false);
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
-    setSelectedExecutionAssigneeId("");
+    setSelectedExecutionAssigneeIds([]);
+    setExecutionRelease("");
+    setExecutionSprint("");
+    setExecutionBuild("");
     resetExecutionContextSelection();
     setAutomationStartUrl("");
     setAutomationContext("");
@@ -3532,7 +3543,10 @@ export function TestCasesPage() {
         parallel_count: executionParallelEnabled ? executionParallelCount : 1,
         execution_mode: executionStartMode,
         engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
-        assigned_to: selectedExecutionAssigneeId || undefined,
+        assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
+        release: executionRelease.trim() || undefined,
+        sprint: executionSprint.trim() || undefined,
+        build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
         created_by: session.user.id
       });
@@ -5008,7 +5022,10 @@ export function TestCasesPage() {
           project_id: projectId,
           app_type_id: appTypeId,
           test_case_ids: [testCaseId],
-          assigned_to: selectedExecutionAssigneeId || undefined,
+          assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
+          release: executionRelease.trim() || undefined,
+          sprint: executionSprint.trim() || undefined,
+          build: executionBuild.trim() || undefined,
           name: `${testCase.title} ${isApiOnlyLocalRun ? "Local API Run" : "Local Run"}`,
           created_by: session.user.id,
           test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -5032,7 +5049,10 @@ export function TestCasesPage() {
         project_id: projectId,
         app_type_id: appTypeId,
         test_case_ids: [testCaseId],
-        assigned_to: selectedExecutionAssigneeId || undefined,
+        assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
+        release: executionRelease.trim() || undefined,
+        sprint: executionSprint.trim() || undefined,
+        build: executionBuild.trim() || undefined,
         name: `${testCase.title} Run`,
         created_by: session.user.id,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -8414,22 +8434,28 @@ export function TestCasesPage() {
           isSubmitting={createExecution.isPending}
           executionParallelCount={executionParallelCount}
           executionParallelEnabled={executionParallelEnabled}
+          executionRelease={executionRelease}
           executionStartMode={executionStartMode}
-          onAssigneeChange={setSelectedExecutionAssigneeId}
+          executionSprint={executionSprint}
+          executionBuild={executionBuild}
+          onAssigneeChange={setSelectedExecutionAssigneeIds}
           onClose={closeCreateExecutionModal}
           onConfigurationChange={setSelectedExecutionConfigurationId}
           onDataSetChange={setSelectedExecutionDataSetId}
           onEnvironmentChange={setSelectedExecutionEnvironmentId}
+          onExecutionBuildChange={setExecutionBuild}
           onExecutionNameChange={setExecutionName}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
+          onExecutionReleaseChange={setExecutionRelease}
+          onExecutionSprintChange={setExecutionSprint}
           onExecutionStartModeChange={setExecutionStartMode}
           onRemoveTestCase={(testCaseId) =>
             setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCaseId))
           }
           onSubmit={handleCreateExecution}
           projectId={projectId}
-          selectedAssigneeId={selectedExecutionAssigneeId}
+          selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
           selectedAppType={selectedAppType?.name || ""}
           selectedDataSetId={selectedExecutionDataSetId}
@@ -9490,7 +9516,7 @@ function TestCaseExecutionModal({
   projectId,
   appTypeId,
   executionName,
-  selectedAssigneeId,
+  selectedAssigneeIds,
   assigneeOptions,
   selectedEnvironmentId,
   selectedConfigurationId,
@@ -9498,6 +9524,9 @@ function TestCaseExecutionModal({
   executionStartMode,
   executionParallelEnabled,
   executionParallelCount,
+  executionRelease,
+  executionSprint,
+  executionBuild,
   canCreateExecution,
   isSubmitting,
   onAssigneeChange,
@@ -9508,6 +9537,9 @@ function TestCaseExecutionModal({
   onExecutionStartModeChange,
   onExecutionParallelEnabledChange,
   onExecutionParallelCountChange,
+  onExecutionReleaseChange,
+  onExecutionSprintChange,
+  onExecutionBuildChange,
   onRemoveTestCase,
   onClose,
   onSubmit
@@ -9518,7 +9550,7 @@ function TestCaseExecutionModal({
   projectId: string;
   appTypeId: string;
   executionName: string;
-  selectedAssigneeId: string;
+  selectedAssigneeIds: string[];
   assigneeOptions: TestCaseExecutionAssigneeOption[];
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
@@ -9526,9 +9558,12 @@ function TestCaseExecutionModal({
   executionStartMode: ExecutionStartMode;
   executionParallelEnabled: boolean;
   executionParallelCount: number;
+  executionRelease: string;
+  executionSprint: string;
+  executionBuild: string;
   canCreateExecution: boolean;
   isSubmitting: boolean;
-  onAssigneeChange: (value: string) => void;
+  onAssigneeChange: (value: string[]) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
@@ -9536,6 +9571,9 @@ function TestCaseExecutionModal({
   onExecutionStartModeChange: (value: ExecutionStartMode) => void;
   onExecutionParallelEnabledChange: (value: boolean) => void;
   onExecutionParallelCountChange: (value: number) => void;
+  onExecutionReleaseChange: (value: string) => void;
+  onExecutionSprintChange: (value: string) => void;
+  onExecutionBuildChange: (value: string) => void;
   onRemoveTestCase: (testCaseId: string) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -9576,21 +9614,25 @@ function TestCaseExecutionModal({
                   onChange={(event) => onExecutionNameChange(event.target.value)}
                 />
               </FormField>
-              <FormField label="Assign to" hint="Sets the default owner for this run and the snapped test cases inside it.">
-                <select
-                  disabled={!projectId || !assigneeOptions.length}
-                  value={selectedAssigneeId}
-                  onChange={(event) => onAssigneeChange(event.target.value)}
-                >
-                  <option value="">
-                    {!projectId ? "Select a project first" : assigneeOptions.length ? "Unassigned" : "No project members available"}
-                  </option>
-                  {assigneeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.caption ? `${option.label} · ${option.caption}` : option.label}
-                    </option>
-                  ))}
-                </select>
+              <FormField label="Assign to" hint="Select one or more testers for this run.">
+                <MultiAssigneePicker
+                  disabled={!projectId || !assigneeOptions.length || isSubmitting}
+                  options={assigneeOptions}
+                  selectedIds={selectedAssigneeIds}
+                  onChange={onAssigneeChange}
+                />
+              </FormField>
+            </div>
+
+            <div className="execution-create-grid execution-create-grid--metadata">
+              <FormField label="Release">
+                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+              </FormField>
+              <FormField label="Sprint">
+                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+              </FormField>
+              <FormField label="Build">
+                <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
             </div>
 

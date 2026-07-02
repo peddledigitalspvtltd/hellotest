@@ -4,6 +4,30 @@ const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 
 const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
+const ISSUE_DETAIL_FIELDS = [
+  "steps_to_reproduce",
+  "expected_result",
+  "actual_result",
+  "severity",
+  "priority",
+  "environment",
+  "build",
+  "jira_bug_key",
+  "linked_test_run_id",
+  "assignee_id",
+  "root_cause",
+  "retest_result"
+];
+
+const normalizeText = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
+};
+
 const normalizeStatus = (value) => {
   if (value === undefined || value === null || value === "") {
     return DEFAULT_ISSUE_STATUS;
@@ -22,36 +46,88 @@ const normalizeStatus = (value) => {
   return normalized;
 };
 
-exports.createIssue = async ({ user_id, title, message, status }) => {
-  if (!user_id || !title || !message) {
-    throw new Error("Missing required fields");
+async function validateUser(userId, errorMessage) {
+  const normalizedUserId = normalizeText(userId);
+
+  if (!normalizedUserId) {
+    return null;
   }
 
   const user = await db.prepare(`
     SELECT id
     FROM users
     WHERE id = ?
-  `).get(user_id);
+  `).get(normalizedUserId);
 
   if (!user) {
-    throw new Error("User not found");
+    throw new Error(errorMessage);
   }
+
+  return normalizedUserId;
+}
+
+function buildDetailValues(input = {}, fallback = {}) {
+  return ISSUE_DETAIL_FIELDS.map((field) =>
+    Object.prototype.hasOwnProperty.call(input, field)
+      ? normalizeText(input[field])
+      : fallback[field] ?? null
+  );
+}
+
+exports.createIssue = async ({ user_id, title, message, status, ...details }) => {
+  if (!user_id || !title || !message) {
+    throw new Error("Missing required fields");
+  }
+
+  await validateUser(user_id, "User not found");
+  await validateUser(details.assignee_id, "Assignee not found");
 
   const id = uuid();
 
   await db.prepare(`
-    INSERT INTO feedback (id, user_id, title, message, status)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, user_id, title, message, normalizeStatus(status));
+    INSERT INTO feedback (
+      id,
+      user_id,
+      title,
+      message,
+      steps_to_reproduce,
+      expected_result,
+      actual_result,
+      severity,
+      priority,
+      environment,
+      build,
+      jira_bug_key,
+      linked_test_run_id,
+      assignee_id,
+      root_cause,
+      retest_result,
+      status
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user_id,
+    title,
+    message,
+    ...buildDetailValues(details),
+    normalizeStatus(status)
+  );
 
   return { id };
 };
 
 exports.getIssues = async ({ user_id, status } = {}) => {
   let query = `
-    SELECT feedback.*, users.name AS user_name, users.email AS user_email
+    SELECT
+      feedback.*,
+      reporter.name AS user_name,
+      reporter.email AS user_email,
+      assignee.name AS assignee_name,
+      assignee.email AS assignee_email
     FROM feedback
-    JOIN users ON users.id = feedback.user_id
+    JOIN users reporter ON reporter.id = feedback.user_id
+    LEFT JOIN users assignee ON assignee.id = feedback.assignee_id
     WHERE 1 = 1
   `;
   const params = [];
@@ -73,9 +149,15 @@ exports.getIssues = async ({ user_id, status } = {}) => {
 
 exports.getIssueItem = async (id) => {
   const item = await db.prepare(`
-    SELECT feedback.*, users.name AS user_name, users.email AS user_email
+    SELECT
+      feedback.*,
+      reporter.name AS user_name,
+      reporter.email AS user_email,
+      assignee.name AS assignee_name,
+      assignee.email AS assignee_email
     FROM feedback
-    JOIN users ON users.id = feedback.user_id
+    JOIN users reporter ON reporter.id = feedback.user_id
+    LEFT JOIN users assignee ON assignee.id = feedback.assignee_id
     WHERE feedback.id = ?
   `).get(id);
 
@@ -90,25 +172,37 @@ exports.updateIssue = async (id, data) => {
   const existing = await exports.getIssueItem(id);
 
   if (data.user_id && data.user_id !== existing.user_id) {
-    const user = await db.prepare(`
-      SELECT id
-      FROM users
-      WHERE id = ?
-    `).get(data.user_id);
+    await validateUser(data.user_id, "User not found");
+  }
 
-    if (!user) {
-      throw new Error("User not found");
-    }
+  if (Object.prototype.hasOwnProperty.call(data, "assignee_id")) {
+    await validateUser(data.assignee_id, "Assignee not found");
   }
 
   await db.prepare(`
     UPDATE feedback
-    SET user_id = ?, title = ?, message = ?, status = ?
+    SET user_id = ?,
+        title = ?,
+        message = ?,
+        steps_to_reproduce = ?,
+        expected_result = ?,
+        actual_result = ?,
+        severity = ?,
+        priority = ?,
+        environment = ?,
+        build = ?,
+        jira_bug_key = ?,
+        linked_test_run_id = ?,
+        assignee_id = ?,
+        root_cause = ?,
+        retest_result = ?,
+        status = ?
     WHERE id = ?
   `).run(
     data.user_id ?? existing.user_id,
     data.title ?? existing.title,
     data.message ?? existing.message,
+    ...buildDetailValues(data, existing),
     data.status !== undefined ? normalizeStatus(data.status) : existing.status,
     id
   );

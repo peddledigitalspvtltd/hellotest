@@ -8,6 +8,18 @@ function registerFeedbackRoutes(fastify, basePath) {
       user_id: { required: true, type: "string" },
       title: { required: true, type: "string", minLength: 2 },
       message: { required: true, type: "string", minLength: 2 },
+      steps_to_reproduce: { required: false, type: "string" },
+      expected_result: { required: false, type: "string" },
+      actual_result: { required: false, type: "string" },
+      severity: { required: false, type: "string" },
+      priority: { required: false, type: "string" },
+      environment: { required: false, type: "string" },
+      build: { required: false, type: "string" },
+      jira_bug_key: { required: false, type: "string" },
+      linked_test_run_id: { required: false, type: "string" },
+      assignee_id: { required: false, type: "string" },
+      root_cause: { required: false, type: "string" },
+      retest_result: { required: false, type: "string" },
       status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
@@ -31,6 +43,18 @@ function registerFeedbackRoutes(fastify, basePath) {
       user_id: { required: false, type: "string" },
       title: { required: false, type: "string", minLength: 2 },
       message: { required: false, type: "string", minLength: 2 },
+      steps_to_reproduce: { required: false, type: "string" },
+      expected_result: { required: false, type: "string" },
+      actual_result: { required: false, type: "string" },
+      severity: { required: false, type: "string" },
+      priority: { required: false, type: "string" },
+      environment: { required: false, type: "string" },
+      build: { required: false, type: "string" },
+      jira_bug_key: { required: false, type: "string" },
+      linked_test_run_id: { required: false, type: "string" },
+      assignee_id: { required: false, type: "string" },
+      root_cause: { required: false, type: "string" },
+      retest_result: { required: false, type: "string" },
       status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 

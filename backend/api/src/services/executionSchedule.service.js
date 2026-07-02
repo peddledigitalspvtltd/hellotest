@@ -57,11 +57,15 @@ const insertExecutionSchedule = db.prepare(`
     test_environment_id,
     test_configuration_id,
     test_data_set_id,
+    release,
+    sprint,
+    build,
     assigned_to,
+    assigned_to_ids,
     created_by,
     is_active
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateExecutionSchedule = db.prepare(`
@@ -76,7 +80,11 @@ const updateExecutionSchedule = db.prepare(`
       test_environment_id = ?,
       test_configuration_id = ?,
       test_data_set_id = ?,
+      release = ?,
+      sprint = ?,
+      build = ?,
       assigned_to = ?,
+      assigned_to_ids = ?,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
@@ -110,7 +118,10 @@ const normalizeText = (value) => {
   return normalized || null;
 };
 
-const normalizeTextList = (values = []) => [...new Set((values || []).map((value) => normalizeText(value)).filter(Boolean))];
+const normalizeTextList = (values = []) => {
+  const list = Array.isArray(values) ? values : [values];
+  return [...new Set(list.map((value) => normalizeText(value)).filter(Boolean))];
+};
 
 const parseJsonValue = (value, fallback) => {
   if (value === null || value === undefined || value === "") {
@@ -168,19 +179,30 @@ async function hydrateSchedule(schedule) {
     return schedule;
   }
 
-  const assignedUser = schedule.assigned_to ? await selectUser.get(schedule.assigned_to) : null;
+  const legacyAssignedTo = normalizeText(schedule.assigned_to);
+  const assignedToIds = normalizeTextList(parseJsonValue(schedule.assigned_to_ids, []));
+  const resolvedAssignedToIds = assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+  const assignedUsers = (await Promise.all(resolvedAssignedToIds.map((userId) => selectUser.get(userId)))).filter(Boolean);
 
   return {
     ...schedule,
     suite_ids: parseJsonValue(schedule.suite_ids, []),
     test_case_ids: parseJsonValue(schedule.test_case_ids, []),
     is_active: Boolean(schedule.is_active),
-    assigned_user: assignedUser
+    assigned_to: resolvedAssignedToIds[0] || null,
+    assigned_to_ids: resolvedAssignedToIds,
+    assigned_users: assignedUsers.map((assignedUser) => ({
+      id: assignedUser.id,
+      email: assignedUser.email,
+      name: assignedUser.name || null,
+      avatar_data_url: assignedUser.avatar_data_url || null
+    })),
+    assigned_user: assignedUsers[0]
       ? {
-          id: assignedUser.id,
-          email: assignedUser.email,
-          name: assignedUser.name || null,
-          avatar_data_url: assignedUser.avatar_data_url || null
+          id: assignedUsers[0].id,
+          email: assignedUsers[0].email,
+          name: assignedUsers[0].name || null,
+          avatar_data_url: assignedUsers[0].avatar_data_url || null
         }
       : null
   };
@@ -192,6 +214,7 @@ async function validateSchedulePayload({
   suite_ids = [],
   test_case_ids = [],
   assigned_to,
+  assigned_to_ids = [],
   created_by
 }) {
   if (!project_id || !created_by) {
@@ -210,14 +233,16 @@ async function validateSchedulePayload({
     throw new Error("Invalid user");
   }
 
-  if (assigned_to) {
-    const assignedUser = await selectUser.get(assigned_to);
+  const normalizedAssignedToIds = normalizeTextList(assigned_to_ids.length ? assigned_to_ids : assigned_to ? [assigned_to] : []);
+
+  for (const assignedUserId of normalizedAssignedToIds) {
+    const assignedUser = await selectUser.get(assignedUserId);
 
     if (!assignedUser) {
       throw new Error("Assigned user not found");
     }
 
-    const membership = await selectProjectMember.get(project_id, assigned_to);
+    const membership = await selectProjectMember.get(project_id, assignedUserId);
 
     if (!membership) {
       throw new Error("Assigned user must belong to the selected project");
@@ -262,13 +287,18 @@ async function validateSchedulePayload({
 }
 
 exports.createExecutionSchedule = async (input = {}) => {
-  await validateSchedulePayload(input);
-
   const id = uuid();
   const suiteIds = normalizeTextList(input.suite_ids);
   const testCaseIds = normalizeTextList(input.test_case_ids);
+  const assignedToIds = normalizeTextList(input.assigned_to_ids?.length ? input.assigned_to_ids : input.assigned_to ? [input.assigned_to] : []);
   const cadence = normalizeText(input.cadence) || "once";
   const nextRunAt = normalizeText(input.next_run_at);
+
+  await validateSchedulePayload({
+    ...input,
+    assigned_to: assignedToIds[0] || null,
+    assigned_to_ids: assignedToIds
+  });
 
   await insertExecutionSchedule.run(
     id,
@@ -282,7 +312,11 @@ exports.createExecutionSchedule = async (input = {}) => {
     normalizeText(input.test_environment_id),
     normalizeText(input.test_configuration_id),
     normalizeText(input.test_data_set_id),
-    normalizeText(input.assigned_to),
+    normalizeText(input.release),
+    normalizeText(input.sprint),
+    normalizeText(input.build),
+    assignedToIds[0] || null,
+    assignedToIds,
     input.created_by,
     input.is_active === false ? false : true
   );
@@ -297,9 +331,14 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
     app_type_id: Object.prototype.hasOwnProperty.call(input, "app_type_id") ? normalizeText(input.app_type_id) : existing.app_type_id,
     suite_ids: Object.prototype.hasOwnProperty.call(input, "suite_ids") ? input.suite_ids : existing.suite_ids,
     test_case_ids: Object.prototype.hasOwnProperty.call(input, "test_case_ids") ? input.test_case_ids : existing.test_case_ids,
-    assigned_to: Object.prototype.hasOwnProperty.call(input, "assigned_to") ? normalizeText(input.assigned_to) : existing.assigned_to,
+    assigned_to_ids: Object.prototype.hasOwnProperty.call(input, "assigned_to_ids")
+      ? normalizeTextList(input.assigned_to_ids)
+      : Object.prototype.hasOwnProperty.call(input, "assigned_to")
+        ? normalizeTextList(input.assigned_to)
+        : normalizeTextList(existing.assigned_to_ids?.length ? existing.assigned_to_ids : existing.assigned_to ? [existing.assigned_to] : []),
     created_by: actorId || existing.created_by
   };
+  payload.assigned_to = payload.assigned_to_ids[0] || null;
 
   await validateSchedulePayload(payload);
 
@@ -317,7 +356,11 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
     Object.prototype.hasOwnProperty.call(input, "test_environment_id") ? normalizeText(input.test_environment_id) : existing.test_environment_id,
     Object.prototype.hasOwnProperty.call(input, "test_configuration_id") ? normalizeText(input.test_configuration_id) : existing.test_configuration_id,
     Object.prototype.hasOwnProperty.call(input, "test_data_set_id") ? normalizeText(input.test_data_set_id) : existing.test_data_set_id,
+    Object.prototype.hasOwnProperty.call(input, "release") ? normalizeText(input.release) : normalizeText(existing.release),
+    Object.prototype.hasOwnProperty.call(input, "sprint") ? normalizeText(input.sprint) : normalizeText(existing.sprint),
+    Object.prototype.hasOwnProperty.call(input, "build") ? normalizeText(input.build) : normalizeText(existing.build),
     payload.assigned_to,
+    payload.assigned_to_ids,
     id
   );
 
@@ -378,7 +421,11 @@ exports.runExecutionSchedule = async (id, created_by) => {
     test_environment_id: schedule.test_environment_id || undefined,
     test_configuration_id: schedule.test_configuration_id || undefined,
     test_data_set_id: schedule.test_data_set_id || undefined,
+    assigned_to_ids: schedule.assigned_to_ids || [],
     assigned_to: schedule.assigned_to || undefined,
+    release: schedule.release || undefined,
+    sprint: schedule.sprint || undefined,
+    build: schedule.build || undefined,
     name: `${schedule.name} Run`,
     trigger: "ci",
     execution_mode: "remote",

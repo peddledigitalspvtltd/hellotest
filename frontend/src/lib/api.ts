@@ -68,6 +68,25 @@ const API_BASE_URL =
   "/api";
 const SESSION_KEY = "qaira.session";
 
+type IssuePayload = {
+  user_id: string;
+  title: string;
+  message: string;
+  steps_to_reproduce?: string;
+  expected_result?: string;
+  actual_result?: string;
+  severity?: string;
+  priority?: string;
+  environment?: string;
+  build?: string;
+  jira_bug_key?: string;
+  linked_test_run_id?: string;
+  assignee_id?: string;
+  root_cause?: string;
+  retest_result?: string;
+  status?: string;
+};
+
 const getStoredToken = () => {
   const raw = window.localStorage.getItem(SESSION_KEY);
 
@@ -528,9 +547,9 @@ export const api = {
   issues: {
     list: (query?: { user_id?: string; status?: string }) =>
       request<Issue[]>(`/feedback${toQueryString(query)}`),
-    create: (input: { user_id: string; title: string; message: string; status?: string }) =>
+    create: (input: IssuePayload) =>
       request<{ id: string }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ user_id: string; title: string; message: string; status: string }>) =>
+    update: (id: string, input: Partial<IssuePayload>) =>
       request<{ updated: boolean }>(`/feedback/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/feedback/${id}`, { method: "DELETE" })
   },
@@ -1069,11 +1088,11 @@ export const api = {
       request<Execution>(`/executions/${id}`),
     previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release_scope?: string; additional_context?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; name?: string; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; created_by: string }) =>
       request<{ id: string }>("/executions", { method: "POST", body: JSON.stringify(input) }),
-    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; name?: string; created_by: string; engine_base_url?: string }) =>
+    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: { assigned_to?: string }) =>
+    update: (id: string, input: { assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string }) =>
       request<{ updated: boolean }>(`/executions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     runApiStep: (executionId: string, testCaseId: string, stepId: string) =>
       request<{
@@ -1120,9 +1139,9 @@ export const api = {
       request<ExecutionSchedule[]>(`/execution-schedules${toQueryString(query)}`),
     get: (id: string) =>
       request<ExecutionSchedule>(`/execution-schedules/${id}`),
-    create: (input: { project_id: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; assigned_to?: string; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[]; created_by: string }) =>
       request<{ id: string }>("/execution-schedules", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: { project_id?: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; assigned_to?: string }) =>
+    update: (id: string, input: { project_id?: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[] }) =>
       request<{ updated: boolean }>(`/execution-schedules/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     run: (id: string) =>
       request<{ id: string }>(`/execution-schedules/${id}/run`, { method: "POST" }),

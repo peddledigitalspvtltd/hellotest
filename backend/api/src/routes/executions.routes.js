@@ -95,6 +95,10 @@ module.exports = async function (fastify) {
       execution_mode: { required: false, type: "string" },
       engine_base_url: { required: false, type: "string" },
       assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" },
+      release: { required: false, type: "string" },
+      sprint: { required: false, type: "string" },
+      build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" }
     }, req.body);
@@ -116,6 +120,10 @@ module.exports = async function (fastify) {
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" },
+      release: { required: false, type: "string" },
+      sprint: { required: false, type: "string" },
+      build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" },
       engine_base_url: { required: false, type: "string" }
@@ -167,7 +175,11 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
-      assigned_to: { required: false, type: "string" }
+      assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" },
+      release: { required: false, type: "string" },
+      sprint: { required: false, type: "string" },
+      build: { required: false, type: "string" }
     }, req.body);
 
     const execution = await service.getExecution(req.params.id);

@@ -16,7 +16,11 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      release: { required: false, type: "string" },
+      sprint: { required: false, type: "string" },
+      build: { required: false, type: "string" },
       assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" },
       created_by: { required: true, type: "string" }
     }, req.body);
 
@@ -67,7 +71,11 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
-      assigned_to: { required: false, type: "string" }
+      release: { required: false, type: "string" },
+      sprint: { required: false, type: "string" },
+      build: { required: false, type: "string" },
+      assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" }
     }, req.body);
 
     return service.updateExecutionSchedule(req.params.id, req.body, req.user.id);

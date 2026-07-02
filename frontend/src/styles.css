@@ -14307,6 +14307,102 @@ button.execution-activity-card {
   gap: var(--space-md);
 }
 
+.execution-create-grid--metadata {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.multi-assignee-picker {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.multi-assignee-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+}
+
+.multi-assignee-chip,
+.multi-assignee-empty {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.22rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.multi-assignee-chip {
+  background: rgba(33, 104, 243, 0.1);
+  color: var(--primary);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-assignee-empty {
+  color: var(--text-secondary);
+}
+
+.multi-assignee-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 10.5rem;
+  overflow-y: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.multi-assignee-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.5rem;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.multi-assignee-option:hover {
+  background: rgba(33, 104, 243, 0.07);
+}
+
+.multi-assignee-option > span {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.multi-assignee-option strong,
+.multi-assignee-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-assignee-option strong {
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.multi-assignee-option small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
 .execution-parallel-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 5.5rem;
@@ -14528,7 +14624,8 @@ button.execution-activity-card {
   gap: 0.65rem;
 }
 
-.execution-assignment-actions select {
+.execution-assignment-actions select,
+.execution-assignment-actions .multi-assignee-picker {
   min-width: min(18rem, 100%);
   flex: 1 1 16rem;
 }
@@ -23154,6 +23251,64 @@ html {
   flex: 1 1 24rem;
   width: min(100%, 32rem);
   max-width: 32rem;
+}
+
+.issue-report-form {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.issue-form-section {
+  display: grid;
+  gap: var(--space-md);
+  padding: 1rem;
+  border: 1px solid rgba(121, 151, 205, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.issue-form-section-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.issue-form-section-head strong {
+  color: var(--text-primary);
+  font-size: 0.96rem;
+}
+
+.issue-form-section-head span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.issue-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.issue-form-grid--triple,
+.issue-form-rich-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.issue-form-rich-grid .rich-text-editor {
+  min-height: 12rem;
+}
+
+:root[data-theme="dark"] .issue-form-section {
+  border-color: rgba(180, 199, 231, 0.14);
+  background: rgba(17, 31, 54, 0.78);
+}
+
+@media (max-width: 1180px) {
+  .issue-form-grid,
+  .issue-form-grid--triple,
+  .issue-form-rich-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .execution-run-detail-catalog,
