@@ -22,6 +22,7 @@ const projectSyncService = require("./services/projectSync.service");
 const batchProcessService = require("./services/batchProcess.service");
 const permissionService = require("./services/permission.service");
 const apiKeyService = require("./services/apiKey.service");
+const featureFlagService = require("./services/featureFlag.service");
 const { ROUTE_PERMISSIONS } = require("./security/permissions.catalog");
 const { verifyToken, generateRequestId } = require("./utils/token");
 
@@ -112,6 +113,20 @@ const enforceApiKeyScope = (req) => {
 
   if (!apiKeyService.isScopeAllowed(req.apiKey.scope, permissionCode, req.method)) {
     throw createError("API key scope does not allow this endpoint.", 403);
+  }
+};
+
+const enforceFeatureFlagAccess = async (req, permissionCode) => {
+  const featureKeys = featureFlagService.getFeatureKeysForPermission(permissionCode);
+
+  if (!featureKeys.length) {
+    return;
+  }
+
+  const allowed = await featureFlagService.areEnabled(featureKeys, { user: req.user });
+
+  if (!allowed) {
+    throw createError("This feature is disabled for the workspace.", 403);
   }
 };
 
@@ -266,7 +281,8 @@ fastify.addHook("onRoute", (routeOptions) => {
         }
       }
 
-      return fastify.requirePermission(permissionCode)(req);
+      await fastify.requirePermission(permissionCode)(req);
+      await enforceFeatureFlagAccess(req, permissionCode);
     };
 
     routeOptions.preHandler = [

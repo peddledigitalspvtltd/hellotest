@@ -10,6 +10,7 @@ import { BrandWordmark } from "./BrandWordmark";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
 import { canAccessPath, hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
 import {
@@ -45,6 +46,7 @@ const navigation = [
         shortLabel: "Library",
         icon: FlaskIcon,
         matchPaths: TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["qaira.manual.test_cases"],
         disabledWhenNoProjects: true
       },
       {
@@ -54,6 +56,7 @@ const navigation = [
         shortLabel: "Auto",
         icon: AutomationIcon,
         matchPaths: AUTOMATION_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["qaira.automation.workspace"],
         disabledWhenNoProjects: true
       },
       {
@@ -62,6 +65,7 @@ const navigation = [
         label: "Agentic Workflows",
         shortLabel: "Agents",
         icon: WorkflowIcon,
+        featureKeys: ["qaira.ai.agentic_workflows"],
         disabledWhenNoProjects: true
       },
       {
@@ -71,6 +75,7 @@ const navigation = [
         shortLabel: "Runs",
         icon: PlayIcon,
         matchPaths: ["/executions"],
+        featureKeys: ["qaira.manual.runs"],
         disabledWhenNoProjects: true
       },
       { id: "issues", to: "/issues", label: "Report Issue", shortLabel: "Issue", icon: BugIcon },
@@ -81,6 +86,7 @@ const navigation = [
         shortLabel: "TestOps",
         icon: ActivityIcon,
         matchPaths: TESTOPS_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["qaira.automation.batch_process"],
         disabledWhenNoProjects: true
       },
       {
@@ -92,7 +98,7 @@ const navigation = [
         matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
         disabledWhenNoProjects: true
       },
-      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon }
+      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["qaira.ai.knowledge"] }
     ]
   },
   {
@@ -111,7 +117,7 @@ const navigation = [
   {
     label: "Settings",
     items: [
-      { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon },
+      { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon, featureKeys: ["qaira.ops.notifications"] },
       { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon }
     ]
   }
@@ -407,6 +413,13 @@ export function AppShell() {
     retry: 1,
     staleTime: 60 * 1000
   });
+  const featureFlagsQuery = useQuery({
+    queryKey: ["feature-flags"],
+    queryFn: api.featureFlags.snapshot,
+    enabled: Boolean(session),
+    retry: 1,
+    staleTime: 60 * 1000
+  });
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const stored = window.localStorage.getItem(THEME_KEY);
 
@@ -559,6 +572,10 @@ export function AppShell() {
 
   const currentSection = useMemo(() => WORKSPACE_PAGE_LABELS[location.pathname] || "Workspace", [location.pathname]);
   const canAccessCurrentRoute = canAccessPath(session, location.pathname);
+  const canAccessCurrentFeature = areFeatureFlagsEnabled(
+    featureFlagsQuery.data,
+    requiredFeatureFlagsForPath(location.pathname)
+  );
 
   const shouldCollapseSidebar = !isMobileViewport && isCollapsed;
   const sidebarClassName = `${shouldCollapseSidebar ? "sidebar is-collapsed" : "sidebar"}${isMobileSidebarOpen ? " is-mobile-open" : ""}`;
@@ -702,6 +719,10 @@ export function AppShell() {
                     return null;
                   }
 
+                  if (!areFeatureFlagsEnabled(featureFlagsQuery.data, "featureKeys" in item ? item.featureKeys : [])) {
+                    return null;
+                  }
+
                   const Icon = item.icon;
                   const isDisabled = Boolean("disabledWhenNoProjects" in item && item.disabledWhenNoProjects && hasNoProjects);
                   const badgeCount = item.id === "notifications"
@@ -842,13 +863,13 @@ export function AppShell() {
             </button>
           </div>
         ) : null}
-        {canAccessCurrentRoute ? (
+        {canAccessCurrentRoute && canAccessCurrentFeature ? (
           <Outlet />
         ) : (
           <section className="permission-empty-state card">
             <span className="eyebrow">Access Limited</span>
-            <h1>You do not have permission to view this workspace area.</h1>
-            <p>Ask an administrator to update your role permissions, or choose another available menu item from the sidebar.</p>
+            <h1>{canAccessCurrentRoute ? "This workspace feature is disabled." : "You do not have permission to view this workspace area."}</h1>
+            <p>{canAccessCurrentRoute ? "Ask an administrator to enable this feature from Admin Space settings, or choose another available menu item from the sidebar." : "Ask an administrator to update your role permissions, or choose another available menu item from the sidebar."}</p>
           </section>
         )}
       </main>

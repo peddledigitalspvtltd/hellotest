@@ -134,7 +134,7 @@ module.exports = async function (fastify) {
   fastify.get("/test-cases/automation/learning-cache", async (req) => {
     await fastify.authenticate(req);
 
-    const { project_id, app_type_id, limit } = req.query;
+    const { project_id, app_type_id, limit, offset } = req.query;
 
     if (app_type_id) {
       const appType = await appTypeService.getAppType(app_type_id);
@@ -148,7 +148,8 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.listLearningCache({
       project_id,
       app_type_id,
-      limit: limit !== undefined ? Number(limit) : undefined
+      limit: limit !== undefined ? Number(limit) : undefined,
+      offset: offset !== undefined ? Number(offset) : undefined
     });
   });
 

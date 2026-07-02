@@ -77,6 +77,8 @@ type AutomationStepOptions = {
   skip: boolean;
 };
 
+const REPOSITORY_PAGE_SIZE = 200;
+
 type RecorderTab = {
   id: string | null;
   title: string | null;
@@ -342,6 +344,14 @@ function getCapturedLocators(result: RecorderInspectResult): RepositoryLocator[]
 
 function getScreenName(entry: AutomationLearningCacheEntry) {
   return normalizeMetadataValue(entry.metadata?.screen_name) || entry.page_key || "Unassigned screen";
+}
+
+function makeRepositoryScreenKey(screenName: string, appTypeId?: string | null) {
+  return `${appTypeId || "workspace"}::${screenName}`;
+}
+
+function getRepositoryScreenKey(entry: AutomationLearningCacheEntry) {
+  return makeRepositoryScreenKey(getScreenName(entry), entry.app_type_id);
 }
 
 function getObjectName(entry: AutomationLearningCacheEntry) {
@@ -1065,11 +1075,27 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
   const learningCacheQuery = useQuery({
     queryKey: ["automation-learning-cache", "automation-workspace", projectId, appTypeId],
-    queryFn: () => api.testCases.learningCache({
-      project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
-      limit: 200
-    }),
+    queryFn: async () => {
+      const queryScope = projectId
+        ? { project_id: projectId }
+        : { app_type_id: appTypeId || undefined };
+      const rows: AutomationLearningCacheEntry[] = [];
+
+      for (let offset = 0; ; offset += REPOSITORY_PAGE_SIZE) {
+        const page = await api.testCases.learningCache({
+          ...queryScope,
+          limit: REPOSITORY_PAGE_SIZE,
+          offset
+        });
+        rows.push(...page);
+
+        if (page.length < REPOSITORY_PAGE_SIZE) {
+          break;
+        }
+      }
+
+      return rows;
+    },
     enabled: Boolean((projectId || appTypeId) && session)
   });
   const automatedStepsQuery = useQuery({
@@ -1372,23 +1398,38 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     const grouped = new Map<string, AutomationLearningCacheEntry[]>();
 
     learningCache.forEach((entry) => {
-      const screenName = getScreenName(entry);
-      grouped.set(screenName, [...(grouped.get(screenName) || []), entry]);
+      const screenKey = getRepositoryScreenKey(entry);
+      grouped.set(screenKey, [...(grouped.get(screenKey) || []), entry]);
     });
 
-    return Array.from(grouped.entries()).sort(([left], [right]) => left.localeCompare(right));
+    return Array.from(grouped.entries()).sort(([, leftEntries], [, rightEntries]) =>
+      getScreenName(leftEntries[0]).localeCompare(getScreenName(rightEntries[0]))
+    );
   }, [learningCache]);
   const activeScreenEntries = useMemo(() => {
-    const selected = groupedRepository.find(([screenName]) => screenName === selectedScreenName);
+    const selected = groupedRepository.find(([screenKey]) => screenKey === selectedScreenName);
     return selected?.[1] || groupedRepository[0]?.[1] || [];
   }, [groupedRepository, selectedScreenName]);
-  const activeScreenName = groupedRepository.find(([screenName]) => screenName === selectedScreenName)?.[0] || groupedRepository[0]?.[0] || "";
+  const activeScreenKey = groupedRepository.find(([screenKey]) => screenKey === selectedScreenName)?.[0] || groupedRepository[0]?.[0] || "";
+  const activeScreenName = activeScreenEntries.length ? getScreenName(activeScreenEntries[0]) : "";
   const activeScreenRecord = activeScreenEntries.find(isScreenRepositoryRecord) || activeScreenEntries[0] || null;
   const selectedRepositoryEntry = activeScreenEntries.find((entry) => entry.id === selectedRepositoryId && !isNonElementRepositoryEntry(entry))
     || activeScreenEntries.find((entry) => !isNonElementRepositoryEntry(entry))
     || null;
+  const activeRepositoryAppTypeId = activeScreenRecord?.app_type_id
+    || selectedRepositoryEntry?.app_type_id
+    || activeScreenEntries.find((entry) => entry.app_type_id)?.app_type_id
+    || appTypeId
+    || "";
+  const activeRepositoryProjectId = activeScreenRecord?.project_id
+    || selectedRepositoryEntry?.project_id
+    || activeScreenEntries.find((entry) => entry.project_id)?.project_id
+    || projectId
+    || "";
   const pageObjectModels = useMemo(() => {
-    return groupedRepository.map(([screenName, entries]) => {
+    return groupedRepository.map(([screenKey, entries]) => {
+      const screenName = getScreenName(entries[0]);
+      const screenAppTypeId = entries.find((entry) => entry.app_type_id)?.app_type_id || "";
       const members = entries.filter((entry) => !isNonElementRepositoryEntry(entry)).map((entry) => ({
         entry,
         pageName: screenName,
@@ -1399,8 +1440,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }));
 
       return {
-        screenName,
+        screenName: screenKey,
         pageName: screenName,
+        appTypeId: screenAppTypeId,
         url: getRepositoryScreenUrl(entries),
         members
       };
@@ -1453,7 +1495,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       setSelectedScreenName(targetPage.screenName);
       setScreenInfoDraft((current) => ({
         ...current,
-        screen_name: targetPage.screenName
+        screen_name: targetPage.pageName
       }));
     }
     if (targetPage?.url && targetPage.url !== "No URL captured") {
@@ -1583,10 +1625,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [searchParams, selectedRepositoryEntry, selectedRepositoryId]);
 
   useEffect(() => {
-    if (activeScreenName && selectedScreenName !== activeScreenName) {
-      setSelectedScreenName(activeScreenName);
+    if (activeScreenKey && selectedScreenName !== activeScreenKey) {
+      setSelectedScreenName(activeScreenKey);
     }
-  }, [activeScreenName, selectedScreenName]);
+  }, [activeScreenKey, selectedScreenName]);
 
   useEffect(() => {
     setScreenRenameDraft(activeScreenName);
@@ -2487,11 +2529,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const persistRepositoryField = (field: RepositoryExtractedField) => {
-    const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
-    const existingField = learningCache.find((entry) => !isScreenRepositoryRecord(entry) && getScreenName(entry) === screenName && entry.locator === field.locator);
+    const screenName = screenInfoDraft.screen_name.trim() || activeScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+    const repositoryAppTypeId = activeRepositoryAppTypeId || appTypeId || "";
+    const repositoryProjectId = activeRepositoryProjectId || projectId || "";
+    const existingField = learningCache.find((entry) =>
+      !isScreenRepositoryRecord(entry)
+      && getScreenName(entry) === screenName
+      && entry.locator === field.locator
+      && (!repositoryAppTypeId || entry.app_type_id === repositoryAppTypeId)
+    );
     const input = {
-      project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
+      project_id: repositoryProjectId || undefined,
+      app_type_id: repositoryAppTypeId || undefined,
       page_url: field.pageUrl || screenUrlDraft || undefined,
       page_key: screenName,
       screen_name: screenName,
@@ -2540,6 +2589,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         entry.id !== selectedRepositoryEntry.id
         && getScreenName(entry) === screenName
         && String(entry.locator || "").trim() === repositoryDraft.locator.trim()
+        && (!activeRepositoryAppTypeId || entry.app_type_id === activeRepositoryAppTypeId)
       );
 
       if (duplicate) {
@@ -2558,7 +2608,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         dom_structure: repositoryDraft.dom_structure,
         screenshot_url: repositoryDraft.screenshot_url,
         fallback_strategy: repositoryDraft.fallback_strategy,
-        platform: appTypes.find((appType) => appType.id === appTypeId)?.type || "web",
+        platform: appTypes.find((appType) => appType.id === activeRepositoryAppTypeId)?.type || "web",
         url_pattern_type: screenInfoDraft.url_pattern_type,
         url_pattern_value: screenInfoDraft.url_pattern_value,
         screen_fingerprint: screenInfoDraft.screen_fingerprint,
@@ -2626,7 +2676,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     },
     onSuccess: (entry) => {
       const screenName = newRepositoryScreenDraft.screen_name.trim();
-      setSelectedScreenName(screenName);
+      setSelectedScreenName(makeRepositoryScreenKey(screenName, entry?.app_type_id || appTypeId || undefined));
       setScreenUrlDraft(newRepositoryScreenDraft.page_url.trim());
       setScreenDomDraft(newRepositoryScreenDraft.dom_structure.trim());
       setScreenScreenshotDraft(newRepositoryScreenDraft.screenshot_url.trim());
@@ -2653,8 +2703,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
 
   const persistRepositoryScreenEvidence = () => {
-    const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+    const screenName = screenInfoDraft.screen_name.trim() || activeScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
     const existingScreenRecord = activeScreenEntries.find(isScreenRepositoryRecord);
+    const repositoryAppTypeId = activeRepositoryAppTypeId || appTypeId || "";
+    const repositoryProjectId = activeRepositoryProjectId || projectId || "";
     const metadata = {
       ...(existingScreenRecord?.metadata || {}),
       record_kind: "screen",
@@ -2686,8 +2738,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     return api.testCases.createLearningCacheEntry({
-      project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
+      project_id: repositoryProjectId || undefined,
+      app_type_id: repositoryAppTypeId || undefined,
       page_url: screenUrlDraft || undefined,
       page_key: screenName,
       screen_name: screenName,
@@ -2738,9 +2790,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const extractRepositoryFields = useMutation({
     mutationFn: async () => {
-      const screenName = screenInfoDraft.screen_name.trim() || selectedScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
+      const screenName = screenInfoDraft.screen_name.trim() || activeScreenName || inferScreenName(null, screenUrlDraft) || "Screen";
       const response = await api.testCases.extractLearningCacheFields({
-        app_type_id: appTypeId || undefined,
+        app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
         screen_name: screenName,
         page_url: screenUrlDraft || undefined,
         dom_structure: screenDomDraft || undefined,
@@ -2789,8 +2841,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       return api.testCases.createLearningCacheEntry({
-        project_id: projectId || undefined,
-        app_type_id: appTypeId || undefined,
+        project_id: activeRepositoryProjectId || projectId || undefined,
+        app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
         page_url: screenUrlDraft || undefined,
         page_key: screenName,
         screen_name: screenName,
@@ -2812,7 +2864,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       setIsAddingRepositoryField(false);
       showSuccess("Object repository field added manually.");
       if (entry?.id) {
-        selectRepositoryEntry(entry.id, activeScreenName);
+        selectRepositoryEntry(entry.id, activePageObject?.screenName || selectedScreenName);
       }
       setNewRepositoryFieldDraft({
         screen_name: activeScreenName,
@@ -2834,12 +2886,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       return api.testCases.renameLearningCacheScreen(activeScreenName, {
-        app_type_id: appTypeId || undefined,
+        app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
         new_name: screenRenameDraft.trim()
       });
     },
     onSuccess: (response) => {
-      setSelectedScreenName(response.screen_name);
+      setSelectedScreenName(makeRepositoryScreenKey(response.screen_name, activeRepositoryAppTypeId || appTypeId || undefined));
       setRenamingScreenName("");
       setScreenInfoDraft((current) => ({ ...current, screen_name: response.screen_name }));
       showSuccess(`Renamed screen, updated ${response.updated_fields} field reference${response.updated_fields === 1 ? "" : "s"}, and migrated ${response.updated_step_references} step binding${response.updated_step_references === 1 ? "" : "s"}.`);
@@ -2879,8 +2931,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (!activePageObject) {
         throw new Error("Select a screen first.");
       }
-      return api.testCases.deleteLearningCacheScreen(activePageObject.screenName, {
-        app_type_id: appTypeId || undefined,
+      return api.testCases.deleteLearningCacheScreen(activeScreenName, {
+        app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
         ...(confirmed ? { confirm: "true" } : {})
       });
     },
@@ -3046,7 +3098,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const persistLiveInspectResult = async (result: RecorderInspectResult) => {
-    const screenName = selectedScreenName || screenInfoDraft.screen_name.trim() || inferScreenName(result.page_title, result.page_url) || "Screen";
+    const screenName = activeScreenName || screenInfoDraft.screen_name.trim() || inferScreenName(result.page_title, result.page_url) || "Screen";
     const urlPattern = inferUrlPattern(result.page_url);
     const selections = getInspectSelections(result);
     const fields = selections.map((selection) => buildRepositoryFieldFromInspectSelection(result, selection));
@@ -4178,10 +4230,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <>
                         <button className="pom-page-select" onClick={() => setSelectedScreenName(page.screenName)} type="button">
                           <strong>{page.pageName}</strong>
+                          <small>{appTypes.find((appType) => appType.id === page.appTypeId)?.name || "Workspace"}</small>
                         </button>
                         <button aria-label={`Rename ${page.pageName}`} className="pom-page-rename" onClick={() => {
                           setSelectedScreenName(page.screenName);
-                          setScreenRenameDraft(page.screenName);
+                          setScreenRenameDraft(page.pageName);
                           setRenamingScreenName(page.screenName);
                         }} type="button">
                           <PencilIcon size={15} />
@@ -4624,32 +4677,35 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 </div>
                 <div className="object-repository-inspector-grid">
                   <div className="object-repository-inspector-inputs">
-                    <div className="object-repository-inspector-section-head">
-                      <strong>Screen evidence</strong>
-                      <span>Review captured identity and selected fields before saving them to the repository.</span>
-                    </div>
-                    <label className="form-field">
-                      <span>Screen name</span>
-                      <input readOnly={Boolean(activeScreenName)} value={screenInfoDraft.screen_name} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Login Page" />
-                    </label>
-                    <label className="form-field">
-                      <span>Screen URL path</span>
-                      <input value={screenUrlDraft} onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="/login or https://app.example.com/login" />
-                    </label>
-                    <label className="form-field">
-                      <span>URL match rule</span>
-                      <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
-                    </label>
-                    <label className="form-field">
-                      <span>Intended flow / business meaning</span>
-                      <textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, or continue as guest." />
-                    </label>
-                    <label className="form-field">
-                      <span>Description</span>
-                      <RichTextEditor rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="Purpose and boundaries of this screen." />
-                    </label>
-                    <details className="object-repository-advanced-evidence">
-                      <summary>Advanced evidence and DOM</summary>
+                    <details className="object-repository-static-evidence">
+                      <summary>
+                        <span>
+                          <strong>Screen evidence</strong>
+                          <small>{screenInfoDraft.screen_name || activeScreenName || "Screen identity"}</small>
+                        </span>
+                      </summary>
+                      <label className="form-field">
+                        <span>Screen name</span>
+                        <input readOnly={Boolean(activeScreenName)} value={screenInfoDraft.screen_name} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Login Page" />
+                      </label>
+                      <label className="form-field">
+                        <span>Screen URL path</span>
+                        <input value={screenUrlDraft} onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="/login or https://app.example.com/login" />
+                      </label>
+                      <label className="form-field">
+                        <span>URL match rule</span>
+                        <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
+                      </label>
+                      <label className="form-field">
+                        <span>Intended flow / business meaning</span>
+                        <textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, or continue as guest." />
+                      </label>
+                      <label className="form-field">
+                        <span>Description</span>
+                        <RichTextEditor rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="Purpose and boundaries of this screen." />
+                      </label>
+                      <details className="object-repository-advanced-evidence">
+                        <summary>Advanced evidence and DOM</summary>
                       <label className="form-field">
                         <span>Screen fingerprint</span>
                         <input value={screenInfoDraft.screen_fingerprint} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, screen_fingerprint: event.target.value }))} placeholder="Captured after live field selection" />
@@ -4662,6 +4718,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         <span>Screen DOM</span>
                         <textarea rows={10} value={screenDomDraft} onChange={(event) => setScreenDomDraft(event.target.value)} placeholder="<input name='username' aria-label='Username' />" />
                       </label>
+                      </details>
                     </details>
                   </div>
                     <div className="object-repository-inspector-preview">

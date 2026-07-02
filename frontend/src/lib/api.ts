@@ -23,6 +23,7 @@ import type {
   Execution,
   ExecutionResult,
   ExecutionSchedule,
+  FeatureFlagSnapshot,
   Issue,
   Integration,
   KeyValueEntry,
@@ -368,6 +369,14 @@ export const api = {
     revokeApiKey: (id: string) =>
       request<{ revoked: boolean; api_key: UserApiKey }>(`/settings/api-keys/${id}`, {
         method: "DELETE"
+      })
+  },
+  featureFlags: {
+    snapshot: () => request<FeatureFlagSnapshot>("/feature-flags"),
+    update: (flags: Record<string, boolean>) =>
+      request<FeatureFlagSnapshot>("/feature-flags", {
+        method: "PUT",
+        body: JSON.stringify({ flags })
       })
   },
   metadata: {
@@ -778,7 +787,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
+    learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number; offset?: number }) =>
       request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
     repositoryContext: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<ObjectRepositoryContext>(`/test-cases/automation/repository-context${toQueryString(query)}`),

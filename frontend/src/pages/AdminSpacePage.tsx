@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { ActivityIcon, LayersIcon, PlugIcon, UsersIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { api } from "../lib/api";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { IntegrationsPage } from "./IntegrationsPage";
 import { PeoplePage } from "./PeoplePage";
 import { SettingsPage } from "./SettingsPage";
@@ -12,6 +13,12 @@ import { SettingsPage } from "./SettingsPage";
 type AdminSpaceSection = "users" | "roles" | "integrations" | "settings";
 
 const ADMIN_SECTIONS: AdminSpaceSection[] = ["users", "roles", "integrations", "settings"];
+const ADMIN_SECTION_FEATURES: Record<AdminSpaceSection, string[]> = {
+  users: ["qaira.ops.admin"],
+  roles: ["qaira.ops.admin"],
+  integrations: ["qaira.api.integrations"],
+  settings: []
+};
 
 const normalizeSection = (value: string | null): AdminSpaceSection | null =>
   ADMIN_SECTIONS.includes(value as AdminSpaceSection) ? (value as AdminSpaceSection) : null;
@@ -21,8 +28,18 @@ export function AdminSpacePage() {
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: api.users.list });
   const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: api.roles.list });
   const integrationsQuery = useQuery({ queryKey: ["integrations", "admin-space"], queryFn: () => api.integrations.list() });
+  const featureFlagsQuery = useQuery({
+    queryKey: ["feature-flags"],
+    queryFn: api.featureFlags.snapshot,
+    retry: 1,
+    staleTime: 60 * 1000
+  });
 
-  const activeSection = normalizeSection(searchParams.get("section")) || (searchParams.get("view") === "roles" ? "roles" : "users");
+  const requestedSection = normalizeSection(searchParams.get("section")) || (searchParams.get("view") === "roles" ? "roles" : "users");
+  const visibleSections = ADMIN_SECTIONS.filter((section) =>
+    areFeatureFlagsEnabled(featureFlagsQuery.data, ADMIN_SECTION_FEATURES[section])
+  );
+  const activeSection = visibleSections.includes(requestedSection) ? requestedSection : "settings";
   const users = usersQuery.data || [];
   const roles = rolesQuery.data || [];
   const integrations = integrationsQuery.data || [];
@@ -92,7 +109,14 @@ export function AdminSpacePage() {
       detail: "Preferences",
       icon: <ActivityIcon />
     }
+  ].filter((item) => visibleSections.includes(item.section));
+  const adminTabItems: Array<{ value: AdminSpaceSection; label: string; meta: string; icon: ReactNode }> = [
+    { value: "users", label: "Users", meta: `${users.length} records`, icon: <UsersIcon /> },
+    { value: "roles", label: "Roles", meta: `${roles.length} records`, icon: <LayersIcon /> },
+    { value: "integrations", label: "Integrations", meta: `${integrations.length} configured`, icon: <PlugIcon /> },
+    { value: "settings", label: "Settings", meta: "Workspace", icon: <ActivityIcon /> }
   ];
+  const visibleAdminTabItems = adminTabItems.filter((item) => visibleSections.includes(item.value));
 
   const handleSectionChange = (section: AdminSpaceSection) => {
     const nextParams = new URLSearchParams();
@@ -135,12 +159,7 @@ export function AdminSpacePage() {
       <SubnavTabs
         ariaLabel="Admin Space sections"
         className="admin-space-tabs"
-        items={[
-          { value: "users", label: "Users", meta: `${users.length} records`, icon: <UsersIcon /> },
-          { value: "roles", label: "Roles", meta: `${roles.length} records`, icon: <LayersIcon /> },
-          { value: "integrations", label: "Integrations", meta: `${integrations.length} configured`, icon: <PlugIcon /> },
-          { value: "settings", label: "Settings", meta: "Workspace", icon: <ActivityIcon /> }
-        ]}
+        items={visibleAdminTabItems}
         onChange={handleSectionChange}
         value={activeSection}
       />

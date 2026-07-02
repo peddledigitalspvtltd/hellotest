@@ -24056,6 +24056,17 @@ html {
   overflow-wrap: anywhere;
 }
 
+.pom-page-select small {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pom-page-rename {
   display: inline-flex;
   align-items: center;
@@ -24784,7 +24795,7 @@ button.pom-member-row {
 
 .object-repository-inspector-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.65fr);
+  grid-template-columns: minmax(260px, 0.7fr) minmax(420px, 1.3fr);
   gap: 1rem;
   align-items: start;
   min-height: 0;
@@ -24795,6 +24806,54 @@ button.pom-member-row {
   min-width: 0;
   display: grid;
   gap: 0.8rem;
+}
+
+.object-repository-static-evidence {
+  display: grid;
+  min-width: 0;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated, var(--card-bg)) 90%, transparent);
+}
+
+.object-repository-static-evidence summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.object-repository-static-evidence summary > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.object-repository-static-evidence summary strong,
+.object-repository-static-evidence summary small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-static-evidence summary small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.object-repository-static-evidence[open] summary {
+  margin-bottom: 0.72rem;
+}
+
+.object-repository-static-evidence .form-field + .form-field {
+  margin-top: 0.7rem;
 }
 
 .object-repository-inspector-section-head {
@@ -24843,6 +24902,7 @@ button.pom-member-row {
 }
 
 .object-repository-inspector-preview {
+  min-width: 0;
   display: grid;
   gap: 8px;
   align-content: start;
@@ -37047,6 +37107,115 @@ body > .nested-modal-backdrop {
 
 .settings-api-key-card.is-revoked .settings-api-key-meta span:first-child {
   color: var(--text-secondary);
+}
+
+.feature-flag-provider-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 26%, var(--border-subtle, var(--border)));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 6%, var(--surface-elevated, var(--card-bg)));
+}
+
+.feature-flag-provider-card > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.feature-flag-provider-card strong {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.feature-flag-provider-card span,
+.feature-flag-provider-card small {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.feature-flag-provider-card small {
+  max-width: min(26rem, 45vw);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.feature-flag-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.8rem;
+}
+
+.feature-flag-group-card {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+}
+
+.feature-flag-group-head {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.feature-flag-group-head strong {
+  color: var(--text-primary);
+  font-size: 0.92rem;
+}
+
+.feature-flag-group-head span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.feature-flag-list {
+  display: grid;
+  gap: 0.46rem;
+}
+
+.feature-flag-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.58rem;
+  min-width: 0;
+  padding: 0.58rem 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle, var(--border)) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 86%, transparent);
+}
+
+.feature-flag-toggle input {
+  margin-top: 0.15rem;
+  accent-color: var(--accent-primary, var(--primary));
+}
+
+.feature-flag-toggle > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.feature-flag-toggle strong {
+  color: var(--text-primary);
+  font-size: 0.84rem;
+}
+
+.feature-flag-toggle small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .projects-catalog-actions .project-more-actions {

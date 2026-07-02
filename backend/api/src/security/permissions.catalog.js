@@ -9,7 +9,8 @@ const PERMISSION_GROUPS = [
       ["project.update", "Update projects"],
       ["project.delete", "Delete projects"],
       ["project.sync", "Sync projects with connected providers"],
-      ["settings.manage", "Manage workspace localization and settings"]
+      ["settings.manage", "Manage workspace localization and settings"],
+      ["feature_flag.manage", "Manage workspace feature flags and rollout controls"]
     ]
   },
   {
@@ -391,6 +392,8 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/settings/api-keys", "workspace.view"],
   ["POST", "/settings/api-keys", "workspace.view"],
   ["DELETE", "/settings/api-keys/:id", "workspace.view"],
+  ["GET", "/feature-flags", "workspace.view"],
+  ["PUT", "/feature-flags", "feature_flag.manage"],
   ["GET", "/local-agent/status", "ops.view"],
   ["POST", "/local-agent/start", "ops.manage"],
   ["DELETE", "/ops-telemetry/logs", "ops.manage"]

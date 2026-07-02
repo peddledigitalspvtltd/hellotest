@@ -462,7 +462,19 @@ export function DataTable<T>({
   };
 
   const resetColumns = () => {
-    updateColumnPreference(() => normalizeColumnPreference(columns));
+    const defaultPreference = normalizeColumnPreference(columns);
+
+    setIsPreferenceHydrated(true);
+    setColumnPreference(defaultPreference);
+    setColumnWidths(defaultPreference.columnWidths);
+
+    if (storageKey) {
+      writeStoredColumnPreference(storageKey, defaultPreference);
+      lastSavedPreferenceRef.current = JSON.stringify(defaultPreference);
+      void saveWorkspacePreference(storageKey, defaultPreference).catch(() => {
+        lastSavedPreferenceRef.current = "";
+      });
+    }
   };
 
   const sortedRows = useMemo(() => {

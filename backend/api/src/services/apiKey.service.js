@@ -44,7 +44,7 @@ const API_KEY_SCOPES = [
   {
     value: "admin",
     label: "Admin",
-    description: "Users, roles, project members, workspace settings, and ops APIs."
+    description: "Full API access, still limited by the permissions of the user who created the key."
   }
 ];
 
@@ -260,6 +260,10 @@ const isScopeAllowed = (scope, permissionCode, method) => {
   }
 
   if (normalizedScope === "user") {
+    return true;
+  }
+
+  if (normalizedScope === "admin") {
     return true;
   }
 

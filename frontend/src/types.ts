@@ -54,6 +54,32 @@ export type UserApiKey = {
   revoked_at?: string | null;
 };
 
+export type FeatureFlagDefinition = {
+  key: string;
+  label: string;
+  routes?: string[];
+  group: string;
+  group_label: string;
+};
+
+export type FeatureFlagGroup = {
+  key: string;
+  label: string;
+  description: string;
+  features: Array<Omit<FeatureFlagDefinition, "group" | "group_label">>;
+};
+
+export type FeatureFlagSnapshot = {
+  groups: FeatureFlagGroup[];
+  flags: Record<string, boolean>;
+  local_flags: Record<string, boolean>;
+  provider: {
+    type: "local";
+    configured: boolean;
+    connected: boolean;
+  };
+};
+
 export type AppNotification = {
   id: string;
   user_id: string;

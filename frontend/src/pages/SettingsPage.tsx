@@ -16,6 +16,7 @@ import {
   resolveAiPromptRegistryValue
 } from "../lib/aiPromptRegistry";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
+import { hasPermission } from "../lib/permissions";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   readNotificationPreferences,
@@ -39,7 +40,7 @@ const DEFAULT_API_KEY_SCOPE_OPTIONS: ApiKeyScopeOption[] = [
   { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and issues." },
   { value: "environment", label: "Environment", description: "Environments, configurations, app types, and data sets." },
   { value: "integrations", label: "Integrations", description: "Integrations, AI knowledge, and prompt templates." },
-  { value: "admin", label: "Admin", description: "Users, roles, settings, project members, and ops." }
+  { value: "admin", label: "Admin", description: "Full API access, limited by your user permissions." }
 ];
 
 type ProjectAutomationSettings = {
@@ -80,6 +81,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [autoExport, setAutoExport] = useState(false);
   const [projectAutomationSettings, setProjectAutomationSettings] = useState<ProjectAutomationSettings>(DEFAULT_PROJECT_AUTOMATION_SETTINGS);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
+  const [featureFlagDrafts, setFeatureFlagDrafts] = useState<Record<string, boolean>>({});
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, prompt.value]))
   );
@@ -93,8 +95,10 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
+  const [isSavingFeatureFlags, setIsSavingFeatureFlags] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isAdmin = session?.user.role === "admin";
+  const canManageFeatureFlags = hasPermission(session, "feature_flag.manage");
   const integrationsQuery = useQuery({ queryKey: ["integrations"], queryFn: () => api.integrations.list(), enabled: Boolean(session) });
   const workspacePreferencesQuery = useQuery({
     queryKey: ["settings", "workspace-preferences"],
@@ -104,6 +108,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const apiKeysQuery = useQuery({
     queryKey: ["settings", "api-keys"],
     queryFn: api.settings.listApiKeys,
+    enabled: Boolean(session)
+  });
+  const featureFlagsQuery = useQuery({
+    queryKey: ["feature-flags"],
+    queryFn: api.featureFlags.snapshot,
     enabled: Boolean(session)
   });
   const llmIntegrations = useMemo(
@@ -146,6 +155,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       )
     );
   }, [workspacePreferencesQuery.data]);
+
+  useEffect(() => {
+    if (featureFlagsQuery.data?.local_flags) {
+      setFeatureFlagDrafts(featureFlagsQuery.data.local_flags);
+    }
+  }, [featureFlagsQuery.data]);
 
   const saveSettings = async () => {
     try {
@@ -299,6 +314,22 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       showError(error, "Unable to create API key.");
     } finally {
       setIsCreatingApiKey(false);
+    }
+  };
+
+  const handleSaveFeatureFlags = async () => {
+    setIsSavingFeatureFlags(true);
+
+    try {
+      const response = await api.featureFlags.update(featureFlagDrafts);
+      setFeatureFlagDrafts(response.local_flags);
+      await featureFlagsQuery.refetch();
+      setMessageTone("success");
+      setMessage("Feature availability updated.");
+    } catch (error) {
+      showError(error, "Unable to update feature availability.");
+    } finally {
+      setIsSavingFeatureFlags(false);
     }
   };
 
@@ -479,6 +510,64 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <TrashIcon size={15} />
                     <span>{revokingApiKeyId === apiKeyRecord.id ? "Revoking..." : "Revoke"}</span>
                   </button>
+                </article>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-heading settings-section-heading--with-action">
+            <div>
+              <p className="eyebrow">Features</p>
+              <h3>Feature availability</h3>
+            </div>
+            <button
+              className="primary-button"
+              disabled={!canManageFeatureFlags || isSavingFeatureFlags || featureFlagsQuery.isLoading}
+              onClick={() => void handleSaveFeatureFlags()}
+              type="button"
+            >
+              <SaveIcon />
+              <span>{isSavingFeatureFlags ? "Saving..." : "Save features"}</span>
+            </button>
+          </div>
+          <Panel title="Workspace feature flags" subtitle="Enable or pause capability groups without changing role permissions.">
+            <div className="feature-flag-provider-card">
+              <div>
+                <strong>Local controls</strong>
+                <span>Stored in workspace settings</span>
+              </div>
+            </div>
+            {featureFlagsQuery.isLoading ? <div className="empty-state compact">Loading feature flags...</div> : null}
+            <div className="feature-flag-group-grid">
+              {(featureFlagsQuery.data?.groups || []).map((group) => (
+                <article className="feature-flag-group-card" key={group.key}>
+                  <div className="feature-flag-group-head">
+                    <strong>{group.label}</strong>
+                    <span>{group.description}</span>
+                  </div>
+                  <div className="feature-flag-list">
+                    {group.features.map((feature) => (
+                      <label className="feature-flag-toggle" key={feature.key}>
+                        <input
+                          checked={featureFlagDrafts[feature.key] !== false}
+                          disabled={!canManageFeatureFlags || isSavingFeatureFlags}
+                          onChange={(event) =>
+                            setFeatureFlagDrafts((current) => ({
+                              ...current,
+                              [feature.key]: event.target.checked
+                            }))
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>{feature.label}</strong>
+                          <small>{feature.key}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </article>
               ))}
             </div>

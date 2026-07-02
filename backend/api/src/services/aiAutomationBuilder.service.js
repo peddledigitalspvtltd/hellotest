@@ -224,7 +224,7 @@ const normalizeLearningCacheRow = (row) => row
     }
   : null;
 
-const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_ROWS } = {}) => {
+const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_ROWS, offset = 0 } = {}) => {
   let query = `
     SELECT *
     FROM automation_learning_cache
@@ -242,8 +242,9 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
     params.push(appTypeId);
   }
 
-  query += ` ORDER BY hit_count DESC, updated_at DESC LIMIT ?`;
+  query += ` ORDER BY hit_count DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`;
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
+  params.push(Math.max(0, Number(offset) || 0));
 
   return obsDb.prepare(query).all(...params);
 };
@@ -3594,12 +3595,13 @@ exports.buildAutomationBatch = async ({
   };
 };
 
-exports.listLearningCache = async ({ project_id, app_type_id, limit } = {}) => {
+exports.listLearningCache = async ({ project_id, app_type_id, limit, offset } = {}) => {
   const boundedLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   const rows = await listLearningCacheRows({
     projectId: normalizeText(project_id),
     appTypeId: normalizeText(app_type_id),
-    limit: boundedLimit
+    limit: boundedLimit,
+    offset: Math.max(0, Number(offset) || 0)
   });
 
   return rows.map(normalizeLearningCacheRow);
