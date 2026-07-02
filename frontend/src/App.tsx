@@ -5,7 +5,7 @@ import {
   useLocation,
   useNavigate
 } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AppShell } from "./components/AppShell";
@@ -18,29 +18,30 @@ import {
   rememberAuthRedirectRoute,
   rememberCurrentWorkspaceRoute
 } from "./lib/routeHistory";
-import { AuthPage } from "./pages/AuthPage";
-import { DesignPage } from "./pages/DesignPage";
-import { ExecutionsPage } from "./pages/ExecutionsPage";
-import { OverviewPage } from "./pages/OverviewPage";
-import { PeoplePage } from "./pages/PeoplePage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { RequirementsPage } from "./pages/RequirementsPage";
-import { IssuesPage } from "./pages/IssuesPage";
-import { TestCasesPage } from "./pages/TestCasesPage";
-import { IntegrationsPage } from "./pages/IntegrationsPage";
-import { SupportPage } from "./pages/SupportPage";
-import { NotificationsPage } from "./pages/NotificationsPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { SharedStepsPage } from "./pages/SharedStepsPage";
-import { TestEnvironmentPage } from "./pages/TestEnvironmentPage";
-import { TestOpsPage } from "./pages/TestOpsPage";
-import { KnowledgeRepoPage } from "./pages/KnowledgeRepoPage";
-import { AutomationPage } from "./pages/AutomationPage";
-import { AgenticWorkflowsPage } from "./pages/AgenticWorkflowsPage";
-import { AdminSpacePage } from "./pages/AdminSpacePage";
+import { readWorkspaceTheme, writeWorkspaceTheme } from "./lib/workspacePreferences";
 
 const queryClient = new QueryClient();
-const THEME_KEY = "app_theme";
+
+const AdminSpacePage = lazy(() => import("./pages/AdminSpacePage").then((module) => ({ default: module.AdminSpacePage })));
+const AgenticWorkflowsPage = lazy(() => import("./pages/AgenticWorkflowsPage").then((module) => ({ default: module.AgenticWorkflowsPage })));
+const AuthPage = lazy(() => import("./pages/AuthPage").then((module) => ({ default: module.AuthPage })));
+const AutomationPage = lazy(() => import("./pages/AutomationPage").then((module) => ({ default: module.AutomationPage })));
+const DesignPage = lazy(() => import("./pages/DesignPage").then((module) => ({ default: module.DesignPage })));
+const ExecutionsPage = lazy(() => import("./pages/ExecutionsPage").then((module) => ({ default: module.ExecutionsPage })));
+const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
+const IssuesPage = lazy(() => import("./pages/IssuesPage").then((module) => ({ default: module.IssuesPage })));
+const KnowledgeRepoPage = lazy(() => import("./pages/KnowledgeRepoPage").then((module) => ({ default: module.KnowledgeRepoPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((module) => ({ default: module.NotificationsPage })));
+const OverviewPage = lazy(() => import("./pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
+const PeoplePage = lazy(() => import("./pages/PeoplePage").then((module) => ({ default: module.PeoplePage })));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage").then((module) => ({ default: module.ProjectsPage })));
+const RequirementsPage = lazy(() => import("./pages/RequirementsPage").then((module) => ({ default: module.RequirementsPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const SharedStepsPage = lazy(() => import("./pages/SharedStepsPage").then((module) => ({ default: module.SharedStepsPage })));
+const SupportPage = lazy(() => import("./pages/SupportPage").then((module) => ({ default: module.SupportPage })));
+const TestCasesPage = lazy(() => import("./pages/TestCasesPage").then((module) => ({ default: module.TestCasesPage })));
+const TestEnvironmentPage = lazy(() => import("./pages/TestEnvironmentPage").then((module) => ({ default: module.TestEnvironmentPage })));
+const TestOpsPage = lazy(() => import("./pages/TestOpsPage").then((module) => ({ default: module.TestOpsPage })));
 
 const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/": { key: "page.overview", fallback: "Overview" },
@@ -74,14 +75,7 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
 
 function ThemeBootstrap() {
   useEffect(() => {
-    const stored = window.localStorage.getItem(THEME_KEY);
-    const theme = stored === "dark" || stored === "light"
-      ? stored
-      : window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-
-    document.documentElement.dataset.theme = theme;
+    writeWorkspaceTheme(readWorkspaceTheme());
   }, []);
 
   return null;
@@ -217,7 +211,9 @@ export function App() {
       <ThemeBootstrap />
       <AuthProvider>
         <LocalizationProvider>
-          <RouterProvider router={router} />
+          <Suspense fallback={<div className="splash-screen">Loading workspace…</div>}>
+            <RouterProvider router={router} />
+          </Suspense>
         </LocalizationProvider>
       </AuthProvider>
     </QueryClientProvider>

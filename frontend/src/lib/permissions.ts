@@ -1,6 +1,7 @@
 import type { SessionPayload } from "../types";
 
 const ADMIN_ROLE = "admin";
+export type PageAccessMap = Record<string, string[]>;
 
 const MEMBER_DEFAULT_PERMISSIONS = new Set([
   "workspace.view",
@@ -55,12 +56,13 @@ const MEMBER_DEFAULT_PERMISSIONS = new Set([
   "knowledge.manage",
   "prompt_template.view",
   "transaction.view",
+  "notification.view",
   "feedback.view",
   "feedback.manage",
   "ops.view"
 ]);
 
-const PATH_PERMISSIONS: Record<string, string[]> = {
+const PATH_PERMISSIONS: PageAccessMap = {
   "/": ["workspace.view"],
   "/projects": ["project.view"],
   "/admin-space": ["user.view", "role.view", "integration.view", "settings.manage"],
@@ -85,7 +87,7 @@ const PATH_PERMISSIONS: Record<string, string[]> = {
   "/feedback": ["feedback.view"],
   "/settings": ["settings.manage"],
   "/support": ["workspace.view"],
-  "/notifications": ["workspace.view"]
+  "/notifications": ["notification.view"]
 };
 
 export function hasPermission(session: SessionPayload | null, permission: string) {
@@ -108,10 +110,10 @@ export function hasAnyPermission(session: SessionPayload | null, permissions: re
   return permissions.some((permission) => hasPermission(session, permission));
 }
 
-export function requiredPermissionsForPath(pathname: string) {
-  return PATH_PERMISSIONS[pathname] || ["workspace.view"];
+export function requiredPermissionsForPath(pathname: string, pageAccess?: PageAccessMap | null) {
+  return pageAccess?.[pathname] || PATH_PERMISSIONS[pathname] || ["workspace.view"];
 }
 
-export function canAccessPath(session: SessionPayload | null, pathname: string) {
-  return hasAnyPermission(session, requiredPermissionsForPath(pathname));
+export function canAccessPath(session: SessionPayload | null, pathname: string, pageAccess?: PageAccessMap | null) {
+  return hasAnyPermission(session, requiredPermissionsForPath(pathname, pageAccess));
 }

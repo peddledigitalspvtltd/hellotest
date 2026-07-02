@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const fp = require("fastify-plugin");
 const db = require("../db");
 const obsDb = require("../obsDb");
 
@@ -157,7 +158,7 @@ const getEngineMetrics = async () => {
   return result.rows[0] || {};
 };
 
-module.exports = async function observabilityPlugin(fastify) {
+async function observabilityPlugin(fastify) {
   fastify.decorateRequest("traceId", null);
   fastify.decorateRequest("traceparent", null);
   fastify.decorateRequest("startedAtNs", null);
@@ -230,4 +231,8 @@ module.exports = async function observabilityPlugin(fastify) {
       .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
       .send(renderMetrics(engineMetrics));
   });
-};
+}
+
+module.exports = fp(observabilityPlugin, {
+  name: "qaira-observability"
+});

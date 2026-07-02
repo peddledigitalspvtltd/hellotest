@@ -6,6 +6,7 @@ import { AddIcon, CopyIcon, SaveIcon, TrashIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ToastMessage } from "../components/ToastMessage";
+import { FeatureAvailabilitySection } from "../features/featureFlags/FeatureAvailabilitySection";
 import { api } from "../lib/api";
 import {
   AI_PROMPT_LLM_OVERRIDES_KEY,
@@ -16,21 +17,25 @@ import {
   resolveAiPromptRegistryValue
 } from "../lib/aiPromptRegistry";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
-import { hasPermission } from "../lib/permissions";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   readNotificationPreferences,
   writeNotificationPreferences,
   type NotificationPreferences
 } from "../lib/notificationPreferences";
-import { readDefaultCatalogViewMode, writeDefaultCatalogViewMode, type CatalogViewModePreference } from "../lib/viewPreferences";
+import { queryKeys } from "../lib/queryKeys";
 import type { ApiKeyScope, ApiKeyScopeOption, Integration, UserApiKey } from "../types";
-
-const THEME_KEY = "app_theme";
-const SIDEBAR_KEY = "sidebar_collapsed";
-const AUTO_EXPORT_KEY = "app_auto_export";
-const PROJECT_AUTOMATION_SETTINGS_KEY = "qaira.project_automation_settings";
-const PREFERENCES_UPDATED_EVENT = "qaira:preferences-updated";
+import { readDefaultCatalogViewMode, writeDefaultCatalogViewMode, type CatalogViewModePreference } from "../lib/viewPreferences";
+import {
+  emitWorkspacePreferenceUpdate,
+  preferenceStorageKeys,
+  readSidebarMode,
+  readWorkspaceTheme,
+  writeSidebarMode,
+  writeWorkspaceTheme,
+  type SidebarMode,
+  type WorkspaceTheme
+} from "../lib/workspacePreferences";
 
 const DEFAULT_API_KEY_SCOPE_OPTIONS: ApiKeyScopeOption[] = [
   { value: "user", label: "User access", description: "Default. Uses your current user permissions." },
@@ -65,7 +70,7 @@ const DEFAULT_PROJECT_AUTOMATION_SETTINGS: ProjectAutomationSettings = {
 
 function readProjectAutomationSettings(): ProjectAutomationSettings {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(PROJECT_AUTOMATION_SETTINGS_KEY) || "{}") as Partial<ProjectAutomationSettings>;
+    const parsed = JSON.parse(window.localStorage.getItem(preferenceStorageKeys.projectAutomationSettings) || "{}") as Partial<ProjectAutomationSettings>;
     return { ...DEFAULT_PROJECT_AUTOMATION_SETTINGS, ...parsed };
   } catch {
     return DEFAULT_PROJECT_AUTOMATION_SETTINGS;
@@ -75,13 +80,12 @@ function readProjectAutomationSettings(): ProjectAutomationSettings {
 export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { strings, setWorkspaceStrings, t } = useLocalization();
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [sidebarMode, setSidebarMode] = useState<"expanded" | "collapsed">("expanded");
+  const [theme, setTheme] = useState<WorkspaceTheme>("light");
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("collapsed");
   const [defaultCatalogViewMode, setDefaultCatalogViewMode] = useState<CatalogViewModePreference>("tile");
   const [autoExport, setAutoExport] = useState(false);
   const [projectAutomationSettings, setProjectAutomationSettings] = useState<ProjectAutomationSettings>(DEFAULT_PROJECT_AUTOMATION_SETTINGS);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
-  const [featureFlagDrafts, setFeatureFlagDrafts] = useState<Record<string, boolean>>({});
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, prompt.value]))
   );
@@ -95,24 +99,17 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
-  const [isSavingFeatureFlags, setIsSavingFeatureFlags] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isAdmin = session?.user.role === "admin";
-  const canManageFeatureFlags = hasPermission(session, "feature_flag.manage");
-  const integrationsQuery = useQuery({ queryKey: ["integrations"], queryFn: () => api.integrations.list(), enabled: Boolean(session) });
+  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session) });
   const workspacePreferencesQuery = useQuery({
-    queryKey: ["settings", "workspace-preferences"],
+    queryKey: queryKeys.settings.workspacePreferences(),
     queryFn: api.settings.getWorkspacePreferences,
     enabled: Boolean(session)
   });
   const apiKeysQuery = useQuery({
-    queryKey: ["settings", "api-keys"],
+    queryKey: queryKeys.settings.apiKeys(),
     queryFn: api.settings.listApiKeys,
-    enabled: Boolean(session)
-  });
-  const featureFlagsQuery = useQuery({
-    queryKey: ["feature-flags"],
-    queryFn: api.featureFlags.snapshot,
     enabled: Boolean(session)
   });
   const llmIntegrations = useMemo(
@@ -129,11 +126,10 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   );
 
   useEffect(() => {
-    const storedTheme = window.localStorage.getItem(THEME_KEY);
-    setTheme(storedTheme === "dark" ? "dark" : "light");
-    setSidebarMode(window.localStorage.getItem(SIDEBAR_KEY) === "true" ? "collapsed" : "expanded");
+    setTheme(readWorkspaceTheme());
+    setSidebarMode(readSidebarMode());
     setDefaultCatalogViewMode(readDefaultCatalogViewMode());
-    setAutoExport(window.localStorage.getItem(AUTO_EXPORT_KEY) === "true");
+    setAutoExport(window.localStorage.getItem(preferenceStorageKeys.autoExport) === "true");
     setProjectAutomationSettings(readProjectAutomationSettings());
     setNotificationPreferences(readNotificationPreferences());
   }, []);
@@ -156,18 +152,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     );
   }, [workspacePreferencesQuery.data]);
 
-  useEffect(() => {
-    if (featureFlagsQuery.data?.local_flags) {
-      setFeatureFlagDrafts(featureFlagsQuery.data.local_flags);
-    }
-  }, [featureFlagsQuery.data]);
-
   const saveSettings = async () => {
     try {
-      window.localStorage.setItem(THEME_KEY, theme);
-      window.localStorage.setItem(SIDEBAR_KEY, String(sidebarMode === "collapsed"));
-      window.localStorage.setItem(AUTO_EXPORT_KEY, String(autoExport));
-      window.localStorage.setItem(PROJECT_AUTOMATION_SETTINGS_KEY, JSON.stringify(projectAutomationSettings));
+      writeWorkspaceTheme(theme);
+      writeSidebarMode(sidebarMode);
+      window.localStorage.setItem(preferenceStorageKeys.autoExport, String(autoExport));
+      window.localStorage.setItem(preferenceStorageKeys.projectAutomationSettings, JSON.stringify(projectAutomationSettings));
       writeDefaultCatalogViewMode(defaultCatalogViewMode);
       writeNotificationPreferences(notificationPreferences);
       await api.settings.updateWorkspacePreferences({
@@ -183,16 +173,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
         }
       });
       await workspacePreferencesQuery.refetch();
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.dataset.sidebar = sidebarMode;
-      window.dispatchEvent(
-        new CustomEvent(PREFERENCES_UPDATED_EVENT, {
-          detail: {
-            theme,
-            sidebarMode
-          }
-        })
-      );
+      emitWorkspacePreferenceUpdate({ sidebarMode, theme });
       setMessageTone("success");
       setMessage("Workspace preferences saved.");
     } catch (error) {
@@ -213,6 +194,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const showError = (error: unknown, fallback: string) => {
     setMessageTone("error");
     setMessage(error instanceof Error ? error.message : fallback);
+  };
+
+  const showSuccess = (nextMessage: string) => {
+    setMessageTone("success");
+    setMessage(nextMessage);
   };
 
   const handleDownloadLocalization = () => {
@@ -314,22 +300,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       showError(error, "Unable to create API key.");
     } finally {
       setIsCreatingApiKey(false);
-    }
-  };
-
-  const handleSaveFeatureFlags = async () => {
-    setIsSavingFeatureFlags(true);
-
-    try {
-      const response = await api.featureFlags.update(featureFlagDrafts);
-      setFeatureFlagDrafts(response.local_flags);
-      await featureFlagsQuery.refetch();
-      setMessageTone("success");
-      setMessage("Feature availability updated.");
-    } catch (error) {
-      showError(error, "Unable to update feature availability.");
-    } finally {
-      setIsSavingFeatureFlags(false);
     }
   };
 
@@ -516,63 +486,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           </Panel>
         </section>
 
-        <section className="settings-section">
-          <div className="settings-section-heading settings-section-heading--with-action">
-            <div>
-              <p className="eyebrow">Features</p>
-              <h3>Feature availability</h3>
-            </div>
-            <button
-              className="primary-button"
-              disabled={!canManageFeatureFlags || isSavingFeatureFlags || featureFlagsQuery.isLoading}
-              onClick={() => void handleSaveFeatureFlags()}
-              type="button"
-            >
-              <SaveIcon />
-              <span>{isSavingFeatureFlags ? "Saving..." : "Save features"}</span>
-            </button>
-          </div>
-          <Panel title="Workspace feature flags" subtitle="Enable or pause capability groups without changing role permissions.">
-            <div className="feature-flag-provider-card">
-              <div>
-                <strong>Local controls</strong>
-                <span>Stored in workspace settings</span>
-              </div>
-            </div>
-            {featureFlagsQuery.isLoading ? <div className="empty-state compact">Loading feature flags...</div> : null}
-            <div className="feature-flag-group-grid">
-              {(featureFlagsQuery.data?.groups || []).map((group) => (
-                <article className="feature-flag-group-card" key={group.key}>
-                  <div className="feature-flag-group-head">
-                    <strong>{group.label}</strong>
-                    <span>{group.description}</span>
-                  </div>
-                  <div className="feature-flag-list">
-                    {group.features.map((feature) => (
-                      <label className="feature-flag-toggle" key={feature.key}>
-                        <input
-                          checked={featureFlagDrafts[feature.key] !== false}
-                          disabled={!canManageFeatureFlags || isSavingFeatureFlags}
-                          onChange={(event) =>
-                            setFeatureFlagDrafts((current) => ({
-                              ...current,
-                              [feature.key]: event.target.checked
-                            }))
-                          }
-                          type="checkbox"
-                        />
-                        <span>
-                          <strong>{feature.label}</strong>
-                          <small>{feature.key}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </Panel>
-        </section>
+        <FeatureAvailabilitySection onError={showError} onSuccess={showSuccess} />
 
         <section className="settings-section">
           <div className="settings-section-heading">

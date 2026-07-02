@@ -2,7 +2,22 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { createPortal } from "react-dom";
 import { ColumnsIcon, DragHandleIcon, PinIcon } from "./AppIcons";
 import { InfoTooltip } from "./InfoTooltip";
-import { api } from "../lib/api";
+import {
+  DEFAULT_COLUMN_WIDTH,
+  DEFAULT_MAX_COLUMN_WIDTH,
+  DEFAULT_MIN_COLUMN_WIDTH,
+  clampColumnWidth,
+  getColumnPreferenceLabel,
+  isSelectionColumnKey,
+  loadWorkspacePreferenceCache,
+  moveColumnKey,
+  normalizeColumnPreference,
+  readStoredColumnPreference,
+  saveWorkspacePreference,
+  writeStoredColumnPreference,
+  type NormalizedColumnPreference,
+  type StoredColumnPreference
+} from "../lib/tablePreferences/columnPreferences";
 
 export type DataTableColumn<T> = {
   key: string;
@@ -18,158 +33,6 @@ export type DataTableColumn<T> = {
   minWidth?: number;
   maxWidth?: number;
   preferenceLabel?: string;
-};
-
-type StoredColumnPreference = {
-  visibleColumnKeys?: string[];
-  orderedColumnKeys?: string[];
-  columnWidths?: Record<string, number>;
-};
-
-type NormalizedColumnPreference = {
-  visibleColumnKeys: string[];
-  orderedColumnKeys: string[];
-  columnWidths: Record<string, number>;
-};
-
-let workspacePreferenceCache: Record<string, unknown> | null = null;
-let workspacePreferenceRequest: Promise<Record<string, unknown>> | null = null;
-
-const DEFAULT_COLUMN_WIDTH = 160;
-const DEFAULT_MIN_COLUMN_WIDTH = 72;
-const DEFAULT_MAX_COLUMN_WIDTH = 640;
-
-const clampColumnWidth = <T,>(column: DataTableColumn<T>, width: number) => {
-  const minWidth = column.minWidth || DEFAULT_MIN_COLUMN_WIDTH;
-  const maxWidth = column.maxWidth || DEFAULT_MAX_COLUMN_WIDTH;
-  return Math.min(maxWidth, Math.max(minWidth, Math.round(width)));
-};
-
-const readStoredColumnPreference = (storageKey: string) => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as StoredColumnPreference : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeStoredColumnPreference = (storageKey: string, value: NormalizedColumnPreference) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(storageKey, JSON.stringify(value));
-};
-
-const loadWorkspacePreferenceCache = async () => {
-  if (workspacePreferenceCache) {
-    return workspacePreferenceCache;
-  }
-
-  if (!workspacePreferenceRequest) {
-    workspacePreferenceRequest = api.settings
-      .getWorkspacePreferences()
-      .then((response) => {
-        workspacePreferenceCache = response.preferences || {};
-        return workspacePreferenceCache;
-      })
-      .catch(() => {
-        workspacePreferenceCache = {};
-        return workspacePreferenceCache;
-      })
-      .finally(() => {
-        workspacePreferenceRequest = null;
-      });
-  }
-
-  return workspacePreferenceRequest;
-};
-
-const saveWorkspacePreference = async (storageKey: string, value: NormalizedColumnPreference) => {
-  const nextCache = {
-    ...(workspacePreferenceCache || {}),
-    [storageKey]: value
-  };
-
-  workspacePreferenceCache = nextCache;
-  await api.settings.updateWorkspacePreferences({
-    preferences: {
-      [storageKey]: value
-    }
-  });
-};
-
-const getDefaultVisibleColumnKeys = <T,>(columns: Array<DataTableColumn<T>>) =>
-  columns.filter((column) => column.canToggle !== false && column.defaultVisible !== false).map((column) => column.key);
-
-const getDefaultOrderedColumnKeys = <T,>(columns: Array<DataTableColumn<T>>) => columns.map((column) => column.key);
-
-const isSelectionColumnKey = (key: string) => key === "select" || key === "selection" || key.startsWith("select-");
-
-const getColumnPreferenceLabel = <T,>(column: DataTableColumn<T>) => column.preferenceLabel || column.label || column.key;
-
-const normalizeColumnPreference = <T,>(
-  columns: Array<DataTableColumn<T>>,
-  input?: StoredColumnPreference | null
-): NormalizedColumnPreference => {
-  const allColumnKeys = getDefaultOrderedColumnKeys(columns);
-  const configurableColumnKeySet = new Set(columns.filter((column) => column.canToggle !== false).map((column) => column.key));
-  const defaultVisibleColumnKeys = getDefaultVisibleColumnKeys(columns);
-  const candidateVisibleKeys = Array.isArray(input?.visibleColumnKeys)
-    ? input.visibleColumnKeys.filter((key): key is string => typeof key === "string" && configurableColumnKeySet.has(key))
-    : defaultVisibleColumnKeys;
-  const orderedKeysSource = Array.isArray(input?.orderedColumnKeys)
-    ? input.orderedColumnKeys.filter((key): key is string => typeof key === "string")
-    : allColumnKeys;
-  const pinnedSelectionKeys = allColumnKeys.filter(isSelectionColumnKey);
-  const nonSelectionColumnKeys = allColumnKeys.filter((key) => !isSelectionColumnKey(key));
-  const orderedNonSelectionKeys = orderedKeysSource.filter((key) => nonSelectionColumnKeys.includes(key));
-  const orderedColumnKeys = [
-    ...pinnedSelectionKeys,
-    ...new Set([...orderedNonSelectionKeys, ...nonSelectionColumnKeys])
-  ];
-  const columnWidths = Object.entries(input?.columnWidths || {}).reduce<Record<string, number>>((accumulator, [key, width]) => {
-    const column = columns.find((candidate) => candidate.key === key);
-    if (column && typeof width === "number" && Number.isFinite(width)) {
-      accumulator[key] = clampColumnWidth(column, width);
-    }
-    return accumulator;
-  }, {});
-
-  return {
-    visibleColumnKeys: configurableColumnKeySet.size
-      ? (candidateVisibleKeys.length ? [...new Set(candidateVisibleKeys)] : [defaultVisibleColumnKeys[0] || Array.from(configurableColumnKeySet)[0]])
-      : [],
-    orderedColumnKeys,
-    columnWidths
-  };
-};
-
-const moveColumnKey = (keys: string[], draggedKey: string, targetKey: string) => {
-  if (draggedKey === targetKey) {
-    return keys;
-  }
-
-  const nextKeys = keys.filter((key) => key !== draggedKey);
-  const targetIndex = nextKeys.indexOf(targetKey);
-
-  if (targetIndex === -1) {
-    nextKeys.push(draggedKey);
-    return nextKeys;
-  }
-
-  nextKeys.splice(targetIndex, 0, draggedKey);
-  return nextKeys;
 };
 
 export function DataTable<T>({

@@ -1,3 +1,5 @@
+const fp = require("fastify-plugin");
+
 // Input sanitization utilities
 const sanitizeString = (value) => {
   if (typeof value !== "string") return value;
@@ -51,7 +53,65 @@ const sanitizeInput = (data, schema) => {
   return sanitized;
 };
 
-module.exports = async function (fastify) {
-  fastify.decorate("sanitize", sanitizeInput);
-  return fastify;
+const createValidationError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
 };
+
+const validateInput = (schema, data = {}) => {
+  for (const [field, rules] of Object.entries(schema)) {
+    const value = data[field];
+    const isMissing = value === undefined || value === null;
+
+    if (rules.required && isMissing) {
+      throw createValidationError(`Field '${field}' is required`);
+    }
+
+    if (isMissing) {
+      continue;
+    }
+
+    if (rules.type === "string" && typeof value !== "string") {
+      throw createValidationError(`Field '${field}' must be a string`);
+    }
+
+    if (rules.type === "number" && typeof value !== "number") {
+      throw createValidationError(`Field '${field}' must be a number`);
+    }
+
+    if (rules.type === "boolean" && typeof value !== "boolean") {
+      throw createValidationError(`Field '${field}' must be a boolean`);
+    }
+
+    if (rules.type === "array" && !Array.isArray(value)) {
+      throw createValidationError(`Field '${field}' must be an array`);
+    }
+
+    if (rules.type === "object" && (typeof value !== "object" || Array.isArray(value))) {
+      throw createValidationError(`Field '${field}' must be an object`);
+    }
+
+    if (rules.type === "array" && rules.items === "string" && !value.every((item) => typeof item === "string")) {
+      throw createValidationError(`Field '${field}' must contain only strings`);
+    }
+
+    if (rules.minLength && typeof value === "string" && value.length < rules.minLength) {
+      throw createValidationError(`Field '${field}' must be at least ${rules.minLength} characters`);
+    }
+
+    if (rules.enum && !rules.enum.includes(value)) {
+      throw createValidationError(`Field '${field}' must be one of: ${rules.enum.join(", ")}`);
+    }
+  }
+};
+
+async function validatorPlugin(fastify) {
+  fastify.decorate("sanitize", sanitizeInput);
+  fastify.decorate("validate", validateInput);
+  return fastify;
+}
+
+module.exports = fp(validatorPlugin, {
+  name: "qaira-validator"
+});

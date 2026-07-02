@@ -9,10 +9,23 @@ import { AppTypeInlineValue } from "./AppTypeDropdown";
 import { BrandWordmark } from "./BrandWordmark";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
+import { getNavigationItemLabel, getNavigationItemPermissions, isNavigationItemActive } from "../lib/navigation";
 import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
-import { canAccessPath, hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
+import { canAccessPath, hasAnyPermission } from "../lib/permissions";
+import { queryKeys } from "../lib/queryKeys";
+import {
+  PREFERENCES_UPDATED_EVENT,
+  readSidebarMode,
+  readWorkspaceTheme,
+  writeSidebarMode,
+  writeWorkspaceTheme,
+  type SidebarMode,
+  type WorkspacePreferenceUpdate
+} from "../lib/workspacePreferences";
 import {
   AUTOMATION_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
@@ -23,10 +36,7 @@ import {
   WORKSPACE_SECTION_LABEL_KEYS
 } from "../lib/workspaceSections";
 
-const THEME_KEY = "app_theme";
-const SIDEBAR_KEY = "sidebar_collapsed";
 const MOBILE_SIDEBAR_BREAKPOINT = "(max-width: 768px)";
-const PREFERENCES_UPDATED_EVENT = "qaira:preferences-updated";
 
 const navigation = [
   {
@@ -137,26 +147,6 @@ type SidebarScopePopoverPosition = {
   width: number;
 };
 
-function isNavigationItemActive(item: { to: string; matchPaths?: readonly string[] }, pathname: string) {
-  if (item.to === "/") {
-    return pathname === "/";
-  }
-
-  if (pathname === item.to) {
-    return true;
-  }
-
-  return Boolean(item.matchPaths?.includes(pathname));
-}
-
-function navItemPermissions(item: { to: string; matchPaths?: readonly string[] }) {
-  return [item.to, ...(item.matchPaths || [])].flatMap((path) => requiredPermissionsForPath(path));
-}
-
-function getNavigationItemLabel(item: { label: string; shortLabel?: string }, shouldCollapseSidebar: boolean) {
-  return shouldCollapseSidebar ? item.shortLabel || item.label : item.label;
-}
-
 function SidebarScopeSelector({
   isCollapsed,
   isLoadingProjects,
@@ -171,7 +161,7 @@ function SidebarScopeSelector({
   const [popoverPosition, setPopoverPosition] = useState<SidebarScopePopoverPosition | null>(null);
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const appTypesQuery = useQuery({
-    queryKey: ["app-types", projectId],
+    queryKey: queryKeys.appTypes(projectId),
     queryFn: () => api.appTypes.list({ project_id: projectId }),
     enabled: Boolean(projectId),
     retry: 1,
@@ -407,32 +397,16 @@ export function AppShell() {
   const location = useLocation();
   const { session, logout, error, clearError } = useAuth();
   const { t } = useLocalization();
+  const domainMetadataQuery = useDomainMetadata();
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
+    queryKey: queryKeys.projects(),
     queryFn: api.projects.list,
     retry: 1,
     staleTime: 60 * 1000
   });
-  const featureFlagsQuery = useQuery({
-    queryKey: ["feature-flags"],
-    queryFn: api.featureFlags.snapshot,
-    enabled: Boolean(session),
-    retry: 1,
-    staleTime: 60 * 1000
-  });
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = window.localStorage.getItem(THEME_KEY);
-
-    if (stored === "dark" || stored === "light") {
-      return stored;
-    }
-
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    const stored = window.localStorage.getItem(SIDEBAR_KEY);
-    return stored === null ? true : stored === "true";
-  });
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const [theme, setTheme] = useState(readWorkspaceTheme);
+  const [isCollapsed, setIsCollapsed] = useState(() => readSidebarMode() === "collapsed");
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_SIDEBAR_BREAKPOINT).matches);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
@@ -449,12 +423,11 @@ export function AppShell() {
   };
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(THEME_KEY, theme);
+    writeWorkspaceTheme(theme);
   }, [theme]);
 
   useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_KEY, String(isCollapsed));
+    writeSidebarMode(isCollapsed ? "collapsed" : "expanded");
   }, [isCollapsed]);
 
   useEffect(() => {
@@ -473,12 +446,10 @@ export function AppShell() {
     const syncPreferences = (event?: Event) => {
       const detail =
         event && "detail" in event
-          ? (event as CustomEvent<{ theme?: "light" | "dark"; sidebarMode?: "expanded" | "collapsed" }>).detail
+          ? (event as CustomEvent<WorkspacePreferenceUpdate>).detail
           : undefined;
-      const nextTheme = detail?.theme || window.localStorage.getItem(THEME_KEY);
-      const nextSidebarMode =
-        detail?.sidebarMode ??
-        (window.localStorage.getItem(SIDEBAR_KEY) === "false" ? "expanded" : "collapsed");
+      const nextTheme = detail?.theme || readWorkspaceTheme();
+      const nextSidebarMode: SidebarMode = detail?.sidebarMode ?? readSidebarMode();
 
       if (nextTheme === "light" || nextTheme === "dark") {
         setTheme(nextTheme);
@@ -571,7 +542,8 @@ export function AppShell() {
   const isWorkspaceWideLibrary = WORKSPACE_LIBRARY_PATHS.has(location.pathname);
 
   const currentSection = useMemo(() => WORKSPACE_PAGE_LABELS[location.pathname] || "Workspace", [location.pathname]);
-  const canAccessCurrentRoute = canAccessPath(session, location.pathname);
+  const pageAccess = domainMetadataQuery.data?.access?.pages;
+  const canAccessCurrentRoute = canAccessPath(session, location.pathname, pageAccess);
   const canAccessCurrentFeature = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
     requiredFeatureFlagsForPath(location.pathname)
@@ -715,7 +687,7 @@ export function AppShell() {
               ) : null}
               <div className="nav-group-items">
                 {group.items.map((item) => {
-                  if (!hasAnyPermission(session, navItemPermissions(item))) {
+                  if (!hasAnyPermission(session, getNavigationItemPermissions(item, pageAccess))) {
                     return null;
                   }
 

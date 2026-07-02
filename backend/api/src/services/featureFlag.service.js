@@ -49,6 +49,7 @@ const PERMISSION_FEATURES = {
   "prompt_template.manage": ["qaira.ai.test_authoring"],
   "transaction.view": ["qaira.ops.background_jobs"],
   "transaction.manage": ["qaira.ops.background_jobs"],
+  "notification.view": ["qaira.ops.notifications"],
   "ops.view": ["qaira.ops.telemetry"],
   "ops.manage": ["qaira.ops.telemetry"]
 };

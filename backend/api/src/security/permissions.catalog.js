@@ -113,6 +113,7 @@ const PERMISSION_GROUPS = [
     permissions: [
       ["transaction.view", "View background transactions, events, and artifacts"],
       ["transaction.manage", "Delete background transactions"],
+      ["notification.view", "View and acknowledge in-app notifications"],
       ["feedback.view", "View reported issues"],
       ["feedback.manage", "Create, update, and delete reported issues"],
       ["ops.view", "View operational metadata, metrics, and local agent status"],
@@ -188,11 +189,42 @@ const DEFAULT_ROLE_PERMISSIONS = {
     "knowledge.manage",
     "prompt_template.view",
     "transaction.view",
+    "notification.view",
     "feedback.view",
     "feedback.manage",
     "ops.view"
   ]
 };
+
+const PAGE_ACCESS_RULES = [
+  ["/", ["workspace.view"]],
+  ["/projects", ["project.view"]],
+  ["/admin-space", ["user.view", "role.view", "integration.view", "settings.manage"]],
+  ["/people", ["user.view", "role.view"]],
+  ["/integrations", ["integration.view"]],
+  ["/requirements", ["requirement.view"]],
+  ["/test-cases", ["testcase.view"]],
+  ["/shared-steps", ["shared_step.view"]],
+  ["/design", ["suite.view"]],
+  ["/automation", ["automation.view"]],
+  ["/object-repository", ["automation.view"]],
+  ["/agentic-workflows", ["agentic_workflow.view"]],
+  ["/executions", ["run.view"]],
+  ["/testops", ["transaction.view", "ops.view"]],
+  ["/ops-telemetry", ["ops.view"]],
+  ["/traces", ["ops.view"]],
+  ["/test-environments", ["environment.view"]],
+  ["/test-configurations", ["configuration.view"]],
+  ["/test-data", ["data.view"]],
+  ["/knowledge-repo", ["knowledge.view"]],
+  ["/issues", ["feedback.view"]],
+  ["/feedback", ["feedback.view"]],
+  ["/settings", ["settings.manage"]],
+  ["/support", ["workspace.view"]],
+  ["/notifications", ["notification.view"]]
+];
+
+const PAGE_ACCESS = Object.fromEntries(PAGE_ACCESS_RULES);
 
 const ROUTE_PERMISSION_RULES = [
   ["GET", "/metadata/domain", "workspace.view"],
@@ -353,8 +385,10 @@ const ROUTE_PERMISSION_RULES = [
   ["DELETE", "/app-types/:id", "app_type.manage"],
   ["GET", "/integrations", "integration.view"],
   ["GET", "/integrations/:id", "integration.view"],
+  ["GET", "/integrations/export", "integration.manage"],
   ["POST", "/integrations", "integration.manage"],
   ["POST", "/integrations/test-connection", "integration.manage"],
+  ["POST", "/integrations/import", "integration.manage"],
   ["PUT", "/integrations/:id", "integration.manage"],
   ["DELETE", "/integrations/:id", "integration.manage"],
   ["GET", "/projects/:project_id/knowledge", "knowledge.view"],
@@ -375,6 +409,9 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/workspace-transactions/:id/artifacts", "transaction.view"],
   ["GET", "/workspace-transactions/:id/artifacts/:artifactId/download", "transaction.view"],
   ["DELETE", "/workspace-transactions/:id", "transaction.manage"],
+  ["GET", "/notifications", "notification.view"],
+  ["PUT", "/notifications/read-all", "notification.view"],
+  ["PUT", "/notifications/:id/read", "notification.view"],
   ["GET", "/issues", "feedback.view"],
   ["GET", "/issues/:id", "feedback.view"],
   ["POST", "/issues", "feedback.manage"],
@@ -394,6 +431,21 @@ const ROUTE_PERMISSION_RULES = [
   ["DELETE", "/settings/api-keys/:id", "workspace.view"],
   ["GET", "/feature-flags", "workspace.view"],
   ["PUT", "/feature-flags", "feature_flag.manage"],
+  ["GET", "/requirement-defects", "feedback.view"],
+  ["PUT", "/requirement-defects/replace", "feedback.manage"],
+  ["GET", "/test-case-defects", "feedback.view"],
+  ["GET", "/test-case-defects/:testCaseId/issues", "feedback.view"],
+  ["PUT", "/test-case-defects/replace", "feedback.manage"],
+  ["GET", "/test-case-modules", "testcase.view"],
+  ["GET", "/test-case-modules/:id", "testcase.view"],
+  ["GET", "/test-case-modules/:id/test-cases", "testcase.view"],
+  ["POST", "/test-case-modules", "testcase.create"],
+  ["POST", "/test-case-modules/:id/test-cases", "testcase.update"],
+  ["PUT", "/test-case-modules/:id", "testcase.update"],
+  ["DELETE", "/test-case-modules/:id/test-cases", "testcase.update"],
+  ["DELETE", "/test-case-modules/:id", "testcase.delete"],
+  ["POST", "/test-cases/:id/review", "testcase.update"],
+  ["PUT", "/users/:id/password", "workspace.view"],
   ["GET", "/local-agent/status", "ops.view"],
   ["POST", "/local-agent/start", "ops.manage"],
   ["DELETE", "/ops-telemetry/logs", "ops.manage"]
@@ -403,7 +455,10 @@ const ROUTE_PERMISSIONS = new Map(ROUTE_PERMISSION_RULES.map(([method, url, perm
 
 module.exports = {
   DEFAULT_ROLE_PERMISSIONS,
+  PAGE_ACCESS,
+  PAGE_ACCESS_RULES,
   PERMISSION_GROUPS,
   PERMISSIONS,
+  ROUTE_PERMISSION_RULES,
   ROUTE_PERMISSIONS
 };

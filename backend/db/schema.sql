@@ -185,7 +185,7 @@ CREATE TABLE requirement_defects (
 
 CREATE TABLE integrations (
   id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK(type IN ('llm','jira','email','google_auth','google_drive','github','testengine','ops')),
+  type TEXT NOT NULL CHECK(type IN ('llm','jira','email','google_auth','google_drive','github','testengine','local-desktop','cloudrun','ops')),
   name TEXT NOT NULL,
   base_url TEXT,
   api_key TEXT,

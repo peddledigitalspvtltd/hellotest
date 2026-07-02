@@ -251,6 +251,7 @@ export type DomainMetadata = {
   };
   test_steps: {
     group_kinds: DomainOption[];
+    types?: DomainOption[];
   };
   test_data_sets: {
     default_mode: string;
@@ -273,6 +274,19 @@ export type DomainMetadata = {
   feedback?: {
     default_status: string;
     statuses: DomainOption[];
+  };
+  access?: {
+    default_permissions?: string[];
+    pages?: Record<string, string[]>;
+    permission_groups?: PermissionGroup[];
+    route_permissions?: Array<{
+      method: string;
+      path: string;
+      permission: string;
+    }>;
+  };
+  feature_flags?: {
+    groups?: FeatureFlagGroup[];
   };
 };
 

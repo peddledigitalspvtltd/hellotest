@@ -9,6 +9,7 @@ import {
   Position,
   ReactFlow,
   addEdge,
+  type Connection,
   useEdgesState,
   useNodesState
 } from "@xyflow/react";
@@ -1229,7 +1230,7 @@ export function AgenticWorkflowsPage() {
     );
   }, [setEdges, workflowCredentials]);
 
-  const onConnect = useCallback((connection: any) => {
+  const onConnect = useCallback((connection: Connection) => {
     setEdges((currentEdges) => addEdge({
       ...connection,
       id: `${connection.source}-${connection.target}-${Date.now()}`,

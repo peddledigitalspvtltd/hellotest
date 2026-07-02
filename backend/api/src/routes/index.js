@@ -1,41 +1,7 @@
-module.exports = async function (fastify) {
-    fastify.register(require("./domainMetadata.routes"));
-    fastify.register(require("./auth.routes"));
-    fastify.register(require("./users"));
-    fastify.register(require("./roles.routes"));
-    fastify.register(require("./projects.routes"));
-    fastify.register(require("./projectSync.routes"));
-    fastify.register(require("./projectMembers.routes"));
-    fastify.register(require("./appTypes.routes"));
-    fastify.register(require("./requirements.routes"));
-    fastify.register(require("./issues.routes"));
-    fastify.register(require("./integrations.routes"));
-    fastify.register(require("./settings.routes"));
-    fastify.register(require("./featureFlags.routes"));
-    fastify.register(require("./notifications.routes"));
-    fastify.register(require("./requirementTestCases.routes"));
-    fastify.register(require("./requirementDefects.routes"));
-    fastify.register(require("./testCaseDefects.routes"));
-    fastify.register(require("./testCaseModules.routes"));
-    fastify.register(require("./testSuites.routes"));
-    fastify.register(require("./suiteTestCases.routes"));
-    fastify.register(require("./testCases.routes"));
-    fastify.register(require("./testSteps.routes"));
-    fastify.register(require("./sharedStepGroups.routes"));
-    fastify.register(require("./testEnvironments.routes"));
-    fastify.register(require("./testConfigurations.routes"));
-    fastify.register(require("./testDataSets.routes"));
-    fastify.register(require("./executions.routes"));
-    fastify.register(require("./executionSchedules.routes"));
-    fastify.register(require("./executionResults.routes"));
-    fastify.register(require("./agenticWorkflows.routes"));
-    fastify.register(require("./testEngineCallbacks.routes"));
-    fastify.register(require("./testEngineInternal.routes"));
-    fastify.register(require("./engine.routes"));
-    fastify.register(require("./automationGenerator.routes"));
-    fastify.register(require("./workspaceTransactions.routes"));
-    fastify.register(require("./opsTelemetry.routes"));
-    fastify.register(require("./aiKnowledge.routes"));
-    fastify.register(require("./aiPromptTemplates.routes"));
-    fastify.register(require("./localAgent.routes"));
-  };
+const { routeModules } = require("./manifest");
+
+module.exports = async function registerRoutes(fastify) {
+  for (const route of routeModules) {
+    fastify.register(route.module);
+  }
+};

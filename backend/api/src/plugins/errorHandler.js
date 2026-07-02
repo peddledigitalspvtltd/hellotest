@@ -1,4 +1,6 @@
-module.exports = async function (fastify) {
+const fp = require("fastify-plugin");
+
+async function errorHandlerPlugin(fastify) {
   const inferStatusCode = (err) => {
     if (err.statusCode) {
       return err.statusCode;
@@ -62,4 +64,8 @@ module.exports = async function (fastify) {
       ...(isDevelopment && { stack: err.stack })
     });
   });
-};
+}
+
+module.exports = fp(errorHandlerPlugin, {
+  name: "qaira-error-handler"
+});

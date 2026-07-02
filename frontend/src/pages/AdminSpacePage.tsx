@@ -4,8 +4,10 @@ import { useSearchParams } from "react-router-dom";
 import { ActivityIcon, LayersIcon, PlugIcon, UsersIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { SubnavTabs } from "../components/SubnavTabs";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { queryKeys } from "../lib/queryKeys";
 import { IntegrationsPage } from "./IntegrationsPage";
 import { PeoplePage } from "./PeoplePage";
 import { SettingsPage } from "./SettingsPage";
@@ -25,15 +27,10 @@ const normalizeSection = (value: string | null): AdminSpaceSection | null =>
 
 export function AdminSpacePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const usersQuery = useQuery({ queryKey: ["users"], queryFn: api.users.list });
-  const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: api.roles.list });
-  const integrationsQuery = useQuery({ queryKey: ["integrations", "admin-space"], queryFn: () => api.integrations.list() });
-  const featureFlagsQuery = useQuery({
-    queryKey: ["feature-flags"],
-    queryFn: api.featureFlags.snapshot,
-    retry: 1,
-    staleTime: 60 * 1000
-  });
+  const usersQuery = useQuery({ queryKey: queryKeys.users(), queryFn: api.users.list });
+  const rolesQuery = useQuery({ queryKey: queryKeys.roles(), queryFn: api.roles.list });
+  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.scoped("admin-space"), queryFn: () => api.integrations.list() });
+  const featureFlagsQuery = useFeatureFlags();
 
   const requestedSection = normalizeSection(searchParams.get("section")) || (searchParams.get("view") === "roles" ? "roles" : "users");
   const visibleSections = ADMIN_SECTIONS.filter((section) =>

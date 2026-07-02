@@ -484,13 +484,13 @@ const normalizeConfig = (type, input, username) => {
     };
   }
 
-  if (type === "testengine") {
+  if (type === "testengine" || type === "local-desktop") {
     const project_id = normalizeText(raw.project_id);
     const active_web_engine = normalizeTestEngineWebEngine(raw.active_web_engine, String(integrationTypeConfig.active_web_engine || "playwright"));
 
     return {
       project_id,
-      runner: "hybrid",
+      runner: type === "local-desktop" ? "local" : "hybrid",
       dispatch_mode: "qaira-pull",
       execution_scope: "api+web",
       active_web_engine,
@@ -646,9 +646,9 @@ const validatePayload = (payload) => {
     }
   }
 
-  if (type === "testengine") {
+  if (type === "testengine" || type === "local-desktop") {
     if (!base_url) {
-      throw new Error("Test Engine integrations require a host URL");
+      throw new Error(`${type === "local-desktop" ? "Local Desktop" : "Test Engine"} integrations require a host URL`);
     }
   }
 
@@ -960,7 +960,7 @@ exports.testConnection = async (input = {}) => {
 
   validateType(type);
 
-  if (type === "testengine") {
+  if (type === "testengine" || type === "local-desktop") {
     return testTestEngineConnection({
       base_url: input.base_url
     });

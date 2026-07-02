@@ -97,6 +97,34 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
     }
   },
   {
+    value: "local-desktop",
+    label: "Local Desktop",
+    description: "Local desktop execution bridge for headed browser, recorder, and device-adjacent automation.",
+    icon: "LD",
+    defaults: {
+      runner: "local",
+      active_web_engine: "playwright",
+      browser: "chromium",
+      headless: false,
+      healing_enabled: true,
+      max_repair_attempts: 1,
+      trace_mode: "retain-on-failure",
+      video_mode: "retain-on-failure",
+      capture_console: true,
+      capture_network: true,
+      artifact_retention_days: 7,
+      run_timeout_seconds: 1800,
+      navigation_timeout_ms: 30000,
+      action_timeout_ms: 5000,
+      assertion_timeout_ms: 10000,
+      recovery_wait_ms: 750,
+      max_video_attachment_mb: 25,
+      queue_poll_interval_minutes: 1,
+      qaira_api_base_url: "",
+      promote_healed_patches: "review"
+    }
+  },
+  {
     value: "cloudrun",
     label: "Cloud Run",
     description: "Cloud browser and device execution providers for BrowserStack, LambdaTest, Sauce Labs, and CrossBrowser.",

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -9,18 +9,29 @@ import {
   addEdge,
   MarkerType,
   Handle,
-  Position
+  Position,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeProps
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { TestStep } from '../types';
 
 type VisualTestBuilderProps = {
   testSteps: TestStep[];
-  onStepChange?: (steps: TestStep[]) => void;
 };
 
-// Custom Node for a Test Step
-const StepNode = ({ data }: { data: any }) => {
+type StepNodeData = {
+  action: TestStep["action"];
+  expected_result: TestStep["expected_result"];
+  step_order: TestStep["step_order"];
+  step_type?: TestStep["step_type"];
+};
+
+type StepNodeModel = Node<StepNodeData, "step">;
+
+const StepNode = ({ data }: NodeProps<StepNodeModel>) => {
   return (
     <div className="visual-builder-node">
       <Handle type="target" position={Position.Top} />
@@ -43,19 +54,23 @@ const nodeTypes = {
   step: StepNode,
 };
 
-export function VisualTestBuilder({ testSteps, onStepChange }: VisualTestBuilderProps) {
-  // Convert TestSteps into React Flow Nodes and Edges
-  const initialNodes = useMemo(() => {
+export function VisualTestBuilder({ testSteps }: VisualTestBuilderProps) {
+  const stepNodes = useMemo<StepNodeModel[]>(() => {
     return testSteps.map((step, index) => ({
       id: step.id || `step-${index}`,
       type: 'step',
       position: { x: 250, y: index * 180 + 50 },
-      data: { ...step }
+      data: {
+        action: step.action,
+        expected_result: step.expected_result,
+        step_order: step.step_order,
+        step_type: step.step_type
+      }
     }));
   }, [testSteps]);
 
-  const initialEdges = useMemo(() => {
-    const edges = [];
+  const stepEdges = useMemo<Edge[]>(() => {
+    const edges: Edge[] = [];
     for (let i = 0; i < testSteps.length - 1; i++) {
       const current = testSteps[i];
       const next = testSteps[i + 1];
@@ -76,11 +91,19 @@ export function VisualTestBuilder({ testSteps, onStepChange }: VisualTestBuilder
     return edges;
   }, [testSteps]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState<StepNodeModel>(stepNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(stepEdges);
+
+  useEffect(() => {
+    setNodes(stepNodes);
+  }, [setNodes, stepNodes]);
+
+  useEffect(() => {
+    setEdges(stepEdges);
+  }, [setEdges, stepEdges]);
 
   const onConnect = useCallback(
-    (params: any) => setEdges((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
     [setEdges],
   );
 
