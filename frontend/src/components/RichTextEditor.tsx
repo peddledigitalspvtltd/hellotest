@@ -6,6 +6,7 @@ type RichTextEditorProps = {
   onChange: (value: string) => void;
   rows?: number;
   placeholder?: string;
+  autoFocus?: boolean;
   required?: boolean;
   disabled?: boolean;
   className?: string;
@@ -278,6 +279,7 @@ export function RichTextEditor({
   onChange,
   rows = 4,
   placeholder,
+  autoFocus,
   required,
   disabled,
   className = "",
@@ -303,6 +305,12 @@ export function RichTextEditor({
     }
     lastHtmlRef.current = nextHtml;
   }, [value]);
+
+  useEffect(() => {
+    if (autoFocus && editorRef.current) {
+      editorRef.current.focus();
+    }
+  }, [autoFocus]);
 
   const emitChange = useCallback(() => {
     const editor = editorRef.current;

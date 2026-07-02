@@ -1221,21 +1221,17 @@ export function SharedStepsPage() {
                 <ClearSelectionIcon />
                 <span>Clear</span>
               </button>
-              <CatalogActionMenu
-                actions={[
-                  {
-                    label: "Delete selected",
-                    description: "Delete selected shared step groups in the current list.",
-                    icon: <TrashIcon />,
-                    disabled: !selectedVisibleGroupIds.length || deleteSharedGroup.isPending,
-                    tone: "danger",
-                    onClick: () => void handleDeleteSelectedGroups()
-                  }
-                ]}
-                label="Shared step actions"
-              />
               <button className="ghost-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
                 New group
+              </button>
+              <button
+                className="ghost-button danger"
+                disabled={!selectedVisibleGroupIds.length || deleteSharedGroup.isPending}
+                onClick={() => void handleDeleteSelectedGroups()}
+                type="button"
+              >
+                <TrashIcon />
+                <span>{deleteSharedGroup.isPending ? "Deleting selected" : "Delete selected"}</span>
               </button>
             </div>
 
@@ -1731,10 +1727,16 @@ function SharedGroupStepInsertIcon() {
 function SharedGroupParameterIcon() {
   return (
     <SharedGroupStepIconShell>
-      <path d="M5 7.5h14" />
-      <path d="M7 12h10" />
-      <path d="M9 16.5h6" />
-      <path d="m5 5 2.5 2.5L5 10" />
+      <path d="M5 7h14" />
+      <path d="M5 12h14" />
+      <path d="M5 17h14" />
+      <circle cx="10" cy="7" r="2.1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="12" r="2.1" fill="currentColor" stroke="none" />
+      <circle cx="11.5" cy="17" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M4 11.5a3.7 3.7 0 0 0 0 1" />
+      <path d="M3.1 9.4 4.3 10" />
+      <path d="M4.3 14 3.1 14.6" />
+      <path d="M2.5 12h1.2" />
     </SharedGroupStepIconShell>
   );
 }

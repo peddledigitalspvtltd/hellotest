@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SubnavTabs } from "./SubnavTabs";
+import { TileCardRequirementIcon } from "./TileCardPrimitives";
 import { useLocalization } from "../context/LocalizationContext";
 import { WORKSPACE_SECTION_LABEL_KEYS, type WorkspaceSectionItem } from "../lib/workspaceSections";
 
@@ -51,7 +52,7 @@ function resolveWorkspaceSectionIcon(icon?: string) {
 
   switch (icon) {
     case "requirements":
-      return frame(<><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M14 3v6h6" /><path d="M9 13h6" /><path d="M9 17h6" /></>);
+      return <TileCardRequirementIcon />;
     case "cases":
       return frame(<><path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v11A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" /><path d="M8 9h8" /><path d="M8 13h8" /><path d="M8 17h5" /></>);
     case "shared":

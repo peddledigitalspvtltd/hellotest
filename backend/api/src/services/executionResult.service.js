@@ -3,6 +3,7 @@ const { v4: uuid } = require("uuid");
 const { EXECUTION_RESULT_STATUS_VALUES } = require("../domain/catalog");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const requirementDefectService = require("./requirementDefect.service");
+const testCaseDefectService = require("./testCaseDefect.service");
 
 const getPrimarySuiteForTestCase = db.prepare(`
   SELECT test_suites.id, test_suites.name
@@ -124,6 +125,7 @@ exports.createExecutionResult = async (data) => {
   );
 
   await requirementDefectService.syncAutomaticDefectsForTestCase(test_case_id, normalizedDefects);
+  await testCaseDefectService.syncAutomaticDefectsForTestCase(test_case_id, normalizedDefects);
 
   return { id };
 };
@@ -220,6 +222,7 @@ exports.updateExecutionResult = async (id, data) => {
 
   if (data.defects !== undefined) {
     await requirementDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id, normalizedDefects);
+    await testCaseDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id, normalizedDefects);
   }
 
   return { updated: true };

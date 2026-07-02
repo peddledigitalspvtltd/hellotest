@@ -494,11 +494,15 @@ const statements = [
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS labels JSONB`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_count INTEGER`,
   `UPDATE test_suites SET parameter_values = '{}'::jsonb WHERE parameter_values IS NULL`,
+  `UPDATE test_suites SET labels = '[]'::jsonb WHERE labels IS NULL`,
   `ALTER TABLE test_suites ALTER COLUMN parameter_values SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE test_suites ALTER COLUMN parameter_values SET NOT NULL`,
+  `ALTER TABLE test_suites ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
+  `ALTER TABLE test_suites ALTER COLUMN labels SET NOT NULL`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `UPDATE test_suites SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
   `
@@ -778,10 +782,20 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS labels JSONB`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS automation_status TEXT NOT NULL DEFAULT 'not_automated'`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS reviewer_id TEXT`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested'`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER`,
   `UPDATE test_cases SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
+  `UPDATE test_cases SET labels = '[]'::jsonb WHERE labels IS NULL`,
+  `UPDATE test_cases SET review_status = 'not_requested' WHERE review_status IS NULL OR BTRIM(review_status) = ''`,
+  `UPDATE test_cases SET review_history = '[]'::jsonb WHERE review_history IS NULL`,
   `ALTER TABLE test_cases ALTER COLUMN external_references SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_cases ALTER COLUMN external_references SET NOT NULL`,
+  `ALTER TABLE test_cases ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
+  `ALTER TABLE test_cases ALTER COLUMN labels SET NOT NULL`,
   `UPDATE test_cases SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
   `
     UPDATE test_cases
@@ -807,7 +821,57 @@ const statements = [
   `ALTER TABLE test_cases ADD CONSTRAINT test_cases_ai_generation_source_check CHECK (ai_generation_source IS NULL OR ai_generation_source IN ('scheduler'))`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_review_status_check`,
   `ALTER TABLE test_cases ADD CONSTRAINT test_cases_ai_generation_review_status_check CHECK (ai_generation_review_status IS NULL OR ai_generation_review_status IN ('pending', 'accepted'))`,
+  `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_review_status_check`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_review_status_check CHECK (review_status IN ('not_requested', 'pending', 'accepted', 'changes_requested'))`,
+  `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_quality_score_check`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_ai_quality_score_check CHECK (ai_quality_score IS NULL OR (ai_quality_score >= 0 AND ai_quality_score <= 100))`,
   `CREATE INDEX IF NOT EXISTS idx_test_cases_ai_generation_review ON test_cases (app_type_id, ai_generation_source, ai_generation_review_status, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_cases_reviewer_status ON test_cases (reviewer_id, review_status, updated_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_modules (
+      id TEXT PRIMARY KEY,
+      display_id TEXT UNIQUE,
+      app_type_id TEXT NOT NULL REFERENCES app_types(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_by TEXT,
+      updated_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS display_id TEXT`,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS created_by TEXT`,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS updated_by TEXT`,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE test_case_modules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_modules_app_type ON test_case_modules (app_type_id, updated_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_module_cases (
+      module_id TEXT NOT NULL REFERENCES test_case_modules(id) ON DELETE CASCADE,
+      test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (module_id, test_case_id)
+    )
+  `,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_module_cases_case ON test_case_module_cases (test_case_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_module_sort ON test_case_module_cases (module_id, sort_order)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_defects (
+      test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      issue_id TEXT NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+      link_source TEXT NOT NULL DEFAULT 'manual',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (test_case_id, issue_id)
+    )
+  `,
+  `ALTER TABLE test_case_defects ADD COLUMN IF NOT EXISTS link_source TEXT NOT NULL DEFAULT 'manual'`,
+  `ALTER TABLE test_case_defects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE test_case_defects DROP CONSTRAINT IF EXISTS test_case_defects_link_source_check`,
+  `ALTER TABLE test_case_defects ADD CONSTRAINT test_case_defects_link_source_check CHECK (link_source IN ('manual', 'automatic'))`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_defects_issue ON test_case_defects (issue_id)`,
   `
     CREATE TABLE IF NOT EXISTS automation_learning_cache (
       id TEXT PRIMARY KEY,
@@ -1273,6 +1337,7 @@ const statements = [
       session_id TEXT,
       project_id TEXT,
       run_id TEXT,
+      target_url TEXT,
       type TEXT NOT NULL,
       title TEXT NOT NULL,
       message TEXT NOT NULL,
@@ -1283,6 +1348,7 @@ const statements = [
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS session_id TEXT`,
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS project_id TEXT`,
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS run_id TEXT`,
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_url TEXT`,
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'unread'`,
   `ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_status_check`,
   `ALTER TABLE notifications ADD CONSTRAINT notifications_status_check CHECK (status IN ('unread', 'read'))`,

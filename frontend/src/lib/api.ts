@@ -4,6 +4,7 @@ import type {
   AgenticWorkflowRun,
   ApiKeyScope,
   ApiKeyScopeOption,
+  AppNotification,
   AiCaseAuthoringPreviewResponse,
   AiDesignImageInput,
   AiDesignPreviewResponse,
@@ -37,6 +38,8 @@ import type {
   SmartExecutionPreviewResponse,
   TestConfiguration,
   TestCase,
+  TestCaseDefectLink,
+  TestCaseModule,
   TestDataSet,
   TestDataSetMode,
   TestEnvironment,
@@ -403,6 +406,14 @@ export const api = {
       request<{ updated: boolean }>(`/users/${id}/password`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" })
   },
+  notifications: {
+    list: (query?: { status?: "unread" | "read" | string }) =>
+      request<AppNotification[]>(`/notifications${toQueryString(query)}`),
+    markRead: (id: string) =>
+      request<{ updated: boolean }>(`/notifications/${id}/read`, { method: "PUT" }),
+    markAllRead: () =>
+      request<{ updated: boolean }>("/notifications/read-all", { method: "PUT" })
+  },
   roles: {
     list: () => request<Role[]>("/roles"),
     permissions: () => request<PermissionGroup[]>("/permissions"),
@@ -587,12 +598,46 @@ export const api = {
         body: JSON.stringify({ requirement_id, issue_ids })
       })
   },
+  testCaseDefects: {
+    list: (query?: { test_case_id?: string; issue_id?: string }) =>
+      request<Array<{ test_case_id: string; issue_id: string; link_source: string; created_at?: string }>>(`/test-case-defects${toQueryString(query)}`),
+    listIssues: (test_case_id: string) =>
+      request<TestCaseDefectLink[]>(`/test-case-defects/${test_case_id}/issues`),
+    replace: (test_case_id: string, issue_ids: string[]) =>
+      request<{ updated: boolean; mapped: number }>("/test-case-defects/replace", {
+        method: "PUT",
+        body: JSON.stringify({ test_case_id, issue_ids })
+      })
+  },
+  testCaseModules: {
+    list: (query?: { app_type_id?: string }) =>
+      request<TestCaseModule[]>(`/test-case-modules${toQueryString(query)}`),
+    get: (id: string) =>
+      request<TestCaseModule>(`/test-case-modules/${id}`),
+    listCases: (id: string) =>
+      request<TestCase[]>(`/test-case-modules/${id}/test-cases`),
+    create: (input: { app_type_id: string; name: string; description?: string; test_case_ids?: string[] }) =>
+      request<{ id: string }>("/test-case-modules", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: Partial<{ name: string; description: string; test_case_ids: string[] }>) =>
+      request<{ updated: boolean }>(`/test-case-modules/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    assignCases: (id: string, test_case_ids: string[], append = true) =>
+      request<{ updated: boolean; assigned: number }>(`/test-case-modules/${id}/test-cases`, {
+        method: "POST",
+        body: JSON.stringify({ test_case_ids, append })
+      }),
+    removeCases: (id: string, test_case_ids: string[]) =>
+      request<{ updated: boolean; removed: number }>(`/test-case-modules/${id}/test-cases`, {
+        method: "DELETE",
+        body: JSON.stringify({ test_case_ids })
+      }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/test-case-modules/${id}`, { method: "DELETE" })
+  },
   testSuites: {
-    list: (query?: { app_type_id?: string; parent_id?: string }) =>
+    list: (query?: { app_type_id?: string }) =>
       request<TestSuite[]>(`/test-suites${toQueryString(query)}`),
-    create: (input: { app_type_id: string; name: string; parent_id?: string; parameter_values?: Record<string, string>; parallel_enabled?: boolean; parallel_count?: number }) =>
+    create: (input: { app_type_id: string; name: string; labels?: string[]; parameter_values?: Record<string, string>; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }>) =>
+    update: (id: string, input: Partial<{ name: string; labels: string[]; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }>) =>
       request<{ updated: boolean }>(`/test-suites/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignTestCases: (id: string, test_case_ids: string[]) =>
       request<{ updated: boolean; assigned: number }>(`/test-suites/${id}/assign-test-cases`, {
@@ -604,7 +649,7 @@ export const api = {
   testCases: {
     list: (query?: { suite_id?: string; requirement_id?: string; status?: string; app_type_id?: string }) =>
       request<TestCase[]>(`/test-cases${toQueryString(query)}`),
-    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewCaseAuthoring: (input: {
       app_type_id: string;
@@ -878,8 +923,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; priority: number; status: string; requirement_id: string; requirement_ids: string[]; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; priority: number; status: string; requirement_id: string; requirement_ids: string[]; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }>) =>
       request<{ updated: boolean }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    review: (id: string, input: { review_status: "pending" | "accepted" | "changes_requested"; comment?: string }) =>
+      request<{ updated: boolean; review: NonNullable<TestCase["review_history"]>[number] }>(`/test-cases/${id}/review`, {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-cases/${id}`, { method: "DELETE" })
   },
   aiPromptTemplates: {

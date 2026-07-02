@@ -21,6 +21,7 @@ import {
   TileCardFact,
   TileCardLinkIcon,
   TileCardPriorityIcon,
+  TileCardRequirementIcon,
   formatTileCardLabel
 } from "../components/TileCardPrimitives";
 import { TileBrowserPane } from "../components/TileBrowserPane";
@@ -2106,6 +2107,9 @@ export function RequirementsPage() {
                             </div>
                           </div>
                           <div className="tile-card-header requirement-tile-header">
+                            <span className="record-card-icon tile-card-icon requirement-card-icon">
+                              <TileCardRequirementIcon />
+                            </span>
                             <div className="tile-card-title-group">
                               <strong>{item.title}</strong>
                             </div>

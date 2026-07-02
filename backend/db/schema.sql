@@ -197,6 +197,7 @@ CREATE TABLE test_suites (
   app_type_id TEXT NOT NULL,
   name TEXT NOT NULL,
   parent_id TEXT,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (parent_id) REFERENCES test_suites(id)
@@ -210,12 +211,17 @@ CREATE TABLE test_cases (
   title TEXT NOT NULL,
   description TEXT,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
   parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   automated TEXT NOT NULL DEFAULT 'no' CHECK(automated IN ('yes','no')),
   automation_status TEXT NOT NULL DEFAULT 'not_automated' CHECK(automation_status IN ('not_automated','ready','incomplete')),
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'active',
   requirement_id TEXT,
+  reviewer_id TEXT,
+  review_status TEXT NOT NULL DEFAULT 'not_requested' CHECK(review_status IN ('not_requested','pending','accepted','changes_requested')),
+  review_history JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ai_quality_score INTEGER CHECK(ai_quality_score IS NULL OR (ai_quality_score >= 0 AND ai_quality_score <= 100)),
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (suite_id) REFERENCES test_suites(id),
@@ -237,6 +243,33 @@ CREATE TABLE suite_test_cases (
   PRIMARY KEY (suite_id, test_case_id),
   FOREIGN KEY (suite_id) REFERENCES test_suites(id) ON DELETE CASCADE,
   FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS test_case_modules (
+  id TEXT PRIMARY KEY,
+  display_id TEXT UNIQUE,
+  app_type_id TEXT NOT NULL REFERENCES app_types(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS test_case_module_cases (
+  module_id TEXT NOT NULL REFERENCES test_case_modules(id) ON DELETE CASCADE,
+  test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (module_id, test_case_id)
+);
+
+CREATE TABLE IF NOT EXISTS test_case_defects (
+  test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  issue_id TEXT NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+  link_source TEXT NOT NULL DEFAULT 'manual' CHECK(link_source IN ('manual', 'automatic')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (test_case_id, issue_id)
 );
 
 CREATE TABLE test_steps (
@@ -532,6 +565,7 @@ CREATE TABLE notifications (
   session_id TEXT,
   project_id TEXT,
   run_id TEXT,
+  target_url TEXT,
   type TEXT NOT NULL,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -611,11 +645,13 @@ CREATE INDEX IF NOT EXISTS idx_requirement_defects_issue
   ON requirement_defects (issue_id);
 
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_count INTEGER;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+UPDATE test_suites SET labels = '[]'::jsonb WHERE labels IS NULL;
 
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_source TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_review_status TEXT;
@@ -625,7 +661,16 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS automation_status TEXT NOT NULL DEFAULT 'not_automated';
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS reviewer_id TEXT;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested';
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER;
+
+UPDATE test_cases SET labels = '[]'::jsonb WHERE labels IS NULL;
+UPDATE test_cases SET review_status = 'not_requested' WHERE review_status IS NULL OR BTRIM(review_status) = '';
+UPDATE test_cases SET review_history = '[]'::jsonb WHERE review_history IS NULL;
 
 UPDATE test_cases
 SET automation_status = CASE
@@ -654,11 +699,36 @@ ALTER TABLE test_cases
   ADD CONSTRAINT test_cases_ai_generation_review_status_check
   CHECK (ai_generation_review_status IS NULL OR ai_generation_review_status IN ('pending', 'accepted'));
 
+ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_review_status_check;
+ALTER TABLE test_cases
+  ADD CONSTRAINT test_cases_review_status_check
+  CHECK (review_status IN ('not_requested', 'pending', 'accepted', 'changes_requested'));
+
+ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_quality_score_check;
+ALTER TABLE test_cases
+  ADD CONSTRAINT test_cases_ai_quality_score_check
+  CHECK (ai_quality_score IS NULL OR (ai_quality_score >= 0 AND ai_quality_score <= 100));
+
 CREATE INDEX IF NOT EXISTS idx_test_cases_app_status_created
   ON test_cases (app_type_id, status, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_test_cases_ai_generation_review
   ON test_cases (app_type_id, ai_generation_source, ai_generation_review_status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_test_cases_reviewer_status
+  ON test_cases (reviewer_id, review_status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_test_case_modules_app_type
+  ON test_case_modules (app_type_id, updated_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_module_cases_case
+  ON test_case_module_cases (test_case_id);
+
+CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_module_sort
+  ON test_case_module_cases (module_id, sort_order);
+
+CREATE INDEX IF NOT EXISTS idx_test_case_defects_issue
+  ON test_case_defects (issue_id);
 
 ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT;

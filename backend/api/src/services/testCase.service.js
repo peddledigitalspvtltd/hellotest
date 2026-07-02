@@ -5,6 +5,7 @@ const suiteTestCaseService = require("./suiteTestCase.service");
 const testSuiteService = require("./testSuite.service");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
+const notificationService = require("./notification.service");
 const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const {
@@ -18,6 +19,7 @@ const DEFAULT_PRIORITY = 3;
 const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
 const DEFAULT_AUTOMATED = DOMAIN_METADATA.test_cases.default_automated || "no";
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
+const REVIEW_STATUS_VALUES = ["not_requested", "pending", "accepted", "changes_requested"];
 const IMPORT_SOURCE_LABELS = {
   csv: "CSV",
   junit_xml: "JUnit XML",
@@ -49,6 +51,12 @@ const selectSharedStepGroup = db.prepare(`
   WHERE id = ?
 `);
 
+const selectUser = db.prepare(`
+  SELECT id, name, email
+  FROM users
+  WHERE id = ?
+`);
+
 const selectSuitesForAppType = db.prepare(`
   SELECT id, name, app_type_id
   FROM test_suites
@@ -76,6 +84,7 @@ const insertTestCaseRecord = db.prepare(`
     title,
     description,
     external_references,
+    labels,
     parameter_values,
     automated,
     automation_status,
@@ -86,16 +95,20 @@ const insertTestCaseRecord = db.prepare(`
     ai_generation_review_status,
     ai_generation_job_id,
     ai_generated_at,
+    reviewer_id,
+    review_status,
+    review_history,
+    ai_quality_score,
     created_by,
     updated_by,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, parameter_values = ?, automated = ?, automation_status = ?, priority = ?, status = ?, requirement_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -154,6 +167,20 @@ const updateGeneratedReviewState = db.prepare(`
   WHERE id = ?
 `);
 
+const selectModuleIdsForTestCase = db.prepare(`
+  SELECT module_id
+  FROM test_case_module_cases
+  WHERE test_case_id = ?
+  ORDER BY sort_order ASC, module_id ASC
+`);
+
+const selectDefectIdsForTestCase = db.prepare(`
+  SELECT issue_id
+  FROM test_case_defects
+  WHERE test_case_id = ?
+  ORDER BY issue_id ASC
+`);
+
 const hydrateSuiteIds = async (testCase) => {
   if (!testCase) {
     return testCase;
@@ -162,9 +189,13 @@ const hydrateSuiteIds = async (testCase) => {
   return {
     ...testCase,
     external_references: normalizeStoredReferenceList(testCase.external_references),
+    labels: normalizeStoredReferenceList(testCase.labels),
     parameter_values: normalizeParameterValues(testCase.parameter_values),
+    review_history: normalizeReviewHistory(testCase.review_history),
     suite_ids: await suiteTestCaseService.getSuiteIdsForTestCase(testCase.id),
-    requirement_ids: await requirementTestCaseService.getRequirementIdsForTestCase(testCase.id)
+    requirement_ids: await requirementTestCaseService.getRequirementIdsForTestCase(testCase.id),
+    module_ids: (await selectModuleIdsForTestCase.all(testCase.id)).map((row) => row.module_id),
+    defect_ids: (await selectDefectIdsForTestCase.all(testCase.id)).map((row) => row.issue_id)
   };
 };
 
@@ -260,6 +291,101 @@ const normalizeAiGenerationReviewStatus = (value, source) => {
   }
 
   return normalized;
+};
+
+const normalizeReviewStatus = (value, reviewerId = null, fallback = null) => {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return fallback || (reviewerId ? "pending" : "not_requested");
+  }
+
+  if (!REVIEW_STATUS_VALUES.includes(normalized)) {
+    throw new Error(`Review status must be one of: ${REVIEW_STATUS_VALUES.join(", ")}`);
+  }
+
+  return normalized;
+};
+
+const normalizeReviewHistory = (value) => {
+  let parsed = value;
+
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch (_error) {
+      parsed = [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => ({
+      id: normalizeText(entry.id) || uuid(),
+      status: normalizeReviewStatus(entry.status || entry.review_status, null, "pending"),
+      comment: normalizeText(entry.comment),
+      user_id: normalizeText(entry.user_id || entry.reviewed_by || entry.created_by),
+      created_at: normalizeIsoDateTime(entry.created_at) || new Date().toISOString()
+    }));
+};
+
+const normalizeAiQualityScore = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) {
+    throw new Error("AI quality score must be between 0 and 100");
+  }
+
+  return Math.round(numeric);
+};
+
+const ensureReviewerExists = async (reviewerId) => {
+  const normalizedReviewerId = normalizeText(reviewerId);
+
+  if (!normalizedReviewerId) {
+    return null;
+  }
+
+  const reviewer = await selectUser.get(normalizedReviewerId);
+
+  if (!reviewer) {
+    throw new Error("Reviewer not found");
+  }
+
+  return reviewer;
+};
+
+const notifyReviewer = async ({ reviewer_id, test_case_id, display_id, title, project_id, actor_id }) => {
+  const reviewerId = normalizeText(reviewer_id);
+
+  if (!reviewerId || reviewerId === normalizeText(actor_id)) {
+    return;
+  }
+
+  try {
+    await notificationService.createNotification({
+      user_id: reviewerId,
+      project_id,
+      target_url: `/test-cases?case=${encodeURIComponent(display_id || test_case_id)}`,
+      type: "test_case_review",
+      title: "Test case review requested",
+      message: `${title || "A test case"} is ready for your review.`
+    });
+  } catch (error) {
+    console.warn("Unable to create test case review notification", {
+      test_case_id,
+      reviewer_id: reviewerId,
+      message: error.message
+    });
+  }
 };
 
 const normalizeIsoDateTime = (value) => {
@@ -722,6 +848,7 @@ const createPersistablePayload = async ({
   title,
   description,
   external_references,
+  labels,
   automated,
   automation_status,
   priority,
@@ -734,6 +861,10 @@ const createPersistablePayload = async ({
   ai_generation_review_status,
   ai_generation_job_id,
   ai_generated_at,
+  reviewer_id,
+  review_status,
+  review_history,
+  ai_quality_score,
   created_by,
   updated_by
 }) => {
@@ -748,6 +879,7 @@ const createPersistablePayload = async ({
   let resolvedAppTypeId = normalizeText(app_type_id);
   const resolvedSuiteIds = normalizeTextList([suite_id, ...suite_ids]);
   const resolvedRequirementIds = normalizeTextList([requirement_id, ...requirement_ids]);
+  const resolvedReviewerId = normalizeText(reviewer_id);
   const resolvedAiGenerationSource = normalizeAiGenerationSource(ai_generation_source);
   const resolvedAiGenerationReviewStatus = normalizeAiGenerationReviewStatus(
     ai_generation_review_status,
@@ -758,17 +890,21 @@ const createPersistablePayload = async ({
   resolvedAppTypeId = await ensureSuitesMatchAppType(resolvedSuiteIds, resolvedAppTypeId);
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
   await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
+  await ensureReviewerExists(resolvedReviewerId);
 
   const normalizedSteps = normalizeSteps(steps);
   const normalizedAutomated = normalizeAutomated(automated);
+  const resolvedReviewStatus = normalizeReviewStatus(review_status, resolvedReviewerId);
 
   return {
     app_type_id: resolvedAppTypeId,
+    project_id: resolvedAppType?.project_id || null,
     suite_ids: resolvedSuiteIds,
     requirement_ids: resolvedRequirementIds,
     title: resolvedTitle,
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
+    labels: normalizeReferenceList(labels),
     parameter_values: normalizeParameterValues(parameter_values),
     automated: normalizedAutomated,
     automation_status: normalizeAutomationStatus(
@@ -785,6 +921,10 @@ const createPersistablePayload = async ({
     ai_generation_review_status: resolvedAiGenerationReviewStatus,
     ai_generation_job_id: normalizeText(ai_generation_job_id),
     ai_generated_at: normalizeIsoDateTime(ai_generated_at) || (resolvedAiGenerationSource ? new Date().toISOString() : null),
+    reviewer_id: resolvedReviewerId,
+    review_status: resolvedReviewStatus,
+    review_history: normalizeReviewHistory(review_history),
+    ai_quality_score: normalizeAiQualityScore(ai_quality_score),
     created_by: normalizeText(created_by),
     updated_by: normalizeText(updated_by) || normalizeText(created_by)
   };
@@ -801,6 +941,7 @@ const createOne = db.transaction(async (payload) => {
     payload.title,
     payload.description,
     payload.external_references,
+    payload.labels,
     payload.parameter_values,
     payload.automated,
     payload.automation_status,
@@ -811,6 +952,10 @@ const createOne = db.transaction(async (payload) => {
     payload.ai_generation_review_status,
     payload.ai_generation_job_id,
     payload.ai_generated_at,
+    payload.reviewer_id,
+    payload.review_status,
+    payload.review_history,
+    payload.ai_quality_score,
     payload.created_by,
     payload.updated_by
   );
@@ -864,6 +1009,17 @@ exports.createTestCase = async (input) => {
       response.id,
       target.group_id
     );
+  }
+
+  if (payload.reviewer_id && payload.review_status === "pending") {
+    await notifyReviewer({
+      reviewer_id: payload.reviewer_id,
+      test_case_id: response.id,
+      display_id: response.display_id,
+      title: payload.title,
+      project_id: payload.project_id,
+      actor_id: payload.created_by
+    });
   }
 
   return response;
@@ -1238,9 +1394,18 @@ exports.updateTestCase = async (id, data) => {
   resolvedAppTypeId = await ensureSuitesMatchAppType(requestedSuiteIds, resolvedAppTypeId);
   const finalAppType = resolvedAppTypeId !== resolvedAppType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : resolvedAppType;
   await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
+  const requestedReviewerId = data.reviewer_id !== undefined ? normalizeText(data.reviewer_id) : existing.reviewer_id || null;
+  await ensureReviewerExists(requestedReviewerId);
+  const existingReviewStatus = normalizeReviewStatus(existing.review_status, existing.reviewer_id || null, "not_requested");
+  const nextReviewStatus = data.review_status !== undefined
+    ? normalizeReviewStatus(data.review_status, requestedReviewerId, existingReviewStatus)
+    : data.reviewer_id !== undefined
+      ? requestedReviewerId ? "pending" : "not_requested"
+      : existingReviewStatus;
 
   const payload = {
     app_type_id: resolvedAppTypeId,
+    project_id: finalAppType?.project_id || null,
     suite_ids: requestedSuiteIds,
     requirement_ids: requestedRequirementIds,
     title: normalizeText(data.title) || existing.title,
@@ -1248,10 +1413,21 @@ exports.updateTestCase = async (id, data) => {
     external_references: data.external_references !== undefined
       ? normalizeReferenceList(data.external_references)
       : normalizeStoredReferenceList(existing.external_references),
+    labels: data.labels !== undefined
+      ? normalizeReferenceList(data.labels)
+      : normalizeStoredReferenceList(existing.labels),
     parameter_values: data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
     automated: data.automated !== undefined ? normalizeAutomated(data.automated, existing.automated || DEFAULT_AUTOMATED) : existing.automated || DEFAULT_AUTOMATED,
     priority: data.priority !== undefined ? normalizePriority(data.priority) : existing.priority ?? DEFAULT_PRIORITY,
     status: data.status !== undefined ? normalizeStatus(data.status) : existing.status || DEFAULT_STATUS,
+    reviewer_id: requestedReviewerId,
+    review_status: nextReviewStatus,
+    review_history: data.review_history !== undefined
+      ? normalizeReviewHistory(data.review_history)
+      : normalizeReviewHistory(existing.review_history),
+    ai_quality_score: data.ai_quality_score !== undefined
+      ? normalizeAiQualityScore(data.ai_quality_score)
+      : normalizeAiQualityScore(existing.ai_quality_score),
     steps: data.steps !== undefined ? normalizeSteps(data.steps) : null,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
@@ -1269,12 +1445,17 @@ exports.updateTestCase = async (id, data) => {
       payload.title,
       payload.description,
       payload.external_references,
+      payload.labels,
       payload.parameter_values,
       payload.automated,
       payload.automation_status,
       payload.priority,
       payload.status,
       payload.requirement_ids[0] || null,
+      payload.reviewer_id,
+      payload.review_status,
+      payload.review_history,
+      payload.ai_quality_score,
       payload.updated_by,
       id
     );
@@ -1311,6 +1492,21 @@ exports.updateTestCase = async (id, data) => {
 
   await executeUpdate();
 
+  if (
+    payload.reviewer_id
+    && payload.review_status === "pending"
+    && (payload.reviewer_id !== existing.reviewer_id || existingReviewStatus !== "pending")
+  ) {
+    await notifyReviewer({
+      reviewer_id: payload.reviewer_id,
+      test_case_id: id,
+      display_id: existing.display_id,
+      title: payload.title,
+      project_id: payload.project_id,
+      actor_id: payload.updated_by
+    });
+  }
+
   if (data.steps !== undefined) {
     const sharedGroupTargets = (payload.steps || [])
       .filter((step) => step.reusable_group_id && step.group_id)
@@ -1339,6 +1535,56 @@ exports.updateTestCase = async (id, data) => {
   }
 
   return { updated: true };
+};
+
+exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}) => {
+  const existing = await exports.getTestCase(id);
+  const resolvedStatus = normalizeReviewStatus(review_status, existing.reviewer_id || null, null);
+
+  if (!["pending", "accepted", "changes_requested"].includes(resolvedStatus)) {
+    throw new Error("Review action must be pending, accepted, or changes_requested");
+  }
+
+  const reviewedBy = normalizeText(reviewed_by);
+  const history = normalizeReviewHistory(existing.review_history);
+  const entry = {
+    id: uuid(),
+    status: resolvedStatus,
+    comment: normalizeText(comment),
+    user_id: reviewedBy,
+    created_at: new Date().toISOString()
+  };
+  history.push(entry);
+
+  await db.prepare(`
+    UPDATE test_cases
+    SET review_status = ?, review_history = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(resolvedStatus, history, reviewedBy || existing.updated_by || existing.created_by || null, id);
+
+  const appType = existing.app_type_id ? await selectAppType.get(existing.app_type_id) : null;
+  const recipientId = normalizeText(existing.created_by);
+
+  if (recipientId && recipientId !== reviewedBy) {
+    try {
+      await notificationService.createNotification({
+        user_id: recipientId,
+        project_id: appType?.project_id || null,
+        target_url: `/test-cases?case=${encodeURIComponent(existing.display_id || id)}`,
+        type: "test_case_review_result",
+        title: resolvedStatus === "accepted" ? "Test case review accepted" : "Test case review updated",
+        message: `${existing.title || "A test case"} was marked ${resolvedStatus.replace(/_/g, " ")}.`
+      });
+    } catch (error) {
+      console.warn("Unable to create test case review result notification", {
+        test_case_id: id,
+        user_id: recipientId,
+        message: error.message
+      });
+    }
+  }
+
+  return { updated: true, review: entry };
 };
 
 exports.deleteTestCase = async (id) => {

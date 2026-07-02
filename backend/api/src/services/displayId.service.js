@@ -25,6 +25,11 @@ const DISPLAY_ID_CONFIG = {
     table: "shared_step_groups",
     prefix: "SG-",
     minDigits: 1
+  },
+  test_case_module: {
+    table: "test_case_modules",
+    prefix: "MOD-",
+    minDigits: 1
   }
 };
 

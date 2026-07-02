@@ -42,6 +42,7 @@ module.exports = async function (fastify) {
       title: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       external_references: { required: false, type: "array", items: "string" },
+      labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
@@ -51,6 +52,10 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
+      reviewer_id: { required: false, type: "string" },
+      review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
+      review_history: { required: false, type: "array" },
+      ai_quality_score: { required: false, type: "number" },
       steps: { required: false, type: "array" }
     }, req.body);
 
@@ -794,6 +799,7 @@ module.exports = async function (fastify) {
       title: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       external_references: { required: false, type: "array", items: "string" },
+      labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
@@ -803,6 +809,10 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
+      reviewer_id: { required: false, type: "string" },
+      review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
+      review_history: { required: false, type: "array" },
+      ai_quality_score: { required: false, type: "number" },
       steps: { required: false, type: "array" }
     }, req.body);
 
@@ -820,6 +830,26 @@ module.exports = async function (fastify) {
     return service.updateTestCase(req.params.id, {
       ...req.body,
       updated_by: req.user.id
+    });
+  });
+
+  fastify.post("/test-cases/:id/review", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      review_status: { required: true, type: "string", enum: ["pending", "accepted", "changes_requested"] },
+      comment: { required: false, type: "string" }
+    }, req.body || {});
+
+    const testCase = await service.getTestCase(req.params.id);
+    if (testCase.app_type_id) {
+      const appType = await appTypeService.getAppType(testCase.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    }
+
+    return service.reviewTestCase(req.params.id, {
+      ...req.body,
+      reviewed_by: req.user.id
     });
   });
 

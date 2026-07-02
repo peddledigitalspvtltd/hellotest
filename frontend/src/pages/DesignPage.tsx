@@ -1,4 +1,4 @@
-import { DragEvent, FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -45,9 +45,10 @@ import {
 } from "../lib/stepParameters";
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
+import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
-import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestStep, TestSuite, User } from "../types";
+import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestCaseModule, TestStep, TestSuite, User } from "../types";
 
 const SUITE_ACTION_USAGE_STORAGE_KEY = "qaira:suite-toolbar-action-usage:v1";
 
@@ -83,9 +84,7 @@ type SuiteCaseEditorSectionKey = "case" | "steps" | "history";
 
 type SuiteModalMode = "create" | "edit";
 type ExecutionStartMode = "manual" | "local" | "remote";
-type SuitePlacementFilter = "all" | "root" | "nested";
 type SuiteMappedCasesFilter = "all" | "with-cases" | "empty";
-type SuiteChildrenFilter = "all" | "with-children" | "no-children";
 type SuiteCaseStepFilter = "all" | "with-steps" | "no-steps";
 type SuiteCaseRunFilter = "all" | "with-runs" | "no-runs";
 type SuiteExecutionAssigneeOption = AssigneeOption;
@@ -225,9 +224,7 @@ export function DesignPage() {
   const [suiteCatalogViewMode, setSuiteCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [suiteCaseCatalogViewMode, setSuiteCaseCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [statusFilter, setStatusFilter] = useState("all");
-  const [suitePlacementFilter, setSuitePlacementFilter] = useState<SuitePlacementFilter>("all");
   const [suiteMappedCasesFilter, setSuiteMappedCasesFilter] = useState<SuiteMappedCasesFilter>("all");
-  const [suiteChildrenFilter, setSuiteChildrenFilter] = useState<SuiteChildrenFilter>("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
   const [caseStepFilter, setCaseStepFilter] = useState<SuiteCaseStepFilter>("all");
   const [caseRunFilter, setCaseRunFilter] = useState<SuiteCaseRunFilter>("all");
@@ -298,6 +295,11 @@ export function DesignPage() {
     queryFn: () => api.testCases.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId)
   });
+  const testCaseModulesQuery = useQuery({
+    queryKey: ["design-test-case-modules", appTypeId],
+    queryFn: () => api.testCaseModules.list({ app_type_id: appTypeId }),
+    enabled: Boolean(appTypeId)
+  });
   const executionResultsQuery = useQuery({
     queryKey: ["design-case-results", appTypeId],
     queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
@@ -326,7 +328,7 @@ export function DesignPage() {
 
   const createSuiteMutation = useMutation({ mutationFn: api.testSuites.create });
   const updateSuiteMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; parent_id: string; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; labels: string[]; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }> }) =>
       api.testSuites.update(id, input)
   });
   const assignSuiteCasesMutation = useMutation({
@@ -361,6 +363,7 @@ export function DesignPage() {
   const requirements = requirementsQuery.data || [];
   const suites = suitesQuery.data || [];
   const allTestCases = testCasesQuery.data || [];
+  const testCaseModules = testCaseModulesQuery.data || [];
   const executionResults = executionResultsQuery.data || [];
   const allTestSteps = allTestStepsQuery.data || [];
   const suiteMappings = suiteMappingsQuery.data || [];
@@ -443,6 +446,27 @@ export function DesignPage() {
 
   const appTypeCases = useMemo(() => allTestCases, [allTestCases]);
 
+  const existingSuiteLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    [...allTestCases.flatMap((testCase) => testCase.labels || []), ...suites.flatMap((suite) => suite.labels || [])].forEach((label) => {
+      const normalizedLabel = String(label || "").trim();
+      if (normalizedLabel && !labels.has(normalizedLabel.toLowerCase())) {
+        labels.set(normalizedLabel.toLowerCase(), normalizedLabel);
+      }
+    });
+    return Array.from(labels.values()).sort((left, right) => left.localeCompare(right));
+  }, [allTestCases, suites]);
+
+  const suitePickerModuleLabelByCaseId = useMemo(() => {
+    const map: Record<string, string> = {};
+    testCaseModules.forEach((module) => {
+      (module.test_case_ids || []).forEach((testCaseId) => {
+        map[testCaseId] = module.name;
+      });
+    });
+    return map;
+  }, [testCaseModules]);
+
   const suiteCounts = useMemo(() => {
     const counts: Record<string, number> = {};
 
@@ -454,17 +478,6 @@ export function DesignPage() {
 
     return counts;
   }, [appTypeCases]);
-  const childSuiteCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-
-    suites.forEach((suite) => {
-      if (suite.parent_id) {
-        counts[suite.parent_id] = (counts[suite.parent_id] || 0) + 1;
-      }
-    });
-
-    return counts;
-  }, [suites]);
   const requirementTitleById = useMemo(
     () =>
       requirements.reduce<Record<string, string>>((map, requirement) => {
@@ -478,19 +491,10 @@ export function DesignPage() {
 
     return suites.filter((suite) => {
       const mappedCaseCount = suiteCounts[suite.id] || 0;
-      const childSuiteCount = childSuiteCounts[suite.id] || 0;
-      const haystack = `${suite.display_id || ""} ${suite.id} ${suite.name} ${suite.parent_id || ""} ${suite.parent_id ? "nested" : "root"}`.toLowerCase();
+      const haystack = `${suite.display_id || ""} ${suite.id} ${suite.name} ${(suite.labels || []).join(" ")}`.toLowerCase();
       const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
 
       if (!matchesSearch) {
-        return false;
-      }
-
-      if (suitePlacementFilter === "root" && suite.parent_id) {
-        return false;
-      }
-
-      if (suitePlacementFilter === "nested" && !suite.parent_id) {
         return false;
       }
 
@@ -502,17 +506,9 @@ export function DesignPage() {
         return false;
       }
 
-      if (suiteChildrenFilter === "with-children" && !childSuiteCount) {
-        return false;
-      }
-
-      if (suiteChildrenFilter === "no-children" && childSuiteCount) {
-        return false;
-      }
-
       return true;
     });
-  }, [childSuiteCounts, suiteChildrenFilter, suiteMappedCasesFilter, suitePlacementFilter, suiteCounts, suiteSearchTerm, suites]);
+  }, [suiteMappedCasesFilter, suiteCounts, suiteSearchTerm, suites]);
 
   const orderedSuiteCases = useMemo(() => {
     if (!selectedSuiteId) {
@@ -816,10 +812,7 @@ export function DesignPage() {
     [selectedSuiteActionIds]
   );
   const areAllFilteredSuitesSelected = Boolean(filteredSuites.length) && filteredSuites.every((suite) => selectedSuiteActionIds.includes(suite.id));
-  const activeSuiteFilterCount =
-    Number(suitePlacementFilter !== "all") +
-    Number(suiteMappedCasesFilter !== "all") +
-    Number(suiteChildrenFilter !== "all");
+  const activeSuiteFilterCount = Number(suiteMappedCasesFilter !== "all");
   const activeCaseFilterCount =
     Number(statusFilter !== "all") +
     Number(casePriorityFilter !== "all") +
@@ -1108,7 +1101,7 @@ export function DesignPage() {
     setIsTestCaseEditorModalOpen(true);
   };
 
-  const handleSuiteSave = async (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => {
+  const handleSuiteSave = async (input: { name: string; labels: string[]; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => {
     try {
       let suiteId = selectedSuiteId;
 
@@ -1116,7 +1109,7 @@ export function DesignPage() {
         const response = await createSuiteMutation.mutateAsync({
           app_type_id: appTypeId,
           name: input.name,
-          parent_id: input.parent_id || undefined,
+          labels: input.labels,
           parallel_enabled: input.parallel_enabled,
           parallel_count: input.parallel_count
         });
@@ -1126,7 +1119,7 @@ export function DesignPage() {
           id: selectedSuite.id,
           input: {
             name: input.name,
-            parent_id: input.parent_id || undefined,
+            labels: input.labels,
             parallel_enabled: input.parallel_enabled,
             parallel_count: input.parallel_count
           }
@@ -1679,22 +1672,17 @@ export function DesignPage() {
             suites={filteredSuites}
             activeSuiteId={selectedSuiteId}
             counts={suiteCounts}
-            childCounts={childSuiteCounts}
             cases={appTypeCases}
             historyBySuiteId={historyBySuiteId}
             stepCountByCaseId={stepCountByCaseId}
             suiteSearchTerm={suiteSearchTerm}
-            suitePlacementFilter={suitePlacementFilter}
             suiteMappedCasesFilter={suiteMappedCasesFilter}
-            suiteChildrenFilter={suiteChildrenFilter}
             activeFilterCount={activeSuiteFilterCount}
             selectedSuiteActionIds={selectedSuiteActionIds}
             areAllVisibleSuitesSelected={areAllFilteredSuitesSelected}
             onSelectSuite={openSuiteWorkspace}
             onSuiteSearchChange={setSuiteSearchTerm}
-            onSuitePlacementFilter={setSuitePlacementFilter}
             onSuiteMappedCasesFilter={setSuiteMappedCasesFilter}
-            onSuiteChildrenFilter={setSuiteChildrenFilter}
             onToggleSuiteSelection={(suiteId) =>
               setSelectedSuiteActionIds((current) =>
                 current.includes(suiteId) ? current.filter((id) => id !== suiteId) : [...new Set([...current, suiteId])]
@@ -1865,8 +1853,9 @@ export function DesignPage() {
           key={suiteModalMode === "edit" ? `edit-${selectedSuite?.id || "none"}` : "create-new"}
           mode={suiteModalMode}
           suite={suiteModalMode === "edit" ? selectedSuite : null}
-          suites={suites}
           appTypeCases={allTestCases}
+          availableLabels={existingSuiteLabels}
+          moduleLabelByCaseId={suitePickerModuleLabelByCaseId}
           selectedCaseIds={suiteModalMode === "edit" ? orderedSuiteCases.map((testCase) => testCase.id) : []}
           onClose={() => setIsSuiteModalOpen(false)}
           onSubmit={handleSuiteSave}
@@ -1882,22 +1871,17 @@ function SuiteSidebar({
   suites,
   activeSuiteId,
   counts,
-  childCounts,
   cases,
   historyBySuiteId,
   stepCountByCaseId,
   suiteSearchTerm,
-  suitePlacementFilter,
   suiteMappedCasesFilter,
-  suiteChildrenFilter,
   activeFilterCount,
   selectedSuiteActionIds,
   areAllVisibleSuitesSelected,
   onSelectSuite,
   onSuiteSearchChange,
-  onSuitePlacementFilter,
   onSuiteMappedCasesFilter,
-  onSuiteChildrenFilter,
   onToggleSuiteSelection,
   onSelectAllVisibleSuites,
   onClearSuiteSelection,
@@ -1921,22 +1905,17 @@ function SuiteSidebar({
   suites: TestSuite[];
   activeSuiteId: string;
   counts: Record<string, number>;
-  childCounts: Record<string, number>;
   cases: TestCase[];
   historyBySuiteId: Record<string, Array<{ execution_id: string; status: ExecutionResult["status"]; created_at?: string }>>;
   stepCountByCaseId: Record<string, number>;
   suiteSearchTerm: string;
-  suitePlacementFilter: SuitePlacementFilter;
   suiteMappedCasesFilter: SuiteMappedCasesFilter;
-  suiteChildrenFilter: SuiteChildrenFilter;
   activeFilterCount: number;
   selectedSuiteActionIds: string[];
   areAllVisibleSuitesSelected: boolean;
   onSelectSuite: (suiteId: string) => void;
   onSuiteSearchChange: (value: string) => void;
-  onSuitePlacementFilter: (value: SuitePlacementFilter) => void;
   onSuiteMappedCasesFilter: (value: SuiteMappedCasesFilter) => void;
-  onSuiteChildrenFilter: (value: SuiteChildrenFilter) => void;
   onToggleSuiteSelection: (suiteId: string) => void;
   onSelectAllVisibleSuites: () => void;
   onClearSuiteSelection: () => void;
@@ -2130,12 +2109,12 @@ function SuiteSidebar({
       )
     },
     {
-      key: "placement",
-      label: "Placement",
-      width: 150,
-      minWidth: 120,
-      sortValue: (suite) => suite.parent_id ? "Nested suite" : "Root suite",
-      render: (suite) => suite.parent_id ? "Nested suite" : "Root suite"
+      key: "labels",
+      label: "Labels",
+      width: 180,
+      minWidth: 140,
+      sortValue: (suite) => formatReferenceList(suite.labels),
+      render: (suite) => formatReferenceList(suite.labels) || "—"
     },
     {
       key: "mappedCases",
@@ -2144,18 +2123,9 @@ function SuiteSidebar({
       minWidth: 110,
       sortValue: (suite) => counts[suite.id] || 0,
       render: (suite) => counts[suite.id] || 0
-    },
-    {
-      key: "childSuites",
-      label: "Child suites",
-      width: 132,
-      minWidth: 110,
-      sortValue: (suite) => childCounts[suite.id] || 0,
-      render: (suite) => childCounts[suite.id] || 0
     }
   ], [
     areAllVisibleSuitesSelected,
-    childCounts,
     counts,
     onClearSuiteSelection,
     onSelectAllVisibleSuites,
@@ -2180,20 +2150,11 @@ function SuiteSidebar({
             ariaLabel="Search suites"
             onChange={onSuiteSearchChange}
             placeholder="Search suites"
-            subtitle="Filter suite tiles by the placement and counts shown on each card."
+            subtitle="Filter suite tiles by mapped cases or search by suite name and labels."
             title="Filter suites"
             value={suiteSearchTerm}
           >
             <div className="catalog-filter-grid">
-              <label className="catalog-filter-field">
-                <span>Placement</span>
-                <select value={suitePlacementFilter} onChange={(event) => onSuitePlacementFilter(event.target.value as SuitePlacementFilter)}>
-                  <option value="all">All suites</option>
-                  <option value="root">Root suites</option>
-                  <option value="nested">Nested suites</option>
-                </select>
-              </label>
-
               <label className="catalog-filter-field">
                 <span>Mapped cases</span>
                 <select value={suiteMappedCasesFilter} onChange={(event) => onSuiteMappedCasesFilter(event.target.value as SuiteMappedCasesFilter)}>
@@ -2203,23 +2164,12 @@ function SuiteSidebar({
                 </select>
               </label>
 
-              <label className="catalog-filter-field">
-                <span>Child suites</span>
-                <select value={suiteChildrenFilter} onChange={(event) => onSuiteChildrenFilter(event.target.value as SuiteChildrenFilter)}>
-                  <option value="all">All suites</option>
-                  <option value="with-children">With child suites</option>
-                  <option value="no-children">No child suites</option>
-                </select>
-              </label>
-
               <div className="catalog-filter-actions">
                 <button
                   className="ghost-button"
                   disabled={!activeFilterCount}
                   onClick={() => {
-                    onSuitePlacementFilter("all");
                     onSuiteMappedCasesFilter("all");
-                    onSuiteChildrenFilter("all");
                   }}
                   type="button"
                 >
@@ -2331,7 +2281,9 @@ function SuiteSidebar({
                       <div className="tile-card-title-group test-case-card-title-group">
                         <div className="test-case-card-badge-row">
                           <span className="test-case-source-badge">Suite</span>
-                          {childCounts[suite.id] ? <span className="test-case-source-badge is-api">{childCounts[suite.id]} child</span> : null}
+                          {suite.labels?.slice(0, 2).map((label) => (
+                            <span className="test-case-source-badge is-api" key={label}>{label}</span>
+                          ))}
                         </div>
                         <strong>{suite.name}</strong>
                       </div>
@@ -2342,7 +2294,7 @@ function SuiteSidebar({
                         </span>
                         <p>{selectedAppType ? `${selectedAppType.name} workspace suite with ${mappedCaseCount} mapped reusable case${mappedCaseCount === 1 ? "" : "s"}.` : "No app type selected"}</p>
                       </div>
-                      <p className="tile-card-description">{suite.parent_id ? "Nested suite. Cases remain reusable and can participate in other suites." : "Root suite. Use it to curate reusable test cases into a release-ready run scope."}</p>
+                      <p className="tile-card-description">{suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Use it to curate reusable test cases into a release-ready run scope."}</p>
                       <div className="test-case-card-stats suite-card-stats" aria-label={`${suite.name} facts`}>
                         <span title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}>
                           <strong>{mappedCaseCount}</strong>
@@ -3650,11 +3602,127 @@ function SuiteExecutionModal({
   );
 }
 
+function SuiteLabelsField({
+  value,
+  onChange,
+  availableLabels
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  availableLabels: string[];
+}) {
+  const [draftLabel, setDraftLabel] = useState("");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const selectedLabels = useMemo(() => parseReferenceList(value), [value]);
+  const filteredLabels = useMemo(() => {
+    const search = draftLabel.trim().toLowerCase();
+    const selected = new Set(selectedLabels.map((label) => label.toLowerCase()));
+    return availableLabels
+      .filter((label) => !selected.has(label.toLowerCase()))
+      .filter((label) => !search || label.toLowerCase().includes(search));
+  }, [availableLabels, draftLabel, selectedLabels]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node | null)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  const commitLabel = (label: string) => {
+    const normalizedLabel = label.trim();
+
+    if (!normalizedLabel) {
+      return;
+    }
+
+    if (!selectedLabels.some((item) => item.toLowerCase() === normalizedLabel.toLowerCase())) {
+      onChange(formatReferenceList([...selectedLabels, normalizedLabel]));
+    }
+
+    setDraftLabel("");
+    setIsMenuOpen(false);
+  };
+
+  const removeLabel = (labelToRemove: string) => {
+    onChange(formatReferenceList(selectedLabels.filter((label) => label.toLowerCase() !== labelToRemove.toLowerCase())));
+  };
+
+  return (
+    <FormField label="Labels">
+      <div className="requirement-label-picker" ref={pickerRef}>
+        <div className="requirement-label-combobox">
+          <div className="requirement-label-entry">
+            <input
+              aria-autocomplete="list"
+              aria-expanded={isMenuOpen}
+              aria-label="Select or add suite labels"
+              placeholder="Select or add label"
+              role="combobox"
+              value={draftLabel}
+              onChange={(event) => {
+                setDraftLabel(event.target.value);
+                setIsMenuOpen(true);
+              }}
+              onFocus={() => setIsMenuOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitLabel(draftLabel);
+                }
+
+                if (event.key === "Escape") {
+                  setIsMenuOpen(false);
+                }
+              }}
+            />
+            {draftLabel.trim() ? (
+              <button className="ghost-button requirement-label-add-button" onClick={() => commitLabel(draftLabel)} type="button">
+                Add
+              </button>
+            ) : null}
+          </div>
+          {isMenuOpen && (filteredLabels.length || draftLabel.trim()) ? (
+            <div className="requirement-label-menu" role="listbox" aria-label="Available suite labels">
+              {filteredLabels.map((label) => (
+                <button className="requirement-label-menu-option" key={label} onClick={() => commitLabel(label)} role="option" type="button">
+                  {label}
+                </button>
+              ))}
+              {draftLabel.trim() && !filteredLabels.some((label) => label.toLowerCase() === draftLabel.trim().toLowerCase()) ? (
+                <button className="requirement-label-menu-option is-add" onClick={() => commitLabel(draftLabel)} role="option" type="button">
+                  Add "{draftLabel.trim()}"
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {selectedLabels.length ? (
+          <div className="requirement-label-chip-row">
+            {selectedLabels.map((label) => (
+              <span className="requirement-label-chip" key={label}>
+                <span>{label}</span>
+                <button aria-label={`Remove ${label}`} onClick={() => removeLabel(label)} type="button">x</button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </FormField>
+  );
+}
+
 function SuiteModal({
   mode,
   suite,
-  suites,
   appTypeCases,
+  availableLabels,
+  moduleLabelByCaseId,
   selectedCaseIds,
   onClose,
   onSubmit,
@@ -3662,11 +3730,12 @@ function SuiteModal({
 }: {
   mode: SuiteModalMode;
   suite: TestSuite | null;
-  suites: TestSuite[];
   appTypeCases: TestCase[];
+  availableLabels: string[];
+  moduleLabelByCaseId: Record<string, string>;
   selectedCaseIds: string[];
   onClose: () => void;
-  onSubmit: (input: { name: string; parent_id?: string; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => void;
+  onSubmit: (input: { name: string; labels: string[]; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => void;
   isSaving: boolean;
 }) {
   const availableCaseIdSet = useMemo(
@@ -3679,7 +3748,7 @@ function SuiteModal({
   );
 
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
-  const [parentId, setParentId] = useState(() => (mode === "edit" && suite ? suite.parent_id || "" : ""));
+  const [labelsText, setLabelsText] = useState(() => (mode === "edit" && suite ? formatReferenceList(suite.labels) : ""));
   const [parallelEnabled, setParallelEnabled] = useState(() => Boolean(mode === "edit" && suite?.parallel_enabled));
   const [parallelCount, setParallelCount] = useState(() => Math.max(1, Number(mode === "edit" ? suite?.parallel_count || 1 : 1)));
   const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => initialSelectedIds);
@@ -3688,7 +3757,7 @@ function SuiteModal({
   useEffect(() => {
     if (mode === "edit" && suite) {
       setName(suite.name);
-      setParentId(suite.parent_id || "");
+      setLabelsText(formatReferenceList(suite.labels));
       setParallelEnabled(Boolean(suite.parallel_enabled));
       setParallelCount(Math.max(1, Number(suite.parallel_count || 1)));
       setLocalSelectedIds(initialSelectedIds);
@@ -3696,7 +3765,7 @@ function SuiteModal({
     }
 
     setLocalSelectedIds((current) => current.filter((testCaseId) => availableCaseIdSet.has(testCaseId)));
-  }, [availableCaseIdSet, initialSelectedIdsKey, mode, suite?.id, suite?.name, suite?.parent_id, suite?.parallel_enabled, suite?.parallel_count]);
+  }, [availableCaseIdSet, initialSelectedIdsKey, mode, suite?.id, suite?.labels, suite?.name, suite?.parallel_enabled, suite?.parallel_count]);
 
   return (
     <div className="modal-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
@@ -3728,7 +3797,7 @@ function SuiteModal({
             event.preventDefault();
             onSubmit({
               name,
-              parent_id: parentId || undefined,
+              labels: parseReferenceList(labelsText),
               parallel_enabled: parallelEnabled,
               parallel_count: parallelEnabled ? parallelCount : 1,
               selectedIds: localSelectedIds
@@ -3740,16 +3809,11 @@ function SuiteModal({
               <FormField label="Suite name">
                 <input autoFocus required value={name} onChange={(event) => setName(event.target.value)} />
               </FormField>
-              <FormField label="Parent suite">
-                <select value={parentId} onChange={(event) => setParentId(event.target.value)}>
-                  <option value="">None</option>
-                  {suites
-                    .filter((item) => item.id !== suite?.id)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
-                    ))}
-                </select>
-              </FormField>
+              <SuiteLabelsField
+                availableLabels={availableLabels}
+                value={labelsText}
+                onChange={setLabelsText}
+              />
               <FormField label="Suite parallel execution">
                 <div className="execution-parallel-control">
                   <label>
@@ -3775,6 +3839,7 @@ function SuiteModal({
                 description="Check the cases that belong in this suite, then use the up and down arrows to set the saved order."
                 emptyMessage="No test cases available in this app type yet."
                 heading="App type test cases"
+                moduleLabelByCaseId={moduleLabelByCaseId}
                 onChange={setLocalSelectedIds}
                 selectedCaseIds={localSelectedIds}
               />

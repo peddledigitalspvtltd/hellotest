@@ -168,10 +168,20 @@ export function TileCardCaseIcon() {
 export function TileCardRequirementIcon() {
   return (
     <TileCardIconShell>
-      <path d="M8 4.5h6l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 7 19V6a1.5 1.5 0 0 1 1-1.5Z" />
-      <path d="M14 4.5V9h4" />
-      <path d="M10 12h5" />
-      <path d="M10 16h5" />
+      <rect height="12.5" rx="2" width="12" x="6" y="8" />
+      <circle cx="12" cy="5.5" r="2.15" />
+      <path d="M12 2.25V1.5" />
+      <path d="M12 9.5V8.75" />
+      <path d="M8 5.5h1.15" />
+      <path d="M14.85 5.5H16" />
+      <path d="m9.6 3.1-.8-.8" />
+      <path d="m15.2 8.2-.8-.8" />
+      <path d="m14.4 3.1.8-.8" />
+      <path d="m8.8 8.2.8-.8" />
+      <rect height="1.8" rx="0.35" width="1.8" x="8.6" y="11.35" />
+      <rect height="1.8" rx="0.35" width="1.8" x="8.6" y="15.15" />
+      <path d="M12.4 12.25h3.2" />
+      <path d="M12.4 16.05h3.2" />
     </TileCardIconShell>
   );
 }

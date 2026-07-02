@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { richTextToPlainText } from "./RichTextEditor";
 import type { TestCase, TestSuite } from "../types";
 
@@ -9,6 +9,7 @@ type SuiteCasePickerProps = {
   heading: string;
   description: string;
   emptyMessage: string;
+  moduleLabelByCaseId?: Record<string, string>;
 };
 
 type SuiteScopePickerProps = {
@@ -25,6 +26,8 @@ type OrderedSelectionPickerItem = {
   title: string;
   description: string;
   meta?: string;
+  labels?: string[];
+  moduleLabel?: string;
 };
 
 type OrderedSelectionPickerProps = {
@@ -37,6 +40,7 @@ type OrderedSelectionPickerProps = {
   itemLabel: string;
   selectedHint: string;
   emptyHint: string;
+  showCaseFilters?: boolean;
 };
 
 const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
@@ -56,16 +60,19 @@ export function SuiteCasePicker({
   onChange,
   heading,
   description,
-  emptyMessage
+  emptyMessage,
+  moduleLabelByCaseId = {}
 }: SuiteCasePickerProps) {
   const items = useMemo<OrderedSelectionPickerItem[]>(
     () =>
       cases.map((testCase) => ({
         id: testCase.id,
         title: testCase.title,
-        description: richTextToPlainText(testCase.description) || "No description yet for this test case."
+        description: richTextToPlainText(testCase.description) || "No description yet for this test case.",
+        labels: testCase.labels || [],
+        moduleLabel: moduleLabelByCaseId[testCase.id] || ""
       })),
-    [cases]
+    [cases, moduleLabelByCaseId]
   );
 
   return (
@@ -79,6 +86,7 @@ export function SuiteCasePicker({
       onChange={onChange}
       selectedHint="Checked cases stay pinned to the top and will be saved in this order."
       selectedIds={selectedCaseIds}
+      showCaseFilters
     />
   );
 }
@@ -96,8 +104,8 @@ export function SuiteScopePicker({
       suites.map((suite) => ({
         id: suite.id,
         title: suite.name,
-        description: suite.parent_id ? "Nested suite" : "Root suite",
-        meta: suite.parent_id ? "Captured with its parent hierarchy preserved." : "Captured as a top-level suite snapshot."
+        description: suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Reusable suite",
+        meta: "Captured as a suite snapshot for this run."
       })),
     [suites]
   );
@@ -126,23 +134,48 @@ function OrderedSelectionPicker({
   emptyMessage,
   itemLabel,
   selectedHint,
-  emptyHint
+  emptyHint,
+  showCaseFilters = false
 }: OrderedSelectionPickerProps) {
+  const [searchTerm, setSearchTerm] = useState("");
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-  const allItemIds = useMemo(() => items.map((item) => item.id), [items]);
+  const filteredItems = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+
+    return items.filter((item) => {
+      const itemLabels = item.labels || [];
+      const itemModule = String(item.moduleLabel || "");
+      const searchHaystack = [
+        item.title,
+        item.description,
+        item.meta || "",
+        itemModule,
+        ...itemLabels
+      ].join(" ").toLowerCase();
+
+      if (search && !searchHaystack.includes(search)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [items, searchTerm]);
+  const allVisibleItemIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
   const selectedItems = useMemo(
     () => selectedIds.map((id) => itemById.get(id)).filter((item): item is OrderedSelectionPickerItem => Boolean(item)),
     [itemById, selectedIds]
   );
   const orderedItems = useMemo(
     () => [
-      ...selectedItems,
-      ...items.filter((item) => !selectedIds.includes(item.id))
+      ...selectedItems.filter((item) => allVisibleItemIds.includes(item.id)),
+      ...filteredItems.filter((item) => !selectedIds.includes(item.id))
     ],
-    [items, selectedIds, selectedItems]
+    [allVisibleItemIds, filteredItems, selectedIds, selectedItems]
   );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const areAllItemsSelected = Boolean(items.length) && selectedItems.length === items.length;
+  const areAllVisibleItemsSelected = Boolean(allVisibleItemIds.length) && allVisibleItemIds.every((itemId) => selectedIdSet.has(itemId));
+  const hasActiveFilters = Boolean(searchTerm.trim());
+  const visibleSelectedCount = allVisibleItemIds.filter((itemId) => selectedIdSet.has(itemId)).length;
 
   const toggleItem = (itemId: string) => {
     if (selectedIdSet.has(itemId)) {
@@ -164,6 +197,10 @@ function OrderedSelectionPicker({
     onChange(moveItem(selectedIds, currentIndex, targetIndex));
   };
 
+  const selectVisibleItems = () => {
+    onChange(Array.from(new Set([...selectedIds, ...allVisibleItemIds])));
+  };
+
   return (
     <div className="modal-case-picker">
       <div className="suite-case-picker-toolbar">
@@ -172,8 +209,8 @@ function OrderedSelectionPicker({
           <span>{description}</span>
         </div>
         <div className="suite-case-picker-actions">
-          <button className="ghost-button" disabled={!items.length || areAllItemsSelected} onClick={() => onChange(allItemIds)} type="button">
-            Select all
+          <button className="ghost-button" disabled={!allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
+            Select visible
           </button>
           <button className="ghost-button" disabled={!selectedIds.length} onClick={() => onChange([])} type="button">
             Clear
@@ -181,16 +218,32 @@ function OrderedSelectionPicker({
         </div>
       </div>
 
+      {showCaseFilters ? (
+        <div className="suite-case-picker-filters">
+          <input
+            aria-label={`Search ${itemLabel}s`}
+            placeholder={itemLabel === "test case" ? "Search test cases by title, label, or module" : `Search ${itemLabel}s`}
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+        </div>
+      ) : null}
+
       <div className="detail-summary suite-case-picker-summary">
         <strong>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</strong>
         <span>
-          {selectedItems.length ? selectedHint : emptyHint}
+          {hasActiveFilters
+            ? `${visibleSelectedCount} selected in the current filtered list.`
+            : selectedItems.length
+              ? selectedHint
+              : emptyHint}
         </span>
       </div>
 
       {!items.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
+      {items.length && !orderedItems.length ? <div className="empty-state compact">No {itemLabel}s match the current filters.</div> : null}
 
-      {items.length ? (
+      {orderedItems.length ? (
         <div className="suite-case-picker-list suite-case-picker-list--ordered">
           {orderedItems.map((item) => {
             const selectedIndex = selectedIds.indexOf(item.id);
@@ -206,6 +259,8 @@ function OrderedSelectionPicker({
                       <strong>{item.title}</strong>
                     </div>
                     <span>{item.description}</span>
+                    {item.labels?.length ? <span className="suite-case-picker-option-meta">Labels: {item.labels.join(", ")}</span> : null}
+                    {item.moduleLabel ? <span className="suite-case-picker-option-meta">Module: {item.moduleLabel}</span> : null}
                     {item.meta ? <span className="suite-case-picker-option-meta">{item.meta}</span> : null}
                   </div>
                 </label>

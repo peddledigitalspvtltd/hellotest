@@ -10,6 +10,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       name: { required: true, type: "string", minLength: 2 },
       parent_id: { required: false, type: "string" },
+      labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" }
@@ -52,6 +53,7 @@ module.exports = async function (fastify) {
     fastify.validate({
       name: { required: false, type: "string", minLength: 2 },
       parent_id: { required: false, type: "string" },
+      labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" }

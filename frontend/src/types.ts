@@ -54,6 +54,20 @@ export type UserApiKey = {
   revoked_at?: string | null;
 };
 
+export type AppNotification = {
+  id: string;
+  user_id: string;
+  session_id?: string | null;
+  project_id?: string | null;
+  run_id?: string | null;
+  target_url?: string | null;
+  type: string;
+  title: string;
+  message: string;
+  status: "unread" | "read" | string;
+  created_at?: string;
+};
+
 export type Project = {
   id: string;
   display_id?: string | null;
@@ -107,6 +121,24 @@ export type RequirementDefectLink = {
   title: string;
   status: string | null;
   link_source?: "manual" | "automatic" | string;
+  created_at?: string;
+};
+
+export type TestCaseDefectLink = {
+  id: string;
+  title: string;
+  status: string | null;
+  link_source?: "manual" | "automatic" | string;
+  created_at?: string;
+};
+
+export type TestCaseReviewStatus = "not_requested" | "pending" | "accepted" | "changes_requested";
+
+export type TestCaseReviewEvent = {
+  id: string;
+  status: TestCaseReviewStatus;
+  comment?: string | null;
+  user_id?: string | null;
   created_at?: string;
 };
 
@@ -418,6 +450,7 @@ export type TestSuite = {
   app_type_id: string;
   name: string;
   parent_id: string | null;
+  labels?: string[];
   parameter_values?: Record<string, string>;
   parallel_enabled?: boolean | null;
   parallel_count?: number | null;
@@ -434,19 +467,40 @@ export type TestCase = {
   suite_id: string | null;
   suite_ids?: string[];
   requirement_ids?: string[];
+  module_ids?: string[];
+  defect_ids?: string[];
   title: string;
   description: string | null;
   external_references?: string[];
+  labels?: string[];
   parameter_values?: Record<string, string>;
   automated: "yes" | "no" | null;
   automation_status?: "not_automated" | "ready" | "incomplete" | null;
   priority: number | null;
   status: string | null;
   requirement_id: string | null;
+  reviewer_id?: string | null;
+  review_status?: TestCaseReviewStatus | null;
+  review_history?: TestCaseReviewEvent[];
+  ai_quality_score?: number | null;
   ai_generation_source?: "scheduler" | null;
   ai_generation_review_status?: "pending" | "accepted" | null;
   ai_generation_job_id?: string | null;
   ai_generated_at?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type TestCaseModule = {
+  id: string;
+  display_id?: string | null;
+  app_type_id: string;
+  name: string;
+  description?: string | null;
+  test_case_count?: number;
+  test_case_ids?: string[];
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;

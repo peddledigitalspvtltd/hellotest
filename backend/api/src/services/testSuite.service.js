@@ -2,6 +2,7 @@ const db = require("../db");
 const { v4: uuid } = require("uuid");
 const suiteTestCaseService = require("./suiteTestCase.service");
 const displayIdService = require("./displayId.service");
+const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const normalizeParameterName = (value) => {
   const normalized = String(value || "").trim().replace(/^@+/, "").toLowerCase();
@@ -50,12 +51,13 @@ const normalizeParallelCount = (value, fallback = 1) => {
 
 const shapeSuite = (suite) => ({
   ...suite,
+  labels: normalizeStoredReferenceList(suite.labels),
   parameter_values: normalizeParameterValues(suite.parameter_values),
   parallel_enabled: suite.parallel_enabled === null || suite.parallel_enabled === undefined ? null : normalizeBoolean(suite.parallel_enabled),
   parallel_count: suite.parallel_count === null || suite.parallel_count === undefined ? null : normalizeParallelCount(suite.parallel_count)
 });
 
-exports.createTestSuite = async ({ app_type_id, name, parent_id, parameter_values, parallel_enabled, parallel_count, created_by }) => {
+exports.createTestSuite = async ({ app_type_id, name, parent_id, labels, parameter_values, parallel_enabled, parallel_count, created_by }) => {
   if (!app_type_id || !name) {
     throw new Error("Missing required fields");
   }
@@ -81,14 +83,15 @@ exports.createTestSuite = async ({ app_type_id, name, parent_id, parameter_value
   const display_id = await displayIdService.createDisplayId("test_suite");
 
   await db.prepare(`
-    INSERT INTO test_suites (id, display_id, app_type_id, name, parent_id, parameter_values, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO test_suites (id, display_id, app_type_id, name, parent_id, labels, parameter_values, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     display_id,
     app_type_id,
     name,
     parent_id || null,
+    normalizeReferenceList(labels),
     normalizeParameterValues(parameter_values),
     parallel_enabled === undefined ? null : normalizeBoolean(parallel_enabled),
     parallel_enabled === undefined ? null : normalizeParallelCount(parallel_count),
@@ -159,11 +162,12 @@ exports.updateTestSuite = async (id, data) => {
 
   await db.prepare(`
     UPDATE test_suites
-    SET name = ?, parent_id = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET name = ?, parent_id = ?, labels = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     data.name ?? existing.name,
     parentId || null,
+    data.labels !== undefined ? normalizeReferenceList(data.labels) : normalizeStoredReferenceList(existing.labels),
     data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
     data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
     data.parallel_enabled !== undefined || data.parallel_count !== undefined

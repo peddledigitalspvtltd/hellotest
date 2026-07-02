@@ -180,6 +180,9 @@ export function DataTable<T>({
   getRowKey,
   onRowClick,
   getRowClassName,
+  getRowDraggable,
+  onRowDragStart,
+  onRowDragEnd,
   enableHeaderColumnReorder = false,
   enableColumnResize = false,
   enableRowSelection = true
@@ -191,6 +194,9 @@ export function DataTable<T>({
   getRowKey?: (row: T, index: number) => string;
   onRowClick?: (row: T) => void;
   getRowClassName?: (row: T) => string;
+  getRowDraggable?: (row: T) => boolean;
+  onRowDragStart?: (row: T) => void;
+  onRowDragEnd?: (row: T) => void;
   hideToolbarCopy?: boolean;
   hideVisibleColumnPreview?: boolean;
   enableHeaderColumnReorder?: boolean;
@@ -817,12 +823,20 @@ export function DataTable<T>({
               {sortedRows.map((row, index) => {
                 const rowKey = sortedRowKeys[index] || String(index);
                 const rowClassName = [getRowClassName?.(row), onRowClick ? "is-clickable-row" : ""].filter(Boolean).join(" ");
+                const isRowDraggable = getRowDraggable?.(row) || false;
 
                 return (
                   <tr
                     className={rowClassName}
+                    draggable={isRowDraggable || undefined}
                     key={rowKey}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onDragEnd={isRowDraggable ? () => onRowDragEnd?.(row) : undefined}
+                    onDragStart={isRowDraggable ? (event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", rowKey);
+                      onRowDragStart?.(row);
+                    } : undefined}
                   >
                     {shouldRenderSelectionColumn ? (
                       <td className="data-table-select-cell" onClick={(event) => event.stopPropagation()}>

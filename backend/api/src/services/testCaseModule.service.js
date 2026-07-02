@@ -1,0 +1,277 @@
+const db = require("../db");
+const { v4: uuid } = require("uuid");
+const displayIdService = require("./displayId.service");
+const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+
+const normalizeText = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
+};
+
+const normalizeTextList = (values = []) => {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => normalizeText(value)).filter(Boolean))];
+};
+
+const selectAppType = db.prepare(`
+  SELECT id
+  FROM app_types
+  WHERE id = ?
+`);
+
+const selectModule = db.prepare(`
+  SELECT *
+  FROM test_case_modules
+  WHERE id = ?
+`);
+
+const selectCase = db.prepare(`
+  SELECT id, app_type_id
+  FROM test_cases
+  WHERE id = ?
+`);
+
+const selectModuleCaseIds = db.prepare(`
+  SELECT test_case_id
+  FROM test_case_module_cases
+  WHERE module_id = ?
+  ORDER BY sort_order ASC, test_case_id ASC
+`);
+
+const deleteModuleCases = db.prepare(`
+  DELETE FROM test_case_module_cases
+  WHERE module_id = ?
+`);
+
+const deleteCaseModuleMembership = db.prepare(`
+  DELETE FROM test_case_module_cases
+  WHERE test_case_id = ?
+`);
+
+const insertModuleCase = db.prepare(`
+  INSERT INTO test_case_module_cases (module_id, test_case_id, sort_order)
+  VALUES (?, ?, ?)
+  ON CONFLICT (test_case_id) DO UPDATE
+  SET module_id = EXCLUDED.module_id,
+      sort_order = EXCLUDED.sort_order
+`);
+
+const hydrateModule = async (module) => {
+  if (!module) {
+    return module;
+  }
+
+  return {
+    ...module,
+    test_case_ids: (await selectModuleCaseIds.all(module.id)).map((row) => row.test_case_id)
+  };
+};
+
+const ensureAppTypeExists = async (appTypeId) => {
+  const resolvedAppTypeId = normalizeText(appTypeId);
+
+  if (!resolvedAppTypeId) {
+    throw new Error("app_type_id is required");
+  }
+
+  const appType = await selectAppType.get(resolvedAppTypeId);
+
+  if (!appType) {
+    throw new Error("App type not found");
+  }
+
+  return appType;
+};
+
+const ensureCasesMatchAppType = async (caseIds, appTypeId) => {
+  for (const testCaseId of caseIds) {
+    const testCase = await selectCase.get(testCaseId);
+
+    if (!testCase) {
+      throw new Error(`Test case not found: ${testCaseId}`);
+    }
+
+    if (testCase.app_type_id && testCase.app_type_id !== appTypeId) {
+      throw new Error("Test case must belong to the same app type as the module");
+    }
+  }
+};
+
+exports.listModules = async ({ app_type_id } = {}) => {
+  let query = `
+    SELECT test_case_modules.*, COUNT(test_case_module_cases.test_case_id)::INTEGER AS test_case_count
+    FROM test_case_modules
+    LEFT JOIN test_case_module_cases ON test_case_module_cases.module_id = test_case_modules.id
+    WHERE 1 = 1
+  `;
+  const params = [];
+
+  if (app_type_id) {
+    query += ` AND test_case_modules.app_type_id = ?`;
+    params.push(app_type_id);
+  }
+
+  query += `
+    GROUP BY test_case_modules.id
+    ORDER BY COALESCE(test_case_modules.updated_at, test_case_modules.created_at) DESC, test_case_modules.name ASC
+  `;
+
+  const rows = await db.prepare(query).all(...params);
+  return Promise.all(rows.map((row) => hydrateModule(row)));
+};
+
+exports.getModule = async (id) => {
+  const module = await selectModule.get(id);
+
+  if (!module) {
+    throw new Error("Module not found");
+  }
+
+  return hydrateModule(module);
+};
+
+exports.getModuleCases = async (moduleId) => {
+  await exports.getModule(moduleId);
+
+  const rows = await db.prepare(`
+    SELECT test_cases.*
+    FROM test_case_module_cases
+    JOIN test_cases ON test_cases.id = test_case_module_cases.test_case_id
+    WHERE test_case_module_cases.module_id = ?
+    ORDER BY test_case_module_cases.sort_order ASC, test_cases.title ASC
+  `).all(moduleId);
+
+  return rows.map((row) => ({
+    ...row,
+    external_references: normalizeStoredReferenceList(row.external_references),
+    labels: normalizeStoredReferenceList(row.labels)
+  }));
+};
+
+exports.createModule = async ({ app_type_id, name, description, test_case_ids = [], created_by } = {}) => {
+  const appType = await ensureAppTypeExists(app_type_id);
+  const normalizedName = normalizeText(name);
+
+  if (!normalizedName) {
+    throw new Error("Module name is required");
+  }
+
+  const caseIds = normalizeTextList(test_case_ids);
+  await ensureCasesMatchAppType(caseIds, appType.id);
+
+  const id = uuid();
+  const displayId = await displayIdService.createDisplayId("test_case_module");
+  const actorId = normalizeText(created_by);
+
+  const transaction = db.transaction(async () => {
+    await db.prepare(`
+      INSERT INTO test_case_modules (id, display_id, app_type_id, name, description, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(id, displayId, appType.id, normalizedName, normalizeText(description), actorId, actorId);
+
+    for (const [index, testCaseId] of caseIds.entries()) {
+      await deleteCaseModuleMembership.run(testCaseId);
+      await insertModuleCase.run(id, testCaseId, index + 1);
+    }
+  });
+
+  await transaction();
+
+  return { id };
+};
+
+exports.updateModule = async (id, data = {}) => {
+  const existing = await exports.getModule(id);
+  const nextName = data.name !== undefined ? normalizeText(data.name) : existing.name;
+
+  if (!nextName) {
+    throw new Error("Module name is required");
+  }
+
+  const caseIds = data.test_case_ids !== undefined ? normalizeTextList(data.test_case_ids) : null;
+
+  if (caseIds) {
+    await ensureCasesMatchAppType(caseIds, existing.app_type_id);
+  }
+
+  const transaction = db.transaction(async () => {
+    await db.prepare(`
+      UPDATE test_case_modules
+      SET name = ?, description = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      nextName,
+      data.description !== undefined ? normalizeText(data.description) : existing.description,
+      normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,
+      id
+    );
+
+    if (caseIds) {
+      await deleteModuleCases.run(id);
+
+      for (const [index, testCaseId] of caseIds.entries()) {
+        await deleteCaseModuleMembership.run(testCaseId);
+        await insertModuleCase.run(id, testCaseId, index + 1);
+      }
+    }
+  });
+
+  await transaction();
+
+  return { updated: true };
+};
+
+exports.assignCases = async (id, testCaseIds = [], { append = true } = {}) => {
+  const module = await exports.getModule(id);
+  const caseIds = normalizeTextList(testCaseIds);
+  await ensureCasesMatchAppType(caseIds, module.app_type_id);
+
+  const existingIds = append ? module.test_case_ids || [] : [];
+  const nextIds = [...new Set([...existingIds, ...caseIds])];
+
+  const transaction = db.transaction(async () => {
+    await deleteModuleCases.run(id);
+
+    for (const [index, testCaseId] of nextIds.entries()) {
+      await deleteCaseModuleMembership.run(testCaseId);
+      await insertModuleCase.run(id, testCaseId, index + 1);
+    }
+  });
+
+  await transaction();
+
+  return { updated: true, assigned: caseIds.length };
+};
+
+exports.removeCases = async (id, testCaseIds = []) => {
+  await exports.getModule(id);
+  const caseIds = normalizeTextList(testCaseIds);
+
+  for (const testCaseId of caseIds) {
+    await db.prepare(`
+      DELETE FROM test_case_module_cases
+      WHERE module_id = ? AND test_case_id = ?
+    `).run(id, testCaseId);
+  }
+
+  return { updated: true, removed: caseIds.length };
+};
+
+exports.deleteModule = async (id) => {
+  await exports.getModule(id);
+
+  const transaction = db.transaction(async () => {
+    await deleteModuleCases.run(id);
+    await db.prepare(`
+      DELETE FROM test_case_modules
+      WHERE id = ?
+    `).run(id);
+  });
+
+  await transaction();
+
+  return { deleted: true };
+};
