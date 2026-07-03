@@ -26,6 +26,8 @@ module.exports = async function (fastify) {
   });
 
   fastify.post("/users/import", async (req) => {
+    await fastify.authenticate(req);
+
     fastify.validate({
       rows: { required: true, type: "array" },
       default_role_id: { required: false, type: "string" }

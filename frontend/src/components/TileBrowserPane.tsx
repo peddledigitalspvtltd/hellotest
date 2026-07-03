@@ -58,6 +58,20 @@ function canScroll(node: HTMLDivElement, deltaY: number) {
   return node.scrollTop + node.clientHeight < node.scrollHeight - 1;
 }
 
+function findPageScrollHost(node: HTMLElement) {
+  let current = node.parentElement;
+
+  while (current) {
+    if (isScrollableElement(current)) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
 export function TileBrowserPane({
   children,
   className = ""
@@ -167,17 +181,18 @@ export function TileBrowserPane({
         <button
           aria-label="Jump to top"
           className={["tile-browser-pane-top-button", isAwayFromTop ? "is-ready" : ""].filter(Boolean).join(" ")}
-          disabled={!isScrollable}
           onClick={() => {
             const node = scrollRef.current;
             if (!node) {
               return;
             }
 
-            node.scrollTop = 0;
+            node.scrollTo({ top: 0, behavior: "smooth" });
+            findPageScrollHost(node)?.scrollTo({ top: 0, behavior: "smooth" });
+            window.scrollTo({ top: 0, behavior: "smooth" });
             setIsAwayFromTop(false);
           }}
-          title={isScrollable ? "Jump to top" : "List fits on one screen"}
+          title="Jump to top"
           type="button"
         >
           <ArrowUpIcon />

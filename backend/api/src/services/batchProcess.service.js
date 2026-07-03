@@ -8,6 +8,7 @@ const QUEUED_BATCH_LIMIT = Math.max(1, Number(process.env.BATCH_PROCESS_CONCURRE
 const DEFAULT_MAX_ATTEMPTS = Math.max(1, Number(process.env.BATCH_PROCESS_MAX_ATTEMPTS || 5));
 const AI_RECOVERY_DELAY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMIT_RECOVERY_MS || 60 * 60 * 1000));
 const MAX_RETRY_DELAY_MS = Math.max(60_000, Number(process.env.BATCH_PROCESS_MAX_RETRY_DELAY_MS || 60 * 60 * 1000));
+const EXPORT_CHUNK_SIZE = Math.max(10, Math.min(500, Number(process.env.BATCH_EXPORT_CHUNK_SIZE || 100)));
 
 const insertJob = obsDb.prepare(`
   INSERT INTO batch_process_jobs (
@@ -226,6 +227,7 @@ const appendProgressEvent = async (transactionId, {
   processed = 0,
   total = 0,
   imported = 0,
+  exported = 0,
   failed = 0,
   metadata = {}
 }) => {
@@ -238,6 +240,7 @@ const appendProgressEvent = async (transactionId, {
       processed_items: processed,
       total_items: total,
       imported,
+      exported,
       failed,
       progress_percent: progressPercent,
       ...metadata
@@ -246,6 +249,7 @@ const appendProgressEvent = async (transactionId, {
       processed_items: processed,
       total_items: total,
       imported,
+      exported,
       failed,
       progress_percent: progressPercent,
       current_phase: phase,
@@ -306,6 +310,11 @@ exports.queueBatchJob = async ({
       job_id: id,
       operation: normalizedOperation
     }
+  });
+  await workspaceTransactionService.createTransactionNotification(transaction.id, {
+    type: "batch_process.queued",
+    title: transaction.title,
+    message: `${transaction.title} was queued. Open the batch process to track progress.`
   });
   exports.triggerProcessing();
 
@@ -589,33 +598,43 @@ async function runTestCaseExport(job) {
     "expected_result"
   ]];
 
-  for (const [index, testCase] of cases.entries()) {
-    const steps = await selectStepsForExport.all(testCase.id);
-    const requirementNames = (await selectRequirementNamesForExport.all(testCase.id)).map((row) => row.title).filter(Boolean);
-    const suiteNames = (await selectSuiteNamesForExport.all(testCase.id)).map((row) => row.name).filter(Boolean);
+  for (let offset = 0; offset < cases.length; offset += EXPORT_CHUNK_SIZE) {
+    const chunk = cases.slice(offset, offset + EXPORT_CHUNK_SIZE);
 
-    rows.push([
-      testCase.title,
-      testCase.description || "",
-      testCase.automated || "no",
-      `P${testCase.priority || 3}`,
-      testCase.status || "draft",
-      normalizeStoredReferenceList(testCase.external_references).join("\n"),
-      requirementNames.join("\n"),
-      suiteNames.join("\n"),
-      steps.map((step) => step.action || "").join("\n"),
-      steps.map((step) => step.expected_result || "").join("\n")
-    ]);
+    for (const testCase of chunk) {
+      const steps = await selectStepsForExport.all(testCase.id);
+      const requirementNames = (await selectRequirementNamesForExport.all(testCase.id)).map((row) => row.title).filter(Boolean);
+      const suiteNames = (await selectSuiteNamesForExport.all(testCase.id)).map((row) => row.name).filter(Boolean);
 
-    const processed = index + 1;
-    if (processed === cases.length || processed === 1 || processed % 10 === 0) {
-      await appendProgressEvent(job.transaction_id, {
-        phase: "export",
-        message: `Prepared ${processed} of ${cases.length} test case${cases.length === 1 ? "" : "s"}.`,
-        processed,
-        total: cases.length
-      });
+      rows.push([
+        testCase.title,
+        testCase.description || "",
+        testCase.automated || "no",
+        `P${testCase.priority || 3}`,
+        testCase.status || "draft",
+        normalizeStoredReferenceList(testCase.external_references).join("\n"),
+        requirementNames.join("\n"),
+        suiteNames.join("\n"),
+        steps.map((step) => step.action || "").join("\n"),
+        steps.map((step) => step.expected_result || "").join("\n")
+      ]);
     }
+
+    const processed = Math.min(offset + chunk.length, cases.length);
+    const chunkNumber = Math.floor(offset / EXPORT_CHUNK_SIZE) + 1;
+    const chunkCount = Math.max(1, Math.ceil(cases.length / EXPORT_CHUNK_SIZE));
+    await appendProgressEvent(job.transaction_id, {
+      phase: "export",
+      message: `Prepared export chunk ${chunkNumber} of ${chunkCount} (${processed}/${cases.length} test cases).`,
+      processed,
+      total: cases.length,
+      exported: processed,
+      metadata: {
+        chunk_number: chunkNumber,
+        chunk_count: chunkCount,
+        chunk_size: chunk.length
+      }
+    });
   }
 
   const csv = serializeCsv(rows);
@@ -713,6 +732,12 @@ exports.processQueuedJobs = async () => {
         });
         const result = await handler(job);
         await markJobCompleted.run(result || {}, job.id);
+        const completedTransaction = await workspaceTransactionService.getTransaction(job.transaction_id);
+        await workspaceTransactionService.createTransactionNotification(job.transaction_id, {
+          type: "batch_process.completed",
+          title: completedTransaction.title,
+          message: `${completedTransaction.title} completed. Open the batch process for details and artifacts.`
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Batch process failed";
         const nextAttempt = Number(job.attempts || 0) + 1;
@@ -784,6 +809,11 @@ exports.processQueuedJobs = async () => {
             operation: operation || "unknown",
             error: message
           }
+        });
+        await workspaceTransactionService.createTransactionNotification(job.transaction_id, {
+          type: "batch_process.failed",
+          title: "Batch process failed",
+          message: message || "Batch process failed. Open the process for details."
         });
       }
     }

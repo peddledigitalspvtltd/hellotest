@@ -1,4 +1,4 @@
-import { type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type RichTextEditorProps = {
   id?: string;
@@ -10,6 +10,8 @@ type RichTextEditorProps = {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  onAiRephrase?: (html: string, plainText: string) => Promise<string | void> | string | void;
+  aiRephraseTitle?: string;
   "aria-label"?: string;
 };
 
@@ -21,7 +23,7 @@ type RichTextContentProps = {
   title?: string;
 };
 
-const ALLOWED_TAGS = new Set(["a", "b", "blockquote", "br", "code", "div", "em", "h3", "i", "li", "ol", "p", "span", "strong", "u", "ul"]);
+const ALLOWED_TAGS = new Set(["a", "b", "blockquote", "br", "code", "div", "em", "h3", "i", "li", "ol", "p", "s", "span", "strike", "strong", "u", "ul"]);
 const DROPPED_TAGS = new Set(["script", "style", "iframe", "object", "embed", "link", "meta"]);
 
 function escapeHtml(value: string) {
@@ -283,10 +285,13 @@ export function RichTextEditor({
   required,
   disabled,
   className = "",
+  onAiRephrase,
+  aiRephraseTitle = "Rephrase description with AI",
   "aria-label": ariaLabel
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const lastHtmlRef = useRef("");
+  const [isRephrasing, setIsRephrasing] = useState(false);
   const isEmpty = !richTextToPlainText(value);
 
   useEffect(() => {
@@ -395,15 +400,46 @@ export function RichTextEditor({
     insertHtml(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${escapeHtml(selectedText)}</a>`);
   }, [disabled, emitChange, insertHtml]);
 
-  const controls: Array<{ label: ReactNode; title: string; action: () => void }> = [
-    { label: <strong>B</strong>, title: "Bold", action: () => runCommand("bold") },
-    { label: <em>I</em>, title: "Italic", action: () => runCommand("italic") },
-    { label: "H", title: "Heading", action: () => runCommand("formatBlock", "H3") },
-    { label: "•", title: "Bulleted list", action: () => runCommand("insertUnorderedList") },
-    { label: "1.", title: "Numbered list", action: () => runCommand("insertOrderedList") },
-    { label: "“”", title: "Quote", action: () => runCommand("formatBlock", "BLOCKQUOTE") },
-    { label: "<>", title: "Inline code", action: wrapSelectionWithCode },
-    { label: "↗", title: "Link", action: createLink }
+  const handleAiRephrase = useCallback(async () => {
+    if (!onAiRephrase || disabled || isRephrasing) {
+      return;
+    }
+
+    const editor = editorRef.current;
+    const currentHtml = normalizeRichTextHtml(editor?.innerHTML || value);
+    const plainText = richTextToPlainText(currentHtml);
+
+    if (!plainText) {
+      return;
+    }
+
+    setIsRephrasing(true);
+    try {
+      const nextValue = await onAiRephrase(currentHtml, plainText);
+      if (typeof nextValue === "string") {
+        const nextHtml = sanitizeRichTextHtml(nextValue);
+        lastHtmlRef.current = nextHtml;
+        onChange(nextHtml);
+        if (editor) {
+          editor.innerHTML = nextHtml;
+        }
+      }
+    } finally {
+      setIsRephrasing(false);
+    }
+  }, [disabled, isRephrasing, onAiRephrase, onChange, value]);
+
+  const controls: Array<{ group: "format" | "insert" | "list" | "ai"; label: ReactNode; title: string; action: () => void; disabled?: boolean }> = [
+    { group: "format", label: <strong className="rich-text-tool-glyph">B</strong>, title: "Bold", action: () => runCommand("bold") },
+    { group: "format", label: <em className="rich-text-tool-glyph">I</em>, title: "Italic", action: () => runCommand("italic") },
+    { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--strike">S</span>, title: "Strikethrough", action: () => runCommand("strikeThrough") },
+    { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--underline">U</span>, title: "Underline", action: () => runCommand("underline") },
+    { group: "insert", label: <RichTextLinkIcon />, title: "Link", action: createLink },
+    { group: "insert", label: <RichTextCodeIcon />, title: "Inline code", action: wrapSelectionWithCode },
+    { group: "list", label: <RichTextBulletedListIcon />, title: "Bulleted list", action: () => runCommand("insertUnorderedList") },
+    { group: "list", label: <RichTextNumberedListIcon />, title: "Numbered list", action: () => runCommand("insertOrderedList") },
+    { group: "list", label: <RichTextIndentIcon />, title: "Indent list item", action: () => runCommand("indent") },
+    { group: "ai", label: <RichTextAiRephraseIcon />, title: aiRephraseTitle, action: handleAiRephrase, disabled: !onAiRephrase || isEmpty || isRephrasing }
   ];
 
   const editorStyle = {
@@ -413,19 +449,21 @@ export function RichTextEditor({
   return (
     <div className={["rich-text-editor", className].filter(Boolean).join(" ")}>
       <div className="rich-text-editor-toolbar" aria-label="Rich text tools">
-        {controls.map((control) => (
-          <button
-            aria-label={control.title}
-            className="rich-text-tool-button"
-            disabled={disabled}
-            key={control.title}
-            onClick={control.action}
-            onMouseDown={(event) => event.preventDefault()}
-            title={control.title}
-            type="button"
-          >
-            {control.label}
-          </button>
+        {controls.map((control, index) => (
+          <span className="rich-text-tool-slot" key={control.title}>
+            {index > 0 && controls[index - 1].group !== control.group ? <span aria-hidden="true" className="rich-text-tool-divider" /> : null}
+            <button
+              aria-label={control.title}
+              className={["rich-text-tool-button", control.group === "ai" ? "rich-text-tool-button--ai" : "", isRephrasing && control.group === "ai" ? "is-loading" : ""].filter(Boolean).join(" ")}
+              disabled={disabled || control.disabled}
+              onClick={control.action}
+              onMouseDown={(event) => event.preventDefault()}
+              title={control.title}
+              type="button"
+            >
+              {control.label}
+            </button>
+          </span>
         ))}
       </div>
       <div
@@ -445,5 +483,81 @@ export function RichTextEditor({
         suppressContentEditableWarning
       />
     </div>
+  );
+}
+
+function RichTextToolSvg({ children }: { children: ReactNode }) {
+  return (
+    <svg aria-hidden="true" fill="none" height="19" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="19">
+      {children}
+    </svg>
+  );
+}
+
+function RichTextLinkIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+      <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+    </RichTextToolSvg>
+  );
+}
+
+function RichTextCodeIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="m8 8-4 4 4 4" />
+      <path d="m16 8 4 4-4 4" />
+      <path d="m14 5-4 14" />
+    </RichTextToolSvg>
+  );
+}
+
+function RichTextBulletedListIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="M9 7h11" />
+      <path d="M9 12h11" />
+      <path d="M9 17h11" />
+      <path d="M4 7h.01" />
+      <path d="M4 12h.01" />
+      <path d="M4 17h.01" />
+    </RichTextToolSvg>
+  );
+}
+
+function RichTextNumberedListIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="M10 7h10" />
+      <path d="M10 12h10" />
+      <path d="M10 17h10" />
+      <path d="M4 6h1v4" />
+      <path d="M4 10h2" />
+      <path d="M4 14.5a1.5 1.5 0 0 1 3 0c0 .7-.5 1.1-1.2 1.6L4 17.5h3" />
+    </RichTextToolSvg>
+  );
+}
+
+function RichTextIndentIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="M11 7h9" />
+      <path d="M11 12h9" />
+      <path d="M11 17h9" />
+      <path d="m4 8 3 4-3 4" />
+    </RichTextToolSvg>
+  );
+}
+
+export function RichTextAiRephraseIcon() {
+  return (
+    <RichTextToolSvg>
+      <path d="m14.5 4.5 5 5" />
+      <path d="m4 20 4.25-1.25L19.5 7.5l-3-3L5.25 15.75Z" />
+      <path d="m13 6 3 3" />
+      <path d="M5 4.5 6 7l2.5 1L6 9 5 11.5 4 9 1.5 8 4 7Z" />
+      <path d="M19 14.5 20 17l2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z" />
+    </RichTextToolSvg>
   );
 }

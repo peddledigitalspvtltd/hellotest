@@ -1,6 +1,7 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
 const { v4: uuid } = require("uuid");
+const notificationService = require("./notification.service");
 
 const WORKSPACE_TRANSACTION_STATUSES = new Set(["queued", "running", "completed", "failed"]);
 const WORKSPACE_TRANSACTION_EVENT_LEVELS = new Set(["info", "success", "warning", "error"]);
@@ -258,6 +259,8 @@ const hydrateTransactionEvent = (event) => {
   };
 };
 
+const buildBatchProcessUrl = (transactionId) => `/testops?process=${encodeURIComponent(transactionId)}`;
+
 exports.createTransaction = async (input = {}) => {
   const id = uuid();
 
@@ -366,6 +369,27 @@ exports.createTransactionArtifact = async (transactionId, input = {}) => {
   await insertTransactionArtifact.run(id, transaction.id, fileName, mimeType, content);
 
   return { id, transaction_id: transaction.id, file_name: fileName, mime_type: mimeType };
+};
+
+exports.createTransactionNotification = async (transactionId, input = {}) => {
+  const transaction = await exports.getTransaction(transactionId);
+
+  if (!transaction.created_by) {
+    return null;
+  }
+
+  try {
+    return await notificationService.createNotification({
+      user_id: transaction.created_by,
+      project_id: transaction.project_id || undefined,
+      target_url: buildBatchProcessUrl(transaction.id),
+      type: normalizeText(input.type) || `batch_process.${transaction.status}`,
+      title: normalizeText(input.title) || transaction.title,
+      message: normalizeText(input.message) || transaction.description || "Batch process status changed."
+    });
+  } catch {
+    return null;
+  }
 };
 
 exports.listTransactionArtifacts = async (transactionId) => {

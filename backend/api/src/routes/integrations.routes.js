@@ -1,4 +1,5 @@
 const service = require("../services/integration.service");
+const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const { INTEGRATION_TYPE_VALUES } = require("../domain/catalog");
 
 const MASKED_SECRET_VALUE = "********";
@@ -210,9 +211,56 @@ module.exports = async function (fastify) {
     }
 
     const payload = await service.exportIntegrations();
-    return {
+    const response = {
       ...payload,
       integrations: payload.integrations.map(sanitizeIntegration)
+    };
+
+    const transaction = await workspaceTransactionService.createTransaction({
+      category: "bulk_export",
+      action: "integration_export",
+      status: "completed",
+      title: "Integration export",
+      description: `Exported ${response.integrations.length} integration${response.integrations.length === 1 ? "" : "s"}.`,
+      metadata: {
+        export_format: "json",
+        total_items: response.integrations.length,
+        processed_items: response.integrations.length,
+        exported: response.integrations.length,
+        failed: 0,
+        progress_percent: 100,
+        current_phase: "completed"
+      },
+      related_kind: "integrations",
+      related_id: "all",
+      created_by: req.user.id,
+      started_at: response.exported_at,
+      completed_at: response.exported_at
+    });
+    const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
+      file_name: "qaira-integrations-export.json",
+      mime_type: "application/json",
+      content: JSON.stringify(response, null, 2)
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      level: "success",
+      phase: "complete",
+      message: `Exported ${response.integrations.length} integration${response.integrations.length === 1 ? "" : "s"}.`,
+      details: {
+        artifact_id: artifact.id,
+        exported: response.integrations.length
+      }
+    });
+    await workspaceTransactionService.createTransactionNotification(transaction.id, {
+      type: "batch_process.completed",
+      title: "Integration export completed",
+      message: "Integration export is available in TestOps."
+    });
+
+    return {
+      ...response,
+      transaction_id: transaction.id,
+      artifact_id: artifact.id
     };
   });
 
@@ -229,7 +277,87 @@ module.exports = async function (fastify) {
       integrations: { required: true, type: "array" }
     }, req.body);
 
-    return service.importIntegrations(req.body);
+    const startedAt = new Date().toISOString();
+    const transaction = await workspaceTransactionService.createTransaction({
+      category: "bulk_import",
+      action: "integration_import",
+      status: "running",
+      title: "Integration import",
+      description: `Importing ${req.body.integrations.length} integration${req.body.integrations.length === 1 ? "" : "s"}.`,
+      metadata: {
+        import_source: "json",
+        total_items: req.body.integrations.length,
+        processed_items: 0,
+        imported: 0,
+        updated: 0,
+        failed: 0,
+        progress_percent: 0,
+        current_phase: "import"
+      },
+      related_kind: "integrations",
+      related_id: "all",
+      created_by: req.user.id,
+      started_at: startedAt
+    });
+
+    try {
+      const result = await service.importIntegrations(req.body);
+      const processed = result.imported + result.updated + result.failed;
+
+      await workspaceTransactionService.updateTransaction(transaction.id, {
+        status: "completed",
+        description: `Integration import completed: ${result.imported} created, ${result.updated} updated, ${result.failed} failed.`,
+        metadata: {
+          total_items: req.body.integrations.length,
+          processed_items: processed,
+          imported: result.imported,
+          updated: result.updated,
+          failed: result.failed,
+          progress_percent: 100,
+          current_phase: "completed"
+        },
+        completed_at: new Date().toISOString()
+      });
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        level: result.failed ? "warning" : "success",
+        phase: "complete",
+        message: `Integration import completed: ${result.imported} created, ${result.updated} updated, ${result.failed} failed.`,
+        details: result
+      });
+      await workspaceTransactionService.createTransactionNotification(transaction.id, {
+        type: result.failed ? "batch_process.completed_with_warnings" : "batch_process.completed",
+        title: "Integration import completed",
+        message: `Created ${result.imported}, updated ${result.updated}, failed ${result.failed}.`
+      });
+
+      return {
+        ...result,
+        transaction_id: transaction.id
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Integration import failed";
+
+      await workspaceTransactionService.updateTransaction(transaction.id, {
+        status: "failed",
+        description: message,
+        metadata: {
+          current_phase: "failed",
+          error: message
+        },
+        completed_at: new Date().toISOString()
+      });
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        level: "error",
+        phase: "failed",
+        message
+      });
+      await workspaceTransactionService.createTransactionNotification(transaction.id, {
+        type: "batch_process.failed",
+        title: "Integration import failed",
+        message
+      });
+      throw error;
+    }
   });
 
   fastify.get("/integrations/:id", async (req) => {

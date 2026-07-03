@@ -613,6 +613,7 @@ export type ObjectRepositoryImportResult = {
   created: number;
   updated: number;
   failed: number;
+  transaction_id?: string;
   errors: Array<{
     index: number;
     screen_name?: string | null;

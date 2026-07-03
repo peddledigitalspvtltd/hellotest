@@ -273,7 +273,6 @@ export type AlmRequirementCandidate = {
 
 const MAX_IMPORT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_ROWS_PER_BATCH = 250;
-const MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH = 100;
 
 const splitRowsForImport = (rows: Array<Record<string, unknown>>) => {
   const chunks: Array<Array<Record<string, unknown>>> = [];
@@ -600,9 +599,9 @@ export const api = {
 	    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean }>) =>
 	      request<{ updated: boolean }>(`/integrations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
 	    export: () =>
-	      request<{ version: number; exported_at: string; integrations: Integration[] }>("/integrations/export"),
+	      request<{ version: number; exported_at: string; integrations: Integration[]; transaction_id?: string; artifact_id?: string }>("/integrations/export"),
 	    import: (input: { integrations: Integration[] }) =>
-	      request<{ imported: number; updated: number; failed: number; failures: Array<{ name: string; error: string }> }>("/integrations/import", {
+	      request<{ imported: number; updated: number; failed: number; transaction_id?: string; failures: Array<{ name: string; error: string }> }>("/integrations/import", {
 	        method: "POST",
 	        body: JSON.stringify(input)
 	      }),
@@ -797,25 +796,11 @@ export const api = {
       app_type_id: string;
       import_source?: string;
       entries: ObjectRepositoryImportEntry[];
-    }) => {
-      const result: ObjectRepositoryImportResult = { created: 0, updated: 0, failed: 0, errors: [] };
-
-      for (let offset = 0; offset < input.entries.length; offset += MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH) {
-        const response = await request<ObjectRepositoryImportResult>("/test-cases/automation/learning-cache/import", {
-          method: "POST",
-          body: JSON.stringify({
-            ...input,
-            entries: input.entries.slice(offset, offset + MAX_REPOSITORY_IMPORT_ENTRIES_PER_BATCH)
-          })
-        });
-        result.created += response.created;
-        result.updated += response.updated;
-        result.failed += response.failed;
-        result.errors.push(...response.errors);
-      }
-
-      return result;
-    },
+    }) =>
+      request<ObjectRepositoryImportResult>("/test-cases/automation/learning-cache/import", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     extractLearningCacheFields: (input: {
       app_type_id?: string;
       screen_name: string;

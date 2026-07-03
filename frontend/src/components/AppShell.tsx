@@ -405,6 +405,12 @@ export function AppShell() {
     staleTime: 60 * 1000
   });
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const serverUnreadNotificationsQuery = useQuery({
+    queryKey: ["notifications", "unread"],
+    queryFn: () => api.notifications.list({ status: "unread" }),
+    enabled: Boolean(session),
+    refetchInterval: 30_000
+  });
   const [theme, setTheme] = useState(readWorkspaceTheme);
   const [isCollapsed, setIsCollapsed] = useState(() => readSidebarMode() === "collapsed");
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_SIDEBAR_BREAKPOINT).matches);
@@ -421,6 +427,7 @@ export function AppShell() {
   const navCounts = {
     projects: projects.length
   };
+  const totalNotificationUnreadCount = notificationUnreadCount + (serverUnreadNotificationsQuery.data?.length || 0);
 
   useEffect(() => {
     writeWorkspaceTheme(theme);
@@ -698,7 +705,7 @@ export function AppShell() {
                   const Icon = item.icon;
                   const isDisabled = Boolean("disabledWhenNoProjects" in item && item.disabledWhenNoProjects && hasNoProjects);
                   const badgeCount = item.id === "notifications"
-                    ? notificationUnreadCount
+                    ? totalNotificationUnreadCount
                     : "countKey" in item
                       ? navCounts[item.countKey as keyof typeof navCounts]
                       : undefined;
@@ -723,8 +730,8 @@ export function AppShell() {
                       >
                         <span className="nav-link-icon" aria-hidden="true">
                           <Icon />
-                          {item.id === "notifications" && notificationUnreadCount > 0 ? (
-                            <span className="nav-link-icon-badge">{notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}</span>
+                          {item.id === "notifications" && totalNotificationUnreadCount > 0 ? (
+                            <span className="nav-link-icon-badge">{totalNotificationUnreadCount > 99 ? "99+" : totalNotificationUnreadCount}</span>
                           ) : null}
                         </span>
                         <span className="nav-link-label">{resolveNavLabel(item)}</span>

@@ -1293,7 +1293,7 @@ export function PeoplePage({
                         </div>
                       </form>
 
-                      <div className="role-permission-editor">
+                      <div className="role-permission-editor role-permission-editor--edit people-role-existing-permissions">
                         <div className="detail-summary">
                           <strong>Permissions</strong>
                           <span>Bind feature access and CRUD actions to this role. Changes apply anywhere this role is assigned.</span>

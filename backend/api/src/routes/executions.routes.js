@@ -2,6 +2,7 @@ const service = require("../services/execution.service");
 const executionPlanningService = require("../services/executionPlanning.service");
 const executionAiAnalysisService = require("../services/executionAiAnalysis.service");
 const executionReportService = require("../services/executionReport.service");
+const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const { EXECUTION_FINAL_STATUS_VALUES } = require("../domain/catalog");
@@ -265,10 +266,57 @@ module.exports = async function (fastify) {
       .replace(/[^A-Za-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "")
       || "qaira-run-report";
+    const completedAt = new Date().toISOString();
+    const transaction = await workspaceTransactionService.createTransaction({
+      project_id: execution.project_id,
+      app_type_id: execution.app_type_id || null,
+      category: "bulk_export",
+      action: "run_report_export",
+      status: "completed",
+      title: `Run report export for ${execution.name || execution.id}`,
+      description: `Exported PDF report ${safeName}.pdf.`,
+      metadata: {
+        export_format: "pdf",
+        total_items: 1,
+        processed_items: 1,
+        exported: 1,
+        failed: 0,
+        progress_percent: 100,
+        current_phase: "completed",
+        execution_id: req.params.id
+      },
+      related_kind: "execution",
+      related_id: req.params.id,
+      created_by: req.user.id,
+      started_at: completedAt,
+      completed_at: completedAt
+    });
+    const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
+      file_name: `${safeName}.pdf`,
+      mime_type: "application/pdf",
+      content: `data:application/pdf;base64,${Buffer.from(pdf).toString("base64")}`
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      level: "success",
+      phase: "complete",
+      message: `Exported PDF report ${safeName}.pdf.`,
+      details: {
+        execution_id: req.params.id,
+        artifact_id: artifact.id,
+        exported: 1
+      }
+    });
+    await workspaceTransactionService.createTransactionNotification(transaction.id, {
+      type: "batch_process.completed",
+      title: "Run report export completed",
+      message: `${safeName}.pdf is available in TestOps.`
+    });
 
     reply
       .header("Content-Type", "application/pdf")
-      .header("Content-Disposition", `attachment; filename="${safeName}.pdf"`);
+      .header("Content-Disposition", `attachment; filename="${safeName}.pdf"`)
+      .header("X-QAira-Transaction-Id", transaction.id)
+      .header("X-QAira-Artifact-Id", artifact.id);
     return reply.send(pdf);
   });
 

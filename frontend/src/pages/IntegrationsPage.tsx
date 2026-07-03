@@ -1347,7 +1347,13 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const handleExportIntegrations = async () => {
     try {
       const payload = await api.integrations.export();
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const transactionId = payload.transaction_id;
+      const exportPayload = {
+        version: payload.version,
+        exported_at: payload.exported_at,
+        integrations: payload.integrations
+      };
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
 
@@ -1357,7 +1363,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       anchor.click();
       anchor.remove();
       window.URL.revokeObjectURL(url);
-      showSuccess("Integrations exported.");
+      showSuccess(`Integrations exported. TestOps recorded the export${transactionId ? ` (${transactionId.slice(0, 8)})` : ""}.`);
     } catch (error) {
       showError(error, "Unable to export integrations");
     }
@@ -1381,7 +1387,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
       const result = await importIntegrations.mutateAsync({ integrations: integrationsToImport });
       const failureCopy = result.failed ? ` ${result.failed} failed.` : "";
-      showSuccess(`Integrations imported: ${result.imported} new, ${result.updated} updated.${failureCopy}`);
+      showSuccess(`Integrations imported in TestOps${result.transaction_id ? ` (${result.transaction_id.slice(0, 8)})` : ""}: ${result.imported} new, ${result.updated} updated.${failureCopy}`);
       await refresh();
     } catch (error) {
       showError(error, "Unable to import integrations");

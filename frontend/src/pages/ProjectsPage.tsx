@@ -1626,27 +1626,6 @@ export function ProjectsPage() {
                   <TrashIcon />
                   <span>{deleteProject.isPending ? "Deleting…" : `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`}</span>
                 </button>
-                <CatalogActionMenu
-                  className="project-more-actions"
-                  actions={[
-                    {
-                      label: "Create Project",
-                      description: "Create a new project with app type scope and initial team members.",
-                      icon: <AddIcon />,
-                      tone: "primary",
-                      onClick: openCreateProjectModal
-                    },
-                    {
-                      label: `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`,
-                      description: isAdmin ? "Delete selected projects and related workspace data." : "Only admins can delete projects.",
-                      icon: <TrashIcon />,
-                      disabled: !isAdmin || !selectedActionProjectIds.length || deleteProject.isPending,
-                      tone: "danger",
-                      onClick: () => void handleDeleteSelectedProjects()
-                    }
-                  ]}
-                  label="Project actions"
-                />
               </div>
             )}
           >
@@ -1707,20 +1686,20 @@ export function ProjectsPage() {
                               />
                               <DisplayIdBadge value={project.display_id || project.id} />
                             </label>
+                            <div className="project-portfolio-title">
+                              <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
+                                <TileCardProjectIcon />
+                              </TileCardIconFrame>
+                              <div>
+                                <h3>{project.name}</h3>
+                              </div>
+                            </div>
                             <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
                               <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
                               <CatalogActionMenu
                                 actions={getProjectActionItems(item)}
                                 label={`${project.name} actions`}
                               />
-                            </div>
-                          </div>
-                          <div className="project-portfolio-title">
-                            <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
-                              <TileCardProjectIcon />
-                            </TileCardIconFrame>
-                            <div>
-                              <h3>{project.name}</h3>
                             </div>
                           </div>
                         </div>

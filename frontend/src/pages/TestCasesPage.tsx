@@ -19,7 +19,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
-import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
+import { RichTextAiRephraseIcon, RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
@@ -4636,7 +4636,7 @@ export function TestCasesPage() {
       });
       showSuccess(
         options?.successMessage
-          || `Test case export queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`
+          || `Test case export${options?.fileLabel ? ` for "${options.fileLabel}"` : ""} queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`
       );
     } catch (error) {
       showError(error, "Unable to export test cases");
@@ -6215,8 +6215,7 @@ export function TestCasesPage() {
                 description: "Download this test case as a CSV file.",
                 icon: <ExportIcon />,
                 onClick: () => void exportCasesToCsv([testCase], {
-                  fileLabel: testCase.title,
-                  successMessage: `Exported "${testCase.title}" to CSV.`
+                  fileLabel: testCase.title
                 })
               },
               {
@@ -7066,8 +7065,7 @@ export function TestCasesPage() {
                             description: "Download this test case as a CSV file.",
                             icon: <ExportIcon />,
                             onClick: () => void exportCasesToCsv([testCase], {
-                              fileLabel: testCase.title,
-                              successMessage: `Exported "${testCase.title}" to CSV.`
+                              fileLabel: testCase.title
                             })
                           },
                           {
@@ -9824,13 +9822,7 @@ function StepIconShell({ children }: { children: ReactNode }) {
 }
 
 function StepAiIcon() {
-  return (
-    <StepIconShell>
-      <path d="m12 3 1.7 4.4L18 9l-4.3 1.6L12 15l-1.7-4.4L6 9l4.3-1.6Z" />
-      <path d="M19 14.5 20 17l2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z" />
-      <path d="M4.5 14 5.2 16l2 .8-2 .8-.7 2-.8-2-2-.8 2-.8Z" />
-    </StepIconShell>
-  );
+  return <RichTextAiRephraseIcon />;
 }
 
 function StepMoveUpIcon() {

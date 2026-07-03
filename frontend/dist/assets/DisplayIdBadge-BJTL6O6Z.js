@@ -1,1 +1,0 @@
-import{j as s}from"./index-CU1Nt5p7.js";const a=e=>e.replace(/^RC([_-]?)/i,"Req$1");function d({value:e}){return s.jsx("div",{className:"display-id-badge",children:s.jsx("code",{children:a(e)})})}export{d as D};

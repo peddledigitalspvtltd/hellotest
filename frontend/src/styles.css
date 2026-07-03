@@ -37218,10 +37218,6 @@ body > .nested-modal-backdrop {
   overflow-wrap: anywhere;
 }
 
-.projects-catalog-actions .project-more-actions {
-  margin-left: auto !important;
-}
-
 .catalog-run-button {
   flex: 0 0 auto !important;
   min-width: max-content !important;
@@ -37616,7 +37612,6 @@ body > .nested-modal-backdrop {
   }
 
   .catalog-action-menu,
-  .projects-catalog-actions .project-more-actions,
   .step-card-menu.catalog-action-menu {
     flex: 0 0 2.4rem !important;
     width: 2.4rem !important;
@@ -39785,6 +39780,145 @@ body > .nested-modal-backdrop {
   margin-top: 0.5rem !important;
 }
 
+.people-role-existing-permissions {
+  display: grid !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-existing-permissions .detail-summary {
+  margin: 0 !important;
+}
+
+.people-role-existing-permissions .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-existing-permissions .permission-designer-summary {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  margin: 0 !important;
+  padding: 0.72rem 0.82rem !important;
+  border: 1px solid var(--permission-option-border) !important;
+  border-radius: 8px !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-existing-permissions .permission-designer-actions {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 0.5rem !important;
+  min-width: min(100%, 18rem) !important;
+  margin-left: auto !important;
+}
+
+.people-role-existing-permissions .permission-designer-progress {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0.55rem 0.8rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion {
+  display: block !important;
+  min-height: min(56dvh, 38rem) !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0.1rem 0.45rem 0.5rem 0.05rem !important;
+  scrollbar-gutter: stable !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--permission-card-border, var(--permission-option-border)) !important;
+  border-radius: 10px !important;
+  background: var(--surface-elevated, #ffffff) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-expanded {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 34%, var(--permission-option-border, var(--border))) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  min-width: 0 !important;
+  padding: 0.68rem 0.82rem !important;
+  border-bottom: 1px solid var(--permission-option-border) !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-collapsed .permission-group-head {
+  border-bottom: 0 !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card + .permission-group-card {
+  margin-top: 0.65rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-collapsed + .permission-group-card.is-collapsed {
+  margin-top: 0.5rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-option-list {
+  display: grid !important;
+  grid-row: 2 !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)) !important;
+  align-content: start !important;
+  gap: 0.58rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: min(45dvh, 28rem) !important;
+  margin-top: 0 !important;
+  padding: 0.78rem 0.9rem 0.9rem !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-gutter: stable !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-option {
+  display: grid !important;
+  grid-template-columns: 1rem minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 0.55rem !important;
+  min-width: 0 !important;
+  min-height: 4.1rem !important;
+  height: auto !important;
+  padding: 0.62rem 0.68rem !important;
+}
+
+.people-role-existing-permissions .permission-option-copy,
+.people-role-existing-permissions .permission-option-title,
+.people-role-existing-permissions .permission-option-code,
+.people-role-existing-permissions .permission-option-description {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
 /* Test data table expand keeps the same resource-table-shell surface with a bounded scroll body. */
 .test-data-form .resource-table-shell {
   display: grid !important;
@@ -41823,5 +41957,326 @@ body > .nested-modal-backdrop {
 
   .test-case-labels-field {
     grid-column: 1 / -1;
+  }
+}
+
+/* 2026-07-03 frontend request refinements */
+.display-id-badge {
+  display: inline-flex !important;
+  align-items: baseline !important;
+  max-width: 100% !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.display-id-badge code {
+  display: inline !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--primary-strong) !important;
+  font-size: 0.78rem !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.data-table-config-reset {
+  min-height: 2.25rem !important;
+  padding: 0.48rem 0.72rem !important;
+  border-radius: 8px !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+
+.project-card-select-row {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: 0.68rem !important;
+  margin-bottom: 0.35rem !important;
+}
+
+.project-card-select-row .checkbox-field {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.project-card-select-row .project-portfolio-title {
+  min-width: 0;
+  align-items: center;
+  gap: 0.58rem;
+}
+
+.project-card-select-row .project-portfolio-title h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card-select-row .project-card-top-actions {
+  justify-self: end !important;
+  margin-left: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.45rem !important;
+}
+
+.project-card-select-row .project-card-top-actions > * {
+  direction: ltr;
+  flex: 0 0 auto;
+}
+
+.project-card-select-row .project-card-top-actions .project-health-badge {
+  max-width: min(10rem, 38vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-browser-pane-top-button {
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+
+.tile-browser-pane-top-button:disabled {
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+
+.rich-text-editor-toolbar {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  padding: 0.35rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+}
+
+.rich-text-tool-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.rich-text-tool-divider {
+  width: 1px;
+  height: 2.2rem;
+  margin: 0 0.42rem;
+  background: rgba(126, 149, 188, 0.28);
+}
+
+.rich-text-tool-button {
+  width: 2.45rem;
+  min-width: 2.45rem;
+  height: 2.45rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #172033;
+  box-shadow: none;
+}
+
+.rich-text-tool-button:hover:not(:disabled),
+.rich-text-tool-button:focus-visible {
+  background: #eef2f7;
+  color: #0f172a;
+}
+
+.rich-text-tool-button:disabled {
+  opacity: 0.42;
+}
+
+.rich-text-tool-button--ai:not(:disabled) {
+  color: #172033;
+}
+
+.rich-text-tool-glyph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1rem;
+  color: currentColor;
+  font-size: 1.22rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.rich-text-tool-glyph--strike::after {
+  content: "";
+  position: absolute;
+  left: -0.08rem;
+  right: -0.08rem;
+  top: 52%;
+  height: 1.5px;
+  background: currentColor;
+}
+
+.rich-text-tool-glyph--underline {
+  text-decoration: underline;
+  text-underline-offset: 0.18rem;
+}
+
+.rich-text-editor-surface {
+  border-radius: 8px;
+}
+
+:root[data-theme="dark"] .rich-text-editor-toolbar {
+  border-color: rgba(145, 176, 231, 0.22);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] .rich-text-tool-divider {
+  background: rgba(145, 176, 231, 0.24);
+}
+
+:root[data-theme="dark"] .rich-text-tool-button {
+  background: transparent;
+  color: #e5edf8;
+}
+
+:root[data-theme="dark"] .rich-text-tool-button:hover:not(:disabled),
+:root[data-theme="dark"] .rich-text-tool-button:focus-visible {
+  background: rgba(71, 85, 105, 0.55);
+  color: #ffffff;
+}
+
+.automation-workspace-grid--repository {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.automation-workspace-grid--repository.has-config-drawer {
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, 24rem);
+  align-items: stretch;
+}
+
+.automation-workspace-grid--repository > .panel:first-child {
+  min-width: 0;
+}
+
+.object-repository-config-drawer {
+  position: sticky;
+  top: 0.85rem;
+  align-self: start;
+  max-height: calc(100dvh - 1.7rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.object-repository-config-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.object-repository-config-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.object-repository-config-head strong {
+  color: var(--text-primary);
+  font-size: 1.02rem;
+  line-height: 1.2;
+}
+
+.object-repository-config-head span {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.object-repository-config-close {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(126, 149, 188, 0.2);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.object-repository-config-close:hover,
+.object-repository-config-close:focus-visible {
+  background: rgba(239, 246, 255, 0.96);
+  color: var(--primary-strong);
+}
+
+.object-repository-config-actions {
+  justify-content: flex-start;
+}
+
+.object-repository-config-drawer .repository-field-detail {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.object-repository-config-drawer .object-repository-screen-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.object-repository-config-drawer .object-repository-screen-tabs button {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+@media (max-width: 1120px) {
+  .automation-workspace-grid--repository.has-config-drawer {
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .project-card-select-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .project-card-select-row .checkbox-field {
+    grid-column: 1 / -1;
+  }
+
+  .automation-workspace-grid--repository.has-config-drawer {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .object-repository-config-drawer {
+    position: static;
+    max-height: none;
   }
 }

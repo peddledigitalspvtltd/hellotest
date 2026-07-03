@@ -8,8 +8,10 @@ const aiCaseAuthoringService = require("../services/aiCaseAuthoring.service");
 const aiAutomationBuilderService = require("../services/aiAutomationBuilder.service");
 const automationGeneratorService = require("../services/automationGenerator.service");
 const batchProcessService = require("../services/batchProcess.service");
+const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
+const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   const ids = [...new Set((Array.isArray(requirementIds) ? requirementIds : []).filter(Boolean))];
@@ -31,6 +33,14 @@ const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   }
 
   return requirements;
+};
+
+const chunkItems = (items, size) => {
+  const chunks = [];
+  for (let offset = 0; offset < items.length; offset += size) {
+    chunks.push(items.slice(offset, offset + size));
+  }
+  return chunks;
 };
 
 module.exports = async function (fastify) {
@@ -185,8 +195,55 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
     const csv = await aiAutomationBuilderService.exportLearningCacheCsv({ app_type_id });
+    const exported = Math.max(0, csv.split(/\r?\n/).length - 1);
+    const completedAt = new Date().toISOString();
+    const transaction = await workspaceTransactionService.createTransaction({
+      project_id: appType.project_id,
+      app_type_id,
+      category: "bulk_export",
+      action: "object_repository_export",
+      status: "completed",
+      title: "Object repository export",
+      description: `Exported ${exported} object repository entr${exported === 1 ? "y" : "ies"} for ${appType.name}.`,
+      metadata: {
+        export_format: "csv",
+        total_items: exported,
+        processed_items: exported,
+        exported,
+        failed: 0,
+        progress_percent: 100,
+        current_phase: "completed"
+      },
+      related_kind: "app_type",
+      related_id: app_type_id,
+      created_by: req.user.id,
+      started_at: completedAt,
+      completed_at: completedAt
+    });
+    const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
+      file_name: "object-repository.csv",
+      mime_type: "text/csv; charset=utf-8",
+      content: csv
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      level: "success",
+      phase: "complete",
+      message: `Object repository CSV export completed with ${exported} entr${exported === 1 ? "y" : "ies"}.`,
+      details: {
+        artifact_id: artifact.id,
+        exported
+      }
+    });
+    await workspaceTransactionService.createTransactionNotification(transaction.id, {
+      type: "batch_process.completed",
+      title: "Object repository export completed",
+      message: "Object repository CSV export is available in TestOps."
+    });
 
-    reply.header("Content-Disposition", "attachment; filename=\"object-repository.csv\"");
+    reply
+      .header("Content-Disposition", "attachment; filename=\"object-repository.csv\"")
+      .header("X-QAira-Transaction-Id", transaction.id)
+      .header("X-QAira-Artifact-Id", artifact.id);
     return reply.type("text/csv; charset=utf-8").send(csv);
   });
 
@@ -206,12 +263,151 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
 
-    return aiAutomationBuilderService.importLearningCacheEntries({
+    const entries = req.body.entries;
+    const chunks = chunkItems(entries, OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE);
+    const startedAt = new Date().toISOString();
+    const transaction = await workspaceTransactionService.createTransaction({
       project_id: appType.project_id,
       app_type_id: req.body.app_type_id,
-      import_source: req.body.import_source,
-      entries: req.body.entries
+      category: "bulk_import",
+      action: "object_repository_import",
+      status: "running",
+      title: "Object repository import",
+      description: `Importing ${entries.length} object repository entr${entries.length === 1 ? "y" : "ies"} for ${appType.name}.`,
+      metadata: {
+        import_source: req.body.import_source || "object_repository_import",
+        total_items: entries.length,
+        processed_items: 0,
+        imported: 0,
+        updated: 0,
+        failed: 0,
+        progress_percent: 0,
+        current_phase: "import"
+      },
+      related_kind: "app_type",
+      related_id: req.body.app_type_id,
+      created_by: req.user.id,
+      started_at: startedAt
     });
+
+    try {
+      const result = { created: 0, updated: 0, failed: 0, errors: [] };
+
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        phase: "start",
+        message: `Started object repository import in ${chunks.length || 1} chunk${chunks.length === 1 ? "" : "s"}.`,
+        details: {
+          total_items: entries.length,
+          chunk_count: chunks.length
+        }
+      });
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        const chunkResult = await aiAutomationBuilderService.importLearningCacheEntries({
+          project_id: appType.project_id,
+          app_type_id: req.body.app_type_id,
+          import_source: req.body.import_source,
+          entries: chunk
+        });
+        result.created += chunkResult.created;
+        result.updated += chunkResult.updated;
+        result.failed += chunkResult.failed;
+        result.errors.push(...chunkResult.errors.map((error) => ({
+          ...error,
+          index: error.index + (index * OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE)
+        })));
+
+        const processed = Math.min(entries.length, (index + 1) * OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE);
+        const progressPercent = entries.length ? Math.round((processed / entries.length) * 100) : 100;
+        await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+          level: chunkResult.failed ? "warning" : "info",
+          phase: "import",
+          message: `Processed repository import chunk ${index + 1} of ${chunks.length}.`,
+          details: {
+            chunk_number: index + 1,
+            chunk_count: chunks.length,
+            chunk_size: chunk.length,
+            processed_items: processed,
+            total_items: entries.length,
+            created: result.created,
+            updated: result.updated,
+            failed: result.failed,
+            progress_percent: progressPercent
+          },
+          metadata: {
+            processed_items: processed,
+            total_items: entries.length,
+            imported: result.created + result.updated,
+            created: result.created,
+            updated: result.updated,
+            failed: result.failed,
+            progress_percent: progressPercent,
+            current_phase: "import",
+            chunk_number: index + 1,
+            chunk_count: chunks.length
+          }
+        });
+      }
+
+      const completedAt = new Date().toISOString();
+      const imported = result.created + result.updated;
+      await workspaceTransactionService.updateTransaction(transaction.id, {
+        status: "completed",
+        description: `Object repository import completed: ${result.created} created, ${result.updated} updated, ${result.failed} failed.`,
+        metadata: {
+          import_source: req.body.import_source || "object_repository_import",
+          total_items: entries.length,
+          processed_items: entries.length,
+          imported,
+          created: result.created,
+          updated: result.updated,
+          failed: result.failed,
+          progress_percent: 100,
+          current_phase: "completed"
+        },
+        completed_at: completedAt
+      });
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        level: result.failed ? "warning" : "success",
+        phase: "complete",
+        message: `Object repository import completed: ${result.created} created, ${result.updated} updated, ${result.failed} failed.`,
+        details: result
+      });
+      await workspaceTransactionService.createTransactionNotification(transaction.id, {
+        type: result.failed ? "batch_process.completed_with_warnings" : "batch_process.completed",
+        title: "Object repository import completed",
+        message: `Created ${result.created}, updated ${result.updated}, failed ${result.failed}.`
+      });
+
+      return {
+        ...result,
+        transaction_id: transaction.id
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Object repository import failed";
+
+      await workspaceTransactionService.updateTransaction(transaction.id, {
+        status: "failed",
+        description: message,
+        metadata: {
+          current_phase: "failed",
+          error: message
+        },
+        completed_at: new Date().toISOString()
+      });
+      await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+        level: "error",
+        phase: "failed",
+        message
+      });
+      await workspaceTransactionService.createTransactionNotification(transaction.id, {
+        type: "batch_process.failed",
+        title: "Object repository import failed",
+        message
+      });
+      throw error;
+    }
   });
 
   fastify.post("/test-cases/automation/learning-cache/extract-fields", async (req) => {

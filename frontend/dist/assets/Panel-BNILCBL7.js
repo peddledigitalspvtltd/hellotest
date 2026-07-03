@@ -1,1 +1,0 @@
-import{j as e}from"./index-CU1Nt5p7.js";function r({actions:a,className:s="",children:n}){return e.jsxs("section",{className:`panel card ${s}`.trim(),children:[a?e.jsx("div",{className:"panel-head",children:e.jsx("div",{className:"panel-head-actions",children:a})}):null,n]})}export{r as P};

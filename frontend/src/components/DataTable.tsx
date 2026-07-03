@@ -531,7 +531,7 @@ export function DataTable<T>({
         })}
       </div>
       <div className="data-table-config-actions">
-        <button className="link-button" onClick={resetColumns} type="button">
+        <button className="link-button data-table-config-reset" onClick={resetColumns} type="button">
           Reset defaults
         </button>
       </div>

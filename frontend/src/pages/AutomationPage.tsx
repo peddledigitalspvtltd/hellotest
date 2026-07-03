@@ -1002,6 +1002,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
   const [screenDetailTab, setScreenDetailTab] = useState<RepositoryScreenTab>("overview");
   const [fieldDetailTab, setFieldDetailTab] = useState<RepositoryFieldTab>("locators");
+  const [isRepositoryConfigOpen, setIsRepositoryConfigOpen] = useState(true);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
@@ -1483,6 +1484,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
     setSelectedRepositoryId(repositoryId);
     setFieldDetailTab("locators");
+    setIsRepositoryConfigOpen(true);
     syncRepositorySearchParams(repositoryId);
   }, [selectedScreenName, syncRepositorySearchParams]);
 
@@ -2110,7 +2112,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       link.download = fileName;
       link.click();
       URL.revokeObjectURL(downloadUrl);
-      showSuccess("Exported all object repository screens and fields as CSV.");
+      showSuccess("Exported all object repository screens and fields as CSV. A TestOps batch process was recorded.");
     },
     onError: (error) => showError(error, "Unable to export object repository CSV.")
   });
@@ -2145,7 +2147,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
       setRepositoryImportPreview(null);
       setIsRepositoryImportModalOpen(false);
-      showSuccess(`Imported ${response.created} new and updated ${response.updated} existing repository entr${response.created + response.updated === 1 ? "y" : "ies"}.`);
+      showSuccess(`Object repository import completed in TestOps${response.transaction_id ? ` (${response.transaction_id.slice(0, 8)})` : ""}: ${response.created} new, ${response.updated} updated.`);
     },
     onError: (error) => showError(error, "Unable to import object repository entries.")
   });
@@ -4148,7 +4150,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       ) : null}
 
       {view === "repository" ? (
-        <div className="automation-workspace-grid automation-workspace-grid--repository">
+        <div className={[
+          "automation-workspace-grid automation-workspace-grid--repository",
+          selectedRepositoryEntry && isRepositoryConfigOpen ? "has-config-drawer" : ""
+        ].filter(Boolean).join(" ")}>
           <Panel
             title="Object repository"
             subtitle="Screen-level fields grouped by page, with friendly member names, HTML tag details, locator, DOM, image, and fallback intelligence."
@@ -4355,12 +4360,27 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             </div>
           </Panel>
 
-          <Panel
-            className="automation-detail-panel"
-            title="Member inspector"
-            subtitle="Curate the selected repository member. Keywords should bind to this member name, not raw locators."
-	            actions={selectedRepositoryEntry ? (
-	              <div className="testops-action-row">
+	          {selectedRepositoryEntry && isRepositoryConfigOpen ? (
+	            <aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
+	              <div className="object-repository-config-head">
+	                <div>
+	                  <strong>Object Configuration</strong>
+	                  <span>Element Configuration: {repositoryDraft.object_name || getRepositoryMemberName(selectedRepositoryEntry)}</span>
+	                </div>
+	                <button
+	                  aria-label="Close object configuration"
+	                  className="object-repository-config-close"
+	                  onClick={() => setIsRepositoryConfigOpen(false)}
+	                  title="Close object configuration"
+	                  type="button"
+	                >
+	                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
+	                    <path d="M18 6 6 18" />
+	                    <path d="m6 6 12 12" />
+	                  </svg>
+	                </button>
+	              </div>
+	              <div className="testops-action-row object-repository-config-actions">
 	                <button className="ghost-button" onClick={() => void highlightRepositoryLocator(selectedRepositoryEntry.locator, `${activeScreenName}.${getRepositoryMemberName(selectedRepositoryEntry)}`, selectedRepositoryEntry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."))} type="button">
 	                  <MousePointerIcon />
 	                  <span>Highlight</span>
@@ -4368,25 +4388,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                <button className="ghost-button" disabled={improveRepositoryEntry.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
 	                  <SparkIcon />
 	                  <span>{improveRepositoryEntry.isPending ? "Improving..." : "AI improve"}</span>
-                </button>
-                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
+	                </button>
+	                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
 	                  <PlayIcon />
 	                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
 	                </button>
 	                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
 	                  <TrashIcon size={16} />
-                  <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
-                </button>
-              </div>
-            ) : undefined}
-          >
-            {!selectedRepositoryEntry ? (
-              <div className="empty-state compact">Select a repository field to curate execution criteria.</div>
-            ) : (
-              <div className="repository-field-detail">
-                <SubnavTabs
-                  ariaLabel="Field details"
-                  className="object-repository-screen-tabs"
+	                  <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
+	                </button>
+	              </div>
+	              <div className="repository-field-detail">
+	                <SubnavTabs
+	                  ariaLabel="Field details"
+	                  className="object-repository-screen-tabs"
                   value={fieldDetailTab}
                   onChange={setFieldDetailTab}
                   items={[
@@ -4462,11 +4477,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <label className="form-field repository-span-two"><span>Business meaning</span><textarea rows={3} value={repositoryDraft.business_meaning} onChange={(event) => setRepositoryDraft((current) => ({ ...current, business_meaning: event.target.value }))} /></label>
                     <label className="form-field"><span>Usage keywords</span><input value={repositoryDraft.usage_keywords} onChange={(event) => setRepositoryDraft((current) => ({ ...current, usage_keywords: event.target.value }))} placeholder="login, submit, authenticate" /></label>
                     <label className="form-field repository-span-two"><span>Healing guidance</span><textarea rows={3} value={repositoryDraft.fallback_strategy} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_strategy: event.target.value }))} /></label>
-                  </div>
-                ) : null}
-              </div>
-	            )}
-	          </Panel>
+	                  </div>
+	                ) : null}
+	              </div>
+	            </aside>
+	          ) : null}
 
 	          {isRepositoryImportModalOpen ? (
 	            <div className="modal-backdrop" onClick={() => !importRepositoryEntries.isPending && setIsRepositoryImportModalOpen(false)} role="presentation">
