@@ -22,7 +22,7 @@ import { hasPermission } from "../lib/permissions";
 import { parseUserCsv, type ImportedUserRow } from "../lib/userImport";
 import { resolveVisibleEmail } from "../lib/userDisplay";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import type { PermissionGroup, Role, User } from "../types";
+import type { Permission, PermissionGroup, Role, User } from "../types";
 
 type PeopleView = "users" | "roles";
 type FeedbackTone = "success" | "error";
@@ -71,6 +71,7 @@ export function PeoplePage({
   const [roleCatalogViewMode, setRoleCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [selectedActionUserIds, setSelectedActionUserIds] = useState<string[]>([]);
   const [selectedActionRoleIds, setSelectedActionRoleIds] = useState<string[]>([]);
+  const [isExportingRoles, setIsExportingRoles] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [roleSearch, setRoleSearch] = useState("");
   const [createUserDraft, setCreateUserDraft] = useState(createEmptyUserDraft());
@@ -109,7 +110,13 @@ export function PeoplePage({
     () => allPermissionCodes.filter((code) => ![
       "project.delete",
       "settings.manage",
+      "workspace_preferences.manage",
+      "api_key.manage",
+      "localization.manage",
+      "ai_prompt.manage",
+      "feature_flag.manage",
       "user.manage",
+      "user.import",
       "role.manage",
       "project_member.manage",
       "requirement.delete",
@@ -118,6 +125,7 @@ export function PeoplePage({
       "run.delete",
       "schedule.delete",
       "integration.manage",
+      "integration.import_export",
       "transaction.manage",
       "ops.manage"
     ].includes(code)),
@@ -826,15 +834,83 @@ export function PeoplePage({
     });
   };
 
-  const handleExportRoles = () => {
-    downloadJsonFile(`qaira-roles-${new Date().toISOString().slice(0, 10)}.json`, {
-      exported_at: new Date().toISOString(),
-      roles: roleItems.map((role) => ({
-        id: role.id,
-        name: role.name,
-        assigned_users: userCountByRoleName[role.name] || 0
-      }))
-    });
+  const groupRolePermissionsForExport = (rolePermissions: Permission[]) => {
+    const permissionByCode = new Map(rolePermissions.map((permission) => [permission.code, permission]));
+    const groupedCodes = new Set<string>();
+    const groupedPermissions = permissionGroups
+      .map((group) => {
+        const permissionsForGroup = group.permissions
+          .filter((permission) => permissionByCode.has(permission.code))
+          .map((permission) => {
+            groupedCodes.add(permission.code);
+            return {
+              code: permission.code,
+              description: permission.description
+            };
+          });
+
+        return {
+          key: group.key,
+          label: group.label,
+          permissions: permissionsForGroup
+        };
+      })
+      .filter((group) => group.permissions.length > 0);
+
+    const ungroupedPermissions = rolePermissions
+      .filter((permission) => !groupedCodes.has(permission.code))
+      .map((permission) => ({
+        code: permission.code,
+        description: permission.description
+      }));
+
+    if (ungroupedPermissions.length) {
+      groupedPermissions.push({
+        key: "ungrouped",
+        label: "Ungrouped permissions",
+        permissions: ungroupedPermissions
+      });
+    }
+
+    return groupedPermissions;
+  };
+
+  const handleExportRoles = async () => {
+    if (isExportingRoles) {
+      return;
+    }
+
+    setIsExportingRoles(true);
+
+    try {
+      const rolesWithPermissions = await Promise.all(roleItems.map(async (role) => {
+        const rolePermissions = await api.roles.rolePermissions(role.id);
+        const permissionCodes = rolePermissions.map((permission) => permission.code).sort();
+
+        return {
+          id: role.id,
+          name: role.name,
+          assigned_users: userCountByRoleName[role.name] || 0,
+          permission_codes: permissionCodes,
+          permission_groups: groupRolePermissionsForExport(rolePermissions)
+        };
+      }));
+
+      downloadJsonFile(`qaira-roles-${new Date().toISOString().slice(0, 10)}.json`, {
+        exported_at: new Date().toISOString(),
+        permission_catalog: permissionGroups.map((group) => ({
+          key: group.key,
+          label: group.label,
+          permission_codes: group.permissions.map((permission) => permission.code)
+        })),
+        roles: rolesWithPermissions
+      });
+      showFeedback(`${rolesWithPermissions.length} role${rolesWithPermissions.length === 1 ? "" : "s"} exported with permissions.`, "success");
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Unable to export roles", "error");
+    } finally {
+      setIsExportingRoles(false);
+    }
   };
 
   const handleDeleteSelectedUsers = async () => {
@@ -888,7 +964,9 @@ export function PeoplePage({
       </>
     ) : (
       <>
-        <button className="ghost-button" disabled={!roleItems.length} onClick={handleExportRoles} type="button"><ExportIcon />Export roles</button>
+        <button className="ghost-button" disabled={!roleItems.length || isExportingRoles} onClick={() => void handleExportRoles()} type="button">
+          <ExportIcon />{isExportingRoles ? "Exporting roles..." : "Export roles"}
+        </button>
         <button className="primary-button" onClick={openCreateRoleModal} type="button"><AddIcon />Create role</button>
       </>
     )

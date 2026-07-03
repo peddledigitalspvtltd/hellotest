@@ -1,6 +1,7 @@
 const db = require("../db");
 const { v4: uuid } = require("uuid");
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSION_GROUPS } = require("../security/permissions.catalog");
+const featureFlagService = require("./featureFlag.service");
 
 const normalizeRoleName = (name) => String(name || "").trim();
 
@@ -30,6 +31,12 @@ const resolvePermissionsByCode = async (permissionCodes = []) => {
 
   if (missingCodes.length) {
     throw new Error(`Unknown permissions: ${missingCodes.join(", ")}`);
+  }
+
+  const disabledCodes = await featureFlagService.getDisabledPermissionCodes(normalizedCodes);
+
+  if (disabledCodes.length) {
+    throw new Error(`Permissions disabled by feature availability: ${disabledCodes.join(", ")}`);
   }
 
   return permissions;
@@ -94,13 +101,15 @@ exports.getRole = async (id) => {
 exports.getRolePermissions = async (id) => {
   await exports.getRole(id);
 
-  return db.prepare(`
+  const permissions = await db.prepare(`
     SELECT permissions.id, permissions.code, permissions.description
     FROM role_permissions
     JOIN permissions ON permissions.id = role_permissions.permission_id
     WHERE role_permissions.role_id = ?
     ORDER BY permissions.code ASC
   `).all(id);
+
+  return featureFlagService.filterPermissionsByEnabledFeatures(permissions);
 };
 
 exports.listPermissions = async () => {
@@ -112,7 +121,9 @@ exports.listPermissions = async () => {
 
   const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission]));
 
-  return PERMISSION_GROUPS.map((group) => ({
+  const availablePermissionGroups = await featureFlagService.filterPermissionGroupsByEnabledFeatures(PERMISSION_GROUPS);
+
+  return availablePermissionGroups.map((group) => ({
     key: group.key,
     label: group.label,
     permissions: group.permissions

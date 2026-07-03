@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { SaveIcon } from "../../components/AppIcons";
 import { Panel } from "../../components/Panel";
@@ -5,12 +6,15 @@ import { hasPermission } from "../../lib/permissions";
 import { useFeatureAvailability } from "./useFeatureAvailability";
 
 type FeatureAvailabilitySectionProps = {
+  isExpanded?: boolean;
   onError: (error: unknown, fallback: string) => void;
   onSuccess: (message: string) => void;
+  onToggle?: () => void;
 };
 
-export function FeatureAvailabilitySection({ onError, onSuccess }: FeatureAvailabilitySectionProps) {
+export function FeatureAvailabilitySection({ isExpanded = true, onError, onSuccess, onToggle }: FeatureAvailabilitySectionProps) {
   const { session } = useAuth();
+  const queryClient = useQueryClient();
   const canManageFeatureFlags = hasPermission(session, "feature_flag.manage");
   const {
     drafts,
@@ -24,6 +28,10 @@ export function FeatureAvailabilitySection({ onError, onSuccess }: FeatureAvaila
   const handleSave = async () => {
     try {
       await save();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["permissions"] }),
+        queryClient.invalidateQueries({ queryKey: ["domain-metadata"] })
+      ]);
       onSuccess("Feature availability updated.");
     } catch (error) {
       onError(error, "Unable to update feature availability.");
@@ -31,23 +39,33 @@ export function FeatureAvailabilitySection({ onError, onSuccess }: FeatureAvaila
   };
 
   return (
-    <section className="settings-section">
+    <section className={isExpanded ? "settings-section is-expanded" : "settings-section is-collapsed"}>
       <div className="settings-section-heading settings-section-heading--with-action">
-        <div>
-          <p className="eyebrow">Features</p>
-          <h3>Feature availability</h3>
-        </div>
         <button
-          className="primary-button"
-          disabled={!canManageFeatureFlags || isSaving || isLoading}
-          onClick={() => void handleSave()}
+          aria-expanded={isExpanded}
+          className="settings-section-toggle"
+          onClick={onToggle}
           type="button"
         >
-          <SaveIcon />
-          <span>{isSaving ? "Saving..." : "Save features"}</span>
+          <span>
+            <span className="eyebrow">Features</span>
+            <strong>Feature availability</strong>
+          </span>
+          <span aria-hidden="true" className="settings-section-toggle-icon">{isExpanded ? "-" : "+"}</span>
         </button>
+        <div className="settings-section-actions">
+          <button
+            className="primary-button"
+            disabled={!canManageFeatureFlags || isSaving || isLoading}
+            onClick={() => void handleSave()}
+            type="button"
+          >
+            <SaveIcon />
+            <span>{isSaving ? "Saving..." : "Save features"}</span>
+          </button>
+        </div>
       </div>
-      <Panel title="Workspace feature flags" subtitle="Enable or pause capability groups without changing role permissions.">
+      {isExpanded ? <Panel title="Workspace feature flags" subtitle="Enable or pause capability groups without changing role permissions.">
         <div className="feature-flag-provider-card">
           <div>
             <strong>Local controls</strong>
@@ -74,6 +92,9 @@ export function FeatureAvailabilitySection({ onError, onSuccess }: FeatureAvaila
                     <span>
                       <strong>{feature.label}</strong>
                       <small>{feature.key}</small>
+                      {feature.permissions?.length ? (
+                        <small>{feature.permissions.length} permission{feature.permissions.length === 1 ? "" : "s"}: {feature.permissions.slice(0, 4).join(", ")}{feature.permissions.length > 4 ? "..." : ""}</small>
+                      ) : null}
                     </span>
                   </label>
                 ))}
@@ -81,7 +102,7 @@ export function FeatureAvailabilitySection({ onError, onSuccess }: FeatureAvaila
             </article>
           ))}
         </div>
-      </Panel>
+      </Panel> : null}
     </section>
   );
 }

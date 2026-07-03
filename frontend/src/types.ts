@@ -57,6 +57,7 @@ export type UserApiKey = {
 export type FeatureFlagDefinition = {
   key: string;
   label: string;
+  permissions?: string[];
   routes?: string[];
   group: string;
   group_label: string;

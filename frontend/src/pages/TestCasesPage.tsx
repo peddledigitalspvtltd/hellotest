@@ -71,6 +71,7 @@ import { api } from "../lib/api";
 import { appendUniqueImages, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "../lib/aiDesignStudio";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
+import { hasPermission } from "../lib/permissions";
 import { upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import {
@@ -950,9 +951,21 @@ function formatRecorderDisplayMode(value?: string | null) {
 export function TestCasesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { session } = useAuth();
-  const { getPrompt } = useAiPromptRegistry(Boolean(session));
+	  const [searchParams, setSearchParams] = useSearchParams();
+	  const { session } = useAuth();
+	  const canCreateTestCases = hasPermission(session, "testcase.create");
+	  const canImportTestCases = hasPermission(session, "testcase.import");
+	  const canUpdateTestCases = hasPermission(session, "testcase.update");
+	  const canDeleteTestCases = hasPermission(session, "testcase.delete");
+	  const canExportTestCases = hasPermission(session, "testcase.export");
+	  const canUseTestCaseAi = hasPermission(session, "testcase.ai");
+	  const canCreateSuites = hasPermission(session, "suite.create");
+	  const canUpdateSuites = hasPermission(session, "suite.update");
+	  const canCreateRuns = hasPermission(session, "run.create");
+	  const canBuildAutomation = hasPermission(session, "automation.build");
+	  const canUseAutomationAi = hasPermission(session, "automation.ai");
+	  const canUseRecorder = hasPermission(session, "automation.recorder");
+	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
@@ -1465,9 +1478,14 @@ export function TestCasesPage() {
     resetExecutionContextSelection();
   };
 
-  const beginCreateCase = (suiteContextId = "", requirementId = "") => {
-    syncTestCaseSearchParams(null);
-    setCreateSuiteContextId(suiteContextId);
+	  const beginCreateCase = (suiteContextId = "", requirementId = "") => {
+	    if (!canCreateTestCases) {
+	      showError(new Error("Permission required: testcase.create"), "Unable to create test case");
+	      return;
+	    }
+
+	    syncTestCaseSearchParams(null);
+	    setCreateSuiteContextId(suiteContextId);
     setIsCreating(true);
     setSelectedTestCaseId("");
     setCaseDraft({
@@ -2972,9 +2990,14 @@ export function TestCasesPage() {
     clearStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey);
   };
 
-  const handleSaveCaseDirect = async (announce = true) => {
-    try {
-      await persistSelectedSuiteParameterValues();
+	  const handleSaveCaseDirect = async (announce = true) => {
+	    if ((isCreating && !canCreateTestCases) || (!isCreating && !canUpdateTestCases)) {
+	      showError(new Error(`Permission required: ${isCreating ? "testcase.create" : "testcase.update"}`), isCreating ? "Unable to create test case" : "Unable to update test case");
+	      return false;
+	    }
+
+	    try {
+	      await persistSelectedSuiteParameterValues();
       const labels = parseReferenceList(caseDraft.labelsText);
       const resolvedAiQualityScore = calculateTestCaseAiQualityScore({
         title: caseDraft.title,
@@ -3106,10 +3129,15 @@ export function TestCasesPage() {
     return true;
   };
 
-  const handleDeleteCase = async () => {
-    if (!selectedTestCase || !(await confirmDelete({ message: `Delete test case "${selectedTestCase.title}"? Historical run evidence will stay preserved.` }))) {
-      return;
-    }
+	  const handleDeleteCase = async () => {
+	    if (!canDeleteTestCases) {
+	      showError(new Error("Permission required: testcase.delete"), "Unable to delete test case");
+	      return;
+	    }
+
+	    if (!selectedTestCase || !(await confirmDelete({ message: `Delete test case "${selectedTestCase.title}"? Historical run evidence will stay preserved.` }))) {
+	      return;
+	    }
 
     try {
       await deleteTestCase.mutateAsync(selectedTestCase.id);
@@ -3129,12 +3157,12 @@ export function TestCasesPage() {
     }
   };
 
-  const handleDeleteSelectedCases = async () => {
-    const selectedCases = testCases.filter((item) => selectedActionTestCaseIds.includes(item.id));
+	  const handleDeleteSelectedCases = async () => {
+	    const selectedCases = testCases.filter((item) => selectedActionTestCaseIds.includes(item.id));
 
-    if (!selectedCases.length) {
-      return;
-    }
+	    if (!selectedCases.length || !canDeleteTestCases) {
+	      return;
+	    }
 
     const confirmed = await confirmDelete({
       message: `Delete ${selectedCases.length} test case${selectedCases.length === 1 ? "" : "s"}? Historical execution evidence will stay preserved.`
@@ -3325,18 +3353,28 @@ export function TestCasesPage() {
     setReviewSuggestionConfirmed(true);
   };
 
-  const handleOpenSuiteLinkModal = () => {
-    if (!selectedTestCase) {
-      return;
+	  const handleOpenSuiteLinkModal = () => {
+	    if (!canUpdateSuites) {
+	      showError(new Error("Permission required: suite.update"), "Unable to link suites");
+	      return;
+	    }
+
+	    if (!selectedTestCase) {
+	      return;
     }
 
     setSuiteLinkDraftIds(selectedCaseSuiteIdsForModal);
     setIsSuiteLinkModalOpen(true);
   };
 
-  const handleSaveSuiteLinks = async () => {
-    if (!selectedTestCase) {
-      return;
+	  const handleSaveSuiteLinks = async () => {
+	    if (!canUpdateSuites) {
+	      showError(new Error("Permission required: suite.update"), "Unable to update suite references");
+	      return;
+	    }
+
+	    if (!selectedTestCase) {
+	      return;
     }
 
     const nextSuiteIds = Array.from(new Set(suiteLinkDraftIds.filter(Boolean)));
@@ -3373,9 +3411,15 @@ export function TestCasesPage() {
     }
   };
 
-  const handleCreateSuite = async (input: { name: string; labels: string[]; selectedIds: string[]; parallel_enabled: boolean; parallel_count: number }) => {
-    if (!appTypeId) {
-      setMessageTone("error");
+	  const handleCreateSuite = async (input: { name: string; labels: string[]; selectedIds: string[]; parallel_enabled: boolean; parallel_count: number }) => {
+	    if (!canCreateSuites) {
+	      setMessageTone("error");
+	      setMessage("Permission required: suite.create");
+	      return;
+	    }
+
+	    if (!appTypeId) {
+	      setMessageTone("error");
       setMessage("Select an app type before creating a suite.");
       return;
     }
@@ -3405,8 +3449,13 @@ export function TestCasesPage() {
     }
   };
 
-  const openSuiteTransferModal = (testCaseIds: string[], action: SuiteTransferAction = "move") => {
-    const normalizedCaseIds = Array.from(new Set(testCaseIds.filter(Boolean)));
+	  const openSuiteTransferModal = (testCaseIds: string[], action: SuiteTransferAction = "move") => {
+	    if (action === "copy" ? !canCreateTestCases : !canUpdateSuites) {
+	      showError(new Error(`Permission required: ${action === "copy" ? "testcase.create" : "suite.update"}`), "Unable to open suite transfer");
+	      return;
+	    }
+
+	    const normalizedCaseIds = Array.from(new Set(testCaseIds.filter(Boolean)));
 
     if (!normalizedCaseIds.length) {
       showError(new Error("Select one or more test cases first."), "Unable to open suite transfer");
@@ -3516,12 +3565,17 @@ export function TestCasesPage() {
     }
   };
 
-  const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+	  const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
+	    event.preventDefault();
 
-    if (!session?.user.id) {
-      setMessageTone("error");
-      setMessage("You need an active session before creating a run.");
+	    if (!canCreateRuns) {
+	      showError(new Error("Permission required: run.create"), "Unable to create run");
+	      return;
+	    }
+
+	    if (!session?.user.id) {
+	      setMessageTone("error");
+	      setMessage("You need an active session before creating a run.");
       return;
     }
 
@@ -3568,10 +3622,15 @@ export function TestCasesPage() {
     }
   };
 
-  const handleBuildSelectedAutomation = async () => {
-    if (!appTypeId || !automationTargetCaseIds.length) {
-      showError(new Error("Select one or more test cases before building automation."), "Unable to build automation");
-      return;
+	  const handleBuildSelectedAutomation = async () => {
+	    if (!canBuildAutomation) {
+	      showError(new Error("Permission required: automation.build"), "Unable to build automation");
+	      return;
+	    }
+
+	    if (!appTypeId || !automationTargetCaseIds.length) {
+	      showError(new Error("Select one or more test cases before building automation."), "Unable to build automation");
+	      return;
     }
 
     try {
@@ -3589,9 +3648,14 @@ export function TestCasesPage() {
     }
   };
 
-  const handleScheduleSelectedManualAutomation = async () => {
-    if (!appTypeId || !selectedManualAutomationCases.length) {
-      showError(new Error("Select one or more manual test cases before scheduling AI automation."), "Unable to schedule AI automation");
+	  const handleScheduleSelectedManualAutomation = async () => {
+	    if (!canBuildAutomation || !canUseAutomationAi) {
+	      showError(new Error(`Permission required: ${!canBuildAutomation ? "automation.build" : "automation.ai"}`), "Unable to schedule AI automation");
+	      return;
+	    }
+
+	    if (!appTypeId || !selectedManualAutomationCases.length) {
+	      showError(new Error("Select one or more manual test cases before scheduling AI automation."), "Unable to schedule AI automation");
       return;
     }
 
@@ -3606,9 +3670,14 @@ export function TestCasesPage() {
     }
   };
 
-  const handleStartRecorder = async (options: RecorderStartOptions, targetStepId = inspectingStepId) => {
-    if (!selectedTestCase) {
-      showError(new Error("Select a saved test case before starting the recorder."), "Unable to start recorder");
+	  const handleStartRecorder = async (options: RecorderStartOptions, targetStepId = inspectingStepId) => {
+	    if (!canUseRecorder) {
+	      showError(new Error("Permission required: automation.recorder"), "Unable to start recorder");
+	      return;
+	    }
+
+	    if (!selectedTestCase) {
+	      showError(new Error("Select a saved test case before starting the recorder."), "Unable to start recorder");
       return;
     }
 
@@ -4582,10 +4651,15 @@ export function TestCasesPage() {
     }
   };
 
-  const handleBulkImport = async () => {
-    if (!appTypeId || !importRows.length) {
-      return;
-    }
+	  const handleBulkImport = async () => {
+	    if (!canImportTestCases) {
+	      showError(new Error("Permission required: testcase.import"), "Unable to import test cases");
+	      return;
+	    }
+
+	    if (!appTypeId || !importRows.length) {
+	      return;
+	    }
 
     try {
       const response = await importTestCases.mutateAsync({
@@ -4616,15 +4690,21 @@ export function TestCasesPage() {
     }
   };
 
-  const exportCasesToCsv = async (
-    testCasesToExport: TestCase[],
+	  const exportCasesToCsv = async (
+	    testCasesToExport: TestCase[],
     options?: {
       fileLabel?: string;
       successMessage?: string;
     }
-  ) => {
-    if (!testCasesToExport.length) {
-      setMessageTone("error");
+	  ) => {
+	    if (!canExportTestCases) {
+	      setMessageTone("error");
+	      setMessage("Permission required: testcase.export");
+	      return;
+	    }
+
+	    if (!testCasesToExport.length) {
+	      setMessageTone("error");
       setMessage("No test cases are available to export.");
       return;
     }
@@ -4655,8 +4735,13 @@ export function TestCasesPage() {
     });
   };
 
-  const handleCloneCase = async (testCase: TestCase) => {
-    const nextAppTypeId = testCase.app_type_id || appTypeId;
+	  const handleCloneCase = async (testCase: TestCase) => {
+	    if (!canCreateTestCases) {
+	      showError(new Error("Permission required: testcase.create"), "Unable to clone test case");
+	      return;
+	    }
+
+	    const nextAppTypeId = testCase.app_type_id || appTypeId;
 
     if (!nextAppTypeId) {
       showError(new Error("Select an app type before cloning a test case."), "Unable to clone test case");
@@ -4700,10 +4785,15 @@ export function TestCasesPage() {
     }
   };
 
-  const handleDeleteCaseItem = async (testCase: TestCase) => {
-    if (!(await confirmDelete({ message: `Delete test case "${testCase.title}"? Historical execution evidence will stay preserved.` }))) {
-      return;
-    }
+	  const handleDeleteCaseItem = async (testCase: TestCase) => {
+	    if (!canDeleteTestCases) {
+	      showError(new Error("Permission required: testcase.delete"), "Unable to delete test case");
+	      return;
+	    }
+
+	    if (!(await confirmDelete({ message: `Delete test case "${testCase.title}"? Historical execution evidence will stay preserved.` }))) {
+	      return;
+	    }
 
     try {
       await deleteTestCase.mutateAsync(testCase.id);
@@ -4726,9 +4816,14 @@ export function TestCasesPage() {
     }
   };
 
-  const openAiCaseAuthoring = () => {
-    const seededRequirementId =
-      caseDraft.requirement_id
+	  const openAiCaseAuthoring = () => {
+	    if (!canUseTestCaseAi) {
+	      showError(new Error("Permission required: testcase.ai"), "Unable to open AI authoring");
+	      return;
+	    }
+
+	    const seededRequirementId =
+	      caseDraft.requirement_id
       || selectedTestCase?.requirement_ids?.[0]
       || selectedTestCase?.requirement_id
       || requirements[0]?.id
@@ -4741,8 +4836,13 @@ export function TestCasesPage() {
     setIsAiCaseAuthoringOpen(true);
   };
 
-  const openAiStudio = () => {
-    const seededRequirementIds = [
+	  const openAiStudio = () => {
+	    if (!canUseTestCaseAi || !canCreateTestCases) {
+	      showError(new Error(`Permission required: ${!canUseTestCaseAi ? "testcase.ai" : "testcase.create"}`), "Unable to open AI test case generation");
+	      return;
+	    }
+
+	    const seededRequirementIds = [
       ...(selectedTestCase?.requirement_ids || []),
       ...(selectedTestCase?.requirement_id ? [selectedTestCase.requirement_id] : []),
       ...(caseDraft.requirement_id ? [caseDraft.requirement_id] : [])
@@ -4767,10 +4867,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handlePreviewDesignedCases = async () => {
-    if (!appTypeId || !aiRequirementIds.length) {
-      return;
-    }
+	  const handlePreviewDesignedCases = async () => {
+	    if (!canUseTestCaseAi) {
+	      setAiPreviewTone("error");
+	      setAiPreviewMessage("Permission required: testcase.ai");
+	      return;
+	    }
+
+	    if (!appTypeId || !aiRequirementIds.length) {
+	      return;
+	    }
 
     try {
       const response = await previewDesignedCases.mutateAsync({
@@ -4815,9 +4921,15 @@ export function TestCasesPage() {
     return message;
   };
 
-  const handlePreviewAiCaseAuthoring = async () => {
-    if (!appTypeId || !aiCaseAuthoringRequirementId) {
-      setAiCaseAuthoringTone("error");
+	  const handlePreviewAiCaseAuthoring = async () => {
+	    if (!canUseTestCaseAi) {
+	      setAiCaseAuthoringTone("error");
+	      setAiCaseAuthoringMessage("Permission required: testcase.ai");
+	      return;
+	    }
+
+	    if (!appTypeId || !aiCaseAuthoringRequirementId) {
+	      setAiCaseAuthoringTone("error");
       setAiCaseAuthoringMessage("Choose the linked requirement before generating an AI authoring preview.");
       return;
     }
@@ -4842,10 +4954,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handleApplyAiCaseAuthoring = async () => {
-    if (!aiCaseAuthoringPreview) {
-      return;
-    }
+	  const handleApplyAiCaseAuthoring = async () => {
+	    if (!canUseTestCaseAi || (!isCreating && !canUpdateTestCases)) {
+	      setAiCaseAuthoringTone("error");
+	      setAiCaseAuthoringMessage(`Permission required: ${!canUseTestCaseAi ? "testcase.ai" : "testcase.update"}`);
+	      return;
+	    }
+
+	    if (!aiCaseAuthoringPreview) {
+	      return;
+	    }
 
     const normalizedPreviewParameterValues = normalizeTestCaseParameterValues(aiCaseAuthoringPreview.parameter_values);
 
@@ -4919,10 +5037,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
-    if (!appTypeId || !aiRequirementIds.length || !aiPreviewCases.length) {
-      return;
-    }
+	  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
+	    if (!canCreateTestCases) {
+	      setAiPreviewTone("error");
+	      setAiPreviewMessage("Permission required: testcase.create");
+	      return;
+	    }
+
+	    if (!appTypeId || !aiRequirementIds.length || !aiPreviewCases.length) {
+	      return;
+	    }
     const selectedCaseSet = new Set(selectedClientIds?.length ? selectedClientIds : aiPreviewCases.map((item) => item.client_id));
     const acceptedPreviewCases = aiPreviewCases.filter((item) => selectedCaseSet.has(item.client_id));
 
@@ -4966,9 +5090,15 @@ export function TestCasesPage() {
     }
   };
 
-  const handleScheduleDesignedCases = async () => {
-    if (!appTypeId || !aiRequirementIds.length) {
-      setAiPreviewTone("error");
+	  const handleScheduleDesignedCases = async () => {
+	    if (!canUseTestCaseAi || !canCreateTestCases) {
+	      setAiPreviewTone("error");
+	      setAiPreviewMessage(`Permission required: ${!canUseTestCaseAi ? "testcase.ai" : "testcase.create"}`);
+	      return;
+	    }
+
+	    if (!appTypeId || !aiRequirementIds.length) {
+	      setAiPreviewTone("error");
       setAiPreviewMessage("Select at least one requirement before scheduling AI generation.");
       return;
     }
@@ -4999,11 +5129,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handleRunTestCase = async (testCaseId: string, mode?: "local" | "remote") => {
-    const testCase = testCases.find((item) => item.id === testCaseId);
+	  const handleRunTestCase = async (testCaseId: string, mode?: "local" | "remote") => {
+	    const testCase = testCases.find((item) => item.id === testCaseId);
 
-    if (!session?.user.id) {
-      showError(new Error("You need an active session before running a test case."), "Unable to run test case");
+	    if (!canCreateRuns) {
+	      showError(new Error("Permission required: run.create"), "Unable to run test case");
+	      return;
+	    }
+
+	    if (!session?.user.id) {
+	      showError(new Error("You need an active session before running a test case."), "Unable to run test case");
       return;
     }
 
@@ -5087,8 +5222,16 @@ export function TestCasesPage() {
     }
   };
 
-  const handleReviewGeneratedCase = async (testCaseId: string, action: "accept" | "reject") => {
-    const testCase = testCases.find((item) => item.id === testCaseId);
+	  const handleReviewGeneratedCase = async (testCaseId: string, action: "accept" | "reject") => {
+	    const requiredPermission = action === "accept" ? "testcase.update" : "testcase.delete";
+	    const canReviewGeneratedCase = action === "accept" ? canUpdateTestCases : canDeleteTestCases;
+
+	    if (!canReviewGeneratedCase) {
+	      showError(new Error(`Permission required: ${requiredPermission}`), action === "accept" ? "Unable to accept generated test case" : "Unable to reject generated test case");
+	      return;
+	    }
+
+	    const testCase = testCases.find((item) => item.id === testCaseId);
 
     if (!testCase) {
       return;
@@ -5125,9 +5268,17 @@ export function TestCasesPage() {
     }
   };
 
-  const handleReviewSelectedGeneratedCases = async (action: "accept" | "reject") => {
-    if (!selectedPendingGeneratedCases.length) {
-      showError(new Error("Select one or more pending generated cases first."), action === "accept" ? "Unable to accept generated cases" : "Unable to reject generated cases");
+	  const handleReviewSelectedGeneratedCases = async (action: "accept" | "reject") => {
+	    const requiredPermission = action === "accept" ? "testcase.update" : "testcase.delete";
+	    const canReviewGeneratedCases = action === "accept" ? canUpdateTestCases : canDeleteTestCases;
+
+	    if (!canReviewGeneratedCases) {
+	      showError(new Error(`Permission required: ${requiredPermission}`), action === "accept" ? "Unable to accept generated cases" : "Unable to reject generated cases");
+	      return;
+	    }
+
+	    if (!selectedPendingGeneratedCases.length) {
+	      showError(new Error("Select one or more pending generated cases first."), action === "accept" ? "Unable to accept generated cases" : "Unable to reject generated cases");
       return;
     }
 
@@ -5395,7 +5546,7 @@ export function TestCasesPage() {
       icon: <StepSaveIcon />,
       onClick: () => void handleSaveCaseAndSteps(),
       tone: "primary",
-      disabled: createTestCase.isPending || updateTestCase.isPending || updateStep.isPending
+	      disabled: (isCreating ? !canCreateTestCases : !canUpdateTestCases) || createTestCase.isPending || updateTestCase.isPending || updateStep.isPending
     },
     {
       label: "Expand all steps",
@@ -6178,60 +6329,67 @@ export function TestCasesPage() {
         const isRejectingCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "reject";
         const rowActions = [
           {
-            label: "Open case",
-            description: "Open this test case in the workspace.",
-            icon: <OpenIcon />,
-            onClick: () => openLibraryCase(testCase.id)
-          },
+	            label: "Open case",
+	            description: "Open this test case in the workspace.",
+	            icon: <OpenIcon />,
+	            onClick: () => openLibraryCase(testCase.id),
+	            requiredPermissions: ["testcase.view"]
+	          },
           ...(isPendingSchedulerCase
             ? [
               {
                 label: "Accept AI generated case",
                 description: "Approve the scheduler-generated test case and keep it.",
-                icon: <TestCaseAcceptIcon />,
-                onClick: () => void handleReviewGeneratedCase(testCase.id, "accept"),
-                disabled: isAcceptingCase || isRejectingCase,
-                tone: "primary" as const
-              },
+	                icon: <TestCaseAcceptIcon />,
+	                onClick: () => void handleReviewGeneratedCase(testCase.id, "accept"),
+	                disabled: isAcceptingCase || isRejectingCase,
+	                requiredPermissions: ["testcase.update"],
+	                tone: "primary" as const
+	              },
               {
                 label: "Reject AI Generated case",
                 description: "Reject and permanently delete this scheduler-generated case.",
-                icon: <TestCaseRejectIcon />,
-                onClick: () => void handleReviewGeneratedCase(testCase.id, "reject"),
-                disabled: isAcceptingCase || isRejectingCase,
-                tone: "danger" as const
-              }
+	                icon: <TestCaseRejectIcon />,
+	                onClick: () => void handleReviewGeneratedCase(testCase.id, "reject"),
+	                disabled: isAcceptingCase || isRejectingCase,
+	                requiredPermissions: ["testcase.delete"],
+	                tone: "danger" as const
+	              }
             ]
             : [
-              {
-                label: "Clone case",
-                description: "Create a copy with the same steps and test data.",
-                icon: <CopyIcon />,
-                onClick: () => void handleCloneCase(testCase),
-                disabled: createTestCase.isPending
-              },
-              {
-                label: "Export case",
-                description: "Download this test case as a CSV file.",
-                icon: <ExportIcon />,
-                onClick: () => void exportCasesToCsv([testCase], {
-                  fileLabel: testCase.title
-                })
-              },
-              {
-                label: "Move to suite",
-                description: "Pick existing suite links and replace this case's current suite scope.",
-                icon: <MoveIcon />,
-                onClick: () => openSuiteTransferModal([testCase.id], "move")
-              },
-              {
-                label: "Delete case",
-                description: "Remove this test case while preserving run history.",
-                icon: <TrashIcon />,
-                onClick: () => void handleDeleteCaseItem(testCase),
-                disabled: deleteTestCase.isPending,
-                tone: "danger" as const
-              }
+	              {
+	                label: "Clone case",
+	                description: "Create a copy with the same steps and test data.",
+	                icon: <CopyIcon />,
+	                onClick: () => void handleCloneCase(testCase),
+	                disabled: createTestCase.isPending,
+	                requiredPermissions: ["testcase.create"]
+	              },
+	              {
+	                label: "Export case",
+	                description: "Download this test case as a CSV file.",
+	                icon: <ExportIcon />,
+	                onClick: () => void exportCasesToCsv([testCase], {
+	                  fileLabel: testCase.title
+	                }),
+	                requiredPermissions: ["testcase.export"]
+	              },
+	              {
+	                label: "Move to suite",
+	                description: "Pick existing suite links and replace this case's current suite scope.",
+	                icon: <MoveIcon />,
+	                onClick: () => openSuiteTransferModal([testCase.id], "move"),
+	                requiredPermissions: ["suite.update"]
+	              },
+	              {
+	                label: "Delete case",
+	                description: "Remove this test case while preserving run history.",
+	                icon: <TrashIcon />,
+	                onClick: () => void handleDeleteCaseItem(testCase),
+	                disabled: deleteTestCase.isPending,
+	                requiredPermissions: ["testcase.delete"],
+	                tone: "danger" as const
+	              }
             ])
         ];
 
@@ -6615,26 +6773,26 @@ export function TestCasesPage() {
           ]}
           actions={
             <>
-              <button className="ghost-button" disabled={!appTypeId} onClick={() => {
-                setImportBatches([]);
-                setImportFileWarnings([]);
-                setImportSourceSelection("auto");
-                setIsImportModalOpen(true);
-              }} type="button">
+	              <button className="ghost-button" disabled={!canImportTestCases || !appTypeId} onClick={() => {
+	                setImportBatches([]);
+	                setImportFileWarnings([]);
+	                setImportSourceSelection("auto");
+	                setIsImportModalOpen(true);
+	              }} type="button">
                 <TestCaseImportIcon />
                 <span>Bulk Import</span>
               </button>
-              <button className="ghost-button" disabled={!requirements.length || !appTypeId} onClick={openAiStudio} type="button">
-                <TestCaseSparkIcon />
-                <span>AI Test Case Generation</span>
-              </button>
-              <button className="ghost-button" disabled={!filteredCases.length} onClick={() => void handleExportCsv()} type="button">
-                <TestCaseExportIcon />
-                <span>Export test cases</span>
-              </button>
-              <button className="primary-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
-                <TestCaseCreateIcon />
-                <span>New Test Case</span>
+	              <button className="ghost-button" disabled={!canUseTestCaseAi || !canCreateTestCases || !requirements.length || !appTypeId} onClick={openAiStudio} type="button">
+	                <TestCaseSparkIcon />
+	                <span>AI Test Case Generation</span>
+	              </button>
+	              <button className="ghost-button" disabled={!canExportTestCases || !filteredCases.length} onClick={() => void handleExportCsv()} type="button">
+	                <TestCaseExportIcon />
+	                <span>Export test cases</span>
+	              </button>
+	              <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => beginCreateCase()} type="button">
+	                <TestCaseCreateIcon />
+	                <span>New Test Case</span>
               </button>
             </>
           }
@@ -6747,18 +6905,18 @@ export function TestCasesPage() {
                 <ClearSelectionIcon />
                 <span>Clear</span>
               </button>
-              <button className="ghost-button" disabled={!appTypeId} onClick={() => beginCreateCase()} type="button">
-                <TestCaseCreateIcon />
-                <span>New case</span>
-              </button>
-              <button className="ghost-button" disabled={!appTypeId} onClick={() => setIsCreateModuleModalOpen(true)} type="button">
-                <FolderIcon />
-                <span>Create module</span>
-              </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!selectedModuleIds.length}
-                onClick={() => void handleDeleteSelectedModules()}
+	              <button className="ghost-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => beginCreateCase()} type="button">
+	                <TestCaseCreateIcon />
+	                <span>New case</span>
+	              </button>
+	              <button className="ghost-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => setIsCreateModuleModalOpen(true)} type="button">
+	                <FolderIcon />
+	                <span>Create module</span>
+	              </button>
+	              <button
+	                className="ghost-button catalog-selection-button"
+	                disabled={!canDeleteTestCases || !selectedModuleIds.length}
+	                onClick={() => void handleDeleteSelectedModules()}
                 type="button"
               >
                 <TrashIcon />
@@ -6766,93 +6924,112 @@ export function TestCasesPage() {
               </button>
               <CatalogActionMenu
                 actions={[
-                  {
-                    label: "Create suite",
-                    description: "Create a suite before adding selected cases.",
-                    icon: <TileCardSuiteIcon />,
-                    disabled: !appTypeId,
-                    onClick: () => setIsCreateSuiteModalOpen(true)
-                  },
+	                  {
+	                    label: "Create suite",
+	                    description: "Create a suite before adding selected cases.",
+	                    icon: <TileCardSuiteIcon />,
+	                    disabled: !canCreateSuites || !appTypeId,
+	                    featureKeys: ["qaira.manual.suites"],
+	                    requiredPermissions: ["suite.create"],
+	                    onClick: () => setIsCreateSuiteModalOpen(true)
+	                  },
                   {
                     label: "Create manual run",
-                    description: "Start a manual execution run for selected cases.",
-                    icon: <TestCaseRunIcon />,
-                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-                    onClick: () => {
+	                    description: "Start a manual execution run for selected cases.",
+	                    icon: <TestCaseRunIcon />,
+	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+	                    featureKeys: ["qaira.manual.runs"],
+	                    requiredPermissions: ["run.create"],
+	                    onClick: () => {
                       setExecutionStartMode("manual");
                       setIsCreateExecutionModalOpen(true);
                     }
                   },
                   {
                     label: "Create local run",
-                    description: "Start a local execution run for selected cases.",
-                    icon: <TestCaseRunIcon />,
-                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-                    onClick: () => {
+	                    description: "Start a local execution run for selected cases.",
+	                    icon: <TestCaseRunIcon />,
+	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+	                    featureKeys: ["qaira.manual.runs"],
+	                    requiredPermissions: ["run.create"],
+	                    onClick: () => {
                       setExecutionStartMode("local");
                       setIsCreateExecutionModalOpen(true);
                     }
                   },
                   {
                     label: "Create remote run",
-                    description: "Start a remote execution run for selected cases.",
-                    icon: <TestCaseRunIcon />,
-                    disabled: !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-                    onClick: () => {
+	                    description: "Start a remote execution run for selected cases.",
+	                    icon: <TestCaseRunIcon />,
+	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+	                    featureKeys: ["qaira.manual.runs"],
+	                    requiredPermissions: ["run.create"],
+	                    onClick: () => {
                       setExecutionStartMode("remote");
                       setIsCreateExecutionModalOpen(true);
                     }
                   },
                   {
                     label: buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`,
-                    description: "Queue selected manual cases for AI automation build.",
-                    icon: <TestCaseSparkIcon />,
-                    disabled: !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending,
-                    onClick: () => void handleScheduleSelectedManualAutomation()
-                  },
+	                    description: "Queue selected manual cases for AI automation build.",
+	                    icon: <TestCaseSparkIcon />,
+	                    disabled: !canBuildAutomation || !canUseAutomationAi || !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending,
+	                    featureKeys: ["qaira.ai.automation"],
+	                    permissionMode: "all" as const,
+	                    requiredPermissions: ["automation.build", "automation.ai"],
+	                    onClick: () => void handleScheduleSelectedManualAutomation()
+	                  },
                   {
                     label: schedulerActionCaseId === "bulk" && schedulerActionKind === "accept" ? "Accepting AI generated cases" : `Accept AI generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
                     description: "Accept selected AI-generated cases.",
-                    icon: <TestCaseAcceptIcon />,
-                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
-                    onClick: () => void handleReviewSelectedGeneratedCases("accept"),
+	                    icon: <TestCaseAcceptIcon />,
+	                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
+	                    requiredPermissions: ["testcase.update"],
+	                    onClick: () => void handleReviewSelectedGeneratedCases("accept"),
                     tone: "primary"
                   },
                   {
                     label: schedulerActionCaseId === "bulk" && schedulerActionKind === "reject" ? "Rejecting AI Generated cases" : `Reject AI Generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
                     description: "Reject selected AI-generated cases.",
-                    icon: <TestCaseRejectIcon />,
-                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
-                    onClick: () => void handleReviewSelectedGeneratedCases("reject"),
+	                    icon: <TestCaseRejectIcon />,
+	                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
+	                    requiredPermissions: ["testcase.delete"],
+	                    onClick: () => void handleReviewSelectedGeneratedCases("reject"),
                     tone: "danger"
                   },
                   {
                     label: `Add to suite${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
-                    description: "Attach selected cases to one or more existing suites without removing current links.",
-                    icon: <AddIcon />,
-                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
-                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "add")
-                  },
+	                    description: "Attach selected cases to one or more existing suites without removing current links.",
+	                    icon: <AddIcon />,
+	                    disabled: !canUpdateSuites || !selectedActionTestCaseIds.length || !appTypeId,
+	                    featureKeys: ["qaira.manual.suites"],
+	                    requiredPermissions: ["suite.update"],
+	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "add")
+	                  },
                   {
                     label: `Move to suite${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
-                    description: "Replace selected cases' suite links with the chosen suite scope.",
-                    icon: <MoveIcon />,
-                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
-                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "move")
-                  },
+	                    description: "Replace selected cases' suite links with the chosen suite scope.",
+	                    icon: <MoveIcon />,
+	                    disabled: !canUpdateSuites || !selectedActionTestCaseIds.length || !appTypeId,
+	                    featureKeys: ["qaira.manual.suites"],
+	                    requiredPermissions: ["suite.update"],
+	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "move")
+	                  },
                   {
                     label: `Copy to suite/project${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
-                    description: "Duplicate selected cases and steps into another suite, app type, or project.",
-                    icon: <CopyIcon />,
-                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
-                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "copy")
-                  },
+	                    description: "Duplicate selected cases and steps into another suite, app type, or project.",
+	                    icon: <CopyIcon />,
+	                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
+	                    requiredPermissions: ["testcase.create"],
+	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "copy")
+	                  },
                   {
                     label: isDeletingSelectedTestCases ? "Deleting selected cases" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
                     description: "Delete selected test cases while preserving existing run history.",
-                    icon: <TestCaseDeleteIcon />,
-                    disabled: !selectedActionTestCaseIds.length || isDeletingSelectedTestCases,
-                    onClick: () => void handleDeleteSelectedCases(),
+	                    icon: <TestCaseDeleteIcon />,
+	                    disabled: !selectedActionTestCaseIds.length || isDeletingSelectedTestCases,
+	                    requiredPermissions: ["testcase.delete"],
+	                    onClick: () => void handleDeleteSelectedCases(),
                     tone: "danger"
                   }
                 ]}
@@ -7018,70 +7195,80 @@ export function TestCasesPage() {
                           ? "AI: Strong automation candidate with clear scope and repeatable validation steps."
                           : "AI: Stable recent coverage. Keep it in the release gate for confidence tracking.";
                     const tileActions = [
-                      {
-                        label: "Open case",
-                        description: "Open this test case in the workspace.",
-                        icon: <OpenIcon />,
-                        onClick: () => openLibraryCase(testCase.id)
-                      },
+	                      {
+	                        label: "Open case",
+	                        description: "Open this test case in the workspace.",
+	                        icon: <OpenIcon />,
+	                        onClick: () => openLibraryCase(testCase.id),
+	                        requiredPermissions: ["testcase.view"]
+	                      },
                       ...(isFailedCase
                         ? [
                           {
                             label: "View latest failure",
-                            description: "Open the most recent failed or blocked execution.",
-                            icon: <OpenIcon />,
-                            onClick: () => openLatestFailureRun(testCase.id)
-                          }
+	                            description: "Open the most recent failed or blocked execution.",
+	                            icon: <OpenIcon />,
+	                            onClick: () => openLatestFailureRun(testCase.id),
+	                            requiredPermissions: ["run.view"]
+	                          }
                         ]
                         : []),
                       {
                         label: isFailedCase ? "Re-run manually" : "Run manually",
                         description: "Create a manual execution run for this test case.",
-                        icon: <TestCaseRunIcon />,
-                        onClick: () => void handleRunTestCase(testCase.id),
-                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id,
-                        tone: "primary" as const
-                      },
+	                        icon: <TestCaseRunIcon />,
+	                        onClick: () => void handleRunTestCase(testCase.id),
+	                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id,
+	                        featureKeys: ["qaira.manual.runs"],
+	                        requiredPermissions: ["run.create"],
+	                        tone: "primary" as const
+	                      },
                       ...(isPendingSchedulerCase
                         ? []
                         : [
                           {
                             label: isApiOnlyCase ? "Run API locally" : "Run local Playwright",
                             description: isApiOnlyCase ? "Start this API case against the local Test Engine API runner." : "Start this automated case against the local Playwright runner.",
-                            icon: <TestCaseRunIcon />,
-                            onClick: () => void handleRunTestCase(testCase.id, "local"),
-                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-                            tone: "primary" as const
-                          },
+	                            icon: <TestCaseRunIcon />,
+	                            onClick: () => void handleRunTestCase(testCase.id, "local"),
+	                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
+	                            featureKeys: ["qaira.manual.runs"],
+	                            requiredPermissions: ["run.create"],
+	                            tone: "primary" as const
+	                          },
                           {
                             label: "Clone case",
                             description: "Create a copy with the same steps and test data.",
-                            icon: <CopyIcon />,
-                            onClick: () => void handleCloneCase(testCase),
-                            disabled: createTestCase.isPending
-                          },
+	                            icon: <CopyIcon />,
+	                            onClick: () => void handleCloneCase(testCase),
+	                            disabled: createTestCase.isPending,
+	                            requiredPermissions: ["testcase.create"]
+	                          },
                           {
                             label: "Export case",
                             description: "Download this test case as a CSV file.",
-                            icon: <ExportIcon />,
-                            onClick: () => void exportCasesToCsv([testCase], {
-                              fileLabel: testCase.title
-                            })
-                          },
+	                            icon: <ExportIcon />,
+	                            onClick: () => void exportCasesToCsv([testCase], {
+	                              fileLabel: testCase.title
+	                            }),
+	                            requiredPermissions: ["testcase.export"]
+	                          },
                           {
                             label: "Move to suite",
-                            description: "Pick existing suite links and replace this case's current suite scope.",
-                            icon: <MoveIcon />,
-                            onClick: () => openSuiteTransferModal([testCase.id], "move")
-                          },
+	                            description: "Pick existing suite links and replace this case's current suite scope.",
+	                            icon: <MoveIcon />,
+	                            onClick: () => openSuiteTransferModal([testCase.id], "move"),
+	                            requiredPermissions: ["suite.update"]
+	                          },
                           {
                             label: "Delete case",
                             description: "Remove this test case while preserving run history.",
-                            icon: <TrashIcon />,
-                            onClick: () => void handleDeleteCaseItem(testCase),
-                            disabled: deleteTestCase.isPending,
-                            tone: "danger" as const
-                          }
+	                            icon: <TrashIcon />,
+	                            onClick: () => void handleDeleteCaseItem(testCase),
+	                            disabled: deleteTestCase.isPending,
+	                            requiredPermissions: ["testcase.delete"],
+	                            tone: "danger" as const
+	                          }
                         ])
                     ];
 
@@ -7584,7 +7771,7 @@ export function TestCasesPage() {
                             </div>
                             {!isCreating && selectedTestCase ? (
                               <div className="action-row">
-                                <button className="ghost-button" onClick={handleOpenSuiteLinkModal} type="button">
+	                              <button className="ghost-button" disabled={!canUpdateSuites} onClick={handleOpenSuiteLinkModal} type="button">
                                   <AddIcon />
                                   <span>Manage suite links</span>
                                 </button>
@@ -7605,7 +7792,7 @@ export function TestCasesPage() {
                         ) : null}
 
                         <div className="action-row">
-                          <button className="primary-button" disabled={createTestCase.isPending || updateTestCase.isPending || updateStep.isPending || updateSuite.isPending || assignCasesToModule.isPending || removeCasesFromModule.isPending} type="submit">
+	                          <button className="primary-button" disabled={(isCreating ? !canCreateTestCases : !canUpdateTestCases) || createTestCase.isPending || updateTestCase.isPending || updateStep.isPending || updateSuite.isPending || assignCasesToModule.isPending || removeCasesFromModule.isPending} type="submit">
                             {isCreating
                               ? (createTestCase.isPending || updateSuite.isPending || assignCasesToModule.isPending ? "Creating…" : "Create test case")
                               : (updateTestCase.isPending || updateStep.isPending || updateSuite.isPending || assignCasesToModule.isPending || removeCasesFromModule.isPending ? "Saving…" : "Save test case")}
@@ -7947,8 +8134,8 @@ export function TestCasesPage() {
                               <span>{recorderSession ? `Session ${recorderSession.id.slice(0, 8)} is ${recorderSession.status}.` : "Capture clicks, fills, tab navigation, and business API traffic for this case."}</span>
                             </div>
                             <div className="recorder-workspace-pane">
-                              <RecorderStartControls
-                                disabled={!selectedTestCase || !testEngineIntegration}
+	                              <RecorderStartControls
+	                                disabled={!canUseRecorder || !selectedTestCase || !testEngineIntegration}
                                 hasSession={Boolean(recorderSession)}
                                 isStarting={startRecorder.isPending}
                                 mobileRemoteEnabled={mobileRemoteRecorderEnabled}
@@ -8161,8 +8348,8 @@ export function TestCasesPage() {
                   label="Step-level capture information"
                 />
               </div>
-              <RecorderStartControls
-                disabled={!selectedTestCase || !testEngineIntegration}
+	              <RecorderStartControls
+	                disabled={!canUseRecorder || !selectedTestCase || !testEngineIntegration}
                 hasSession={Boolean(recorderSession)}
                 isStarting={startRecorder.isPending}
                 mobileRemoteEnabled={mobileRemoteRecorderEnabled}
@@ -8632,7 +8819,7 @@ export function TestCasesPage() {
               >
                 Clear
               </button>
-              <button className="primary-button" disabled={!appTypeId || !importRows.length || importTestCases.isPending} onClick={() => void handleBulkImport()} type="button">
+	              <button className="primary-button" disabled={!canImportTestCases || !appTypeId || !importRows.length || importTestCases.isPending} onClick={() => void handleBulkImport()} type="button">
                 {importTestCases.isPending ? "Queuing…" : `Queue ${importRows.length || ""} Test Cases`}
               </button>
             </div>
@@ -8645,8 +8832,8 @@ export function TestCasesPage() {
           additionalContext={aiCaseAuthoringAdditionalContext}
           applyLabel={isCreating ? "Apply To Draft" : "Replace Saved Case"}
           closeDisabled={previewCaseAuthoring.isPending || updateTestCase.isPending}
-          disableApply={!aiCaseAuthoringPreview || updateTestCase.isPending}
-          disableGenerate={!appTypeId || !aiCaseAuthoringRequirementId || previewCaseAuthoring.isPending || !integrations.length}
+	          disableApply={!canUseTestCaseAi || (!isCreating && !canUpdateTestCases) || !aiCaseAuthoringPreview || updateTestCase.isPending}
+	          disableGenerate={!canUseTestCaseAi || !appTypeId || !aiCaseAuthoringRequirementId || previewCaseAuthoring.isPending || !integrations.length}
           hasAutomationWarning={aiCaseAuthoringAutomationStepCount > 0}
           integrationId={integrationId}
           integrations={integrations}
@@ -8682,9 +8869,9 @@ export function TestCasesPage() {
           allowMultipleRequirements={true}
           appTypeName={appTypes.find((item) => item.id === appTypeId)?.name || "No app type selected"}
           closeDisabled={previewDesignedCases.isPending || acceptDesignedCases.isPending || createGenerationJob.isPending}
-          disableAccept={!aiPreviewCases.length || acceptDesignedCases.isPending}
-          disablePreview={!aiRequirementIds.length || !appTypeId || previewDesignedCases.isPending || !integrations.length}
-          disableSchedule={!aiRequirementIds.length || !appTypeId || createGenerationJob.isPending || !integrations.length}
+	          disableAccept={!canCreateTestCases || !aiPreviewCases.length || acceptDesignedCases.isPending}
+	          disablePreview={!canUseTestCaseAi || !aiRequirementIds.length || !appTypeId || previewDesignedCases.isPending || !integrations.length}
+	          disableSchedule={!canUseTestCaseAi || !canCreateTestCases || !aiRequirementIds.length || !appTypeId || createGenerationJob.isPending || !integrations.length}
           existingCases={aiExistingCases}
           existingCasesSubtitle="These reusable cases are already linked to one or more of the selected requirements in the current app type."
           existingCasesTitle="Linked test cases"

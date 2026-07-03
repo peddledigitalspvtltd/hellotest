@@ -3801,6 +3801,18 @@ textarea {
   cursor: not-allowed;
 }
 
+.step-card-menu-item.is-empty {
+  grid-template-columns: 1fr;
+  color: var(--text-secondary);
+  cursor: default;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.step-card-menu-item.is-empty:hover {
+  background: transparent;
+}
+
 .step-card-menu-item.is-danger {
   color: var(--danger);
 }
@@ -36642,6 +36654,10 @@ body > .nested-modal-backdrop {
   gap: 0.75rem;
 }
 
+.settings-section.is-collapsed {
+  gap: 0;
+}
+
 .settings-section-heading {
   display: grid;
   gap: 0.18rem;
@@ -36904,6 +36920,70 @@ body > .nested-modal-backdrop {
   display: grid;
   min-width: 0;
   gap: 0.18rem;
+}
+
+.settings-section-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2rem;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 3.2rem;
+  padding: 0.68rem 0.78rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-section-toggle:hover,
+.settings-section-toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 34%, var(--border-subtle, var(--border)));
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 6%, var(--surface-elevated, var(--card-bg)));
+}
+
+.settings-section-toggle > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.settings-section-toggle .eyebrow,
+.settings-section-toggle strong {
+  margin: 0;
+}
+
+.settings-section-toggle strong {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.settings-section-toggle-icon {
+  display: inline-grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 999px;
+  background: var(--surface, #ffffff);
+  color: var(--accent-primary, var(--primary));
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.settings-section-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .settings-project-grid,
@@ -42159,6 +42239,61 @@ body > .nested-modal-backdrop {
 :root[data-theme="dark"] .rich-text-tool-button:focus-visible {
   background: rgba(71, 85, 105, 0.55);
   color: #ffffff;
+}
+
+:root[data-theme="dark"] .settings-section-toggle,
+:root[data-theme="dark"] .settings-input-field,
+:root[data-theme="dark"] .settings-prompt-card,
+:root[data-theme="dark"] .settings-preference-grid .checkbox-field,
+:root[data-theme="dark"] .feature-flag-group-card,
+:root[data-theme="dark"] .feature-flag-toggle,
+:root[data-theme="dark"] .settings-api-scope-pill,
+:root[data-theme="dark"] .settings-api-key-card {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(15, 23, 42, 0.86);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .settings-section-toggle:hover,
+:root[data-theme="dark"] .settings-section-toggle:focus-visible,
+:root[data-theme="dark"] .settings-api-scope-pill.is-selected,
+:root[data-theme="dark"] .feature-flag-provider-card {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(30, 41, 59, 0.92);
+}
+
+:root[data-theme="dark"] .settings-section-toggle-icon,
+:root[data-theme="dark"] .settings-api-key-reveal code,
+:root[data-theme="dark"] .settings-api-key-card code,
+:root[data-theme="dark"] .settings-input-field input,
+:root[data-theme="dark"] .settings-input-field select,
+:root[data-theme="dark"] .settings-prompt-card textarea {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(2, 6, 23, 0.82);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .catalog-action-menu-panel,
+:root[data-theme="dark"] .permission-empty-state,
+:root[data-theme="dark"] .workspace-section-tabs-shell,
+:root[data-theme="dark"] .modal-card input,
+:root[data-theme="dark"] .modal-card select,
+:root[data-theme="dark"] .modal-card textarea,
+:root[data-theme="dark"] .people-modal-card input,
+:root[data-theme="dark"] .people-modal-card select,
+:root[data-theme="dark"] .people-modal-card textarea {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(15, 23, 42, 0.94);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .catalog-action-menu-panel .step-card-menu-item:hover:not(:disabled),
+:root[data-theme="dark"] .catalog-action-menu-panel .step-card-menu-item:focus-visible {
+  background: rgba(71, 85, 105, 0.5);
+}
+
+:root[data-theme="dark"] .step-card-menu-item.is-empty {
+  color: var(--text-secondary);
 }
 
 .automation-workspace-grid--repository {

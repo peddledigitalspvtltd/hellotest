@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useAuth } from "../auth/AuthContext";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { hasAnyPermission, hasPermission } from "../lib/permissions";
 import { MoreIcon } from "./AppIcons";
 import { InfoTooltip } from "./InfoTooltip";
 
@@ -9,6 +13,9 @@ export type CatalogActionMenuItem = {
   onClick: () => void;
   description?: string;
   disabled?: boolean;
+  featureKeys?: string[];
+  permissionMode?: "all" | "any";
+  requiredPermissions?: string[];
   tone?: "default" | "danger" | "primary";
 };
 
@@ -21,6 +28,8 @@ export function CatalogActionMenu({
   actions: CatalogActionMenuItem[];
   className?: string;
 }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -111,6 +120,18 @@ export function CatalogActionMenu({
     };
   }, [isOpen]);
 
+	  const visibleActions = actions.filter((action) => {
+	    const permissions = action.requiredPermissions || [];
+	    const features = action.featureKeys || [];
+	    const hasRequiredPermissions = !permissions.length
+	      || (action.permissionMode === "all"
+	        ? permissions.every((permission) => hasPermission(session, permission))
+	        : hasAnyPermission(session, permissions));
+
+	    return hasRequiredPermissions
+	      && areFeatureFlagsEnabled(featureFlagsQuery.data, features);
+	  });
+
   const menu = isOpen ? (
     <div
       className="step-card-menu-panel catalog-action-menu-panel"
@@ -118,7 +139,7 @@ export function CatalogActionMenu({
       role="menu"
       style={menuStyle || { opacity: 0, pointerEvents: "none" }}
     >
-      {actions.map((action) => (
+      {visibleActions.map((action) => (
         <button
           className={["step-card-menu-item", action.tone ? `is-${action.tone}` : ""].filter(Boolean).join(" ")}
           disabled={action.disabled}
@@ -147,6 +168,7 @@ export function CatalogActionMenu({
           </span>
         </button>
       ))}
+      {!visibleActions.length ? <div className="step-card-menu-item is-empty">No actions available</div> : null}
     </div>
   ) : null;
 

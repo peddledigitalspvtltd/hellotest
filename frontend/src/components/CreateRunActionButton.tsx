@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { useAuth } from "../auth/AuthContext";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { hasPermission } from "../lib/permissions";
 import { PlayIcon } from "./AppIcons";
 
 export type CreateRunSource = "TEST_CASES" | "TEST_SUITES" | "TEST_RUNS";
@@ -40,12 +44,17 @@ export function CreateRunActionButton({
   onCreateLocalRun,
   onCreateRemoteRun
 }: CreateRunActionButtonProps) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const selectionCount = selectedTestCaseIds.length + selectedSuiteIds.length + selectedRunIds.length;
   const sourceLabel = resolveSourceLabel(source);
+  const canCreateRuns = hasPermission(session, "run.create")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+  const isDisabled = disabled || !canCreateRuns;
 
   useEffect(() => {
     if (!isOpen) {
@@ -129,7 +138,7 @@ export function CreateRunActionButton({
     onCreateManualRun();
   };
 
-  const menu = isOpen && !disabled ? (
+  const menu = isOpen && !isDisabled ? (
     <div
       className="run-action-dropdown"
       ref={menuRef}
@@ -160,7 +169,7 @@ export function CreateRunActionButton({
     <div className="create-run-action-button" ref={triggerRef}>
       <button
         className="run-action-main"
-        disabled={disabled}
+        disabled={isDisabled}
         onClick={() => handleSelect("MANUAL")}
         type="button"
       >
@@ -172,7 +181,7 @@ export function CreateRunActionButton({
         aria-haspopup="menu"
         aria-label="Open create run options"
         className="run-action-toggle"
-        disabled={disabled}
+        disabled={isDisabled}
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >

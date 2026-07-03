@@ -776,7 +776,8 @@ const statements = [
     INSERT INTO permissions (id, code, description)
     VALUES
       ${permissionSeedValues}
-    ON CONFLICT (code) DO NOTHING
+    ON CONFLICT (code)
+    DO UPDATE SET description = EXCLUDED.description
   `,
   ...rolePermissionSeedStatements,
   `CREATE INDEX IF NOT EXISTS idx_execution_suites_execution_suite ON execution_suites (execution_id, suite_id)`,

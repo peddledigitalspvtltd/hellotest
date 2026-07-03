@@ -37,6 +37,7 @@ import type { AlmRequirementCandidate } from "../lib/api";
 import { appendUniqueImages, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
+import { hasPermission } from "../lib/permissions";
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
@@ -144,6 +145,12 @@ export function RequirementsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const canCreateRequirements = hasPermission(session, "requirement.create");
+  const canImportRequirements = hasPermission(session, "requirement.import");
+  const canUpdateRequirements = hasPermission(session, "requirement.update");
+  const canDeleteRequirements = hasPermission(session, "requirement.delete");
+  const canUseRequirementAi = hasPermission(session, "requirement.ai");
+  const canCreateTestCases = hasPermission(session, "testcase.create");
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
@@ -983,26 +990,31 @@ export function RequirementsPage() {
         <div onClick={(event) => event.stopPropagation()}>
           <CatalogActionMenu
             actions={[
-              {
-                label: "Open requirement",
-                description: "Open this requirement in the detail workspace.",
-                icon: <OpenIcon />,
-                onClick: () => openRequirementWorkspace(item.id)
-              },
-              {
-                label: "AI test cases",
-                description: "Generate or review AI-designed test cases for this requirement.",
-                icon: <SparkIcon />,
-                onClick: () => openRequirementAiStudio(item.id)
-              },
-              {
-                label: "Delete requirement",
-                description: "Delete this requirement while keeping linked test cases in the library.",
-                icon: <TrashIcon />,
-                onClick: () => void handleDeleteRequirementItem(item),
-                disabled: deleteRequirement.isPending,
-                tone: "danger" as const
-              }
+	              {
+	                label: "Open requirement",
+	                description: "Open this requirement in the detail workspace.",
+	                icon: <OpenIcon />,
+	                requiredPermissions: ["requirement.view"],
+	                onClick: () => openRequirementWorkspace(item.id)
+	              },
+	              {
+	                label: "AI test cases",
+	                description: "Generate or review AI-designed test cases for this requirement.",
+	                icon: <SparkIcon />,
+	                featureKeys: ["qaira.ai.requirement_design"],
+	                permissionMode: "all" as const,
+	                requiredPermissions: ["requirement.ai", "testcase.create"],
+	                onClick: () => openRequirementAiStudio(item.id)
+	              },
+	              {
+	                label: "Delete requirement",
+	                description: "Delete this requirement while keeping linked test cases in the library.",
+	                icon: <TrashIcon />,
+	                onClick: () => void handleDeleteRequirementItem(item),
+	                disabled: deleteRequirement.isPending,
+	                requiredPermissions: ["requirement.delete"],
+	                tone: "danger" as const
+	              }
             ]}
             label={`${item.title} actions`}
           />
@@ -1077,11 +1089,17 @@ export function RequirementsPage() {
     [linkedPreviewCaseId, testCases]
   );
 
-  const openTestCaseWorkspace = (testCaseId: string) => setLinkedPreviewCaseId(testCaseId);
-  const openNewTestCase = (requirement: Requirement) => {
-    if (!appTypeId) {
-      setMessageTone("error");
-      setMessage("Select an app type before creating a test case for this requirement.");
+	  const openTestCaseWorkspace = (testCaseId: string) => setLinkedPreviewCaseId(testCaseId);
+	  const openNewTestCase = (requirement: Requirement) => {
+	    if (!canCreateTestCases) {
+	      setMessageTone("error");
+	      setMessage("Permission required: testcase.create");
+	      return;
+	    }
+
+	    if (!appTypeId) {
+	      setMessageTone("error");
+	      setMessage("Select an app type before creating a test case for this requirement.");
       return;
     }
 
@@ -1244,6 +1262,11 @@ export function RequirementsPage() {
   };
 
   const openCreateRequirementModal = () => {
+    if (!canCreateRequirements) {
+      showError(null, "Permission required: requirement.create");
+      return;
+    }
+
     setCreateDraft(emptyRequirementDraft);
     setIsCreateModalOpen(true);
   };
@@ -1270,6 +1293,11 @@ export function RequirementsPage() {
   };
 
   const openRequirementImportModal = (source: RequirementImportSource = "csv") => {
+    if (!canImportRequirements) {
+      showError(null, "Permission required: requirement.import");
+      return;
+    }
+
     setRequirementImportSource(source);
     setImportRows([]);
     setImportWarnings([]);
@@ -1309,6 +1337,11 @@ export function RequirementsPage() {
   const handleCreateRequirement = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!canCreateRequirements) {
+      showError(null, "Permission required: requirement.create");
+      return;
+    }
+
     if (!projectId) {
       showError(null, "Select a project before creating a requirement.");
       return;
@@ -1340,12 +1373,17 @@ export function RequirementsPage() {
     }
   };
 
-  const handleSaveRequirement = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+	  const handleSaveRequirement = async (event: FormEvent<HTMLFormElement>) => {
+	    event.preventDefault();
 
-    if (!selectedRequirement) {
-      return;
-    }
+	    if (!canUpdateRequirements) {
+	      showError(null, "Permission required: requirement.update");
+	      return;
+	    }
+
+	    if (!selectedRequirement) {
+	      return;
+	    }
 
     try {
       await updateRequirement.mutateAsync({
@@ -1400,6 +1438,11 @@ export function RequirementsPage() {
   };
 
   const handleBulkImportRequirements = async () => {
+    if (!canImportRequirements) {
+      showError(null, "Permission required: requirement.import");
+      return;
+    }
+
     if (!projectId || !importRows.length) {
       return;
     }
@@ -1423,6 +1466,11 @@ export function RequirementsPage() {
   };
 
   const handleBulkImportAlmRequirements = async () => {
+    if (!canImportRequirements) {
+      showError(null, "Permission required: requirement.import");
+      return;
+    }
+
     if (!projectId || !selectedAlmIntegrationId || !selectedAlmProjectKey || !selectedAlmRequirementKeys.length) {
       return;
     }
@@ -1446,10 +1494,15 @@ export function RequirementsPage() {
     }
   };
 
-  const handleDeleteRequirement = async () => {
-    if (!selectedRequirement || !(await confirmDelete({ message: `Delete requirement "${selectedRequirement.title}"? Linked test cases will remain in the library.` }))) {
-      return;
-    }
+	  const handleDeleteRequirement = async () => {
+	    if (!canDeleteRequirements) {
+	      showError(null, "Permission required: requirement.delete");
+	      return;
+	    }
+
+	    if (!selectedRequirement || !(await confirmDelete({ message: `Delete requirement "${selectedRequirement.title}"? Linked test cases will remain in the library.` }))) {
+	      return;
+	    }
 
     try {
       await deleteRequirement.mutateAsync(selectedRequirement.id);
@@ -1466,16 +1519,26 @@ export function RequirementsPage() {
     }
   };
 
-  function openRequirementAiStudio(requirementId: string) {
-    openRequirementWorkspace(requirementId);
-    setAiRequirementId(requirementId);
-    setIsAiStudioOpen(true);
-  }
+	  function openRequirementAiStudio(requirementId: string) {
+	    if (!canUseRequirementAi) {
+	      showError(null, "Permission required: requirement.ai");
+	      return;
+	    }
 
-  async function handleDeleteRequirementItem(requirement: Requirement) {
-    if (!(await confirmDelete({ message: `Delete requirement "${requirement.title}"? Linked test cases will remain in the library.` }))) {
-      return;
-    }
+	    openRequirementWorkspace(requirementId);
+	    setAiRequirementId(requirementId);
+	    setIsAiStudioOpen(true);
+	  }
+
+	  async function handleDeleteRequirementItem(requirement: Requirement) {
+	    if (!canDeleteRequirements) {
+	      showError(null, "Permission required: requirement.delete");
+	      return;
+	    }
+
+	    if (!(await confirmDelete({ message: `Delete requirement "${requirement.title}"? Linked test cases will remain in the library.` }))) {
+	      return;
+	    }
 
     try {
       await deleteRequirement.mutateAsync(requirement.id);
@@ -1501,12 +1564,12 @@ export function RequirementsPage() {
     }
   }
 
-  const handleDeleteSelectedRequirements = async () => {
-    const selectedRequirements = requirements.filter((item) => deleteSelectedRequirementIds.includes(item.id));
+	  const handleDeleteSelectedRequirements = async () => {
+	    const selectedRequirements = requirements.filter((item) => deleteSelectedRequirementIds.includes(item.id));
 
-    if (!selectedRequirements.length) {
-      return;
-    }
+	    if (!selectedRequirements.length || !canDeleteRequirements) {
+	      return;
+	    }
 
     const confirmed = await confirmDelete({
       message: `Delete ${selectedRequirements.length} requirement${selectedRequirements.length === 1 ? "" : "s"}? Linked test cases will remain in the library.`
@@ -1565,10 +1628,16 @@ export function RequirementsPage() {
     }
   };
 
-  const handlePreviewDesignedCases = async () => {
-    if (!aiRequirement || !appTypeId) {
-      return;
-    }
+	  const handlePreviewDesignedCases = async () => {
+	    if (!canUseRequirementAi) {
+	      setPreviewTone("error");
+	      setPreviewMessage("Permission required: requirement.ai");
+	      return;
+	    }
+
+	    if (!aiRequirement || !appTypeId) {
+	      return;
+	    }
 
     try {
       const response = await previewDesignedCases.mutateAsync({
@@ -1592,10 +1661,16 @@ export function RequirementsPage() {
     }
   };
 
-  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
-    if (!aiRequirement || !appTypeId || !previewCases.length) {
-      return;
-    }
+	  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
+	    if (!canCreateTestCases) {
+	      setPreviewTone("error");
+	      setPreviewMessage("Permission required: testcase.create");
+	      return;
+	    }
+
+	    if (!aiRequirement || !appTypeId || !previewCases.length) {
+	      return;
+	    }
     const selectedCaseSet = new Set(selectedClientIds?.length ? selectedClientIds : previewCases.map((item) => item.client_id));
     const acceptedPreviewCases = previewCases.filter((item) => selectedCaseSet.has(item.client_id));
 
@@ -1637,10 +1712,15 @@ export function RequirementsPage() {
     }
   };
 
-  const openRequirementOptimization = (requirementIds?: string[]) => {
-    const targetIds = Array.from(
-      new Set((requirementIds?.length ? requirementIds : selectedRequirement ? [selectedRequirement.id] : []).filter(Boolean))
-    );
+	  const openRequirementOptimization = (requirementIds?: string[]) => {
+	    if (!canUseRequirementAi || !canUpdateRequirements) {
+	      showError(null, `Permission required: ${!canUseRequirementAi ? "requirement.ai" : "requirement.update"}`);
+	      return;
+	    }
+
+	    const targetIds = Array.from(
+	      new Set((requirementIds?.length ? requirementIds : selectedRequirement ? [selectedRequirement.id] : []).filter(Boolean))
+	    );
 
     if (!targetIds.length) {
       showError(new Error("Select one or more requirements first."), "Unable to complete requirement");
@@ -1662,10 +1742,16 @@ export function RequirementsPage() {
     setIsOptimizeModalOpen(true);
   };
 
-  const handlePreviewRequirementOptimization = async () => {
-    if (!activeOptimizeRequirement) {
-      return;
-    }
+	  const handlePreviewRequirementOptimization = async () => {
+	    if (!canUseRequirementAi) {
+	      setPreviewTone("error");
+	      setPreviewMessage("Permission required: requirement.ai");
+	      return;
+	    }
+
+	    if (!activeOptimizeRequirement) {
+	      return;
+	    }
 
     try {
       const response = await previewRequirementOptimization.mutateAsync({
@@ -1688,10 +1774,16 @@ export function RequirementsPage() {
     }
   };
 
-  const handleApplyRequirementOptimization = async () => {
-    if (!activeOptimizeRequirement || !optimizationSuggestion) {
-      return;
-    }
+	  const handleApplyRequirementOptimization = async () => {
+	    if (!canUpdateRequirements) {
+	      setPreviewTone("error");
+	      setPreviewMessage("Permission required: requirement.update");
+	      return;
+	    }
+
+	    if (!activeOptimizeRequirement || !optimizationSuggestion) {
+	      return;
+	    }
 
     const acceptanceAppend = [
       optimizationSuggestion.acceptance_criteria.length ? "Acceptance criteria:" : "",
@@ -1805,19 +1897,19 @@ export function RequirementsPage() {
         ]}
         actions={
           <>
-            <button
-              className="ghost-button"
-              disabled={!projectId}
-              onClick={() => openRequirementImportModal("csv")}
-              type="button"
+	            <button
+	              className="ghost-button"
+	              disabled={!canImportRequirements || !projectId}
+	              onClick={() => openRequirementImportModal("csv")}
+	              type="button"
             >
               <ImportIcon />
               Bulk Import Requirements
             </button>
-            <button
-              className="ghost-button"
-              disabled={!requirements.length || !appTypeId}
-              onClick={() => {
+	            <button
+	              className="ghost-button"
+	              disabled={!canUseRequirementAi || !canCreateTestCases || !requirements.length || !appTypeId}
+	              onClick={() => {
                 setAiRequirementId(selectedRequirement?.id || requirements[0]?.id || "");
                 setPreviewCases([]);
                 setPreviewMessage("");
@@ -1829,19 +1921,19 @@ export function RequirementsPage() {
               <SparkIcon />
               AI Test Case Generation
             </button>
-            <button
-              className="ghost-button"
-              disabled={!projectId || !activeAlmIntegrations.length}
-              onClick={() => openRequirementImportModal("alm")}
-              type="button"
+	            <button
+	              className="ghost-button"
+	              disabled={!canImportRequirements || !projectId || !activeAlmIntegrations.length}
+	              onClick={() => openRequirementImportModal("alm")}
+	              type="button"
             >
               <ImportIcon />
               Import from ALM
             </button>
-            <button className="primary-button" disabled={!projectId} onClick={openCreateRequirementModal} type="button">
-              <AddIcon />
-              Create Requirement
-            </button>
+	            <button className="primary-button" disabled={!canCreateRequirements || !projectId} onClick={openCreateRequirementModal} type="button">
+	              <AddIcon />
+	              Create Requirement
+	            </button>
           </>
         }
       />
@@ -1989,19 +2081,19 @@ export function RequirementsPage() {
                 <ClearSelectionIcon />
                 <span>Clear</span>
               </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!deleteSelectedRequirementIds.length}
-                onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
+	              <button
+	                className="ghost-button catalog-selection-button"
+	                disabled={!canUseRequirementAi || !canUpdateRequirements || !deleteSelectedRequirementIds.length}
+	                onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
                 type="button"
               >
                 <SparkIcon />
                 <span>{`AI improve Requirement${deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}`}</span>
               </button>
-              <button
-                className="ghost-button danger catalog-selection-button"
-                disabled={!deleteSelectedRequirementIds.length || isDeletingSelectedRequirements}
-                onClick={() => void handleDeleteSelectedRequirements()}
+	              <button
+	                className="ghost-button danger catalog-selection-button"
+	                disabled={!canDeleteRequirements || !deleteSelectedRequirementIds.length || isDeletingSelectedRequirements}
+	                onClick={() => void handleDeleteSelectedRequirements()}
                 type="button"
               >
                 <TrashIcon />
@@ -2036,32 +2128,40 @@ export function RequirementsPage() {
                       ? `${automationCoverage.covered}/${automationCoverage.total} linked test cases automated`
                       : "No linked test cases to measure automation coverage";
                     const tileActions = [
-                      {
-                        label: "Open requirement",
-                        description: "Open this requirement in the detail workspace.",
-                        icon: <OpenIcon />,
-                        onClick: () => openRequirementWorkspace(item.id)
-                      },
-                      {
-                        label: "AI test cases",
-                        description: "Generate or review AI-designed test cases for this requirement.",
-                        icon: <SparkIcon />,
-                        onClick: () => openRequirementAiStudio(item.id)
-                      },
-                      {
-                        label: "Complete with AI",
-                        description: "Use AI to improve missing or weak requirement details.",
-                        icon: <SparkIcon />,
-                        onClick: () => openRequirementOptimization([item.id])
-                      },
-                      {
-                        label: "Delete requirement",
-                        description: "Delete this requirement while keeping linked test cases in the library.",
-                        icon: <TrashIcon />,
-                        onClick: () => void handleDeleteRequirementItem(item),
-                        disabled: deleteRequirement.isPending,
-                        tone: "danger" as const
-                      }
+	                      {
+	                        label: "Open requirement",
+	                        description: "Open this requirement in the detail workspace.",
+	                        icon: <OpenIcon />,
+	                        requiredPermissions: ["requirement.view"],
+	                        onClick: () => openRequirementWorkspace(item.id)
+	                      },
+	                      {
+	                        label: "AI test cases",
+	                        description: "Generate or review AI-designed test cases for this requirement.",
+	                        icon: <SparkIcon />,
+	                        featureKeys: ["qaira.ai.requirement_design"],
+	                        permissionMode: "all" as const,
+	                        requiredPermissions: ["requirement.ai", "testcase.create"],
+	                        onClick: () => openRequirementAiStudio(item.id)
+	                      },
+	                      {
+	                        label: "Complete with AI",
+	                        description: "Use AI to improve missing or weak requirement details.",
+	                        icon: <SparkIcon />,
+	                        featureKeys: ["qaira.ai.requirement_design"],
+	                        permissionMode: "all" as const,
+	                        requiredPermissions: ["requirement.ai", "requirement.update"],
+	                        onClick: () => openRequirementOptimization([item.id])
+	                      },
+	                      {
+	                        label: "Delete requirement",
+	                        description: "Delete this requirement while keeping linked test cases in the library.",
+	                        icon: <TrashIcon />,
+	                        onClick: () => void handleDeleteRequirementItem(item),
+	                        disabled: deleteRequirement.isPending,
+	                        requiredPermissions: ["requirement.delete"],
+	                        tone: "danger" as const
+	                      }
                     ];
 
                     return (
@@ -2162,7 +2262,7 @@ export function RequirementsPage() {
               {!isRequirementCatalogLoading && !requirements.length ? (
                 <div className="empty-state compact">
                   <div>No requirements yet for this project.</div>
-                  <button className="primary-button" disabled={!projectId} onClick={openCreateRequirementModal} type="button">Create first requirement</button>
+	                  <button className="primary-button" disabled={!canCreateRequirements || !projectId} onClick={openCreateRequirementModal} type="button">Create first requirement</button>
                 </div>
               ) : null}
               {!isRequirementCatalogLoading && requirements.length && !filteredRequirements.length ? <div className="empty-state compact">No requirements match the current search.</div> : null}
@@ -2175,7 +2275,7 @@ export function RequirementsPage() {
               <div className="panel-head-actions-row">
                 <WorkspaceBackButton label="Back to requirement tiles" onClick={closeRequirementDetail} />
                 {selectedRequirement ? (
-                  <button className="primary-button" disabled={!appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
+	                  <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
                     <AddIcon />
                     <span>New Test Case</span>
                   </button>
@@ -2267,9 +2367,9 @@ export function RequirementsPage() {
                       </FormField>
 
                       <div className="action-row">
-                        <button
-                          className="ghost-button"
-                          disabled={previewRequirementOptimization.isPending}
+	                        <button
+	                          className="ghost-button"
+	                          disabled={!canUseRequirementAi || !canUpdateRequirements || previewRequirementOptimization.isPending}
                           onClick={() => {
                             setOptimizationSuggestion(null);
                             setPreviewMessage("");
@@ -2280,10 +2380,10 @@ export function RequirementsPage() {
                           <SparkIcon />
                           AI complete
                         </button>
-                        <button className="primary-button" disabled={updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending} type="submit">
+	                        <button className="primary-button" disabled={!canUpdateRequirements || updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending} type="submit">
                           {updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending ? "Saving…" : "Save requirement"}
                         </button>
-                        <button className="ghost-button danger" disabled={deleteRequirement.isPending} onClick={() => void handleDeleteRequirement()} type="button">
+	                        <button className="ghost-button danger" disabled={!canDeleteRequirements || deleteRequirement.isPending} onClick={() => void handleDeleteRequirement()} type="button">
                           Delete requirement
                         </button>
                       </div>
@@ -2459,9 +2559,9 @@ export function RequirementsPage() {
                 <button className="ghost-button" disabled={createRequirement.isPending} onClick={closeCreateRequirementModal} type="button">
                   Cancel
                 </button>
-                <button className="primary-button" disabled={createRequirement.isPending} type="submit">
-                  {createRequirement.isPending ? "Creating…" : "Create requirement"}
-                </button>
+	                <button className="primary-button" disabled={!canCreateRequirements || createRequirement.isPending} type="submit">
+	                  {createRequirement.isPending ? "Creating…" : "Create requirement"}
+	                </button>
               </div>
             </form>
           </div>
@@ -2694,7 +2794,7 @@ export function RequirementsPage() {
                 <>
                   <button
                     className="primary-button"
-                    disabled={!projectId || !importRows.length || bulkImportRequirements.isPending}
+	                    disabled={!canImportRequirements || !projectId || !importRows.length || bulkImportRequirements.isPending}
                     onClick={() => void handleBulkImportRequirements()}
                     type="button"
                   >
@@ -2717,8 +2817,9 @@ export function RequirementsPage() {
                 <>
                   <button
                     className="primary-button"
-                    disabled={
-                      !projectId ||
+	                    disabled={
+	                      !canImportRequirements ||
+	                      !projectId ||
                       !selectedAlmIntegrationId ||
                       !selectedAlmProjectKey ||
                       !selectedAlmRequirementKeys.length ||
@@ -2808,7 +2909,7 @@ export function RequirementsPage() {
               </div>
 
               <div className="action-row">
-                <button className="primary-button" disabled={previewRequirementOptimization.isPending} onClick={() => void handlePreviewRequirementOptimization()} type="button">
+	                <button className="primary-button" disabled={!canUseRequirementAi || previewRequirementOptimization.isPending} onClick={() => void handlePreviewRequirementOptimization()} type="button">
                   <SparkIcon />
                   {previewRequirementOptimization.isPending ? "Thinking…" : "Suggest improvements"}
                 </button>
@@ -2879,7 +2980,7 @@ export function RequirementsPage() {
               <button className="ghost-button" disabled={!optimizationSuggestion} onClick={() => setOptimizationFields({ title: false, description: false, external_references: false, priority: false, status: false })} type="button">
                 Clear fields
               </button>
-              <button className="primary-button" disabled={!optimizationSuggestion || updateRequirement.isPending} onClick={() => void handleApplyRequirementOptimization()} type="button">
+	              <button className="primary-button" disabled={!canUpdateRequirements || !optimizationSuggestion || updateRequirement.isPending} onClick={() => void handleApplyRequirementOptimization()} type="button">
                 {updateRequirement.isPending ? "Applying…" : "Apply selected"}
               </button>
             </div>
@@ -2894,8 +2995,8 @@ export function RequirementsPage() {
           allowMultipleRequirements={false}
           appTypeName={currentAppTypeName}
           closeDisabled={previewDesignedCases.isPending || acceptDesignedCases.isPending}
-          disableAccept={!previewCases.length || acceptDesignedCases.isPending}
-          disablePreview={!aiRequirement || !appTypeId || previewDesignedCases.isPending || !integrations.length}
+	          disableAccept={!canCreateTestCases || !previewCases.length || acceptDesignedCases.isPending}
+	          disablePreview={!canUseRequirementAi || !aiRequirement || !appTypeId || previewDesignedCases.isPending || !integrations.length}
           dialogClassName="ai-design-modal--requirements"
           existingCases={associatedCases}
           existingCasesSubtitle="These are already associated with the selected requirement in the current app type."

@@ -1,8 +1,13 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
+import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { SubnavTabs } from "./SubnavTabs";
 import { TileCardRequirementIcon } from "./TileCardPrimitives";
 import { useLocalization } from "../context/LocalizationContext";
+import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
+import { hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
 import { WORKSPACE_SECTION_LABEL_KEYS, type WorkspaceSectionItem } from "../lib/workspaceSections";
 
 export function WorkspaceSectionTabs({
@@ -12,10 +17,18 @@ export function WorkspaceSectionTabs({
   ariaLabel?: string;
   items: Array<WorkspaceSectionItem & { meta?: string }>;
 }) {
+  const { session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLocalization();
-  const activeItem = items.find((item) => item.to === location.pathname) || items[0];
+  const domainMetadataQuery = useDomainMetadata();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const pageAccess = domainMetadataQuery.data?.access?.pages;
+  const visibleItems = items.filter((item) =>
+    hasAnyPermission(session, requiredPermissionsForPath(item.to, pageAccess))
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath(item.to))
+  );
+  const activeItem = visibleItems.find((item) => item.to === location.pathname) || visibleItems[0];
 
   if (!activeItem) {
     return null;
@@ -26,7 +39,7 @@ export function WorkspaceSectionTabs({
       <SubnavTabs
         ariaLabel={ariaLabel}
         className="section-switch-bar"
-        items={items.map((item) => ({
+        items={visibleItems.map((item) => ({
           value: item.to,
           label: t(WORKSPACE_SECTION_LABEL_KEYS[item.to] || "", item.label),
           meta: item.meta,

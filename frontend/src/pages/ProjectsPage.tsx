@@ -388,8 +388,12 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
-  const isAdmin = session?.user.role === "admin";
   const canManageUsers = hasPermission(session, "user.manage");
+  const canCreateProjects = hasPermission(session, "project.create");
+  const canDeleteProjects = hasPermission(session, "project.delete");
+  const canSyncProjects = hasPermission(session, "project.sync");
+  const canManageProjectMembers = hasPermission(session, "project_member.manage");
+  const canManageAppTypes = hasPermission(session, "app_type.manage");
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
   const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData();
@@ -1105,6 +1109,12 @@ export function ProjectsPage() {
   });
 
   const openCreateProjectModal = () => {
+    if (!canCreateProjects) {
+      setMessageTone("error");
+      setMessage("Permission required: project.create");
+      return;
+    }
+
     setProjectDraft(createInitialProjectDraft(defaultAppTypeValue));
     setIsCreateModalOpen(true);
   };
@@ -1118,7 +1128,7 @@ export function ProjectsPage() {
   };
 
   const handleDeleteProject = async () => {
-    if (!focusedProject || deleteProject.isPending) {
+    if (!focusedProject || deleteProject.isPending || !canDeleteProjects) {
       return;
     }
 
@@ -1132,7 +1142,7 @@ export function ProjectsPage() {
   };
 
   const handleDeleteSelectedProjects = async () => {
-    if (!selectedActionProjectIds.length || deleteProject.isPending) {
+    if (!selectedActionProjectIds.length || deleteProject.isPending || !canDeleteProjects) {
       return;
     }
 
@@ -1197,6 +1207,12 @@ export function ProjectsPage() {
 
   const handleProjectCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!canCreateProjects) {
+      setMessageTone("error");
+      setMessage("Permission required: project.create");
+      return;
+    }
 
     if (!session?.user.id) {
       setMessageTone("error");
@@ -1284,24 +1300,31 @@ export function ProjectsPage() {
       label: "Open project details",
       icon: <OpenIcon />,
       onClick: () => openPortfolioProject(item),
+      requiredPermissions: ["project.view"],
       description: "Open members, app types, integrations, and project summary."
     },
     {
       label: "Open requirements",
       icon: <TileCardRequirementIcon />,
       onClick: () => openPortfolioProjectPath(item, "/requirements"),
+      featureKeys: ["qaira.manual.requirements"],
+      requiredPermissions: ["requirement.view"],
       description: "Review requirement scope and coverage links."
     },
     {
       label: "Open test cases",
       icon: <TileCardCaseIcon />,
       onClick: () => openPortfolioProjectPath(item, "/test-cases"),
+      featureKeys: ["qaira.manual.test_cases"],
+      requiredPermissions: ["testcase.view"],
       description: "Review manual and automated test cases for this project."
     },
     {
       label: "Create run",
       icon: <PlayIcon />,
       onClick: () => openPortfolioProjectPath(item, "/executions"),
+      featureKeys: ["qaira.manual.runs"],
+      requiredPermissions: ["run.create"],
       description: "Move to the execution console with this project selected.",
       tone: "primary" as const
     },
@@ -1316,11 +1339,12 @@ export function ProjectsPage() {
           await deleteProject.mutateAsync(item.project.id);
         }
       },
-      disabled: !isAdmin || deleteProject.isPending,
-      description: isAdmin ? "Delete this project and related workspace data." : "Only admins can delete projects.",
+      disabled: deleteProject.isPending,
+      requiredPermissions: ["project.delete"],
+      description: "Delete this project and related workspace data.",
       tone: "danger" as const
     }
-  ], [confirmDelete, deleteProject.isPending, deleteProject.mutateAsync, isAdmin, openPortfolioProject, openPortfolioProjectPath]);
+  ], [confirmDelete, deleteProject.isPending, deleteProject.mutateAsync, openPortfolioProject, openPortfolioProjectPath]);
 
   const projectListColumns = useMemo<Array<DataTableColumn<ProjectPortfolioItem>>>(() => [
     {
@@ -1478,7 +1502,7 @@ export function ProjectsPage() {
           <h2 className="page-header-title">Projects</h2>
           <p>Monitor project health, automation maturity, execution confidence and delivery blockers from one workspace.</p>
           <div className="projects-command-actions">
-            <button className="primary-button projects-create-button" onClick={openCreateProjectModal} type="button">
+            <button className="primary-button projects-create-button" disabled={!canCreateProjects} onClick={openCreateProjectModal} type="button">
               <AddIcon />
               Create New Project
             </button>
@@ -1611,6 +1635,7 @@ export function ProjectsPage() {
                 <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
                 <button
                   className="ghost-button projects-catalog-create-button"
+                  disabled={!canCreateProjects}
                   onClick={openCreateProjectModal}
                   type="button"
                 >
@@ -1619,7 +1644,7 @@ export function ProjectsPage() {
                 </button>
                 <button
                   className="ghost-button danger projects-catalog-delete-button"
-                  disabled={!isAdmin || !selectedActionProjectIds.length || deleteProject.isPending}
+                  disabled={!canDeleteProjects || !selectedActionProjectIds.length || deleteProject.isPending}
                   onClick={() => void handleDeleteSelectedProjects()}
                   type="button"
                 >
@@ -1854,7 +1879,7 @@ export function ProjectsPage() {
                   <div className="action-row">
                     <button
                       className="ghost-button"
-                      disabled={!focusedGoogleDriveIntegration || queueProjectSync.isPending}
+                      disabled={!canSyncProjects || !focusedGoogleDriveIntegration || queueProjectSync.isPending}
                       onClick={() => focusedProject && queueProjectSync.mutate({ projectId: focusedProject.id, provider: "google_drive" })}
                       title={
                         focusedGoogleDriveIntegration
@@ -1868,7 +1893,7 @@ export function ProjectsPage() {
                     </button>
                     <button
                       className="ghost-button"
-                      disabled={!focusedGithubIntegration || queueProjectSync.isPending}
+                      disabled={!canSyncProjects || !focusedGithubIntegration || queueProjectSync.isPending}
                       onClick={() => focusedProject && queueProjectSync.mutate({ projectId: focusedProject.id, provider: "github" })}
                       title={
                         focusedGithubIntegration
@@ -1880,7 +1905,7 @@ export function ProjectsPage() {
                       <GithubIcon />
                       <span>{queueProjectSync.isPending && focusedGithubIntegration ? "Queueing…" : "Sync to GitHub"}</span>
                     </button>
-                    {isAdmin ? (
+                    {canDeleteProjects ? (
                       <button
                         className="ghost-button danger"
                         disabled={deleteProject.isPending}
@@ -1943,10 +1968,10 @@ export function ProjectsPage() {
               <Panel title="Project members" subtitle={projectId ? `Assignments for ${scopedProject?.name}` : "Select a project first"}>
               <form
                 className="elevated-toolbar"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!projectId) return;
-                  const formData = new FormData(event.currentTarget);
+	                onSubmit={(event) => {
+	                  event.preventDefault();
+	                  if (!canManageProjectMembers || !projectId) return;
+	                  const formData = new FormData(event.currentTarget);
                   createMember.mutate({
                     project_id: projectId,
                     user_id: String(formData.get("user_id") || ""),
@@ -1963,7 +1988,7 @@ export function ProjectsPage() {
                   <option value="" disabled>Select role</option>
                   {(roles.data || []).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
                 </select>
-                <button className="primary-button" disabled={!projectId || createMember.isPending} type="submit">
+                <button className="primary-button" disabled={!canManageProjectMembers || !projectId || createMember.isPending} type="submit">
                   {createMember.isPending ? "Adding…" : "Add member"}
                 </button>
               </form>
@@ -1981,6 +2006,7 @@ export function ProjectsPage() {
                       {isCurrentUser ? <span className="text-muted project-member-note">You</span> : null}
                       <button
                         className="ghost-button danger"
+                        disabled={!canManageProjectMembers}
                         onClick={() => void handleRemoveMember(member)}
                         type="button"
                       >
@@ -1998,10 +2024,10 @@ export function ProjectsPage() {
               <Panel title="App types" subtitle="Keep platform boundaries readable and lightweight.">
               <form
                 className="elevated-toolbar"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!projectId) return;
-                  const formData = new FormData(event.currentTarget);
+	                onSubmit={(event) => {
+	                  event.preventDefault();
+	                  if (!canManageAppTypes || !projectId) return;
+	                  const formData = new FormData(event.currentTarget);
                   createAppType.mutate({
                     project_id: projectId,
                     name: String(formData.get("name") || ""),
@@ -2021,7 +2047,7 @@ export function ProjectsPage() {
                   placeholder="Select platform type"
                   value={quickAddAppTypeType}
                 />
-                <button className="primary-button" disabled={!projectId || createAppType.isPending} type="submit">
+                <button className="primary-button" disabled={!canManageAppTypes || !projectId || createAppType.isPending} type="submit">
                   {createAppType.isPending ? "Adding…" : "Add app type"}
                 </button>
               </form>
@@ -2035,6 +2061,7 @@ export function ProjectsPage() {
                     <span>{item.type}{item.is_unified ? " · unified" : ""}</span>
                     <button
                       className="ghost-button danger"
+                      disabled={!canManageAppTypes}
                       onClick={() => void api.appTypes.delete(item.id).then(() => {
                         setMessageTone("success");
                         setMessage("App type deleted.");
@@ -2222,7 +2249,7 @@ export function ProjectsPage() {
                 <button className="ghost-button danger" disabled={createProject.isPending} onClick={closeCreateProjectModal} type="button">
                   Cancel
                 </button>
-                <button className="primary-button" disabled={createProject.isPending} type="submit">
+                <button className="primary-button" disabled={!canCreateProjects || createProject.isPending} type="submit">
                   {createProject.isPending ? "Creating…" : "Create project"}
                 </button>
               </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
@@ -17,6 +17,7 @@ import {
   resolveAiPromptRegistryValue
 } from "../lib/aiPromptRegistry";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
+import { hasPermission } from "../lib/permissions";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   readNotificationPreferences,
@@ -68,6 +69,27 @@ const DEFAULT_PROJECT_AUTOMATION_SETTINGS: ProjectAutomationSettings = {
   remoteGridProvider: "default"
 };
 
+type SettingsSectionId =
+  | "general"
+  | "apiKeys"
+  | "features"
+  | "automationDefaults"
+  | "aiPromptMapping"
+  | "exportRetention"
+  | "notifications"
+  | "localization";
+
+const DEFAULT_EXPANDED_SETTINGS_SECTIONS: Record<SettingsSectionId, boolean> = {
+  general: true,
+  apiKeys: false,
+  features: false,
+  automationDefaults: false,
+  aiPromptMapping: false,
+  exportRetention: false,
+  notifications: true,
+  localization: false
+};
+
 function readProjectAutomationSettings(): ProjectAutomationSettings {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(preferenceStorageKeys.projectAutomationSettings) || "{}") as Partial<ProjectAutomationSettings>;
@@ -96,12 +118,17 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [createdApiKeyRecord, setCreatedApiKeyRecord] = useState<UserApiKey | null>(null);
   const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
   const [revokingApiKeyId, setRevokingApiKeyId] = useState("");
+  const [expandedSettingsSections, setExpandedSettingsSections] = useState<Record<SettingsSectionId, boolean>>(DEFAULT_EXPANDED_SETTINGS_SECTIONS);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isAdmin = session?.user.role === "admin";
-  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session) });
+  const canViewAdminSettings = isAdmin;
+  const canManageApiKeys = isAdmin && hasPermission(session, "api_key.manage");
+  const canManageAiPrompts = isAdmin && hasPermission(session, "ai_prompt.manage");
+  const canManageLocalization = isAdmin && hasPermission(session, "localization.manage");
+  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewAdminSettings) });
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
     queryFn: api.settings.getWorkspacePreferences,
@@ -110,7 +137,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const apiKeysQuery = useQuery({
     queryKey: queryKeys.settings.apiKeys(),
     queryFn: api.settings.listApiKeys,
-    enabled: Boolean(session)
+    enabled: Boolean(session && canManageApiKeys)
   });
   const llmIntegrations = useMemo(
     () => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active),
@@ -160,8 +187,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       window.localStorage.setItem(preferenceStorageKeys.projectAutomationSettings, JSON.stringify(projectAutomationSettings));
       writeDefaultCatalogViewMode(defaultCatalogViewMode);
       writeNotificationPreferences(notificationPreferences);
-      await api.settings.updateWorkspacePreferences({
-        preferences: {
+      const preferencesToSave = canManageAiPrompts
+        ? {
           [AI_PROMPT_OVERRIDES_KEY]: Object.fromEntries(
             AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, promptDrafts[prompt.key] ?? prompt.value])
           ),
@@ -171,7 +198,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               .filter(([, integrationId]) => Boolean(integrationId))
           )
         }
-      });
+        : {};
+
+      await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
       await workspacePreferencesQuery.refetch();
       emitWorkspacePreferenceUpdate({ sidebarMode, theme });
       setMessageTone("success");
@@ -212,6 +241,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   };
 
   const persistLocalization = async (nextStrings: Record<string, string>, successMessage: string) => {
+    if (!canManageLocalization) {
+      showError(new Error("Permission required: localization.manage"), "Unable to save localization strings.");
+      return;
+    }
+
     setIsSavingLocalization(true);
 
     try {
@@ -276,6 +310,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   };
 
   const handleCreateApiKey = async () => {
+    if (!canManageApiKeys) {
+      setMessageTone("error");
+      setMessage("Permission required: api_key.manage");
+      return;
+    }
+
     if (apiKeyName.trim().length < 2) {
       setMessageTone("error");
       setMessage("Enter an API key name with at least 2 characters.");
@@ -304,6 +344,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   };
 
   const handleRevokeApiKey = async (apiKeyRecord: UserApiKey) => {
+    if (!canManageApiKeys) {
+      setMessageTone("error");
+      setMessage("Permission required: api_key.manage");
+      return;
+    }
+
     if (!apiKeyRecord.is_active || !window.confirm(`Revoke API key "${apiKeyRecord.name}"?`)) {
       return;
     }
@@ -326,7 +372,54 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   };
 
-  const settingsActions = <button className="primary-button" onClick={() => void saveSettings()} type="button"><SaveIcon />Save preferences</button>;
+  const toggleSettingsSection = (section: SettingsSectionId) => {
+    setExpandedSettingsSections((current) => ({
+      ...current,
+      [section]: !current[section]
+    }));
+  };
+
+  const settingsActions = (
+    <button className="primary-button" onClick={() => void saveSettings()} type="button">
+      <SaveIcon />
+      {t("common.savePreferences", "Save preferences")}
+    </button>
+  );
+
+  const renderSettingsSection = (
+    section: SettingsSectionId,
+    eyebrow: string,
+    title: string,
+    children: ReactNode,
+    options: { actions?: ReactNode; adminOnly?: boolean } = {}
+  ) => {
+    if (options.adminOnly && !canViewAdminSettings) {
+      return null;
+    }
+
+    const isExpanded = expandedSettingsSections[section];
+
+    return (
+      <section className={isExpanded ? "settings-section is-expanded" : "settings-section is-collapsed"} key={section}>
+        <div className="settings-section-heading settings-section-heading--with-action">
+          <button
+            aria-expanded={isExpanded}
+            className="settings-section-toggle"
+            onClick={() => toggleSettingsSection(section)}
+            type="button"
+          >
+            <span>
+              <span className="eyebrow">{eyebrow}</span>
+              <strong>{title}</strong>
+            </span>
+            <span aria-hidden="true" className="settings-section-toggle-icon">{isExpanded ? "-" : "+"}</span>
+          </button>
+          {options.actions ? <div className="settings-section-actions">{options.actions}</div> : null}
+        </div>
+        {isExpanded ? children : null}
+      </section>
+    );
+  };
 
   return (
     <div className={embedded ? "admin-embedded-page settings-admin-page" : "page-content"}>
@@ -347,56 +440,45 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
       <div className="settings-section-stack">
-        <section className="settings-section">
-          <div className="settings-section-heading settings-section-heading--with-action">
-            <div>
-              <p className="eyebrow">Interface</p>
-              <h3>Appearance and navigation</h3>
-            </div>
-            {settingsActions}
-          </div>
+        {renderSettingsSection("general", "General", "Appearance and navigation", (
           <div className="two-column-grid">
-        <Panel title="Appearance" subtitle="Keep the interface comfortable for long QA sessions.">
-          <div className="detail-stack">
-            <label className="checkbox-field">
-              <input checked={theme === "light"} name="theme-preference" onChange={() => setTheme("light")} type="radio" />
-              <span>Light theme</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={theme === "dark"} name="theme-preference" onChange={() => setTheme("dark")} type="radio" />
-              <span>Dark theme</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={sidebarMode === "expanded"} name="sidebar-preference" onChange={() => setSidebarMode("expanded")} type="radio" />
-              <span>Expanded sidebar by default</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={sidebarMode === "collapsed"} name="sidebar-preference" onChange={() => setSidebarMode("collapsed")} type="radio" />
-              <span>Collapsed sidebar by default</span>
-            </label>
-          </div>
-        </Panel>
+            <Panel title="Appearance" subtitle="Keep the interface comfortable for long QA sessions.">
+              <div className="detail-stack">
+                <label className="checkbox-field">
+                  <input checked={theme === "light"} name="theme-preference" onChange={() => setTheme("light")} type="radio" />
+                  <span>{t("settings.general.themeLight", "Light theme")}</span>
+                </label>
+                <label className="checkbox-field">
+                  <input checked={theme === "dark"} name="theme-preference" onChange={() => setTheme("dark")} type="radio" />
+                  <span>{t("settings.general.themeDark", "Dark theme")}</span>
+                </label>
+                <label className="checkbox-field">
+                  <input checked={sidebarMode === "expanded"} name="sidebar-preference" onChange={() => setSidebarMode("expanded")} type="radio" />
+                  <span>{t("settings.general.sidebarExpanded", "Expanded sidebar by default")}</span>
+                </label>
+                <label className="checkbox-field">
+                  <input checked={sidebarMode === "collapsed"} name="sidebar-preference" onChange={() => setSidebarMode("collapsed")} type="radio" />
+                  <span>{t("settings.general.sidebarCollapsed", "Collapsed sidebar by default")}</span>
+                </label>
+              </div>
+            </Panel>
 
-        <Panel title="Catalog view preference" subtitle="Choose the default view used when catalog pages open.">
-          <div className="detail-stack">
-            <label className="checkbox-field">
-              <input checked={defaultCatalogViewMode === "tile"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("tile")} type="radio" />
-              <span>Open catalogs in grid view by default</span>
-            </label>
-            <label className="checkbox-field">
-              <input checked={defaultCatalogViewMode === "list"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("list")} type="radio" />
-              <span>Open catalogs in list view by default</span>
-            </label>
+            <Panel title="Catalog view preference" subtitle="Choose the default view used when catalog pages open.">
+              <div className="detail-stack">
+                <label className="checkbox-field">
+                  <input checked={defaultCatalogViewMode === "tile"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("tile")} type="radio" />
+                  <span>{t("settings.general.catalogGrid", "Open catalogs in grid view by default")}</span>
+                </label>
+                <label className="checkbox-field">
+                  <input checked={defaultCatalogViewMode === "list"} name="catalog-view-preference" onChange={() => setDefaultCatalogViewMode("list")} type="radio" />
+                  <span>{t("settings.general.catalogList", "Open catalogs in list view by default")}</span>
+                </label>
+              </div>
+            </Panel>
           </div>
-        </Panel>
-          </div>
-        </section>
+        ), { actions: settingsActions })}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">API</p>
-            <h3>API access keys</h3>
-          </div>
+        {renderSettingsSection("apiKeys", "API", "API access keys", (
           <Panel title="Scoped API keys" subtitle="Create personal keys for API clients. A key can never exceed your current user permissions.">
             <div className="settings-api-create-grid">
               <label className="settings-input-field">
@@ -484,15 +566,18 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        </section>
+        ), { adminOnly: true })}
 
-        <FeatureAvailabilitySection onError={showError} onSuccess={showSuccess} />
+        {canViewAdminSettings ? (
+          <FeatureAvailabilitySection
+            isExpanded={expandedSettingsSections.features}
+            onError={showError}
+            onSuccess={showSuccess}
+            onToggle={() => toggleSettingsSection("features")}
+          />
+        ) : null}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">Project settings</p>
-            <h3>Automation defaults</h3>
-          </div>
+        {renderSettingsSection("automationDefaults", "Project settings", "Automation defaults", (
           <Panel title="Project automation settings" subtitle="Default behavior for generated automation, local runs, remote grid runs, and evidence capture.">
             <div className="settings-project-grid">
               <label className="settings-input-field">
@@ -579,13 +664,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               </label>
             </div>
           </Panel>
-        </section>
+        ), { adminOnly: true, actions: settingsActions })}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">AI</p>
-            <h3>Prompt key mapping</h3>
-          </div>
+        {renderSettingsSection("aiPromptMapping", "AI", "Prompt key mapping", (
           <Panel title="AI prompt registry" subtitle="Central keys for AI prompt surfaces used by requirement, test design, automation, execution, and test data flows.">
             <div className="settings-prompt-grid">
               {AI_PROMPT_REGISTRY.map((prompt) => (
@@ -629,34 +710,26 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        </section>
+        ), { adminOnly: true, actions: settingsActions })}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">Evidence</p>
-            <h3>Export and retention</h3>
-          </div>
+        {renderSettingsSection("exportRetention", "Evidence", "Export and retention", (
           <div className="two-column-grid">
-        <Panel title="Export & retention" subtitle="Decide how much trace data should be surfaced and exported.">
-          <div className="detail-stack">
-            <label className="checkbox-field">
-              <input checked={autoExport} onChange={(event) => setAutoExport(event.target.checked)} type="checkbox" />
-              <span>Offer execution export prompts after completed runs</span>
-            </label>
-            <div className="detail-summary">
-              <strong>Historical evidence is preserved</strong>
-              <span>Deleting live suites or test cases does not remove execution snapshots already captured.</span>
-            </div>
+            <Panel title="Export & retention" subtitle="Decide how much trace data should be surfaced and exported.">
+              <div className="detail-stack">
+                <label className="checkbox-field">
+                  <input checked={autoExport} onChange={(event) => setAutoExport(event.target.checked)} type="checkbox" />
+                  <span>{t("settings.export.autoPrompt", "Offer execution export prompts after completed runs")}</span>
+                </label>
+                <div className="detail-summary">
+                  <strong>{t("settings.export.historyTitle", "Historical evidence is preserved")}</strong>
+                  <span>{t("settings.export.historyCopy", "Deleting live suites or test cases does not remove execution snapshots already captured.")}</span>
+                </div>
+              </div>
+            </Panel>
           </div>
-        </Panel>
-          </div>
-        </section>
+        ), { adminOnly: true, actions: settingsActions })}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">Notifications</p>
-            <h3>Notification preferences</h3>
-          </div>
+        {renderSettingsSection("notifications", "Notifications", "Notification preferences", (
           <Panel title="Notification routing" subtitle="Configure which workspace events should create in-app notifications or digest entries.">
             <div className="settings-preference-grid">
               {[
@@ -692,55 +765,51 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        </section>
+        ), { actions: settingsActions })}
 
-        <section className="settings-section">
-          <div className="settings-section-heading">
-            <p className="eyebrow">Localization</p>
-            <h3>Workspace language strings</h3>
-          </div>
-        <Panel
-          title={t("settings.localization.title", "Localization")}
-          subtitle={t("settings.localization.subtitle", "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.")}
-        >
-          <div className="detail-stack">
-            <div className="detail-summary">
-              <strong>{Object.keys(strings).length} strings ready</strong>
-              <span>{t("settings.localization.helper", "Only admins can publish updated localization strings for the workspace.")}</span>
+        {renderSettingsSection("localization", "Localization", "Workspace language strings", (
+          <Panel
+            title={t("settings.localization.title", "Localization")}
+            subtitle={t("settings.localization.subtitle", "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.")}
+          >
+            <div className="detail-stack">
+              <div className="detail-summary">
+                <strong>{Object.keys(strings).length} strings ready</strong>
+                <span>{t("settings.localization.helper", "Only admins can publish updated localization strings for the workspace.")}</span>
+              </div>
+
+              <div className="action-row">
+                <button className="ghost-button" onClick={handleDownloadLocalization} type="button">
+                  {t("settings.localization.download", "Download current strings")}
+                </button>
+                <button
+                  className="ghost-button"
+                  disabled={!canManageLocalization || isSavingLocalization}
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
+                  {t("settings.localization.upload", "Upload JSON")}
+                </button>
+                <button
+                  className="ghost-button danger"
+                  disabled={!canManageLocalization || isSavingLocalization}
+                  onClick={() => void persistLocalization(DEFAULT_LOCALIZATION_STRINGS, "Uploaded localization reset to defaults.")}
+                  type="button"
+                >
+                  {t("settings.localization.reset", "Reset uploaded strings")}
+                </button>
+              </div>
+
+              <input
+                accept="application/json"
+                hidden
+                onChange={(event) => void handleUploadLocalization(event)}
+                ref={fileInputRef}
+                type="file"
+              />
             </div>
-
-            <div className="action-row">
-              <button className="ghost-button" onClick={handleDownloadLocalization} type="button">
-                {t("settings.localization.download", "Download current strings")}
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!isAdmin || isSavingLocalization}
-                onClick={() => fileInputRef.current?.click()}
-                type="button"
-              >
-                {t("settings.localization.upload", "Upload JSON")}
-              </button>
-              <button
-                className="ghost-button danger"
-                disabled={!isAdmin || isSavingLocalization}
-                onClick={() => void persistLocalization(DEFAULT_LOCALIZATION_STRINGS, "Uploaded localization reset to defaults.")}
-                type="button"
-              >
-                {t("settings.localization.reset", "Reset uploaded strings")}
-              </button>
-            </div>
-
-            <input
-              accept="application/json"
-              hidden
-              onChange={(event) => void handleUploadLocalization(event)}
-              ref={fileInputRef}
-              type="file"
-            />
-          </div>
-        </Panel>
-        </section>
+          </Panel>
+        ), { adminOnly: true })}
       </div>
     </div>
   );

@@ -3,16 +3,32 @@ const db = require("../db");
 const FEATURE_FLAGS_SETTINGS_KEY = "feature_flags";
 
 const PERMISSION_FEATURES = {
+  "settings.manage": ["qaira.ops.admin"],
+  "workspace_preferences.manage": ["qaira.ops.admin"],
+  "api_key.manage": ["qaira.api.keys"],
+  "localization.manage": ["qaira.ops.admin"],
+  "ai_prompt.manage": ["qaira.ai.test_authoring"],
+  "feature_flag.manage": ["qaira.ops.admin"],
+  "user.view": ["qaira.ops.admin"],
+  "user.manage": ["qaira.ops.admin"],
+  "user.import": ["qaira.ops.admin"],
+  "role.view": ["qaira.ops.admin"],
+  "role.manage": ["qaira.ops.admin"],
+  "project_member.view": ["qaira.ops.admin"],
+  "project_member.manage": ["qaira.ops.admin"],
   "requirement.view": ["qaira.manual.requirements"],
   "requirement.create": ["qaira.manual.requirements"],
+  "requirement.import": ["qaira.manual.requirements"],
   "requirement.update": ["qaira.manual.requirements"],
   "requirement.delete": ["qaira.manual.requirements"],
   "requirement.ai": ["qaira.ai.requirement_design"],
   "testcase.view": ["qaira.manual.test_cases"],
   "testcase.create": ["qaira.manual.test_cases"],
+  "testcase.import": ["qaira.manual.test_cases"],
   "testcase.update": ["qaira.manual.test_cases"],
   "testcase.delete": ["qaira.manual.test_cases"],
   "testcase.export": ["qaira.manual.test_cases"],
+  "testcase.ai": ["qaira.ai.test_authoring"],
   "step.manage": ["qaira.manual.test_cases"],
   "shared_step.view": ["qaira.manual.suites"],
   "shared_step.manage": ["qaira.manual.suites"],
@@ -22,7 +38,10 @@ const PERMISSION_FEATURES = {
   "suite.delete": ["qaira.manual.suites"],
   "automation.view": ["qaira.automation.workspace"],
   "automation.repository.manage": ["qaira.automation.object_repository"],
+  "automation.repository.import": ["qaira.automation.object_repository"],
+  "automation.repository.export": ["qaira.automation.object_repository"],
   "automation.build": ["qaira.automation.workspace"],
+  "automation.ai": ["qaira.ai.automation"],
   "automation.recorder": ["qaira.automation.recorder"],
   "automation.preview": ["qaira.api.preview"],
   "agentic_workflow.view": ["qaira.ai.agentic_workflows"],
@@ -33,6 +52,8 @@ const PERMISSION_FEATURES = {
   "run.update": ["qaira.manual.runs"],
   "run.execute": ["qaira.manual.runs"],
   "run.delete": ["qaira.manual.runs"],
+  "run.ai": ["qaira.ai.execution_analysis"],
+  "run.report.export": ["qaira.manual.runs"],
   "run.report.share": ["qaira.manual.runs"],
   "result.view": ["qaira.manual.runs"],
   "result.manage": ["qaira.manual.runs"],
@@ -41,18 +62,44 @@ const PERMISSION_FEATURES = {
   "schedule.update": ["qaira.automation.batch_process"],
   "schedule.run": ["qaira.automation.batch_process"],
   "schedule.delete": ["qaira.automation.batch_process"],
+  "environment.view": ["qaira.mobile.appium"],
+  "environment.manage": ["qaira.mobile.appium"],
+  "configuration.view": ["qaira.mobile.appium"],
+  "configuration.manage": ["qaira.mobile.appium"],
+  "data.view": ["qaira.manual.test_cases"],
+  "data.manage": ["qaira.manual.test_cases"],
+  "data.import": ["qaira.manual.test_cases"],
+  "data.export": ["qaira.manual.test_cases"],
+  "app_type.view": ["qaira.mobile.appium"],
+  "app_type.manage": ["qaira.mobile.appium"],
   "integration.view": ["qaira.api.integrations"],
   "integration.manage": ["qaira.api.integrations"],
+  "integration.import_export": ["qaira.api.integrations"],
   "knowledge.view": ["qaira.ai.knowledge"],
   "knowledge.manage": ["qaira.ai.knowledge"],
   "prompt_template.view": ["qaira.ai.test_authoring"],
   "prompt_template.manage": ["qaira.ai.test_authoring"],
   "transaction.view": ["qaira.ops.background_jobs"],
   "transaction.manage": ["qaira.ops.background_jobs"],
+  "transaction.artifact.download": ["qaira.ops.background_jobs"],
   "notification.view": ["qaira.ops.notifications"],
+  "feedback.view": ["qaira.ops.background_jobs"],
+  "feedback.manage": ["qaira.ops.background_jobs"],
   "ops.view": ["qaira.ops.telemetry"],
   "ops.manage": ["qaira.ops.telemetry"]
 };
+
+const FEATURE_PERMISSION_CODES = Object.entries(PERMISSION_FEATURES).reduce((features, [permissionCode, featureKeys]) => {
+  for (const featureKey of featureKeys) {
+    if (!features[featureKey]) {
+      features[featureKey] = [];
+    }
+
+    features[featureKey].push(permissionCode);
+  }
+
+  return features;
+}, {});
 
 const FEATURE_GROUPS = [
   {
@@ -125,7 +172,17 @@ const FEATURE_GROUPS = [
   }
 ];
 
-const FEATURE_DEFINITIONS = FEATURE_GROUPS.flatMap((group) =>
+const withPermissionCodes = (feature) => ({
+  ...feature,
+  permissions: [...(FEATURE_PERMISSION_CODES[feature.key] || [])].sort()
+});
+
+const FEATURE_GROUPS_WITH_PERMISSIONS = FEATURE_GROUPS.map((group) => ({
+  ...group,
+  features: group.features.map(withPermissionCodes)
+}));
+
+const FEATURE_DEFINITIONS = FEATURE_GROUPS_WITH_PERMISSIONS.flatMap((group) =>
   group.features.map((feature) => ({
     ...feature,
     group: group.key,
@@ -181,11 +238,11 @@ const evaluateFlags = async () => {
   );
 };
 
-exports.FEATURE_GROUPS = FEATURE_GROUPS;
+exports.FEATURE_GROUPS = FEATURE_GROUPS_WITH_PERMISSIONS;
 exports.FEATURE_DEFINITIONS = FEATURE_DEFINITIONS;
 
 exports.getSnapshot = async ({ user } = {}) => ({
-  groups: FEATURE_GROUPS,
+  groups: FEATURE_GROUPS_WITH_PERMISSIONS,
   flags: await evaluateFlags({ user }),
   local_flags: await getStoredFlags(),
   provider: {
@@ -217,3 +274,39 @@ exports.areEnabled = async (featureKeys = [], { user } = {}) => {
 };
 
 exports.getFeatureKeysForPermission = (permissionCode) => PERMISSION_FEATURES[permissionCode] || [];
+
+exports.getDisabledPermissionCodes = async (permissionCodes = []) => {
+  const codes = Array.isArray(permissionCodes) ? [...new Set(permissionCodes.filter(Boolean))] : [];
+
+  if (!codes.length) {
+    return [];
+  }
+
+  const flags = await evaluateFlags();
+
+  return codes.filter((permissionCode) => {
+    const featureKeys = exports.getFeatureKeysForPermission(permissionCode);
+    return featureKeys.some((featureKey) => flags[featureKey] === false);
+  });
+};
+
+exports.filterPermissionsByEnabledFeatures = async (permissions = []) => {
+  const disabledCodes = new Set(await exports.getDisabledPermissionCodes(permissions.map((permission) => permission.code)));
+  return permissions.filter((permission) => !disabledCodes.has(permission.code));
+};
+
+exports.filterPermissionGroupsByEnabledFeatures = async (permissionGroups = []) => {
+  const filteredGroups = await Promise.all(
+    permissionGroups.map(async (group) => ({
+      ...group,
+      permissions: (await exports.filterPermissionsByEnabledFeatures(
+        group.permissions.map((permission) => Array.isArray(permission)
+          ? { code: permission[0], description: permission[1], tuple: permission }
+          : permission
+        )
+      )).map((permission) => permission.tuple || permission)
+    }))
+  );
+
+  return filteredGroups.filter((group) => group.permissions.length);
+};

@@ -18,9 +18,9 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/people": ["qaira.ops.admin"],
   "/integrations": ["qaira.api.integrations"],
   "/notifications": ["qaira.ops.notifications"],
-  "/test-environments": [],
-  "/test-configurations": [],
-  "/test-data": []
+  "/test-environments": ["qaira.mobile.appium"],
+  "/test-configurations": ["qaira.mobile.appium"],
+  "/test-data": ["qaira.manual.test_cases"]
 };
 
 export function requiredFeatureFlagsForPath(pathname: string) {

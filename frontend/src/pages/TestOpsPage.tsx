@@ -21,6 +21,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { hasPermission } from "../lib/permissions";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TESTOPS_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
@@ -190,7 +191,11 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const watchedBatchStatusesRef = useRef<Map<string, string>>(new Map());
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
-  const isAdmin = session?.user.role === "admin";
+  const canBuildAutomation = hasPermission(session, "automation.build");
+  const canUseAutomationAi = hasPermission(session, "automation.ai");
+  const canUseRecorder = hasPermission(session, "automation.recorder");
+  const canManageTransactions = hasPermission(session, "transaction.manage");
+  const canDownloadArtifacts = hasPermission(session, "transaction.artifact.download");
 
   useEffect(() => {
     setView(initialView);
@@ -669,7 +674,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   });
 
   const handleDownloadArtifact = async (artifact: WorkspaceTransactionArtifact) => {
-    if (!selectedTransaction) {
+    if (!selectedTransaction || !canDownloadArtifacts) {
       return;
     }
 
@@ -686,7 +691,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   };
 
   const handleDeleteSelectedBatchLog = async () => {
-    if (!selectedTransaction || !(await confirmDelete({ message: `Delete batch process log "${selectedTransaction.title}"?` }))) {
+    if (!selectedTransaction || !canManageTransactions || !(await confirmDelete({ message: `Delete batch process log "${selectedTransaction.title}"?` }))) {
       return;
     }
 
@@ -699,7 +704,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   };
 
   const handleDeleteSelectedBatchLogs = async () => {
-    if (!selectedBatchLogTransactions.length || !(await confirmDelete({ message: `Delete ${selectedBatchLogTransactions.length} selected batch process log${selectedBatchLogTransactions.length === 1 ? "" : "s"}?` }))) {
+    if (!selectedBatchLogTransactions.length || !canManageTransactions || !(await confirmDelete({ message: `Delete ${selectedBatchLogTransactions.length} selected batch process log${selectedBatchLogTransactions.length === 1 ? "" : "s"}?` }))) {
       return;
     }
 
@@ -852,20 +857,20 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
               {builderMessage ? <div className="empty-state compact">{builderMessage}</div> : null}
 
               <div className="testops-action-row">
-                <button
-                  className="primary-button"
-                  disabled={!activeCase || buildSingleAutomation.isPending}
-                  onClick={() => buildSingleAutomation.mutate()}
-                  type="button"
+	                <button
+	                  className="primary-button"
+	                  disabled={!canBuildAutomation || !canUseAutomationAi || !activeCase || buildSingleAutomation.isPending}
+	                  onClick={() => buildSingleAutomation.mutate()}
+	                  type="button"
                 >
                   <SparkIcon />
                   <span>{buildSingleAutomation.isPending ? "Automating…" : "Automate case with AI"}</span>
                 </button>
-                <button
-                  className="ghost-button"
-                  disabled={!appTypeId || buildBatchAutomation.isPending}
-                  onClick={() => buildBatchAutomation.mutate()}
-                  type="button"
+	                <button
+	                  className="ghost-button"
+	                  disabled={!canBuildAutomation || !canUseAutomationAi || !appTypeId || buildBatchAutomation.isPending}
+	                  onClick={() => buildBatchAutomation.mutate()}
+	                  type="button"
                 >
                   <ActivityIcon />
                   <span>{buildBatchAutomation.isPending ? "Queueing…" : selectedCaseIds.length ? "Queue selected AI batch" : "Queue manual AI batch"}</span>
@@ -879,9 +884,9 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                     <span>Starts a browser-backed Test Engine session, captures user actions once, suppresses duplicate typing, and records fetch/XHR traffic for API test suggestions.</span>
                   </div>
                   <div className="recorder-workspace-pane">
-                    <RecorderStartControls
-                      disabled={!activeCase || !testEngineIntegration}
-                      hasSession={Boolean(recorderSession)}
+	                    <RecorderStartControls
+	                      disabled={!canUseRecorder || !activeCase || !testEngineIntegration}
+	                      hasSession={Boolean(recorderSession)}
                       isStarting={startRecorder.isPending}
                       onStart={(options) => startRecorder.mutate(options)}
                     />
@@ -1012,10 +1017,10 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   <ClearSelectionIcon />
                   <span>Clear</span>
                 </button>
-                {isAdmin ? (
-                  <button
-                    className="ghost-button danger catalog-selection-button"
-                    disabled={!selectedBatchLogTransactions.length || deleteBatchLog.isPending}
+	                {canManageTransactions ? (
+	                  <button
+	                    className="ghost-button danger catalog-selection-button"
+	                    disabled={!selectedBatchLogTransactions.length || deleteBatchLog.isPending}
                     onClick={() => void handleDeleteSelectedBatchLogs()}
                     type="button"
                   >
@@ -1151,10 +1156,10 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
               actions={
                 <div className="testops-action-row batch-process-detail-actions">
                   <WorkspaceBackButton label="Back to batch process logs" onClick={closeBatchProcess} />
-                  {isAdmin ? (
-                    <button
-                      className="ghost-button danger"
-                      disabled={deleteBatchLog.isPending}
+	                  {canManageTransactions ? (
+	                    <button
+	                      className="ghost-button danger"
+	                      disabled={deleteBatchLog.isPending}
                       onClick={() => void handleDeleteSelectedBatchLog()}
                       type="button"
                     >
@@ -1223,10 +1228,10 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                           <strong>{artifact.file_name}</strong>
                           <span>{artifact.mime_type} · {formatTimestamp(artifact.created_at)}</span>
                         </div>
-                        <button className="ghost-button" onClick={() => void handleDownloadArtifact(artifact)} type="button">
-                          <OpenIcon size={16} />
-                          <span>Download</span>
-                        </button>
+	                        <button className="ghost-button" disabled={!canDownloadArtifacts} onClick={() => void handleDownloadArtifact(artifact)} type="button">
+	                          <OpenIcon size={16} />
+	                          <span>Download</span>
+	                        </button>
                       </div>
                     ))}
                   </div>
