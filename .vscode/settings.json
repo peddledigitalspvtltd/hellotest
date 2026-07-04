@@ -6,6 +6,6 @@
   "qaira.import.apiTestsUrl": "http://localhost:8080/api/test-cases/import",
   "qaira.import.webuiPagesUrl": "http://localhost:8080/api/test-cases/automation/learning-cache/import",
   "qaira.import.appTypeId": "fb1192f3-9421-4012-b616-c13bbcb5bbe3",
-  "qaira.import.authMode": "bearer",
+  "qaira.import.authMode": "x-api-key",
   "qaira.import.confirmBeforeSending": true
 }
