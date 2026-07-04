@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, ClearSelectionIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
@@ -54,6 +54,13 @@ type AutomationCaseSectionKey = "case" | "steps" | "history";
 type AutomationStepView = "keyword" | "code";
 type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions";
 type RepositoryFieldTab = "locators" | "evidence" | "meaning";
+const REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH = 440;
+const REPOSITORY_CONFIG_DRAWER_MIN_WIDTH = 360;
+const REPOSITORY_CONFIG_DRAWER_MAX_WIDTH = 720;
+
+const clampRepositoryConfigDrawerWidth = (value: number) =>
+  Math.min(REPOSITORY_CONFIG_DRAWER_MAX_WIDTH, Math.max(REPOSITORY_CONFIG_DRAWER_MIN_WIDTH, value));
+
 const normalizeAutomationParameterValues = (values?: Record<string, unknown> | null, scope: StepParameterScope = "t") =>
   normalizeStepParameterValues((values || {}) as Record<string, string>, scope);
 
@@ -1019,6 +1026,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [screenDetailTab, setScreenDetailTab] = useState<RepositoryScreenTab>("overview");
   const [fieldDetailTab, setFieldDetailTab] = useState<RepositoryFieldTab>("locators");
   const [isRepositoryConfigOpen, setIsRepositoryConfigOpen] = useState(true);
+  const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
@@ -1074,6 +1082,52 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     ancestor_screenshot_url: "",
     element_screenshot_url: ""
   });
+
+  const handleRepositoryConfigResizeStart = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = repositoryConfigDrawerWidth;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const viewportMaxWidth = Math.max(
+        REPOSITORY_CONFIG_DRAWER_MIN_WIDTH,
+        Math.min(REPOSITORY_CONFIG_DRAWER_MAX_WIDTH, window.innerWidth - 420)
+      );
+      const nextWidth = Math.min(viewportMaxWidth, clampRepositoryConfigDrawerWidth(startWidth + startX - moveEvent.clientX));
+      setRepositoryConfigDrawerWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }, [repositoryConfigDrawerWidth]);
+
+  const handleRepositoryConfigResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setRepositoryConfigDrawerWidth((current) => clampRepositoryConfigDrawerWidth(current + 24));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setRepositoryConfigDrawerWidth((current) => clampRepositoryConfigDrawerWidth(current - 24));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setRepositoryConfigDrawerWidth(REPOSITORY_CONFIG_DRAWER_MIN_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setRepositoryConfigDrawerWidth(REPOSITORY_CONFIG_DRAWER_MAX_WIDTH);
+    }
+  }, []);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -4207,11 +4261,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         />
       ) : null}
 
-      {view === "repository" ? (
-        <div className={[
-          "automation-workspace-grid automation-workspace-grid--repository",
-          selectedRepositoryEntry && isRepositoryConfigOpen ? "has-config-drawer" : ""
-        ].filter(Boolean).join(" ")}>
+	      {view === "repository" ? (
+	        <div className={[
+	          "automation-workspace-grid automation-workspace-grid--repository",
+	          selectedRepositoryEntry && isRepositoryConfigOpen ? "has-config-drawer" : ""
+	        ].filter(Boolean).join(" ")}
+	          style={selectedRepositoryEntry && isRepositoryConfigOpen ? ({ "--object-repository-config-width": `${repositoryConfigDrawerWidth}px` } as CSSProperties) : undefined}
+	        >
           <Panel
             title="Object repository"
             subtitle="Screen-level fields grouped by page, with friendly member names, HTML tag details, locator, DOM, image, and fallback intelligence."
@@ -4419,8 +4475,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           </Panel>
 
 	          {selectedRepositoryEntry && isRepositoryConfigOpen ? (
-	            <aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
-	              <div className="object-repository-config-head">
+		            <aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
+		              <button
+		                aria-label="Resize object configuration panel"
+		                className="object-repository-config-resize-handle"
+		                onKeyDown={handleRepositoryConfigResizeKeyDown}
+		                onPointerDown={handleRepositoryConfigResizeStart}
+		                title="Drag left or right to resize object configuration"
+		                type="button"
+		              />
+		              <div className="object-repository-config-head">
 	                <div>
 	                  <strong>Object Configuration</strong>
 	                  <span>Element Configuration: {repositoryDraft.object_name || getRepositoryMemberName(selectedRepositoryEntry)}</span>

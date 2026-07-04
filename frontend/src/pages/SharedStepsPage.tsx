@@ -444,7 +444,13 @@ export function SharedStepsPage() {
         return true;
       }
 
-      return [group.display_id || "", group.id, group.name, group.description || "", ...(group.steps || []).map((step) => `${step.action || ""} ${step.expected_result || ""}`)]
+      return [
+        group.display_id || "",
+        group.id,
+        group.name,
+        richTextToPlainText(group.description || ""),
+        ...(group.steps || []).map((step) => `${richTextToPlainText(step.action || "")} ${richTextToPlainText(step.expected_result || "")}`)
+      ]
         .join(" ")
         .toLowerCase()
         .includes(search);
@@ -610,7 +616,7 @@ export function SharedStepsPage() {
       key: "preview",
       label: "Preview",
       defaultVisible: false,
-      render: (group) => group.steps[0]?.action || group.steps[0]?.expected_result || "No step preview yet"
+      render: (group) => richTextToPlainText(group.steps[0]?.action || group.steps[0]?.expected_result || "") || "No step preview yet"
     },
     {
       key: "steps",
@@ -1083,8 +1089,9 @@ export function SharedStepsPage() {
     totalSteps: sharedGroups.reduce((count, group) => count + (group.step_count || group.steps.length || 0), 0),
     usedInCases: sharedGroups.reduce((count, group) => count + (group.usage_count || 0), 0)
   };
-  const sharedStepSectionSummary = groupDraft.steps[0]?.action || groupDraft.steps[0]?.expected_result
-    ? `Starts with: ${groupDraft.steps[0]?.action || groupDraft.steps[0]?.expected_result}`
+  const sharedStepPreview = richTextToPlainText(groupDraft.steps[0]?.action || groupDraft.steps[0]?.expected_result || "");
+  const sharedStepSectionSummary = sharedStepPreview
+    ? `Starts with: ${sharedStepPreview}`
     : "No shared steps yet. Add at least one step so this group is useful across cases.";
   const openTestCaseWorkspace = (testCaseId: string) => {
     setIsUsageDialogOpen(false);
@@ -1244,7 +1251,7 @@ export function SharedStepsPage() {
                     const isSelected = selectedGroupIds.includes(group.id);
                     const stepCount = group.step_count || group.steps.length;
                     const usageCount = group.usage_count || 0;
-                    const preview = group.steps[0]?.action || group.steps[0]?.expected_result || "No step preview yet";
+                    const preview = richTextToPlainText(group.steps[0]?.action || group.steps[0]?.expected_result || "") || "No step preview yet";
                     const history = (historyBySharedGroupId[group.id] || []).slice(0, 5);
                     const runCount = (historyBySharedGroupId[group.id] || []).length;
                     const latestRun = history[0];
@@ -1451,6 +1458,7 @@ export function SharedStepsPage() {
                           actions={sharedEditorActions}
                           className="step-card-menu--inline step-card-menu--inline-right"
                           label="Shared step actions"
+                          openOnHover
                           previewActions={sharedEditorActions}
                         />
                         <SharedGroupStepIconButton
@@ -1903,9 +1911,27 @@ function SharedGroupStepActionMenu({
   className?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const visiblePreviewActions = previewActions?.filter((action) => !action.disabled).slice(0, 3) || [];
+  const isInline = className.split(/\s+/).includes("step-card-menu--inline");
+  const visiblePreviewActions = previewActions?.filter((action) => !action.disabled) || [];
+
+  const handleHoverEnter = () => {
+    if (!openOnHover) {
+      return;
+    }
+
+    setIsHovering(true);
+  };
+
+  const handleHoverLeave = () => {
+    if (!openOnHover) {
+      return;
+    }
+
+    setIsHovering(false);
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -1937,16 +1963,28 @@ function SharedGroupStepActionMenu({
 
   return (
     <div
-      className={["step-card-menu", "step-card-menu--floating", className].filter(Boolean).join(" ")}
-      onMouseEnter={openOnHover ? () => setIsOpen(true) : undefined}
-      onMouseLeave={openOnHover ? () => setIsOpen(false) : undefined}
+      className={["step-card-menu", isInline ? "" : "step-card-menu--floating", className].filter(Boolean).join(" ")}
+      onMouseEnter={handleHoverEnter}
+      onMouseLeave={handleHoverLeave}
     >
-      {visiblePreviewActions.length ? (
-        <div className="step-card-menu-preview" aria-hidden="true">
+      {openOnHover && visiblePreviewActions.length && isHovering && !isOpen ? (
+        <div className="step-card-menu-panel is-horizontal" role="menu">
           {visiblePreviewActions.map((action) => (
-            <span className="step-card-menu-preview-icon" key={action.label} title={action.label}>
+            <button
+              aria-label={action.label}
+              className={["step-card-menu-item", action.tone ? `is-${action.tone}` : ""].filter(Boolean).join(" ")}
+              disabled={action.disabled}
+              key={action.label}
+              onClick={() => {
+                action.onClick();
+                setIsHovering(false);
+              }}
+              role="menuitem"
+              title={action.label}
+              type="button"
+            >
               {action.icon}
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
@@ -2042,17 +2080,18 @@ function InlineSharedGroupStepInsertSlot({
             <strong>{index === 0 ? "+ Add Shared Step" : "+ Insert Shared Step"}</strong>
           </div>
           <FormField label="Action">
-            <input
+            <RichTextEditor
               autoFocus
+              rows={2}
               value={draft.action}
-              onChange={(event) => onChange({ ...draft, action: event.target.value })}
+              onChange={(action) => onChange({ ...draft, action })}
             />
           </FormField>
           <FormField label="Expected result">
-            <textarea
+            <RichTextEditor
               rows={3}
               value={draft.expected_result}
-              onChange={(event) => onChange({ ...draft, expected_result: event.target.value })}
+              onChange={(expected_result) => onChange({ ...draft, expected_result })}
             />
           </FormField>
           <div className="action-row">
@@ -2204,7 +2243,7 @@ function SharedGroupDraftStepCard({
               <StepParameterizedText
                 className="step-card-parameterized"
                 fallback="Shared step details"
-                text={step.action || step.expected_result}
+                text={richTextToPlainText(step.action || step.expected_result || "")}
                 values={parameterValues}
               />
             </div>
@@ -2230,11 +2269,12 @@ function SharedGroupDraftStepCard({
       {isExpanded ? (
         <div className="step-card-body">
           <FormField label="Action">
-            <input
+            <RichTextEditor
+              rows={2}
               value={step.action}
-              onChange={(event) =>
+              onChange={(action) =>
                 onChange({
-                  action: event.target.value,
+                  action,
                   expected_result: step.expected_result,
                   step_type: step.step_type,
                   automation_code: step.automation_code,
@@ -2244,13 +2284,13 @@ function SharedGroupDraftStepCard({
             />
           </FormField>
           <FormField label="Expected result">
-            <textarea
+            <RichTextEditor
               rows={3}
               value={step.expected_result}
-              onChange={(event) =>
+              onChange={(expected_result) =>
                 onChange({
                   action: step.action,
-                  expected_result: event.target.value,
+                  expected_result,
                   step_type: step.step_type,
                   automation_code: step.automation_code,
                   api_request: step.api_request

@@ -745,11 +745,42 @@ export function LocalGroupIcon({ size = 16 }: { size?: number }) {
 
 export function AutomationCodeIcon({ size = 16 }: { size?: number }) {
   return (
-    <IconFrame size={size}>
-      <path d="m8 8-4 4 4 4" />
-      <path d="m16 8 4 4-4 4" />
-      <path d="m14 5-4 14" />
-    </IconFrame>
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.55"
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <rect height="10.8" rx="1.6" width="15.6" x="4.2" y="3.6" />
+      <path d="M4.2 7.1h15.6" />
+      <path d="M6.6 5.4h.05" strokeWidth="2.4" />
+      <path d="M8.9 5.4h.05" strokeWidth="2.4" />
+      <path d="M11.2 5.4h.05" strokeWidth="2.4" />
+      <path d="m13.1 9.7-1.7 1.6 1.7 1.6" />
+      <path d="m16.7 9.7 1.7 1.6-1.7 1.6" />
+      <path d="m15.6 9.3-1.2 4" />
+      <circle cx="8.1" cy="16.6" r="2.25" />
+      <path d="M8.1 12.9v-1.1" />
+      <path d="M8.1 21.4v-1.1" />
+      <path d="m4.9 13.5-.8-.8" />
+      <path d="m12.1 20.7-.8-.8" />
+      <path d="m4.9 19.7-.8.8" />
+      <path d="m12.1 12.5-.8.8" />
+      <path d="M3.7 16.6H2.6" />
+      <path d="M13.6 16.6h-1.1" />
+      <circle cx="17.2" cy="18.2" r="1.45" />
+      <path d="M17.2 15.7v-.8" />
+      <path d="M17.2 21.5v-.8" />
+      <path d="m15.3 16.3-.55-.55" />
+      <path d="m19.65 20.65-.55-.55" />
+      <path d="m15.3 20.1-.55.55" />
+      <path d="m19.65 15.75-.55.55" />
+    </svg>
   );
 }
 

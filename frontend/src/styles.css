@@ -3356,6 +3356,31 @@ textarea {
   margin-left: 0;
 }
 
+.step-editor--shared .step-card-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.step-editor--shared .step-card-top .step-card-toggle {
+  padding-right: 0;
+}
+
+.step-editor--shared .step-inline-tools,
+.step-editor--shared .step-card-menu--floating {
+  position: static;
+  transform: none;
+}
+
+.step-editor--shared .step-inline-tools {
+  justify-self: end;
+}
+
+.step-editor--shared .step-card-menu--floating {
+  justify-self: end;
+}
+
 .shared-step-workspace-form {
   padding-top: 0.45rem;
 }
@@ -42336,8 +42361,8 @@ body > .nested-modal-backdrop {
 }
 
 .automation-workspace-grid--repository.has-config-drawer {
-  grid-template-columns: minmax(0, 1fr) minmax(21rem, 24rem);
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(22.5rem, var(--object-repository-config-width, 27.5rem));
+  align-items: start;
 }
 
 .automation-workspace-grid--repository > .panel:first-child {
@@ -42346,15 +42371,52 @@ body > .nested-modal-backdrop {
 
 .object-repository-config-drawer {
   position: sticky;
+  isolation: isolate;
   top: 0.85rem;
   align-self: start;
-  max-height: calc(100dvh - 1.7rem);
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
-  overflow: hidden;
+  width: var(--object-repository-config-width, 27.5rem);
+  max-width: min(var(--object-repository-config-width, 27.5rem), calc(100vw - 2rem));
+  overflow: visible;
   border-radius: 8px;
+}
+
+.object-repository-config-resize-handle {
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 -0.55rem;
+  width: 0.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.object-repository-config-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 1rem;
+  bottom: 1rem;
+  left: 50%;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.18);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.object-repository-config-resize-handle:hover::after,
+.object-repository-config-resize-handle:focus-visible::after,
+.object-repository-config-resize-handle:active::after {
+  background: rgba(37, 99, 235, 0.48);
+  opacity: 1;
 }
 
 .object-repository-config-head {
@@ -42384,7 +42446,9 @@ body > .nested-modal-backdrop {
   font-size: 0.82rem;
   font-weight: 800;
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .object-repository-config-close {
@@ -42406,29 +42470,36 @@ body > .nested-modal-backdrop {
 }
 
 .object-repository-config-actions {
-  justify-content: flex-start;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.45rem;
+  justify-content: stretch;
+}
+
+.object-repository-config-actions > button {
+  min-height: 2.2rem;
+  padding-inline: 0.55rem;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .object-repository-config-drawer .repository-field-detail {
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: visible;
   padding-right: 0.2rem;
 }
 
 .object-repository-config-drawer .object-repository-screen-tabs {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 0.15rem;
+  overflow: visible;
 }
 
 .object-repository-config-drawer .object-repository-screen-tabs button {
-  flex: 0 0 auto;
-  min-width: max-content;
+  min-width: 0;
 }
 
 @media (max-width: 1120px) {
   .automation-workspace-grid--repository.has-config-drawer {
-    grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem) !important;
+    grid-template-columns: minmax(0, 1fr) minmax(21rem, var(--object-repository-config-width, 25rem)) !important;
   }
 }
 
@@ -42447,7 +42518,16 @@ body > .nested-modal-backdrop {
 
   .object-repository-config-drawer {
     position: static;
-    max-height: none;
+    width: auto;
+    max-width: none;
+  }
+
+  .object-repository-config-resize-handle {
+    display: none;
+  }
+
+  .object-repository-config-drawer .testops-builder-form {
+    grid-template-columns: 1fr !important;
   }
 }
 
@@ -42580,15 +42660,73 @@ body > .nested-modal-backdrop {
   align-self: start;
   min-width: 0;
   max-width: 100%;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-gutter: stable;
+  flex-wrap: wrap !important;
+  gap: 0.35rem !important;
+  overflow: visible !important;
+  padding: 0.22rem !important;
+  scrollbar-gutter: auto;
   margin-bottom: 0;
 }
 
 .pom-class-panel .object-repository-screen-tabs button {
   flex: 0 0 auto;
   min-width: max-content;
+}
+
+.object-repository-screen-tabs {
+  display: flex !important;
+  align-items: center;
+  flex-wrap: wrap !important;
+  gap: 0.35rem !important;
+  overflow: visible !important;
+  padding: 0.22rem !important;
+  border-radius: 8px !important;
+}
+
+.object-repository-screen-tabs .subnav-tab {
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  min-height: 2.15rem;
+  padding: 0.35rem 0.5rem !important;
+  border-radius: 8px !important;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.object-repository-screen-tabs .subnav-tab-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.object-repository-screen-tabs .subnav-tab-copy > strong {
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.object-repository-screen-tabs .subnav-tab-meta {
+  min-width: 0;
+  height: auto;
+  max-width: 7rem;
+  padding: 0.16rem 0.34rem;
+  border-radius: 5px !important;
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-screen-tabs .subnav-tab-indicator {
+  height: 2px;
+  border-radius: 999px !important;
+}
+
+.object-repository-config-drawer .testops-builder-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.65rem;
 }
 
 .repository-screen-overview-grid {

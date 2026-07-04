@@ -188,12 +188,18 @@ export function PlayIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
-export function RecordIcon({ size, strokeWidth }: IconProps) {
+export function RecordIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
   return (
-    <IconFrame size={size} strokeWidth={strokeWidth}>
-      <circle cx="12" cy="12" r="6.5" />
-      <circle cx="12" cy="12" fill="currentColor" r="2.25" stroke="none" />
-    </IconFrame>
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <circle cx="12" cy="12" r="9" stroke="#ef0000" strokeWidth={strokeWidth} />
+      <circle cx="12" cy="12" fill="#ef0000" r="6.1" stroke="none" />
+    </svg>
   );
 }
 
