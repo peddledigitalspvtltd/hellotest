@@ -1551,65 +1551,72 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
           browseView={(
             <Panel
               title="Integrations"
-              titleVariant="eyebrow"
-              subtitle="Review configured connections grouped by integration type, then open one profile into a focused editor."
-            >
-              <div className="integration-type-selector" role="tablist" aria-label="Integration type sections">
-                <button
-                  aria-selected={selectedIntegrationTypeFilter === "all"}
-                  className={selectedIntegrationTypeFilter === "all" ? "is-active" : ""}
-                  onClick={() => handleSelectIntegrationType("all")}
-                  role="tab"
-                  type="button"
-                >
-                  <span className="integration-type-selector-icon"><PlugIcon /></span>
-                  <span>
-                    <strong>All types</strong>
-                    <small>{integrations.length} configured · {activeIntegrationCount} active</small>
-                  </span>
-                </button>
-                {integrationTypeOptions.map((definition) => {
-                  const section = integrationTypeSections.find((item) => item.value === definition.value);
-                  const totalCount = section?.totalCount || 0;
-                  const activeCount = section?.activeCount || 0;
+	              titleVariant="eyebrow"
+	              subtitle="Review configured connections grouped by integration type, then open one profile into a focused editor."
+	            >
+	              <div className="design-list-toolbar integration-catalog-toolbar">
+	                <CatalogSearchFilter
+	                  activeFilterCount={(integrationSearch.trim() ? 1 : 0) + (selectedIntegrationTypeFilter !== "all" ? 1 : 0)}
+	                  ariaLabel="Search integrations"
+	                  onChange={setIntegrationSearch}
+	                  placeholder="Search integrations"
+	                  subtitle="Search by name, provider type, status, URL, model, project key, or user."
+	                  title="Integration filters"
+	                  type="search"
+	                  value={integrationSearch}
+	                >
+	                  <div className="catalog-filter-grid">
+	                    <div className="integration-filter-type-list" role="tablist" aria-label="Integration type sections">
+	                      <button
+	                        aria-selected={selectedIntegrationTypeFilter === "all"}
+	                        className={selectedIntegrationTypeFilter === "all" ? "is-active" : ""}
+	                        onClick={() => handleSelectIntegrationType("all")}
+	                        role="tab"
+	                        type="button"
+	                      >
+	                        <span className="integration-filter-type-icon"><PlugIcon /></span>
+	                        <span>
+	                          <strong>All types</strong>
+	                          <small>{integrations.length} configured · {activeIntegrationCount} active</small>
+	                        </span>
+	                      </button>
+	                      {integrationTypeOptions.map((definition) => {
+	                        const section = integrationTypeSections.find((item) => item.value === definition.value);
+	                        const totalCount = section?.totalCount || 0;
+	                        const activeCount = section?.activeCount || 0;
 
-                  return (
-                    <button
-                      aria-selected={selectedIntegrationTypeFilter === definition.value}
-                      className={selectedIntegrationTypeFilter === definition.value ? "is-active" : ""}
-                      key={definition.value}
-                      onClick={() => handleSelectIntegrationType(definition.value)}
-                      role="tab"
-                      type="button"
-                    >
-                      <span className="integration-type-selector-icon">{getIntegrationBadgeIcon(definition.defaultProvider)}</span>
-                      <span>
-                        <strong>{definition.label}</strong>
-                        <small>{totalCount} configured · {activeCount} active</small>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="design-list-toolbar integration-catalog-toolbar">
-                <CatalogSearchFilter
-                  activeFilterCount={integrationSearch.trim() ? 1 : 0}
-                  ariaLabel="Search integrations"
-                  onChange={setIntegrationSearch}
-                  placeholder="Search integrations"
-                  subtitle="Search by name, provider type, status, URL, model, project key, or user."
-                  title="Integration search"
-                  type="search"
-                  value={integrationSearch}
-                >
-                  <div className="catalog-filter-grid">
-                    <div className="catalog-filter-actions">
-                      <button className="ghost-button" disabled={!integrationSearch.trim()} onClick={() => setIntegrationSearch("")} type="button">
-                        Clear search
-                      </button>
-                    </div>
-                  </div>
+	                        return (
+	                          <button
+	                            aria-selected={selectedIntegrationTypeFilter === definition.value}
+	                            className={selectedIntegrationTypeFilter === definition.value ? "is-active" : ""}
+	                            key={definition.value}
+	                            onClick={() => handleSelectIntegrationType(definition.value)}
+	                            role="tab"
+	                            type="button"
+	                          >
+	                            <span className="integration-filter-type-icon">{getIntegrationBadgeIcon(definition.defaultProvider)}</span>
+	                            <span>
+	                              <strong>{definition.label}</strong>
+	                              <small>{totalCount} configured · {activeCount} active</small>
+	                            </span>
+	                          </button>
+	                        );
+	                      })}
+	                    </div>
+	                    <div className="catalog-filter-actions">
+	                      <button
+	                        className="ghost-button"
+	                        disabled={!integrationSearch.trim() && selectedIntegrationTypeFilter === "all"}
+	                        onClick={() => {
+	                          setIntegrationSearch("");
+	                          handleSelectIntegrationType("all");
+	                        }}
+	                        type="button"
+	                      >
+	                        Clear filters
+	                      </button>
+	                    </div>
+	                  </div>
                 </CatalogSearchFilter>
                 <button
                   className="ghost-button catalog-selection-button"

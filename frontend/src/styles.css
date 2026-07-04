@@ -34773,7 +34773,6 @@ body > .nested-modal-backdrop {
 }
 
 .workspace-main.main--library-fill > .page-content > .workspace-section-tabs-shell {
-  padding: 0.45rem;
   background: var(--shell-panel, rgba(255, 255, 255, 0.86));
 }
 
@@ -36795,19 +36794,18 @@ body > .nested-modal-backdrop {
   }
 }
 
-.integration-type-selector {
+.integration-filter-type-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.55rem;
-  margin-bottom: 0.85rem;
 }
 
-.integration-type-selector button {
+.integration-filter-type-list button {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   min-width: 0;
-  min-height: 3.55rem;
+  min-height: 3.25rem;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-subtle, var(--border));
   border-radius: 8px;
@@ -36817,19 +36815,19 @@ body > .nested-modal-backdrop {
   cursor: pointer;
 }
 
-.integration-type-selector button:hover,
-.integration-type-selector button.is-active {
+.integration-filter-type-list button:hover,
+.integration-filter-type-list button.is-active {
   border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 42%, var(--border-subtle, var(--border)));
   background: color-mix(in srgb, var(--accent-primary, var(--primary)) 8%, var(--surface-elevated, var(--card-bg)));
 }
 
-.integration-type-selector button > span:last-child {
+.integration-filter-type-list button > span:last-child {
   display: grid;
   min-width: 0;
   gap: 0.12rem;
 }
 
-.integration-type-selector strong,
+.integration-filter-type-list strong,
 .integration-type-section-header strong {
   overflow: hidden;
   color: var(--text-primary);
@@ -36837,14 +36835,14 @@ body > .nested-modal-backdrop {
   white-space: nowrap;
 }
 
-.integration-type-selector small,
+.integration-filter-type-list small,
 .integration-type-section-header span {
   color: var(--text-secondary);
   font-size: 0.76rem;
   line-height: 1.35;
 }
 
-.integration-type-selector-icon,
+.integration-filter-type-icon,
 .integration-type-section-icon {
   display: inline-grid;
   flex: 0 0 auto;
@@ -36857,7 +36855,7 @@ body > .nested-modal-backdrop {
   color: var(--accent-primary, var(--primary));
 }
 
-.integration-type-selector-icon svg,
+.integration-filter-type-icon svg,
 .integration-type-section-icon svg {
   width: 1rem;
   height: 1rem;
@@ -38080,32 +38078,6 @@ body > .nested-modal-backdrop {
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-  }
-
-  .integration-type-selector {
-    display: flex !important;
-    grid-template-columns: none !important;
-    gap: 0.5rem !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    padding-bottom: 0.18rem !important;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .integration-type-selector::-webkit-scrollbar {
-    display: none;
-  }
-
-  .integration-type-selector button {
-    flex: 0 0 min(78vw, 16rem) !important;
-    min-height: 3rem !important;
-    scroll-snap-align: start;
-  }
-
-  .integration-type-selector small {
-    display: none !important;
   }
 
   .integration-type-section {
