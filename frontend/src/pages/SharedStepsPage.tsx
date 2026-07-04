@@ -1267,17 +1267,17 @@ export function SharedStepsPage() {
                                       ? [...current, group.id]
                                       : current.filter((groupId) => groupId !== group.id)
                                   );
-                                }}
-                                type="checkbox"
-                              />
-                              <DisplayIdBadge value={group.display_id || group.id} />
-                            </label>
-                          </div>
-                          <div className="tile-card-header">
-                            <div className="tile-card-title-group">
-                              <strong>{group.name}</strong>
-                            </div>
-                          </div>
+	                                }}
+	                                type="checkbox"
+	                              />
+	                            </label>
+	                          </div>
+	                          <div className="tile-card-header">
+		                            <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+	                              <DisplayIdBadge value={group.display_id || group.id} />
+	                              <strong>{group.name}</strong>
+	                            </div>
+	                          </div>
                           <RichTextContent className="tile-card-description" value={group.description} fallback={preview} />
                           <div className="tile-card-facts" aria-label={`${group.name} facts`}>
                             <TileCardFact

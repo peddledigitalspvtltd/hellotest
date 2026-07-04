@@ -7377,43 +7377,39 @@ export function TestCasesPage() {
                                     event.target.checked ? [...new Set([...current, testCase.id])] : current.filter((id) => id !== testCase.id)
                                   )
                                 }
-                                type="checkbox"
-                              />
-                              <DisplayIdBadge value={testCase.display_id || testCase.id} />
-                            </label>
-                            <div className="catalog-inline-actions test-case-top-actions">
-                              {isPendingSchedulerCase ? renderAiGeneratedDecision(testCase) : null}
-                              <StatusBadge value={statusLabel} />
-                              <div onClick={(event) => event.stopPropagation()}>
-                                <CatalogActionMenu actions={tileActions} label={`${testCase.title} actions`} />
-                              </div>
-                            </div>
-                          </div>
-                          <div className="tile-card-title-group test-case-card-title-group">
-                            <div className="test-case-card-badge-row">
-                              {isAiGeneratedCase ? <span className="test-case-source-badge">AI Generated</span> : null}
-                              {isAiGeneratedCase && selectedAppType?.type === "api" ? <span className="test-case-source-badge is-api">API Capture</span> : null}
-                              <span className="test-case-source-badge is-module">{moduleName}</span>
-                              <span className="test-case-source-badge is-review">{reviewLabel}</span>
-                            </div>
-                            <strong>{testCase.title}</strong>
-                          </div>
-                          <div className="test-case-requirement-block">
-                            <span className="test-case-requirement-label">
-                              <TileCardRequirementIcon />
-                              Requirement
-                            </span>
-                            <p>{requirementTitle || "No requirement linked"}</p>
-                          </div>
-                          <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
-                          <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
-                            <span title={requirementTitle || "No requirement linked"}>
-                              <strong>{requirementTitle ? "Linked" : "Open"}</strong>
-                              <small>Requirement</small>
-                            </span>
-                            <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
-                              <strong>{stepCount}</strong>
-                              <small>Steps</small>
+	                                type="checkbox"
+	                              />
+	                            </label>
+	                            <div className="test-case-card-badge-row">
+	                              {isAiGeneratedCase ? <span className="test-case-source-badge">AI Generated</span> : null}
+	                              {isAiGeneratedCase && selectedAppType?.type === "api" ? <span className="test-case-source-badge is-api">API Capture</span> : null}
+	                              <span className="test-case-source-badge is-module">{moduleName}</span>
+	                              <span className="test-case-source-badge is-review">{reviewLabel}</span>
+	                            </div>
+	                            <div className="catalog-inline-actions test-case-top-actions">
+	                              {isPendingSchedulerCase ? renderAiGeneratedDecision(testCase) : null}
+	                              <StatusBadge value={statusLabel} />
+	                              <div onClick={(event) => event.stopPropagation()}>
+	                                <CatalogActionMenu actions={tileActions} label={`${testCase.title} actions`} />
+	                              </div>
+	                            </div>
+	                          </div>
+	                          <div className="test-case-requirement-block">
+	                            <span className="test-case-requirement-label">
+	                              <TileCardRequirementIcon />
+	                              Requirement
+	                            </span>
+	                            <p>{requirementTitle || "No requirement linked"}</p>
+	                          </div>
+	                          <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+	                            <DisplayIdBadge value={testCase.display_id || testCase.id} />
+	                            <strong>{testCase.title}</strong>
+	                          </div>
+	                          <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
+	                          <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
+	                            <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
+	                              <strong>{stepCount}</strong>
+	                              <small>Steps</small>
                             </span>
                             <span title={`${caseTypeLabel} execution`}>
                               <strong>{caseTypeLabel}</strong>

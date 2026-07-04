@@ -2286,32 +2286,32 @@ function SuiteSidebar({
                         <label className="checkbox-field suite-card-action-checkbox" onClick={(event) => event.stopPropagation()}>
                           <input
                             checked={selectedSuiteActionIds.includes(suite.id)}
-                            onChange={() => onToggleSuiteSelection(suite.id)}
-                            type="checkbox"
-                          />
-                          <DisplayIdBadge value={suite.display_id || suite.id} />
-                        </label>
-                        <div className="catalog-inline-actions test-case-top-actions">
-                          <StatusBadge value={latestRunLabel} />
-                        </div>
-                      </div>
-                      <div className="tile-card-title-group test-case-card-title-group">
-                        <div className="test-case-card-badge-row">
-                          <span className="test-case-source-badge">Suite</span>
-                          {suite.labels?.slice(0, 2).map((label) => (
-                            <span className="test-case-source-badge is-api" key={label}>{label}</span>
-                          ))}
-                        </div>
-                        <strong>{suite.name}</strong>
-                      </div>
-                      <div className="test-case-requirement-block suite-coverage-block">
-                        <span className="test-case-requirement-label">
-                          <TileCardCaseIcon />
-                          Suite coverage
-                        </span>
-                        <p>{selectedAppType ? `${selectedAppType.name} workspace suite with ${mappedCaseCount} mapped reusable case${mappedCaseCount === 1 ? "" : "s"}.` : "No app type selected"}</p>
-                      </div>
-                      <p className="tile-card-description">{suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Use it to curate reusable test cases into a release-ready run scope."}</p>
+	                            onChange={() => onToggleSuiteSelection(suite.id)}
+	                            type="checkbox"
+	                          />
+	                        </label>
+	                        <div className="test-case-card-badge-row">
+	                          <span className="test-case-source-badge">Suite</span>
+	                          {suite.labels?.slice(0, 2).map((label) => (
+	                            <span className="test-case-source-badge is-api" key={label}>{label}</span>
+	                          ))}
+	                        </div>
+	                        <div className="catalog-inline-actions test-case-top-actions">
+	                          <StatusBadge value={latestRunLabel} />
+	                        </div>
+	                      </div>
+	                      <div className="test-case-requirement-block suite-coverage-block">
+	                        <span className="test-case-requirement-label">
+	                          <TileCardCaseIcon />
+	                          Suite coverage
+	                        </span>
+	                        <p>{selectedAppType ? `${selectedAppType.name} workspace suite with ${mappedCaseCount} mapped reusable case${mappedCaseCount === 1 ? "" : "s"}.` : "No app type selected"}</p>
+	                      </div>
+	                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+	                        <DisplayIdBadge value={suite.display_id || suite.id} />
+	                        <strong>{suite.name}</strong>
+	                      </div>
+	                      <p className="tile-card-description">{suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Use it to curate reusable test cases into a release-ready run scope."}</p>
                       <div className="test-case-card-stats suite-card-stats" aria-label={`${suite.name} facts`}>
                         <span title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}>
                           <strong>{mappedCaseCount}</strong>
@@ -2705,13 +2705,16 @@ function TestCaseList({
                     onDragEnd={() => setDraggedCaseId("")}
                     type="button"
                   >
-                    {selectedSuite ? <span className="drag-handle" aria-hidden="true">::</span> : null}
-                    <div className="tile-card-main">
-                      <div className="tile-card-select-row test-case-card-header">
-                        <DisplayIdBadge value={testCase.display_id || testCase.id} />
-                        <div className="catalog-inline-actions test-case-top-actions">
-                          <button
-                            aria-label={`View ${testCase.title}`}
+	                    {selectedSuite ? <span className="drag-handle" aria-hidden="true">::</span> : null}
+	                    <div className="tile-card-main">
+	                      <div className="tile-card-select-row test-case-card-header test-case-card-header--metadata-only">
+	                        <div className="test-case-card-badge-row">
+	                          <span className="test-case-source-badge">{caseTypeLabel}</span>
+	                          {selectedSuite ? <span className="test-case-source-badge is-api">Suite case</span> : null}
+	                        </div>
+	                        <div className="catalog-inline-actions test-case-top-actions">
+	                          <button
+	                            aria-label={`View ${testCase.title}`}
                             className="ghost-button test-case-card-eye-action"
                             onClick={(event) => {
                               event.stopPropagation();
@@ -2723,32 +2726,25 @@ function TestCaseList({
                           >
                             <EyeIcon size={16} />
                           </button>
-                          <StatusBadge value={caseStatusLabel} />
-                        </div>
-                      </div>
-                      <div className="tile-card-title-group test-case-card-title-group">
-                        <div className="test-case-card-badge-row">
-                          <span className="test-case-source-badge">{caseTypeLabel}</span>
-                          {selectedSuite ? <span className="test-case-source-badge is-api">Suite case</span> : null}
-                        </div>
-                        <strong>{testCase.title}</strong>
-                      </div>
-                      <div className="test-case-requirement-block">
-                        <span className="test-case-requirement-label">
-                          <TileCardLinkIcon />
-                          Requirement
-                        </span>
-                        <p>{requirement?.title || "No requirement linked"}</p>
-                      </div>
-                      <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
-                      <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
-                        <span title={requirement?.title || "No requirement linked"}>
-                          <strong>{requirement ? "Linked" : "Open"}</strong>
-                          <small>Requirement</small>
-                        </span>
-                        <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
-                          <strong>{stepCount}</strong>
-                          <small>Steps</small>
+	                          <StatusBadge value={caseStatusLabel} />
+	                        </div>
+	                      </div>
+	                      <div className="test-case-requirement-block">
+	                        <span className="test-case-requirement-label">
+	                          <TileCardLinkIcon />
+	                          Requirement
+	                        </span>
+	                        <p>{requirement?.title || "No requirement linked"}</p>
+	                      </div>
+		                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+	                        <DisplayIdBadge value={testCase.display_id || testCase.id} />
+	                        <strong>{testCase.title}</strong>
+	                      </div>
+	                      <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
+	                      <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
+	                        <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
+	                          <strong>{stepCount}</strong>
+	                          <small>Steps</small>
                         </span>
                         <span title={`${caseTypeLabel} execution`}>
                           <strong>{caseTypeLabel}</strong>

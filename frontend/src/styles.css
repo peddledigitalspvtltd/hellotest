@@ -22660,7 +22660,24 @@ html {
 }
 
 .test-case-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.test-case-card-header--metadata-only {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.test-case-card-header .checkbox-field {
+  min-width: 0;
+}
+
+.test-case-card-header .test-case-card-badge-row {
+  min-width: 0;
+  align-self: center;
 }
 
 .test-case-review-actions,
@@ -22676,7 +22693,8 @@ html {
 }
 
 .test-case-top-actions {
-  margin-left: auto;
+  justify-self: end;
+  margin-left: 0;
   flex-wrap: nowrap;
 }
 
@@ -22684,7 +22702,27 @@ html {
   gap: 0.38rem;
 }
 
+.test-case-card-title-group--identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 0.55rem;
+  row-gap: 0.18rem;
+}
+
+.test-case-card-title-group--identity .display-id-badge {
+  min-width: 0 !important;
+  max-width: min(8.5rem, 34vw) !important;
+}
+
+.test-case-card-title-group--identity .display-id-badge code {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
 .test-case-card-title-group strong {
+  min-width: 0;
   color: #17233c;
   font-size: 1rem;
   font-weight: 800;
@@ -24038,6 +24076,7 @@ html {
   display: grid;
   grid-template-columns: minmax(13rem, 0.36fr) minmax(0, 1fr);
   gap: 0.9rem;
+  align-items: start;
   min-width: 0;
 }
 
@@ -24046,6 +24085,10 @@ html {
   align-content: start;
   gap: 0.55rem;
   min-width: 0;
+  max-height: min(72dvh, calc(100dvh - 15rem));
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
 }
 
 .pom-page-item {
@@ -24127,6 +24170,8 @@ html {
 .pom-class-panel {
   min-width: 0;
   display: grid;
+  align-content: start;
+  align-self: start;
   gap: 0.75rem;
 }
 
@@ -28546,11 +28591,14 @@ textarea:focus-visible,
 
   .test-case-catalog-card .test-case-card-header {
     align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
+  .test-case-catalog-card .test-case-card-header .checkbox-field,
+  .test-case-catalog-card .test-case-card-header .test-case-card-badge-row,
   .test-case-catalog-card .test-case-top-actions {
     justify-content: space-between;
+    justify-self: stretch;
     width: 100%;
     margin-left: 0;
   }
@@ -30604,7 +30652,8 @@ textarea:focus-visible,
 
 .test-suite-card .test-case-top-actions,
 .suite-case-workspace-card .test-case-top-actions {
-  margin-left: auto;
+  justify-self: end;
+  margin-left: 0;
 }
 
 .test-suite-card .suite-card-action-checkbox {
@@ -30726,12 +30775,15 @@ textarea:focus-visible,
   .test-suite-card .test-case-card-header,
   .suite-case-workspace-card .test-case-card-header {
     align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
+  .test-suite-card .test-case-card-header .test-case-card-badge-row,
+  .suite-case-workspace-card .test-case-card-header .test-case-card-badge-row,
   .test-suite-card .test-case-top-actions,
   .suite-case-workspace-card .test-case-top-actions {
     justify-content: space-between;
+    justify-self: stretch;
     width: 100%;
     margin-left: 0;
     padding-right: 0;
@@ -42530,15 +42582,36 @@ body > .nested-modal-backdrop {
 .repository-fields-panel {
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.pom-class-panel {
+  align-self: start;
+  align-content: start;
+  grid-auto-rows: max-content;
+  height: auto;
+}
+
+.pom-workspace {
+  align-items: start;
+}
+
+.pom-page-list {
+  max-height: min(72dvh, calc(100dvh - 15rem));
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
 }
 
 .pom-class-panel .object-repository-screen-tabs {
+  display: flex !important;
+  align-self: start;
   min-width: 0;
   max-width: 100%;
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-gutter: stable;
+  margin-bottom: 0;
 }
 
 .pom-class-panel .object-repository-screen-tabs button {
@@ -42617,15 +42690,16 @@ body > .nested-modal-backdrop {
   align-items: center !important;
   justify-content: flex-end !important;
   flex-wrap: nowrap !important;
-  width: auto !important;
+  width: calc(var(--project-card-action-space) - 0.5rem) !important;
   min-width: 0 !important;
   max-width: calc(var(--project-card-action-space) - 0.5rem) !important;
   margin-left: 0 !important;
 }
 
 .project-card-select-row .project-card-top-actions .project-health-badge {
+  flex: 1 1 auto !important;
   min-width: 0 !important;
-  max-width: min(9.5rem, calc(100% - 2.75rem)) !important;
+  max-width: none !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -42652,11 +42726,12 @@ body > .nested-modal-backdrop {
     top: var(--project-card-action-inset) !important;
     right: var(--project-card-action-inset) !important;
     justify-self: end !important;
+    width: calc(var(--project-card-action-space) - 0.35rem) !important;
     max-width: calc(var(--project-card-action-space) - 0.35rem) !important;
     margin-top: 0 !important;
   }
 
   .project-card-select-row .project-card-top-actions .project-health-badge {
-    max-width: min(6.5rem, calc(100% - 2.5rem)) !important;
+    max-width: none !important;
   }
 }

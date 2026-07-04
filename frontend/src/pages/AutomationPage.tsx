@@ -4324,7 +4324,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   />
                   {screenDetailTab === "overview" ? (
                     <div className="repository-screen-overview">
-                      <div className="record-grid testops-builder-form">
+	                      <div className="record-grid testops-builder-form repository-screen-overview-grid">
                         <label className="form-field"><span>Screen name</span><input readOnly value={screenInfoDraft.screen_name || activeScreenName} /></label>
                         <label className="form-field"><span>Page URL</span><input onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="https://app.example.com/login" value={screenUrlDraft} /></label>
                         <label className="form-field repository-span-two">
