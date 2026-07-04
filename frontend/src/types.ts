@@ -189,7 +189,6 @@ export type Issue = {
   assignee_name?: string | null;
   assignee_email?: string | null;
   root_cause?: string | null;
-  retest_result?: string | null;
   status: string | null;
   created_at?: string;
 };

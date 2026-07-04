@@ -72,6 +72,9 @@ export type ExecutionStepAutomationDetail = {
 export type ExecutionStepCaptureMap = Record<string, string>;
 
 export type ExecutionAiAnalysis = {
+  executionId?: string;
+  testCaseId?: string;
+  generatedForStatus?: string;
   response: string;
   generatedAt?: string;
   integration?: {
@@ -186,8 +189,17 @@ const normalizeAiAnalysis = (value: unknown): ExecutionAiAnalysis | null => {
         }
       : undefined;
 
-  return {
-    response,
+	  return {
+	    executionId: typeof (value as { executionId?: unknown }).executionId === "string"
+	      ? String((value as { executionId?: string }).executionId || "").trim() || undefined
+	      : undefined,
+	    testCaseId: typeof (value as { testCaseId?: unknown }).testCaseId === "string"
+	      ? String((value as { testCaseId?: string }).testCaseId || "").trim() || undefined
+	      : undefined,
+	    generatedForStatus: typeof (value as { generatedForStatus?: unknown }).generatedForStatus === "string"
+	      ? String((value as { generatedForStatus?: string }).generatedForStatus || "").trim() || undefined
+	      : undefined,
+	    response,
     generatedAt: typeof (value as { generatedAt?: unknown }).generatedAt === "string"
       ? String((value as { generatedAt?: string }).generatedAt || "").trim() || undefined
       : undefined,

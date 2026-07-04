@@ -1706,19 +1706,20 @@ export function ProjectsPage() {
                                       ? [...new Set([...current, project.id])]
                                       : current.filter((projectId) => projectId !== project.id)
                                   )
-                                }
-                                type="checkbox"
-                              />
-                              <DisplayIdBadge value={project.display_id || project.id} />
-                            </label>
-                            <div className="project-portfolio-title">
-                              <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
-                                <TileCardProjectIcon />
-                              </TileCardIconFrame>
-                              <div>
-                                <h3>{project.name}</h3>
-                              </div>
-                            </div>
+	                                }
+	                                type="checkbox"
+	                              />
+	                              <span className="sr-only">Select project</span>
+	                            </label>
+	                            <div className="project-portfolio-title">
+	                              <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
+	                                <TileCardProjectIcon />
+	                              </TileCardIconFrame>
+	                              <DisplayIdBadge value={project.display_id || project.id} />
+	                              <div>
+	                                <h3>{project.name}</h3>
+	                              </div>
+	                            </div>
                             <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
                               <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
                               <CatalogActionMenu

@@ -5,7 +5,35 @@ const executionReportService = require("../services/executionReport.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
+const featureFlagService = require("../services/featureFlag.service");
 const { EXECUTION_FINAL_STATUS_VALUES } = require("../domain/catalog");
+
+const createAccessError = (message, statusCode = 403) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const normalizeExecutionMode = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "local" || normalized === "remote" ? normalized : "manual";
+};
+
+const resolveExecutionModePermission = (mode, manualPermission) => {
+  const normalizedMode = normalizeExecutionMode(mode);
+  if (normalizedMode === "local") return "automation.run.local";
+  if (normalizedMode === "remote") return "automation.run.remote";
+  return manualPermission;
+};
+
+const requireFeaturePermission = async (fastify, req, permissionCode) => {
+  await fastify.requirePermission(permissionCode)(req);
+  const featureKeys = featureFlagService.getFeatureKeysForPermission(permissionCode);
+
+  if (featureKeys.length && !await featureFlagService.areEnabled(featureKeys, { user: req.user })) {
+    throw createAccessError("This feature is disabled for the workspace.");
+  }
+};
 
 module.exports = async function (fastify) {
 
@@ -104,6 +132,12 @@ module.exports = async function (fastify) {
       created_by: { required: true, type: "string" }
     }, req.body);
 
+    await requireFeaturePermission(
+      fastify,
+      req,
+      resolveExecutionModePermission(req.body.execution_mode, "run.create")
+    );
+
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
 
@@ -129,6 +163,8 @@ module.exports = async function (fastify) {
       created_by: { required: true, type: "string" },
       engine_base_url: { required: false, type: "string" }
     }, req.body);
+
+    await requireFeaturePermission(fastify, req, "automation.run.local");
 
     await projectService.getProject(req.body.project_id, req.user.id);
 
@@ -222,6 +258,11 @@ module.exports = async function (fastify) {
   fastify.post("/executions/:id/start", async (req) => {
     await fastify.authenticate(req);
     const execution = await service.getExecution(req.params.id);
+    await requireFeaturePermission(
+      fastify,
+      req,
+      resolveExecutionModePermission(req.body?.execution_mode || execution.trigger, "run.execute")
+    );
     // Verify user is member of the execution's project
     await projectService.getProject(execution.project_id, req.user.id);
     return service.startExecution(req.params.id, {

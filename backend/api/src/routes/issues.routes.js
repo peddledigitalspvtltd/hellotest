@@ -16,11 +16,10 @@ function registerFeedbackRoutes(fastify, basePath) {
       environment: { required: false, type: "string" },
       build: { required: false, type: "string" },
       jira_bug_key: { required: false, type: "string" },
-      linked_test_run_id: { required: false, type: "string" },
-      assignee_id: { required: false, type: "string" },
-      root_cause: { required: false, type: "string" },
-      retest_result: { required: false, type: "string" },
-      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
+	      linked_test_run_id: { required: false, type: "string" },
+	      assignee_id: { required: false, type: "string" },
+	      root_cause: { required: false, type: "string" },
+	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
     return service.createIssue(req.body);
@@ -51,11 +50,10 @@ function registerFeedbackRoutes(fastify, basePath) {
       environment: { required: false, type: "string" },
       build: { required: false, type: "string" },
       jira_bug_key: { required: false, type: "string" },
-      linked_test_run_id: { required: false, type: "string" },
-      assignee_id: { required: false, type: "string" },
-      root_cause: { required: false, type: "string" },
-      retest_result: { required: false, type: "string" },
-      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
+	      linked_test_run_id: { required: false, type: "string" },
+	      assignee_id: { required: false, type: "string" },
+	      root_cause: { required: false, type: "string" },
+	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
     return service.updateIssue(req.params.id, req.body);

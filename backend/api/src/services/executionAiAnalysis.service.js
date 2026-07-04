@@ -303,10 +303,13 @@ exports.analyzeExecutionCase = async ({ execution, testCaseId, requestedBy } = {
       return { recorded: false };
     }
 
-    const aiAnalysis = {
-      response: content,
-      generatedAt: new Date().toISOString(),
-      integration: {
+	    const aiAnalysis = {
+	      executionId: execution.id,
+	      testCaseId,
+	      generatedForStatus: normalizeText(existingResult?.status) || resolveAnalysisStatus(steps, existingLogs, existingResult),
+	      response: content,
+	      generatedAt: new Date().toISOString(),
+	      integration: {
         id: integration.id,
         name: integration.name,
         model: integration.model || null

@@ -84,7 +84,6 @@ type IssuePayload = {
   linked_test_run_id?: string;
   assignee_id?: string;
   root_cause?: string;
-  retest_result?: string;
   status?: string;
 };
 

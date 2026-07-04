@@ -8,7 +8,7 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/automation": ["qaira.automation.workspace"],
   "/object-repository": ["qaira.automation.object_repository"],
   "/agentic-workflows": ["qaira.ai.agentic_workflows"],
-  "/executions": ["qaira.manual.runs"],
+  "/executions": [],
   "/testops": ["qaira.automation.batch_process"],
   "/ops-telemetry": ["qaira.ops.telemetry"],
   "/traces": ["qaira.ops.telemetry"],

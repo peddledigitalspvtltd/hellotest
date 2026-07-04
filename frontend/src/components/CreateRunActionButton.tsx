@@ -52,9 +52,14 @@ export function CreateRunActionButton({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const selectionCount = selectedTestCaseIds.length + selectedSuiteIds.length + selectedRunIds.length;
   const sourceLabel = resolveSourceLabel(source);
-  const canCreateRuns = hasPermission(session, "run.create")
+  const canCreateManualRuns = hasPermission(session, "run.create")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
-  const isDisabled = disabled || !canCreateRuns;
+  const canCreateLocalRuns = hasPermission(session, "automation.run.local")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+  const canCreateRemoteRuns = hasPermission(session, "automation.run.remote")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+  const isManualDisabled = disabled || !canCreateManualRuns;
+  const canOpenMenu = !disabled && (canCreateLocalRuns || canCreateRemoteRuns);
 
   useEffect(() => {
     if (!isOpen) {
@@ -138,21 +143,21 @@ export function CreateRunActionButton({
     onCreateManualRun();
   };
 
-  const menu = isOpen && !isDisabled ? (
+  const menu = isOpen && canOpenMenu ? (
     <div
       className="run-action-dropdown"
       ref={menuRef}
       role="menu"
       style={menuStyle || { opacity: 0, pointerEvents: "none" }}
     >
-      <button onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
+      <button disabled={!canCreateLocalRuns} onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
         <span>
           <strong>Create Local Run</strong>
           <small>Use local Test Engine execution.</small>
         </span>
       </button>
-      <button onClick={() => handleSelect("REMOTE")} role="menuitem" type="button">
+      <button disabled={!canCreateRemoteRuns} onClick={() => handleSelect("REMOTE")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
         <span>
           <strong>Create Remote Run</strong>
@@ -169,7 +174,7 @@ export function CreateRunActionButton({
     <div className="create-run-action-button" ref={triggerRef}>
       <button
         className="run-action-main"
-        disabled={isDisabled}
+        disabled={isManualDisabled}
         onClick={() => handleSelect("MANUAL")}
         type="button"
       >
@@ -181,7 +186,7 @@ export function CreateRunActionButton({
         aria-haspopup="menu"
         aria-label="Open create run options"
         className="run-action-toggle"
-        disabled={isDisabled}
+        disabled={!canOpenMenu}
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >

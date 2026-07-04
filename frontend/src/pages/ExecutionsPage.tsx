@@ -41,10 +41,13 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { hasPermission } from "../lib/permissions";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { buildGroupAutomationCode, resolveStepAutomationCode } from "../lib/stepAutomation";
 import {
@@ -1211,6 +1214,15 @@ export function ExecutionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canCreateManualRuns = hasPermission(session, "run.create")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+  const canUseRunAi = hasPermission(session, "run.ai")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.execution_analysis"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -1700,10 +1712,30 @@ export function ExecutionsPage() {
     resetSmartExecutionBuilder();
   };
 
-  const openExecutionBuilder = (mode: ExecutionStartMode = "manual") => {
-    setExecutionStartMode(mode);
-    setIsCreateExecutionModalOpen(true);
-  };
+	  const openExecutionBuilder = (mode: ExecutionStartMode = "manual") => {
+	    const hasModeAccess = mode === "local"
+	      ? canRunLocalAutomation
+	      : mode === "remote"
+	        ? canRunRemoteAutomation
+	        : canCreateManualRuns;
+
+	    if (!hasModeAccess) {
+	      showError(
+	        new Error(
+	          mode === "local"
+	            ? "Permission required: automation.run.local"
+	            : mode === "remote"
+	              ? "Permission required: automation.run.remote"
+	              : "Permission required: run.create"
+	        ),
+	        "Unable to open run builder"
+	      );
+	      return;
+	    }
+
+	    setExecutionStartMode(mode);
+	    setIsCreateExecutionModalOpen(true);
+	  };
 
   const closeScheduleBuilder = () => {
     setIsCreateScheduleModalOpen(false);
@@ -2795,17 +2827,37 @@ export function ExecutionsPage() {
 
     const selectedSmartCaseIds = selectedSmartExecutableCaseIds;
 
-    if (executionCreateMode === "smart" && !selectedSmartCaseIds.length) {
-      setMessageTone("error");
-      setMessage(
+	    if (executionCreateMode === "smart" && !selectedSmartCaseIds.length) {
+	      setMessageTone("error");
+	      setMessage(
         executionStartMode === "manual"
           ? "Select at least one impacted test case before creating an AI smart run."
           : "Select at least one automated impacted case before creating a Test Engine smart run."
       );
-      return;
-    }
+	      return;
+	    }
 
-    const executionHooks = executionHookDraft.map((hook, index) => {
+	    const canCreateSelectedRunMode = executionStartMode === "local"
+	      ? canRunLocalAutomation
+	      : executionStartMode === "remote"
+	        ? canRunRemoteAutomation
+	        : canCreateManualRuns;
+
+	    if (!canCreateSelectedRunMode) {
+	      showError(
+	        new Error(
+	          executionStartMode === "local"
+	            ? "Permission required: automation.run.local"
+	            : executionStartMode === "remote"
+	              ? "Permission required: automation.run.remote"
+	              : "Permission required: run.create"
+	        ),
+	        "Unable to create run"
+	      );
+	      return;
+	    }
+
+	    const executionHooks = executionHookDraft.map((hook, index) => {
       const meta = hookTypeToExecutionHookMeta(hook.hookType);
       return {
         id: hook.id,
@@ -2982,12 +3034,32 @@ export function ExecutionsPage() {
     }
   };
 
-  const handleStartSelectedExecution = async (mode: "manual" | "remote" | "local" = "manual") => {
-    if (!selectedExecution) {
-      return;
-    }
+	  const handleStartSelectedExecution = async (mode: "manual" | "remote" | "local" = "manual") => {
+	    if (!selectedExecution) {
+	      return;
+	    }
 
-    try {
+	    const hasModeAccess = mode === "local"
+	      ? canRunLocalAutomation
+	      : mode === "remote"
+	        ? canRunRemoteAutomation
+	        : canCreateManualRuns;
+
+	    if (!hasModeAccess) {
+	      showError(
+	        new Error(
+	          mode === "local"
+	            ? "Permission required: automation.run.local"
+	            : mode === "remote"
+	              ? "Permission required: automation.run.remote"
+	              : "Permission required: run.create"
+	        ),
+	        "Unable to start run"
+	      );
+	      return;
+	    }
+
+	    try {
       const response = await startExecution.mutateAsync({
         id: selectedExecution.id,
         options: mode === "local"
@@ -3457,12 +3529,22 @@ export function ExecutionsPage() {
     }
   };
 
-  const handleRunExecutionAiAnalysis = async () => {
-    if (!selectedExecution || !executionCaseOrder.length) {
-      return;
-    }
+	  const handleRunExecutionAiAnalysis = async () => {
+	    if (!selectedExecution || !executionCaseOrder.length) {
+	      return;
+	    }
 
-    try {
+	    if (!canUseRunAi) {
+	      showError(new Error("Permission required: run.ai"), "Unable to refresh run AI analysis");
+	      return;
+	    }
+
+	    if (!["completed", "failed"].includes(currentExecutionStatus)) {
+	      showError(new Error("Complete the run before running AI analysis."), "Unable to refresh run AI analysis");
+	      return;
+	    }
+
+	    try {
       for (const testCase of executionCaseOrder) {
         await runExecutionAiAnalysis.mutateAsync({
           executionId: selectedExecution.id,
@@ -3716,23 +3798,46 @@ export function ExecutionsPage() {
     ? `${runReferenceStats.defectCount} defect${runReferenceStats.defectCount === 1 ? "" : "s"} · ${runReferenceStats.referenceCount} reference${runReferenceStats.referenceCount === 1 ? "" : "s"} across ${runReferenceStats.failedCaseCount || runReferenceRows.length} case${(runReferenceStats.failedCaseCount || runReferenceRows.length) === 1 ? "" : "s"}`
     : "No failed case references recorded";
 
-  const runAiAnalysis = useMemo<ExecutionAiAnalysis | null>(() => {
-    if (!selectedExecution) {
-      return null;
-    }
+	  const runAiAnalysis = useMemo<ExecutionAiAnalysis | null>(() => {
+	    if (!selectedExecution || !["completed", "failed"].includes(currentExecutionStatus)) {
+	      return null;
+	    }
 
-    const caseAnalysisRows = executionCaseOrder
-      .map((testCase) => {
-        const result = resultByCaseId[testCase.id] || null;
-        const analysis = parseExecutionLogs(result?.logs || null).aiAnalysis || null;
-        return {
-          analysis,
-          result,
-          status: caseDerivedStatus(testCase),
-          testCase
-        };
-      })
-      .filter((row) => row.analysis);
+	    const selectedRunStartedAt = toTimestamp(selectedExecution.started_at)
+	      || toTimestamp(selectedExecution.created_at)
+	      || 0;
+
+	    const caseAnalysisRows = executionCaseOrder
+	      .map((testCase) => {
+	        const result = resultByCaseId[testCase.id] || null;
+	        const analysis = parseExecutionLogs(result?.logs || null).aiAnalysis || null;
+
+	        if (!result || result.execution_id !== selectedExecution.id || !analysis) {
+	          return null;
+	        }
+
+	        if (analysis.executionId && analysis.executionId !== selectedExecution.id) {
+	          return null;
+	        }
+
+	        if (analysis.testCaseId && analysis.testCaseId !== testCase.id) {
+	          return null;
+	        }
+
+	        const generatedAt = toTimestamp(analysis.generatedAt);
+
+	        if (generatedAt && selectedRunStartedAt && generatedAt < selectedRunStartedAt) {
+	          return null;
+	        }
+
+	        return {
+	          analysis,
+	          result,
+	          status: caseDerivedStatus(testCase),
+	          testCase
+	        };
+	      })
+	      .filter((row): row is { analysis: ExecutionAiAnalysis; result: ExecutionResult; status: ReturnType<typeof caseDerivedStatus>; testCase: ExecutionCaseView } => Boolean(row));
     const latestAnalysis = caseAnalysisRows
       .map((row) => row.analysis)
       .filter((analysis): analysis is ExecutionAiAnalysis => Boolean(analysis))
@@ -6207,12 +6312,12 @@ export function ExecutionsPage() {
                         <span>{executionControlDescription}</span>
                       </div>
                       <div className="action-row">
-                        <button
-                          className="ghost-button"
-                          disabled={currentExecutionStatus !== "queued" || startExecution.isPending || completeExecution.isPending}
-                          onClick={() => void handleStartSelectedExecution()}
-                          type="button"
-                        >
+	                        <button
+	                          className="ghost-button"
+	                          disabled={currentExecutionStatus !== "queued" || startExecution.isPending || completeExecution.isPending || !canCreateManualRuns}
+	                          onClick={() => void handleStartSelectedExecution()}
+	                          type="button"
+	                        >
                           <ExecutionStartIcon />
                           <span>{startExecution.isPending ? "Starting…" : "Start run"}</span>
                         </button>
@@ -6330,11 +6435,12 @@ export function ExecutionsPage() {
                       summary={runAiAnalysis?.generatedAt ? `Run rollup ${formatExecutionTimestamp(runAiAnalysis.generatedAt)}` : "No run assets available"}
                       title="AI analysis"
                     >
-                      <ExecutionAiAnalysisPanel
-                        analysis={runAiAnalysis}
-                        isRunning={runExecutionAiAnalysis.isPending}
-                        onRun={() => void handleRunExecutionAiAnalysis()}
-                      />
+	                      <ExecutionAiAnalysisPanel
+	                        analysis={runAiAnalysis}
+	                        canRun={canUseRunAi && ["completed", "failed"].includes(currentExecutionStatus)}
+	                        isRunning={runExecutionAiAnalysis.isPending}
+	                        onRun={() => void handleRunExecutionAiAnalysis()}
+	                      />
                     </ExecutionAccordionSection>
 
                     {isSelectedExecutionTestCaseRun ? (
@@ -8815,17 +8921,19 @@ function ExecutionParameterPanel({
 
 function ExecutionAiAnalysisPanel({
   analysis,
+  canRun,
   isRunning,
   onRun
 }: {
   analysis: ExecutionAiAnalysis | null;
+  canRun: boolean;
   isRunning: boolean;
   onRun: () => void;
 }) {
   return (
     <div className="execution-ai-analysis-panel">
       <div className="execution-ai-analysis-actions">
-        <button className="ghost-button" disabled={isRunning} onClick={onRun} type="button">
+        <button className="ghost-button" disabled={isRunning || !canRun} onClick={onRun} type="button">
           <SparkIcon />
           <span>{isRunning ? "Analyzing…" : analysis ? "Refresh analysis" : "Run AI analysis"}</span>
         </button>

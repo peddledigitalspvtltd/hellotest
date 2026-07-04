@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AddIcon, CopyIcon, SaveIcon, TrashIcon } from "../components/AppIcons";
@@ -7,6 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ToastMessage } from "../components/ToastMessage";
 import { FeatureAvailabilitySection } from "../features/featureFlags/FeatureAvailabilitySection";
+import { useFeatureAvailability } from "../features/featureFlags/useFeatureAvailability";
 import { api } from "../lib/api";
 import {
   AI_PROMPT_LLM_OVERRIDES_KEY,
@@ -100,6 +101,7 @@ function readProjectAutomationSettings(): ProjectAutomationSettings {
 }
 
 export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const queryClient = useQueryClient();
   const { session } = useAuth();
   const { strings, setWorkspaceStrings, t } = useLocalization();
   const [theme, setTheme] = useState<WorkspaceTheme>("light");
@@ -121,13 +123,16 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [expandedSettingsSections, setExpandedSettingsSections] = useState<Record<SettingsSectionId, boolean>>(DEFAULT_EXPANDED_SETTINGS_SECTIONS);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isAdmin = session?.user.role === "admin";
   const canViewAdminSettings = isAdmin;
   const canManageApiKeys = isAdmin && hasPermission(session, "api_key.manage");
   const canManageAiPrompts = isAdmin && hasPermission(session, "ai_prompt.manage");
+  const canManageFeatureFlags = isAdmin && hasPermission(session, "feature_flag.manage");
   const canManageLocalization = isAdmin && hasPermission(session, "localization.manage");
+  const featureAvailability = useFeatureAvailability(Boolean(session && canViewAdminSettings));
   const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewAdminSettings) });
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
@@ -180,6 +185,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
+    setIsSavingSettings(true);
+
     try {
       writeWorkspaceTheme(theme);
       writeSidebarMode(sidebarMode);
@@ -201,12 +208,21 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
         : {};
 
       await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
+      if (canManageFeatureFlags && !featureAvailability.isLoading) {
+        await featureAvailability.save();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["permissions"] }),
+          queryClient.invalidateQueries({ queryKey: ["domain-metadata"] })
+        ]);
+      }
       await workspacePreferencesQuery.refetch();
       emitWorkspacePreferenceUpdate({ sidebarMode, theme });
       setMessageTone("success");
-      setMessage("Workspace preferences saved.");
+      setMessage("Settings changes saved.");
     } catch (error) {
-      showError(error, "Unable to save workspace preferences.");
+      showError(error, "Unable to save settings changes.");
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -223,11 +239,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const showError = (error: unknown, fallback: string) => {
     setMessageTone("error");
     setMessage(error instanceof Error ? error.message : fallback);
-  };
-
-  const showSuccess = (nextMessage: string) => {
-    setMessageTone("success");
-    setMessage(nextMessage);
   };
 
   const handleDownloadLocalization = () => {
@@ -380,9 +391,14 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   };
 
   const settingsActions = (
-    <button className="primary-button" onClick={() => void saveSettings()} type="button">
+    <button
+      className="primary-button"
+      disabled={isSavingSettings || featureAvailability.isSaving || (canManageFeatureFlags && featureAvailability.isLoading) || isSavingLocalization}
+      onClick={() => void saveSettings()}
+      type="button"
+    >
       <SaveIcon />
-      {t("common.savePreferences", "Save preferences")}
+      {isSavingSettings || featureAvailability.isSaving ? "Saving..." : "Save changes"}
     </button>
   );
 
@@ -424,22 +440,33 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   return (
     <div className={embedded ? "admin-embedded-page settings-admin-page" : "page-content"}>
       {!embedded ? (
-        <PageHeader
+	        <PageHeader
           eyebrow="Settings"
           title="Workspace Settings"
           description="Save the interface defaults and behavior preferences you want to carry across sessions."
-          meta={[
-            { label: "Theme", value: theme === "light" ? "Light" : "Dark" },
-            { label: "Sidebar", value: sidebarMode === "collapsed" ? "Collapsed" : "Expanded" },
-            { label: "Catalogs", value: defaultCatalogViewMode === "tile" ? "Grid" : "List" },
-            { label: "Export prompts", value: autoExport ? "Enabled" : "Off" }
-          ]}
-        />
-      ) : null}
+	          meta={[
+	            { label: "Theme", value: theme === "light" ? "Light" : "Dark" },
+	            { label: "Sidebar", value: sidebarMode === "collapsed" ? "Collapsed" : "Expanded" },
+	            { label: "Catalogs", value: defaultCatalogViewMode === "tile" ? "Grid" : "List" },
+	            { label: "Export prompts", value: autoExport ? "Enabled" : "Off" }
+	          ]}
+	          actions={settingsActions}
+	        />
+	      ) : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
-      <div className="settings-section-stack">
+	      {embedded ? (
+	        <div className="settings-top-save-bar">
+	          <div>
+	            <span className="eyebrow">Settings</span>
+	            <strong>Workspace settings</strong>
+	          </div>
+	          {settingsActions}
+	        </div>
+	      ) : null}
+
+	      <div className="settings-section-stack">
         {renderSettingsSection("general", "General", "Appearance and navigation", (
           <div className="two-column-grid">
             <Panel title="Appearance" subtitle="Keep the interface comfortable for long QA sessions.">
@@ -476,7 +503,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               </div>
             </Panel>
           </div>
-        ), { actions: settingsActions })}
+	        ))}
 
         {renderSettingsSection("apiKeys", "API", "API access keys", (
           <Panel title="Scoped API keys" subtitle="Create personal keys for API clients. A key can never exceed your current user permissions.">
@@ -568,14 +595,18 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           </Panel>
         ), { adminOnly: true })}
 
-        {canViewAdminSettings ? (
-          <FeatureAvailabilitySection
-            isExpanded={expandedSettingsSections.features}
-            onError={showError}
-            onSuccess={showSuccess}
-            onToggle={() => toggleSettingsSection("features")}
-          />
-        ) : null}
+	        {canViewAdminSettings ? (
+	          <FeatureAvailabilitySection
+	            canManageFeatureFlags={canManageFeatureFlags}
+	            drafts={featureAvailability.drafts}
+	            featureFlags={featureAvailability.featureFlags}
+	            isExpanded={expandedSettingsSections.features}
+	            isLoading={featureAvailability.isLoading}
+	            isSaving={featureAvailability.isSaving || isSavingSettings}
+	            onFeatureChange={featureAvailability.setFeatureEnabled}
+	            onToggle={() => toggleSettingsSection("features")}
+	          />
+	        ) : null}
 
         {renderSettingsSection("automationDefaults", "Project settings", "Automation defaults", (
           <Panel title="Project automation settings" subtitle="Default behavior for generated automation, local runs, remote grid runs, and evidence capture.">
@@ -664,7 +695,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               </label>
             </div>
           </Panel>
-        ), { adminOnly: true, actions: settingsActions })}
+	        ), { adminOnly: true })}
 
         {renderSettingsSection("aiPromptMapping", "AI", "Prompt key mapping", (
           <Panel title="AI prompt registry" subtitle="Central keys for AI prompt surfaces used by requirement, test design, automation, execution, and test data flows.">
@@ -710,7 +741,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        ), { adminOnly: true, actions: settingsActions })}
+	        ), { adminOnly: true })}
 
         {renderSettingsSection("exportRetention", "Evidence", "Export and retention", (
           <div className="two-column-grid">
@@ -727,7 +758,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               </div>
             </Panel>
           </div>
-        ), { adminOnly: true, actions: settingsActions })}
+	        ), { adminOnly: true })}
 
         {renderSettingsSection("notifications", "Notifications", "Notification preferences", (
           <Panel title="Notification routing" subtitle="Configure which workspace events should create in-app notifications or digest entries.">
@@ -765,7 +796,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        ), { actions: settingsActions })}
+	        ))}
 
         {renderSettingsSection("localization", "Localization", "Workspace language strings", (
           <Panel

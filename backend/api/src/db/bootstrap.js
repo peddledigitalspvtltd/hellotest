@@ -339,7 +339,6 @@ const statements = [
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT`,
-  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT`,
   `
     CREATE TABLE IF NOT EXISTS auth_verification_codes (
       id TEXT PRIMARY KEY,

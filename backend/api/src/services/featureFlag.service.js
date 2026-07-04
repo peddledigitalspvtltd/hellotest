@@ -7,7 +7,7 @@ const PERMISSION_FEATURES = {
   "workspace_preferences.manage": ["qaira.ops.admin"],
   "api_key.manage": ["qaira.api.keys"],
   "localization.manage": ["qaira.ops.admin"],
-  "ai_prompt.manage": ["qaira.ai.test_authoring"],
+  "ai_prompt.manage": ["qaira.ai.prompt_mapping"],
   "feature_flag.manage": ["qaira.ops.admin"],
   "user.view": ["qaira.ops.admin"],
   "user.manage": ["qaira.ops.admin"],
@@ -40,14 +40,16 @@ const PERMISSION_FEATURES = {
   "automation.repository.manage": ["qaira.automation.object_repository"],
   "automation.repository.import": ["qaira.automation.object_repository"],
   "automation.repository.export": ["qaira.automation.object_repository"],
-  "automation.build": ["qaira.automation.workspace"],
+  "automation.build": ["qaira.automation.builder"],
   "automation.ai": ["qaira.ai.automation"],
-  "automation.recorder": ["qaira.automation.recorder"],
+  "automation.recorder": ["qaira.automation.step_recording"],
+  "automation.code.view": ["qaira.automation.step_code"],
+  "automation.run.local": ["qaira.automation.local_execution"],
+  "automation.run.remote": ["qaira.automation.remote_execution"],
   "automation.preview": ["qaira.api.preview"],
   "agentic_workflow.view": ["qaira.ai.agentic_workflows"],
   "agentic_workflow.manage": ["qaira.ai.agentic_workflows"],
   "agentic_workflow.run": ["qaira.ai.agentic_workflows"],
-  "run.view": ["qaira.manual.runs"],
   "run.create": ["qaira.manual.runs"],
   "run.update": ["qaira.manual.runs"],
   "run.execute": ["qaira.manual.runs"],
@@ -116,11 +118,15 @@ const FEATURE_GROUPS = [
   {
     key: "automation",
     label: "Automation",
-    description: "Automation authoring, object repository, recorder capture, generators, and batch process operations.",
+    description: "Automation authoring, object repository, recorder capture, step code, local/remote execution, and batch process operations.",
     features: [
       { key: "qaira.automation.workspace", label: "Automation workspace", routes: ["/automation"] },
       { key: "qaira.automation.object_repository", label: "Object repository", routes: ["/object-repository"] },
-      { key: "qaira.automation.recorder", label: "Recorder and inspect", routes: ["/automation", "/object-repository"] },
+      { key: "qaira.automation.builder", label: "Automation builder", routes: ["/test-cases", "/automation"] },
+      { key: "qaira.automation.step_code", label: "Auto test and step-level code", routes: ["/test-cases", "/automation", "/executions"] },
+      { key: "qaira.automation.step_recording", label: "Step-level recording", routes: ["/test-cases", "/automation", "/object-repository"] },
+      { key: "qaira.automation.local_execution", label: "Local Playwright and local runs", routes: ["/test-cases", "/automation", "/executions"] },
+      { key: "qaira.automation.remote_execution", label: "Remote automation runs", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "qaira.automation.batch_process", label: "Batch process", routes: ["/testops"] }
     ]
   },
@@ -130,11 +136,12 @@ const FEATURE_GROUPS = [
     description: "AI requirement design, test generation, automation repair, execution analysis, knowledge, and agents.",
     features: [
       { key: "qaira.ai.requirement_design", label: "Requirement design", routes: ["/requirements", "/design"] },
-      { key: "qaira.ai.test_authoring", label: "Test authoring", routes: ["/test-cases"] },
+      { key: "qaira.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
       { key: "qaira.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "qaira.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },
       { key: "qaira.ai.knowledge", label: "Knowledge repo", routes: ["/knowledge-repo"] },
-      { key: "qaira.ai.agentic_workflows", label: "Agentic workflows", routes: ["/agentic-workflows"] }
+      { key: "qaira.ai.agentic_workflows", label: "Agentic workflows", routes: ["/agentic-workflows"] },
+      { key: "qaira.ai.prompt_mapping", label: "AI prompt key mapping", routes: ["/admin-space"] }
     ]
   },
   {

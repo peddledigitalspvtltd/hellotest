@@ -34,7 +34,6 @@ type IssueDraft = {
   linked_test_run_id: string;
   assignee_id: string;
   root_cause: string;
-  retest_result: string;
   status: string;
 };
 
@@ -61,14 +60,6 @@ const ISSUE_PRIORITY_OPTIONS = [
   { value: "p4", label: "P4" }
 ];
 
-const ISSUE_RETEST_RESULT_OPTIONS = [
-  { value: "", label: "Not started" },
-  { value: "passed", label: "Passed" },
-  { value: "failed", label: "Failed" },
-  { value: "blocked", label: "Blocked" },
-  { value: "not_required", label: "Not required" }
-];
-
 const createEmptyIssueDraft = (defaultStatus = "open"): IssueDraft => ({
   title: "",
   message: "",
@@ -83,7 +74,6 @@ const createEmptyIssueDraft = (defaultStatus = "open"): IssueDraft => ({
   linked_test_run_id: "",
   assignee_id: "",
   root_cause: "",
-  retest_result: "",
   status: defaultStatus
 });
 
@@ -114,7 +104,6 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     linked_test_run_id: runId,
     assignee_id: "",
     root_cause: "",
-    retest_result: "",
     status: defaultStatus
   };
 };
@@ -138,7 +127,6 @@ const buildIssuePayload = (draft: IssueDraft, userId: string) => ({
   linked_test_run_id: optionalDraftValue(draft.linked_test_run_id),
   assignee_id: optionalDraftValue(draft.assignee_id),
   root_cause: optionalDraftValue(draft.root_cause),
-  retest_result: optionalDraftValue(draft.retest_result),
   status: draft.status
 });
 
@@ -210,7 +198,6 @@ export function IssuesPage() {
         item.expected_result,
         item.actual_result,
         item.root_cause,
-        item.retest_result,
         item.user_name,
         item.user_email,
         item.user_id
@@ -420,7 +407,6 @@ export function IssuesPage() {
         linked_test_run_id: selectedItem.linked_test_run_id || "",
         assignee_id: selectedItem.assignee_id || "",
         root_cause: selectedItem.root_cause || "",
-        retest_result: selectedItem.retest_result || "",
         status: selectedItem.status || defaultIssueStatus
       });
       return;
@@ -512,7 +498,7 @@ export function IssuesPage() {
       <PageHeader
         eyebrow="Defects"
         title="Report Issue"
-        description="Capture Jira-ready bugs with reproduction details, run context, ownership, root cause, and retest outcome."
+        description="Capture Jira-ready bugs with reproduction details, run context, ownership, and root cause."
         meta={[
           { label: "Issues", value: items.length },
           { label: "Open", value: openIssueCount },
@@ -664,7 +650,7 @@ export function IssuesPage() {
           <Panel
             actions={<WorkspaceBackButton label="Back to issue tiles" onClick={closeIssueWorkspace} />}
             title={isCreating ? "Report issue" : selectedItem ? "Issue details" : "Issue editor"}
-            subtitle="Capture the defect in a Jira-ready structure with run context, reproduction evidence, ownership, and retest outcome."
+            subtitle="Capture the defect in a Jira-ready structure with run context, reproduction evidence, ownership, and root cause."
           >
             {(isCreating || selectedItem) ? (
               <form className="issue-report-form" onSubmit={(event) => void handleSave(event)}>
@@ -749,14 +735,14 @@ export function IssuesPage() {
                       onChange={(message) => setDraft((current) => ({ ...current, message }))}
                     />
                   </FormField>
-                  <div className="issue-form-grid issue-form-rich-grid">
-                    <FormField label="Steps to Reproduce">
-                      <RichTextEditor
-                        rows={6}
-                        value={draft.steps_to_reproduce}
-                        onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
-                      />
-                    </FormField>
+                  <FormField label="Steps to Reproduce">
+                    <RichTextEditor
+                      rows={6}
+                      value={draft.steps_to_reproduce}
+                      onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
+                    />
+                  </FormField>
+                  <div className="issue-form-grid issue-form-evidence-result-grid">
                     <FormField label="Expected Result">
                       <RichTextEditor
                         rows={5}
@@ -774,28 +760,19 @@ export function IssuesPage() {
                   </div>
                 </section>
 
-                <section className="issue-form-section">
-                  <div className="issue-form-section-head">
-                    <strong>Resolution tracking</strong>
-                    <span>Root cause and retest result for closure readiness.</span>
-                  </div>
-                  <div className="issue-form-grid">
-                    <FormField label="Root Cause">
-                      <RichTextEditor
-                        rows={4}
-                        value={draft.root_cause}
-                        onChange={(root_cause) => setDraft((current) => ({ ...current, root_cause }))}
-                      />
-                    </FormField>
-                    <FormField label="Retest Result">
-                      <select value={draft.retest_result} onChange={(event) => setDraft((current) => ({ ...current, retest_result: event.target.value }))}>
-                        {ISSUE_RETEST_RESULT_OPTIONS.map((option) => (
-                          <option key={option.value || "none"} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
-                </section>
+	                <section className="issue-form-section">
+	                  <div className="issue-form-section-head">
+	                    <strong>Resolution tracking</strong>
+	                    <span>Root cause details for closure readiness.</span>
+	                  </div>
+	                  <FormField label="Root Cause">
+	                    <RichTextEditor
+	                      rows={4}
+	                      value={draft.root_cause}
+	                      onChange={(root_cause) => setDraft((current) => ({ ...current, root_cause }))}
+	                    />
+	                  </FormField>
+	                </section>
                 <div className="action-row">
                   <button className="primary-button" type="submit">{isCreating ? "Save issue" : "Update issue"}</button>
                   {!isCreating && selectedItem ? (

@@ -52,6 +52,7 @@ import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import {
   countImportedGroups,
@@ -70,6 +71,7 @@ import {
 import { api } from "../lib/api";
 import { appendUniqueImages, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "../lib/aiDesignStudio";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { hasPermission } from "../lib/permissions";
 import { upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
@@ -953,18 +955,30 @@ export function TestCasesPage() {
   const navigate = useNavigate();
 	  const [searchParams, setSearchParams] = useSearchParams();
 	  const { session } = useAuth();
+	  const featureFlagsQuery = useFeatureFlags(Boolean(session));
 	  const canCreateTestCases = hasPermission(session, "testcase.create");
 	  const canImportTestCases = hasPermission(session, "testcase.import");
 	  const canUpdateTestCases = hasPermission(session, "testcase.update");
 	  const canDeleteTestCases = hasPermission(session, "testcase.delete");
 	  const canExportTestCases = hasPermission(session, "testcase.export");
-	  const canUseTestCaseAi = hasPermission(session, "testcase.ai");
+	  const canUseTestCaseAi = hasPermission(session, "testcase.ai")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.test_authoring"]);
 	  const canCreateSuites = hasPermission(session, "suite.create");
 	  const canUpdateSuites = hasPermission(session, "suite.update");
-	  const canCreateRuns = hasPermission(session, "run.create");
-	  const canBuildAutomation = hasPermission(session, "automation.build");
-	  const canUseAutomationAi = hasPermission(session, "automation.ai");
-	  const canUseRecorder = hasPermission(session, "automation.recorder");
+	  const canCreateRuns = hasPermission(session, "run.create")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+	  const canBuildAutomation = hasPermission(session, "automation.build")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.builder"]);
+	  const canUseAutomationAi = hasPermission(session, "automation.ai")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.automation"]);
+	  const canUseRecorder = hasPermission(session, "automation.recorder")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.step_recording"]);
+	  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+	  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+	  const canViewAutomationCode = hasPermission(session, "automation.code.view")
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.step_code"]);
 	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
@@ -1371,7 +1385,7 @@ export function TestCasesPage() {
     );
   }, [allTestSteps]);
 
-  const supportsLocalDesktopExecution = Boolean(session);
+  const supportsLocalDesktopExecution = Boolean(session && canRunLocalAutomation);
   const userById = useMemo(
     () =>
       users.reduce<Record<string, User>>((accumulator, user) => {
@@ -3568,10 +3582,25 @@ export function TestCasesPage() {
 	  const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
 	    event.preventDefault();
 
-	    if (!canCreateRuns) {
-	      showError(new Error("Permission required: run.create"), "Unable to create run");
-	      return;
-	    }
+		    const canCreateSelectedRunMode = executionStartMode === "local"
+		      ? canRunLocalAutomation
+		      : executionStartMode === "remote"
+		        ? canRunRemoteAutomation
+		        : canCreateRuns;
+
+		    if (!canCreateSelectedRunMode) {
+		      showError(
+		        new Error(
+		          executionStartMode === "local"
+		            ? "Permission required: automation.run.local"
+		            : executionStartMode === "remote"
+		              ? "Permission required: automation.run.remote"
+		              : "Permission required: run.create"
+		        ),
+		        "Unable to create run"
+		      );
+		      return;
+		    }
 
 	    if (!session?.user.id) {
 	      setMessageTone("error");
@@ -5132,10 +5161,25 @@ export function TestCasesPage() {
 	  const handleRunTestCase = async (testCaseId: string, mode?: "local" | "remote") => {
 	    const testCase = testCases.find((item) => item.id === testCaseId);
 
-	    if (!canCreateRuns) {
-	      showError(new Error("Permission required: run.create"), "Unable to run test case");
-	      return;
-	    }
+		    const canRunSelectedMode = mode === "local"
+		      ? canRunLocalAutomation
+		      : mode === "remote"
+		        ? canRunRemoteAutomation
+		        : canCreateRuns;
+
+		    if (!canRunSelectedMode) {
+		      showError(
+		        new Error(
+		          mode === "local"
+		            ? "Permission required: automation.run.local"
+		            : mode === "remote"
+		              ? "Permission required: automation.run.remote"
+		              : "Permission required: run.create"
+		        ),
+		        "Unable to run test case"
+		      );
+		      return;
+		    }
 
 	    if (!session?.user.id) {
 	      showError(new Error("You need an active session before running a test case."), "Unable to run test case");
@@ -5162,8 +5206,8 @@ export function TestCasesPage() {
           sprint: executionSprint.trim() || undefined,
           build: executionBuild.trim() || undefined,
           name: `${testCase.title} ${isApiOnlyLocalRun ? "Local API Run" : "Local Run"}`,
-          created_by: session.user.id,
-          test_environment_id: selectedExecutionEnvironmentId || undefined,
+	          created_by: session.user.id,
+	          test_environment_id: selectedExecutionEnvironmentId || undefined,
           test_configuration_id: selectedExecutionConfigurationId || undefined,
           test_data_set_id: selectedExecutionDataSetId || undefined,
           engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
@@ -5187,10 +5231,11 @@ export function TestCasesPage() {
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
         release: executionRelease.trim() || undefined,
         sprint: executionSprint.trim() || undefined,
-        build: executionBuild.trim() || undefined,
-        name: `${testCase.title} Run`,
-        created_by: session.user.id,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
+	        build: executionBuild.trim() || undefined,
+	        name: `${testCase.title} Run`,
+	        created_by: session.user.id,
+	        execution_mode: mode === "remote" ? "remote" : undefined,
+	        test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined
       });
@@ -5808,22 +5853,24 @@ export function TestCasesPage() {
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
     && schedulerActionKind === "run-remote";
-  const isSelectedCasePureApi = Boolean(selectedTestCase?.id && isApiOnlyTestCase(selectedTestCase.id));
-  const canSelectedCaseRunLocally = Boolean(selectedTestCase && (selectedTestCase.automated === "yes" || isSelectedCasePureApi));
-  const isSelectedCaseManualRunDisabled = isSelectedCaseRunning || !projectId || !appTypeId || !session?.user.id;
-  const isSelectedCaseLocalRunDisabled =
-    !selectedTestCase
-    || isSelectedCaseLocalRunning
-    || createLocalRun.isPending
-    || !canSelectedCaseRunLocally
-    || !supportsLocalDesktopExecution
+	  const isSelectedCasePureApi = Boolean(selectedTestCase?.id && isApiOnlyTestCase(selectedTestCase.id));
+	  const canSelectedCaseRunLocally = Boolean(selectedTestCase && (selectedTestCase.automated === "yes" || isSelectedCasePureApi));
+	  const isSelectedCaseManualRunDisabled = isSelectedCaseRunning || !canCreateRuns || !projectId || !appTypeId || !session?.user.id;
+	  const isSelectedCaseLocalRunDisabled =
+	    !selectedTestCase
+	    || isSelectedCaseLocalRunning
+	    || createLocalRun.isPending
+	    || !canRunLocalAutomation
+	    || !canSelectedCaseRunLocally
+	    || !supportsLocalDesktopExecution
     || !projectId
     || !appTypeId
     || !session?.user.id;
   const isSelectedCaseRemoteRunDisabled =
-    !selectedTestCase
-    || isSelectedCaseRemoteRunning
-    || selectedTestCase.automated !== "yes"
+	    !selectedTestCase
+	    || isSelectedCaseRemoteRunning
+	    || !canRunRemoteAutomation
+	    || selectedTestCase.automated !== "yes"
     || selectedTestCase.automation_status === "incomplete"
     || !projectId
     || !appTypeId
@@ -5912,9 +5959,9 @@ export function TestCasesPage() {
       ) : null}
       {selectedTestCase ? (
         <button
-          aria-label="Preview execution script"
-          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
-          disabled={!mainSteps.length}
+	          aria-label="Preview execution script"
+	          className="ghost-button test-case-workspace-icon-action test-case-workspace-named-action"
+	          disabled={!mainSteps.length || !canViewAutomationCode}
           onClick={() => openCaseAutomationPreview()}
           title="Auto test code"
           type="button"
@@ -6601,17 +6648,27 @@ export function TestCasesPage() {
     ? displaySteps.find((step) => step.id === inspectingStepId) || null
     : null;
 
-  const openCaseAutomationPreview = () => {
-    setCodePreviewState({
-      title: "Test case automation",
+	  const openCaseAutomationPreview = () => {
+	    if (!canViewAutomationCode) {
+	      showError(new Error("Permission required: automation.code.view"), "Unable to open automation code");
+	      return;
+	    }
+
+	    setCodePreviewState({
+	      title: "Test case automation",
       subtitle: "This consolidated view is read-only here. Edit automation from individual steps.",
       code: buildCaseAutomationCode(caseDraft.title || selectedTestCase?.title || "Test case", displaySteps),
       objectRepository: automationLearningCache
     });
   };
 
-  const openGroupAutomationPreview = (groupName: string, groupSteps: TestStep[]) => {
-    setCodePreviewState({
+	  const openGroupAutomationPreview = (groupName: string, groupSteps: TestStep[]) => {
+	    if (!canViewAutomationCode) {
+	      showError(new Error("Permission required: automation.code.view"), "Unable to open automation code");
+	      return;
+	    }
+
+	    setCodePreviewState({
       title: `${groupName} automation`,
       subtitle: "This consolidated group view is read-only. Update code from the steps inside the group.",
       code: buildGroupAutomationCode(groupName, groupSteps),
@@ -6945,25 +7002,25 @@ export function TestCasesPage() {
                       setIsCreateExecutionModalOpen(true);
                     }
                   },
-                  {
-                    label: "Create local run",
-	                    description: "Start a local execution run for selected cases.",
-	                    icon: <TestCaseRunIcon />,
-	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-	                    featureKeys: ["qaira.manual.runs"],
-	                    requiredPermissions: ["run.create"],
+	                  {
+	                    label: "Create local run",
+		                    description: "Start a local execution run for selected cases.",
+		                    icon: <TestCaseRunIcon />,
+		                    disabled: !canRunLocalAutomation || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+		                    featureKeys: ["qaira.automation.local_execution"],
+		                    requiredPermissions: ["automation.run.local"],
 	                    onClick: () => {
                       setExecutionStartMode("local");
                       setIsCreateExecutionModalOpen(true);
                     }
                   },
-                  {
-                    label: "Create remote run",
-	                    description: "Start a remote execution run for selected cases.",
-	                    icon: <TestCaseRunIcon />,
-	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-	                    featureKeys: ["qaira.manual.runs"],
-	                    requiredPermissions: ["run.create"],
+	                  {
+	                    label: "Create remote run",
+		                    description: "Start a remote execution run for selected cases.",
+		                    icon: <TestCaseRunIcon />,
+		                    disabled: !canRunRemoteAutomation || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
+		                    featureKeys: ["qaira.automation.remote_execution"],
+		                    requiredPermissions: ["automation.run.remote"],
 	                    onClick: () => {
                       setExecutionStartMode("remote");
                       setIsCreateExecutionModalOpen(true);
@@ -7216,9 +7273,9 @@ export function TestCasesPage() {
                       {
                         label: isFailedCase ? "Re-run manually" : "Run manually",
                         description: "Create a manual execution run for this test case.",
-	                        icon: <TestCaseRunIcon />,
-	                        onClick: () => void handleRunTestCase(testCase.id),
-	                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !projectId || !appTypeId || !session?.user.id,
+		                        icon: <TestCaseRunIcon />,
+		                        onClick: () => void handleRunTestCase(testCase.id),
+		                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !canCreateRuns || !projectId || !appTypeId || !session?.user.id,
 	                        featureKeys: ["qaira.manual.runs"],
 	                        requiredPermissions: ["run.create"],
 	                        tone: "primary" as const
@@ -7229,11 +7286,11 @@ export function TestCasesPage() {
                           {
                             label: isApiOnlyCase ? "Run API locally" : "Run local Playwright",
                             description: isApiOnlyCase ? "Start this API case against the local Test Engine API runner." : "Start this automated case against the local Playwright runner.",
-	                            icon: <TestCaseRunIcon />,
-	                            onClick: () => void handleRunTestCase(testCase.id, "local"),
-	                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-	                            featureKeys: ["qaira.manual.runs"],
-	                            requiredPermissions: ["run.create"],
+		                            icon: <TestCaseRunIcon />,
+		                            onClick: () => void handleRunTestCase(testCase.id, "local"),
+		                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalAutomation || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
+		                            featureKeys: ["qaira.automation.local_execution"],
+		                            requiredPermissions: ["automation.run.local"],
 	                            tone: "primary" as const
 	                          },
                           {
@@ -8614,7 +8671,17 @@ export function TestCasesPage() {
         <TestCaseExecutionModal
           appTypeId={appTypeId}
           assigneeOptions={assigneeOptions}
-          canCreateExecution={Boolean(projectId && appTypeId && selectedActionCases.length && session?.user.id)}
+	          canCreateExecution={Boolean(
+	            projectId
+	            && appTypeId
+	            && selectedActionCases.length
+	            && session?.user.id
+	            && (executionStartMode === "local"
+	              ? canRunLocalAutomation
+	              : executionStartMode === "remote"
+	                ? canRunRemoteAutomation
+	                : canCreateRuns)
+	          )}
           executionName={executionName}
           isSubmitting={createExecution.isPending}
           executionParallelCount={executionParallelCount}

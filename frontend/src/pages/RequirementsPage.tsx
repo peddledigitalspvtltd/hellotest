@@ -2190,30 +2190,30 @@ export function RequirementsPage() {
                         <div className="tile-card-main">
                           <div className="tile-card-select-row requirement-tile-top-row">
                             <label className="checkbox-field requirement-delete-checkbox" onClick={(event) => event.stopPropagation()}>
-                              <input
-                                checked={isSelectedForDelete}
-                                onChange={(event) =>
-                                  setDeleteSelectedRequirementIds((current) =>
-                                    event.target.checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id)
-                                  )
-                                }
-                                type="checkbox"
-                              />
-                              <DisplayIdBadge value={item.display_id || item.id} />
-                            </label>
-                            <div className="catalog-inline-actions requirement-top-actions" onClick={(event) => event.stopPropagation()}>
-                              <StatusBadge value={formatTileCardLabel(item.status || defaultRequirementStatus, "Open")} />
-                              <CatalogActionMenu actions={tileActions} label={`${item.title} actions`} />
-                            </div>
+	                              <input
+	                                checked={isSelectedForDelete}
+	                                onChange={(event) =>
+	                                  setDeleteSelectedRequirementIds((current) =>
+	                                    event.target.checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id)
+	                                  )
+	                                }
+	                                type="checkbox"
+	                              />
+	                            </label>
+	                            <div className="catalog-inline-actions requirement-top-actions" onClick={(event) => event.stopPropagation()}>
+	                              <StatusBadge value={formatTileCardLabel(item.status || defaultRequirementStatus, "Open")} />
+	                              <CatalogActionMenu actions={tileActions} label={`${item.title} actions`} />
+	                            </div>
                           </div>
-                          <div className="tile-card-header requirement-tile-header">
-                            <span className="record-card-icon tile-card-icon requirement-card-icon">
-                              <TileCardRequirementIcon />
-                            </span>
-                            <div className="tile-card-title-group">
-                              <strong>{item.title}</strong>
-                            </div>
-                          </div>
+	                          <div className="tile-card-header requirement-tile-header">
+	                            <span className="record-card-icon tile-card-icon requirement-card-icon">
+	                              <TileCardRequirementIcon />
+	                            </span>
+	                            <DisplayIdBadge value={item.display_id || item.id} />
+	                            <div className="tile-card-title-group">
+	                              <strong>{item.title}</strong>
+	                            </div>
+	                          </div>
                           <RichTextContent className="tile-card-description" value={item.description} fallback="No requirement description captured yet." />
                           <div className="requirement-progress-stack">
                             <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />

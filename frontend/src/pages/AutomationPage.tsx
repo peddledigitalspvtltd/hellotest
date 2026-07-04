@@ -32,8 +32,11 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useAuth } from "../auth/AuthContext";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import { hasPermission } from "../lib/permissions";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { AUTOMATION_SECTION_ITEMS } from "../lib/workspaceSections";
@@ -928,6 +931,19 @@ function escapeAutomationPdfHtml(value: unknown) {
 export function AutomationPage({ initialView = "cases" }: { initialView?: AutomationView } = {}) {
   const { session } = useAuth();
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canUseAutomationBuilder = hasPermission(session, "automation.build")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.builder"]);
+  const canUseAutomationAi = hasPermission(session, "automation.ai")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.automation"]);
+  const canUseRecorder = hasPermission(session, "automation.recorder")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.step_recording"]);
+  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+  const canViewAutomationCode = hasPermission(session, "automation.code.view")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.step_code"]);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -1809,9 +1825,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
+	  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
 
   useEffect(() => {
+    if (!canViewAutomationCode && automationStepView === "code") {
+      setAutomationStepView("keyword");
+    }
+  }, [automationStepView, canViewAutomationCode]);
+
+	  useEffect(() => {
     if (!inspectRecorderSession?.status_url || inspectRecorderSession.status !== "running") {
       return undefined;
     }
@@ -2152,11 +2174,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to import object repository entries.")
   });
 
-  const buildSingleAutomation = useMutation({
-    mutationFn: () => {
-      if (!activeManualCase) {
-        throw new Error("Select a manual case first.");
-      }
+	  const buildSingleAutomation = useMutation({
+	    mutationFn: () => {
+	      if (!canUseAutomationBuilder) {
+	        throw new Error("Permission required: automation.build");
+	      }
+
+	      if (!activeManualCase) {
+	        throw new Error("Select a manual case first.");
+	      }
 
       return api.testCases.queueAutomationGenerator(activeManualCase.id, {
         start_url: startUrl || undefined,
@@ -2170,11 +2196,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to queue automation.")
   });
 
-  const optimizeAutomationCase = useMutation({
-    mutationFn: () => {
-      if (!activeCase) {
-        throw new Error("Select an automation case first.");
-      }
+	  const optimizeAutomationCase = useMutation({
+	    mutationFn: () => {
+	      if (!canUseAutomationAi) {
+	        throw new Error("Permission required: automation.ai");
+	      }
+
+	      if (!activeCase) {
+	        throw new Error("Select an automation case first.");
+	      }
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
         additional_context: getPrompt("ai.automation.review")
@@ -2310,9 +2340,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to update automation step.")
   });
 
-  const updateAutomationStepCode = useMutation({
-    mutationFn: async (step: TestStep) => {
-      const automation_code = applyAutomationStepOptions(
+	  const updateAutomationStepCode = useMutation({
+	    mutationFn: async (step: TestStep) => {
+	      if (!canViewAutomationCode) {
+	        throw new Error("Permission required: automation.code.view");
+	      }
+
+	      const automation_code = applyAutomationStepOptions(
         (stepCodeDrafts[step.id] || step.automation_code || step.action || "").trim(),
         stepOptionDrafts[step.id] || parseAutomationStepOptions(step)
       );
@@ -2335,11 +2369,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to update automation code.")
   });
 
-  const rephraseAutomationStep = useMutation({
-    mutationFn: async (step: TestStep) => {
-      if (!appTypeId || !activeCase) {
-        throw new Error("Select an automation case before using step AI.");
-      }
+	  const rephraseAutomationStep = useMutation({
+	    mutationFn: async (step: TestStep) => {
+	      if (!canUseAutomationAi) {
+	        throw new Error("Permission required: automation.ai");
+	      }
+
+	      if (!appTypeId || !activeCase) {
+	        throw new Error("Select an automation case before using step AI.");
+	      }
 
       const response = await api.testCases.rephraseStep({
         app_type_id: appTypeId,
@@ -2418,11 +2456,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to remove automation from step.")
   });
 
-  const runCase = useMutation({
-    mutationFn: async ({ testCase }: { testCase: TestCase }) => {
-      if (!projectId || !appTypeId || !session?.user.id) {
-        throw new Error("Select project and app type before running a case.");
-      }
+	  const runCase = useMutation({
+	    mutationFn: async ({ testCase }: { testCase: TestCase }) => {
+	      if (!canRunLocalAutomation) {
+	        throw new Error("Permission required: automation.run.local");
+	      }
+
+	      if (!projectId || !appTypeId || !session?.user.id) {
+	        throw new Error("Select project and app type before running a case.");
+	      }
 
       return api.executions.createLocalRun({
         project_id: projectId,
@@ -2442,11 +2484,19 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to run case.")
   });
 
-  const runSelectedAutomationCases = useMutation({
-    mutationFn: async (mode: "local" | "remote") => {
-      if (!projectId || !appTypeId || !session?.user.id) {
-        throw new Error("Select project and app type before running automation.");
-      }
+	  const runSelectedAutomationCases = useMutation({
+	    mutationFn: async (mode: "local" | "remote") => {
+	      if (mode === "local" && !canRunLocalAutomation) {
+	        throw new Error("Permission required: automation.run.local");
+	      }
+
+	      if (mode === "remote" && !canRunRemoteAutomation) {
+	        throw new Error("Permission required: automation.run.remote");
+	      }
+
+	      if (!projectId || !appTypeId || !session?.user.id) {
+	        throw new Error("Select project and app type before running automation.");
+	      }
 
       const fallbackCaseId = activeCase?.id || activeAutomatedCase?.id || "";
       const testCaseIds = selectedAutomationCaseIds.length ? selectedAutomationCaseIds : fallbackCaseId ? [fallbackCaseId] : [];
@@ -2974,11 +3024,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to improve repository field.")
   });
 
-  const startRecorder = useMutation({
-    mutationFn: (options: RecorderStartOptions) => {
-      if (!activeManualCase) {
-        throw new Error("Select a manual case first.");
-      }
+	  const startRecorder = useMutation({
+	    mutationFn: (options: RecorderStartOptions) => {
+	      if (!canUseRecorder) {
+	        throw new Error("Permission required: automation.recorder");
+	      }
+
+	      if (!activeManualCase) {
+	        throw new Error("Select a manual case first.");
+	      }
 
       return api.testCases.startRecorderSession(activeManualCase.id, {
         start_url: startUrl || undefined,
@@ -3000,11 +3054,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to start local Playwright recorder.")
   });
 
-  const finishRecorder = useMutation({
-    mutationFn: () => {
-      if (!activeManualCase || !recorderSession?.id) {
-        throw new Error("Start a recorder session before finishing it.");
-      }
+	  const finishRecorder = useMutation({
+	    mutationFn: () => {
+	      if (!canUseRecorder) {
+	        throw new Error("Permission required: automation.recorder");
+	      }
+
+	      if (!activeManualCase || !recorderSession?.id) {
+	        throw new Error("Start a recorder session before finishing it.");
+	      }
 
       return api.testCases.finishRecorderSession(activeManualCase.id, recorderSession.id, {
         transaction_id: recorderSession.transaction_id,
@@ -3436,18 +3494,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <span>Clear</span>
                 </button>
                 <CatalogViewToggle onChange={setAutomationCatalogViewMode} value={automationCatalogViewMode} />
-                <button
-                  className="ghost-button catalog-run-button"
-                  disabled={!projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
+	                <button
+	                  className="ghost-button catalog-run-button"
+	                  disabled={!canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
                   onClick={() => runSelectedAutomationCases.mutate("local")}
                   type="button"
                 >
                   <PlayIcon />
                   <span>Run local</span>
                 </button>
-                <button
-                  className="ghost-button catalog-run-button"
-                  disabled={!projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
+	                <button
+	                  className="ghost-button catalog-run-button"
+	                  disabled={!canRunRemoteAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
                   onClick={() => runSelectedAutomationCases.mutate("remote")}
                   type="button"
                 >
@@ -3573,11 +3631,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             actions={activeCase ? (
               <div className="testops-action-row">
                 <WorkspaceBackButton label="Back to automation case tiles" onClick={closeAutomationCaseWorkspace} />
-                <button className="primary-button" disabled={runCase.isPending || activeCase.automated !== "yes" || activeCase.automation_status === "incomplete"} onClick={() => runCase.mutate({ testCase: activeCase })} type="button">
-                  <PlayIcon />
-                  <span>{runCase.isPending ? "Starting..." : "Run automated"}</span>
-                </button>
-                <button className="ghost-button" disabled={optimizeAutomationCase.isPending} onClick={() => optimizeAutomationCase.mutate()} type="button">
+	                <button className="primary-button" disabled={!canRunLocalAutomation || runCase.isPending || activeCase.automated !== "yes" || activeCase.automation_status === "incomplete"} onClick={() => runCase.mutate({ testCase: activeCase })} type="button">
+	                  <PlayIcon />
+	                  <span>{runCase.isPending ? "Starting..." : "Run automated"}</span>
+	                </button>
+	                <button className="ghost-button" disabled={!canUseAutomationAi || optimizeAutomationCase.isPending} onClick={() => optimizeAutomationCase.mutate()} type="button">
                   <SparkIcon />
                   <span>{optimizeAutomationCase.isPending ? "Queueing..." : "AI review"}</span>
                 </button>
@@ -3723,7 +3781,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   actions={(
                     <div className="automation-step-view-toggle" role="group" aria-label="Automation step view">
                       <button className={automationStepView === "keyword" ? "is-active" : ""} onClick={() => setAutomationStepView("keyword")} type="button">Keyword</button>
-                      <button className={automationStepView === "code" ? "is-active" : ""} onClick={() => setAutomationStepView("code")} type="button">Code</button>
+	                      <button className={automationStepView === "code" ? "is-active" : ""} disabled={!canViewAutomationCode} onClick={() => setAutomationStepView("code")} type="button">Code</button>
                     </div>
                   )}
                   countLabel={`${automatedSteps.length} step${automatedSteps.length === 1 ? "" : "s"}`}
@@ -3784,7 +3842,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} title="Move down" type="button">↓</button>
 	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "before", stepId: step.id })} title="Insert above" type="button">+↑</button>
 	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "after", stepId: step.id })} title="Insert below" type="button">+↓</button>
-	                              <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
+		                              <button className="automation-step-tool-button" disabled={!canUseAutomationAi || rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
 	                              <button className="automation-step-tool-button is-primary" disabled={updateAutomationStep.isPending} onClick={() => updateAutomationStep.mutate(step)} title="Save step" type="button">Save</button>
                               <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(buildAutomationCodeFromDraft(draft))} title="Copy keyword" type="button"><CopyIcon size={15} /></button>
                               <button className="automation-step-tool-button" onClick={() => openLinkedManualCase(activeCase.id)} title="Open manual case" type="button"><OpenIcon size={15} /></button>
@@ -3961,8 +4019,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                             <div className="automation-hover-step-tools" aria-label={`Step ${step.step_order} code actions`}>
                               <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order <= 1} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })} title="Move up" type="button">↑</button>
                               <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} title="Move down" type="button">↓</button>
-                              <button className="automation-step-tool-button" disabled={rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
-                              <button className="automation-step-tool-button is-primary" disabled={updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} title="Save code" type="button">Save</button>
+	                              <button className="automation-step-tool-button" disabled={!canUseAutomationAi || rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
+	                              <button className="automation-step-tool-button is-primary" disabled={!canViewAutomationCode || updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} title="Save code" type="button">Save</button>
                               <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(codeDraft)} title="Copy code" type="button"><CopyIcon size={15} /></button>
                               <button className="automation-step-tool-button is-danger" disabled={deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} title="Remove automation from step" type="button"><TrashIcon size={15} /></button>
                             </div>
@@ -3985,7 +4043,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 <button className="ghost-button compact" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} type="button">
                                   <span>Move down</span>
                                 </button>
-                                <button className="primary-button compact" disabled={updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} type="button">
+	                                <button className="primary-button compact" disabled={!canViewAutomationCode || updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} type="button">
                                   <span>{updateAutomationStepCode.isPending ? "Saving..." : "Save code"}</span>
                                 </button>
                                 <button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(codeDraft)} type="button">
@@ -4192,7 +4250,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <strong>Add repository screen</strong>
                   <span>Define the page identity now, then inspect live or extract intended fields from DOM and screenshot evidence.</span>
                 </div>
-                <div className="record-grid testops-builder-form">
+	                      <div className="record-grid testops-builder-form repository-screen-overview-grid">
                   <label className="form-field"><span>Screen name</span><input value={newRepositoryScreenDraft.screen_name} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Checkout Page" /></label>
                   <label className="form-field"><span>Page URL</span><input value={newRepositoryScreenDraft.page_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, page_url: event.target.value }))} placeholder="https://app.example.com/checkout" /></label>
                   <label className="form-field">

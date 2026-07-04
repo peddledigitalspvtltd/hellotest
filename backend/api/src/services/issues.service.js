@@ -15,9 +15,28 @@ const ISSUE_DETAIL_FIELDS = [
   "jira_bug_key",
   "linked_test_run_id",
   "assignee_id",
-  "root_cause",
-  "retest_result"
+  "root_cause"
 ];
+
+const ISSUE_SELECT_COLUMNS = `
+  feedback.id,
+  feedback.user_id,
+  feedback.title,
+  feedback.message,
+  feedback.steps_to_reproduce,
+  feedback.expected_result,
+  feedback.actual_result,
+  feedback.severity,
+  feedback.priority,
+  feedback.environment,
+  feedback.build,
+  feedback.jira_bug_key,
+  feedback.linked_test_run_id,
+  feedback.assignee_id,
+  feedback.root_cause,
+  feedback.status,
+  feedback.created_at
+`;
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -98,13 +117,12 @@ exports.createIssue = async ({ user_id, title, message, status, ...details }) =>
       environment,
       build,
       jira_bug_key,
-      linked_test_run_id,
-      assignee_id,
-      root_cause,
-      retest_result,
-      status
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	      linked_test_run_id,
+	      assignee_id,
+	      root_cause,
+	      status
+	    )
+	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     user_id,
@@ -119,10 +137,10 @@ exports.createIssue = async ({ user_id, title, message, status, ...details }) =>
 
 exports.getIssues = async ({ user_id, status } = {}) => {
   let query = `
-    SELECT
-      feedback.*,
-      reporter.name AS user_name,
-      reporter.email AS user_email,
+	    SELECT
+	      ${ISSUE_SELECT_COLUMNS},
+	      reporter.name AS user_name,
+	      reporter.email AS user_email,
       assignee.name AS assignee_name,
       assignee.email AS assignee_email
     FROM feedback
@@ -149,10 +167,10 @@ exports.getIssues = async ({ user_id, status } = {}) => {
 
 exports.getIssueItem = async (id) => {
   const item = await db.prepare(`
-    SELECT
-      feedback.*,
-      reporter.name AS user_name,
-      reporter.email AS user_email,
+	    SELECT
+	      ${ISSUE_SELECT_COLUMNS},
+	      reporter.name AS user_name,
+	      reporter.email AS user_email,
       assignee.name AS assignee_name,
       assignee.email AS assignee_email
     FROM feedback
@@ -191,12 +209,11 @@ exports.updateIssue = async (id, data) => {
         priority = ?,
         environment = ?,
         build = ?,
-        jira_bug_key = ?,
-        linked_test_run_id = ?,
-        assignee_id = ?,
-        root_cause = ?,
-        retest_result = ?,
-        status = ?
+	        jira_bug_key = ?,
+	        linked_test_run_id = ?,
+	        assignee_id = ?,
+	        root_cause = ?,
+	        status = ?
     WHERE id = ?
   `).run(
     data.user_id ?? existing.user_id,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AssigneeOption } from "../lib/userDisplay";
 
 export function MultiAssigneePicker({
@@ -15,6 +15,8 @@ export function MultiAssigneePicker({
   onChange: (ids: string[]) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [isListOpen, setIsListOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedOptions = useMemo(
     () => selectedIds.map((id) => options.find((option) => option.id === id)).filter((option): option is AssigneeOption => Boolean(option)),
@@ -44,9 +46,45 @@ export function MultiAssigneePicker({
     ? selectedOptions.map((option) => option.label).join(", ")
     : emptyLabel;
 
+  useEffect(() => {
+    if (!isListOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+
+      if (pickerRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsListOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsListOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isListOpen]);
+
   return (
-    <div className="multi-assignee-picker">
-      <div className="multi-assignee-summary" title={summary}>
+    <div className={isListOpen ? "multi-assignee-picker is-open" : "multi-assignee-picker"} ref={pickerRef}>
+      <button
+        className="multi-assignee-summary"
+        disabled={disabled}
+        onClick={() => setIsListOpen((current) => !current)}
+        title={summary}
+        type="button"
+      >
         {selectedOptions.length ? (
           selectedOptions.map((option) => (
             <span className="multi-assignee-chip" key={option.id}>{option.label}</span>
@@ -54,15 +92,17 @@ export function MultiAssigneePicker({
         ) : (
           <span className="multi-assignee-empty">{emptyLabel}</span>
         )}
-      </div>
+      </button>
       <input
         aria-label="Search assignees"
         disabled={disabled}
+        onClick={() => setIsListOpen(true)}
+        onFocus={() => setIsListOpen(true)}
         placeholder={options.length ? "Search and select assignees" : "No project members available"}
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
-      <div className="multi-assignee-list">
+      {isListOpen && !disabled ? <div className="multi-assignee-list">
         {filteredOptions.map((option) => (
           <label className="multi-assignee-option" key={option.id}>
             <input
@@ -78,7 +118,7 @@ export function MultiAssigneePicker({
           </label>
         ))}
         {!filteredOptions.length ? <div className="empty-state compact">No assignees match this search.</div> : null}
-      </div>
+      </div> : null}
     </div>
   );
 }
