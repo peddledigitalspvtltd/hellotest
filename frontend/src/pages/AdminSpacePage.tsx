@@ -158,6 +158,7 @@ export function AdminSpacePage() {
         className="admin-space-tabs"
         items={visibleAdminTabItems}
         onChange={handleSectionChange}
+        showIndicator={false}
         value={activeSection}
       />
 

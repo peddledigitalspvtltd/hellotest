@@ -326,12 +326,6 @@ export function KnowledgeRepoPage() {
       
       <div className="workspace-main">
         <PageHeader
-          actions={(
-            <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId} type="button">
-              <AddIcon />
-              <span>Add Knowledge</span>
-            </button>
-          )}
           eyebrow="Administration"
           title="Knowledge Repo"
           description="Educate QAira's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal."
@@ -410,6 +404,13 @@ export function KnowledgeRepoPage() {
               ))}
             </div>
           </section>
+
+          <div className="design-list-toolbar resource-catalog-toolbar knowledge-repo-toolbar">
+            <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId} type="button">
+              <AddIcon />
+              <span>Add Knowledge</span>
+            </button>
+          </div>
 
           <Panel title="Knowledge items" subtitle="Active entries are retrieved by AI generation, requirement completion, automation build, and locator repair flows.">
             <DataTable

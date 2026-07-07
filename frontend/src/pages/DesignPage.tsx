@@ -2,8 +2,8 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactN
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, ClearSelectionIcon, EyeIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
-import { CatalogActionMenu, type CatalogActionMenuItem } from "../components/CatalogActionMenu";
+import { AddIcon, ClearSelectionIcon, EyeIcon, GridIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
+import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -1659,17 +1659,6 @@ export function DesignPage() {
             { label: "Cases", value: designMetrics.totalCases },
             { label: "Steps", value: designMetrics.totalSteps }
           ]}
-          actions={
-            <button
-              className="primary-button"
-              disabled={!appTypeId}
-              onClick={openCreateSuiteModal}
-              type="button"
-            >
-              <LayersIcon />
-              Create Suite
-            </button>
-          }
         />
       ) : null}
 
@@ -1740,6 +1729,7 @@ export function DesignPage() {
                   onClick={() => setIsSuiteParameterDialogOpen(true)}
                   type="button"
                 >
+                  <GridIcon />
                   <span>{selectedSuiteParameterDefinitions.length ? `Suite test data · ${selectedSuiteParameterDefinitions.length}` : "Suite test data"}</span>
                 </button>
                 <button
@@ -1952,7 +1942,7 @@ function SuiteSidebar({
   viewMode: "tile" | "list";
   onViewModeChange: (value: "tile" | "list") => void;
 }) {
-  const [suiteActionUsage, setSuiteActionUsage] = useState<SuiteToolbarActionUsage>(() => {
+  const [, setSuiteActionUsage] = useState<SuiteToolbarActionUsage>(() => {
     if (typeof window === "undefined") {
       return {};
     }
@@ -1983,91 +1973,6 @@ function SuiteSidebar({
     recordSuiteActionUse(key);
     action();
   };
-  const smartSuiteActions: Array<{
-    key: SuiteToolbarActionKey;
-    label: string;
-    className: string;
-    disabled: boolean;
-    onClick: () => void;
-  }> = [
-    {
-      key: "create-suite",
-      label: "Create Suite",
-      className: "primary-button suite-smart-action",
-      disabled: !canCreateSuite,
-      onClick: () => runSuiteAction("create-suite", onCreateSuite)
-    },
-    {
-      key: "manual-run",
-      label: "Create Manual Run",
-      className: "ghost-button suite-smart-action",
-      disabled: !canCreateExecution,
-      onClick: () => runSuiteAction("manual-run", onCreateManualRun)
-    },
-    {
-      key: "select-visible",
-      label: "Select all visible",
-      className: "ghost-button suite-smart-action",
-      disabled: !suites.length || areAllVisibleSuitesSelected,
-      onClick: () => runSuiteAction("select-visible", onSelectAllVisibleSuites)
-    },
-    {
-      key: "clear-selection",
-      label: "Clear",
-      className: "ghost-button suite-smart-action",
-      disabled: !selectedSuiteActionIds.length,
-      onClick: () => runSuiteAction("clear-selection", onClearSuiteSelection)
-    }
-  ];
-  const toolbarPrimarySuiteActions = smartSuiteActions.filter((action) => action.key === "create-suite" || action.key === "manual-run");
-  const inlineSuiteActions = toolbarPrimarySuiteActions
-    .map((action) => {
-      const usage = suiteActionUsage[action.key];
-      const score = (usage?.lastUsedAt || 0) + (usage?.count || 0) * 1000 * 60 * 60 * 24;
-      return { ...action, score };
-    })
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2);
-  const shouldShowDefaultCreateSuite = !inlineSuiteActions.some((action) => action.score > 0);
-  const visibleInlineSuiteActions = shouldShowDefaultCreateSuite ? toolbarPrimarySuiteActions.slice(0, 1) : inlineSuiteActions;
-  const moreSuiteActions: CatalogActionMenuItem[] = [
-    {
-      label: "Create Suite",
-      icon: <AddIcon />,
-      description: "Create a suite in the current project and app type.",
-      disabled: !canCreateSuite,
-      tone: "primary",
-      onClick: () => runSuiteAction("create-suite", onCreateSuite)
-    },
-    {
-      label: "Create Manual Run",
-      icon: <LayersIcon />,
-      description: "Create a manual run from the selected suites.",
-      disabled: !canCreateExecution,
-      onClick: () => runSuiteAction("manual-run", onCreateManualRun)
-    },
-    {
-      label: "Create Local Run",
-      icon: <LayersIcon />,
-      description: "Use local Test Engine execution for the selected suites.",
-      disabled: !canCreateExecution,
-      onClick: () => runSuiteAction("local-run", onCreateLocalRun)
-    },
-    {
-      label: "Create Remote Run",
-      icon: <LayersIcon />,
-      description: "Use the configured remote Test Engine for the selected suites.",
-      disabled: !canCreateExecution,
-      onClick: () => runSuiteAction("remote-run", onCreateRemoteRun)
-    },
-    {
-      label: isDeletingSelectedSuites ? "Deleting selected…" : `Delete selected${selectedSuiteActionIds.length ? ` (${selectedSuiteActionIds.length})` : ""}`,
-      icon: <LayersIcon />,
-      disabled: !selectedSuiteActionIds.length || isDeletingSelectedSuites,
-      tone: "danger",
-      onClick: () => runSuiteAction("delete-selected", onDeleteSelectedSuites)
-    }
-  ];
   const suiteListColumns = useMemo<Array<DataTableColumn<TestSuite>>>(() => [
     {
       key: "select",
@@ -2204,22 +2109,42 @@ function SuiteSidebar({
             <SelectAllIcon />
             <span>Select all</span>
           </button>
-          <button
-            className="ghost-button catalog-selection-button"
-            disabled={!selectedSuiteActionIds.length}
-            onClick={() => runSuiteAction("clear-selection", onClearSuiteSelection)}
-            type="button"
-          >
-            <ClearSelectionIcon />
-            <span>Clear</span>
-          </button>
-          <div className="suite-toolbar-smart-actions" aria-label="Smart suite actions">
-            {visibleInlineSuiteActions.map((action) => (
-              <button className={action.className} disabled={action.disabled} key={action.key} onClick={action.onClick} type="button">
-                {action.label}
-              </button>
-            ))}
-            <CatalogActionMenu actions={moreSuiteActions} label="More suite actions" />
+          {selectedSuiteActionIds.length ? (
+            <button
+              className="ghost-button catalog-selection-button"
+              onClick={() => runSuiteAction("clear-selection", onClearSuiteSelection)}
+              type="button"
+            >
+              <ClearSelectionIcon />
+              <span>Clear</span>
+            </button>
+          ) : null}
+          {selectedSuiteActionIds.length ? (
+            <button
+              className="ghost-button danger catalog-selection-button"
+              disabled={isDeletingSelectedSuites}
+              onClick={() => runSuiteAction("delete-selected", onDeleteSelectedSuites)}
+              type="button"
+            >
+              <LayersIcon />
+              <span>{isDeletingSelectedSuites ? "Deleting selected" : `Delete selected (${selectedSuiteActionIds.length})`}</span>
+            </button>
+          ) : null}
+          <div className="suite-toolbar-smart-actions" aria-label="Suite actions">
+            <button className="primary-button catalog-selection-button" disabled={!canCreateSuite} onClick={() => runSuiteAction("create-suite", onCreateSuite)} type="button">
+              <AddIcon />
+              <span>Create Suite</span>
+            </button>
+            <CreateRunActionButton
+              className="test-case-split-action-button"
+              disabled={!canCreateExecution}
+              label="Run manually"
+              selectedSuiteIds={selectedSuiteActionIds}
+              source="TEST_SUITES"
+              onCreateManualRun={() => runSuiteAction("manual-run", onCreateManualRun)}
+              onCreateLocalRun={() => runSuiteAction("local-run", onCreateLocalRun)}
+              onCreateRemoteRun={() => runSuiteAction("remote-run", onCreateRemoteRun)}
+            />
           </div>
         </div>
 
@@ -2286,12 +2211,13 @@ function SuiteSidebar({
                         <label className="checkbox-field suite-card-action-checkbox" onClick={(event) => event.stopPropagation()}>
                           <input
                             checked={selectedSuiteActionIds.includes(suite.id)}
-	                            onChange={() => onToggleSuiteSelection(suite.id)}
-	                            type="checkbox"
-	                          />
-	                        </label>
-	                        <div className="test-case-card-badge-row">
-	                          <span className="test-case-source-badge">Suite</span>
+		                            onChange={() => onToggleSuiteSelection(suite.id)}
+		                            type="checkbox"
+		                          />
+		                        </label>
+		                        <DisplayIdBadge value={suite.display_id || suite.id} />
+		                        <div className="test-case-card-badge-row">
+		                          <span className="test-case-source-badge">Suite</span>
 	                          {suite.labels?.slice(0, 2).map((label) => (
 	                            <span className="test-case-source-badge is-api" key={label}>{label}</span>
 	                          ))}
@@ -2306,11 +2232,10 @@ function SuiteSidebar({
 	                          Suite coverage
 	                        </span>
 	                        <p>{selectedAppType ? `${selectedAppType.name} workspace suite with ${mappedCaseCount} mapped reusable case${mappedCaseCount === 1 ? "" : "s"}.` : "No app type selected"}</p>
-	                      </div>
-	                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
-	                        <DisplayIdBadge value={suite.display_id || suite.id} />
-	                        <strong>{suite.name}</strong>
-	                      </div>
+		                      </div>
+		                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+		                        <strong>{suite.name}</strong>
+		                      </div>
 	                      <p className="tile-card-description">{suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Use it to curate reusable test cases into a release-ready run scope."}</p>
                       <div className="test-case-card-stats suite-card-stats" aria-label={`${suite.name} facts`}>
                         <span title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}>
@@ -2705,10 +2630,11 @@ function TestCaseList({
                     onDragEnd={() => setDraggedCaseId("")}
                     type="button"
                   >
-	                    {selectedSuite ? <span className="drag-handle" aria-hidden="true">::</span> : null}
-	                    <div className="tile-card-main">
-	                      <div className="tile-card-select-row test-case-card-header test-case-card-header--metadata-only">
-	                        <div className="test-case-card-badge-row">
+		                    {selectedSuite ? <span className="drag-handle" aria-hidden="true">::</span> : null}
+		                    <div className="tile-card-main">
+		                      <div className="tile-card-select-row test-case-card-header test-case-card-header--metadata-only">
+		                        <DisplayIdBadge value={testCase.display_id || testCase.id} />
+		                        <div className="test-case-card-badge-row">
 	                          <span className="test-case-source-badge">{caseTypeLabel}</span>
 	                          {selectedSuite ? <span className="test-case-source-badge is-api">Suite case</span> : null}
 	                        </div>
@@ -2736,10 +2662,9 @@ function TestCaseList({
 	                        </span>
 	                        <p>{requirement?.title || "No requirement linked"}</p>
 	                      </div>
-		                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
-	                        <DisplayIdBadge value={testCase.display_id || testCase.id} />
-	                        <strong>{testCase.title}</strong>
-	                      </div>
+			                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+		                        <strong>{testCase.title}</strong>
+		                      </div>
 	                      <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
 	                      <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
 	                        <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>

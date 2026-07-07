@@ -2,8 +2,9 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { AddIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon } from "../components/AppIcons";
+import { AddIcon, OpenIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
@@ -681,9 +682,8 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const selectedEnvironment = environments.find((item) => item.id === selectedEnvironmentId) || null;
   const selectedConfiguration = configurations.find((item) => item.id === selectedConfigurationId) || null;
   const selectedDataSet = dataSets.find((item) => item.id === selectedDataSetId) || null;
+  const isEnvironmentWorkspaceOpen = Boolean(selectedEnvironmentId || selectedConfigurationId || selectedDataSetId);
   const selectedProjectName = projects.find((project) => String(project.id) === String(projectId))?.name || "No project selected";
-  const currentCreateLabel =
-    view === "environments" ? "Create test environment" : view === "configurations" ? "Create configuration" : "Create test data";
   const currentViewDescription =
     view === "environments"
       ? "Keep run targets, URLs, and reusable environment variables organized by project and app type."
@@ -1087,17 +1087,18 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   return (
     <div className={["page-content", view === "data" ? "page-content--test-data" : ""].filter(Boolean).join(" ")}>
       {confirmationDialog}
-      <PageHeader
-        eyebrow="Test Environment"
-        title="Run context workspace"
-        description={currentViewDescription}
-        meta={[
-          { label: "Records", value: currentViewCount },
-          { label: "Project", value: selectedProjectName },
-          { label: "Scope", value: selectedAppTypeName }
-        ]}
-        actions={<button className="primary-button" disabled={!projectId} onClick={openCreateModal} type="button"><AddIcon />{currentCreateLabel}</button>}
-      />
+      {!isEnvironmentWorkspaceOpen ? (
+        <PageHeader
+          eyebrow="Test Environment"
+          title="Run context workspace"
+          description={currentViewDescription}
+          meta={[
+            { label: "Records", value: currentViewCount },
+            { label: "Project", value: selectedProjectName },
+            { label: "Scope", value: selectedAppTypeName }
+          ]}
+        />
+      ) : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
@@ -1137,25 +1138,18 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleEnvironmentIds.length || areAllFilteredEnvironmentsSelected}
-                  onClick={() => setSelectedActionEnvironmentIds((current) => Array.from(new Set([...current, ...visibleEnvironmentIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionEnvironmentIds.length}
-                  onClick={() => setSelectedActionEnvironmentIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredEnvironmentsSelected}
+                  canSelectAll={Boolean(visibleEnvironmentIds.length)}
+                  onClear={() => setSelectedActionEnvironmentIds([])}
+                  onSelectAll={() => setSelectedActionEnvironmentIds((current) => Array.from(new Set([...current, ...visibleEnvironmentIds])))}
+                  selectedCount={selectedActionEnvironmentIds.length}
+                />
                 <CatalogViewToggle onChange={setEnvironmentViewMode} value={environmentViewMode} />
+                <button className="primary-button" disabled={!projectId} onClick={openCreateModal} type="button">
+                  <AddIcon />
+                  Create test environment
+                </button>
               </div>
               <TileBrowserPane className="test-environment-list">
                 {environmentsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
@@ -1269,25 +1263,18 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleConfigurationIds.length || areAllFilteredConfigurationsSelected}
-                  onClick={() => setSelectedActionConfigurationIds((current) => Array.from(new Set([...current, ...visibleConfigurationIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionConfigurationIds.length}
-                  onClick={() => setSelectedActionConfigurationIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredConfigurationsSelected}
+                  canSelectAll={Boolean(visibleConfigurationIds.length)}
+                  onClear={() => setSelectedActionConfigurationIds([])}
+                  onSelectAll={() => setSelectedActionConfigurationIds((current) => Array.from(new Set([...current, ...visibleConfigurationIds])))}
+                  selectedCount={selectedActionConfigurationIds.length}
+                />
                 <CatalogViewToggle onChange={setConfigurationViewMode} value={configurationViewMode} />
+                <button className="primary-button" disabled={!projectId} onClick={openCreateModal} type="button">
+                  <AddIcon />
+                  Create configuration
+                </button>
               </div>
               <TileBrowserPane className="test-environment-list">
                 {configurationsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
@@ -1403,25 +1390,18 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleDataSetIds.length || areAllFilteredDataSetsSelected}
-                  onClick={() => setSelectedActionDataSetIds((current) => Array.from(new Set([...current, ...visibleDataSetIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionDataSetIds.length}
-                  onClick={() => setSelectedActionDataSetIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredDataSetsSelected}
+                  canSelectAll={Boolean(visibleDataSetIds.length)}
+                  onClear={() => setSelectedActionDataSetIds([])}
+                  onSelectAll={() => setSelectedActionDataSetIds((current) => Array.from(new Set([...current, ...visibleDataSetIds])))}
+                  selectedCount={selectedActionDataSetIds.length}
+                />
                 <CatalogViewToggle onChange={setDataSetViewMode} value={dataSetViewMode} />
+                <button className="primary-button" disabled={!projectId} onClick={openCreateModal} type="button">
+                  <AddIcon />
+                  Create test data
+                </button>
               </div>
               <TileBrowserPane className="test-environment-list">
                 {dataSetsQuery.isLoading ? <TileCardSkeletonGrid /> : null}

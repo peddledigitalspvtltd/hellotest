@@ -30,6 +30,11 @@ const DISPLAY_ID_CONFIG = {
     table: "test_case_modules",
     prefix: "MOD-",
     minDigits: 1
+  },
+  requirement_iteration: {
+    table: "requirement_iterations",
+    prefix: "ITER-",
+    minDigits: 1
   }
 };
 

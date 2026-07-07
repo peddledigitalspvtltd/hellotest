@@ -5085,26 +5085,6 @@ export function ExecutionsPage() {
                     : workspaceTransactionStatusCounts.failed || 0
             }
           ]}
-          actions={
-            testRunsView === "batch-process" ? undefined : (
-              <>
-                <button
-                  className="ghost-button"
-                  onClick={openCreateScheduleBuilder}
-                  type="button"
-                >
-                  <CalendarIcon />
-                  Schedule Run
-                </button>
-                <CreateRunActionButton
-                  source="TEST_RUNS"
-                  onCreateManualRun={() => openExecutionBuilder("manual")}
-                  onCreateLocalRun={() => openExecutionBuilder("local")}
-                  onCreateRemoteRun={() => openExecutionBuilder("remote")}
-                />
-              </>
-            )
-          }
         />
       ) : null}
 
@@ -5119,6 +5099,7 @@ export function ExecutionsPage() {
           { value: "scheduled-runs", label: "Scheduled Runs", meta: `${executionSchedules.length}`, icon: <ExecutionScheduleIcon /> }
         ]}
         onChange={handleTestRunsViewChange}
+        showIndicator={false}
         value={testRunsView}
       />
 
@@ -5129,7 +5110,7 @@ export function ExecutionsPage() {
             title={runLibraryTitle}
             subtitle={runLibrarySubtitle}
           >
-            <div className="design-list-toolbar">
+            <div className="design-list-toolbar executions-list-toolbar">
               <CatalogViewToggle onChange={handleCatalogViewModeChange} value={catalogViewMode} />
               <CatalogSearchFilter
                 activeFilterCount={isExecutionRunsView(testRunsView) ? activeExecutionFilterCount : 0}
@@ -5220,23 +5201,42 @@ export function ExecutionsPage() {
                 <SelectAllIcon />
                 <span>Select all</span>
               </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!selectedRunLibraryActionIds.length}
-                onClick={() => {
-                  if (isExecutionRunsView(testRunsView)) {
-                    setSelectedActionExecutionIds([]);
-                  } else if (testRunsView === "scheduled-runs") {
-                    setSelectedActionScheduleIds([]);
-                  } else {
-                    setSelectedActionOperationIds([]);
-                  }
-                }}
-                type="button"
-              >
-                <ClearSelectionIcon />
-                <span>Clear</span>
-              </button>
+              {selectedRunLibraryActionIds.length ? (
+                <button
+                  className="ghost-button catalog-selection-button"
+                  onClick={() => {
+                    if (isExecutionRunsView(testRunsView)) {
+                      setSelectedActionExecutionIds([]);
+                    } else if (testRunsView === "scheduled-runs") {
+                      setSelectedActionScheduleIds([]);
+                    } else {
+                      setSelectedActionOperationIds([]);
+                    }
+                  }}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+              ) : null}
+              {testRunsView !== "batch-process" ? (
+                <div className="catalog-toolbar-actions executions-run-actions">
+                  <button
+                    className="ghost-button"
+                    onClick={openCreateScheduleBuilder}
+                    type="button"
+                  >
+                    <CalendarIcon />
+                    Schedule Run
+                  </button>
+                  <CreateRunActionButton
+                    source="TEST_RUNS"
+                    onCreateManualRun={() => openExecutionBuilder("manual")}
+                    onCreateLocalRun={() => openExecutionBuilder("local")}
+                    onCreateRemoteRun={() => openExecutionBuilder("remote")}
+                  />
+                </div>
+              ) : null}
             </div>
 
             {(isExecutionRunsView(testRunsView) ? executionsQuery.isLoading : testRunsView === "scheduled-runs" ? executionSchedulesQuery.isLoading : workspaceTransactionsQuery.isLoading) ? (

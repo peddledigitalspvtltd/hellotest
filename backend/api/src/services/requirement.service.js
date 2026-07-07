@@ -831,7 +831,31 @@ exports.importRequirementsFromAlm = async ({
   };
 };
 
-exports.createRequirement = async ({ project_id, title, description, external_references, labels, sprint, fix_version, release, priority, status, created_by }) => {
+const ensureIterationBelongsToProject = async (iterationId, projectId) => {
+  const normalizedIterationId = normalizeText(iterationId);
+
+  if (!normalizedIterationId) {
+    return null;
+  }
+
+  const iteration = await db.prepare(`
+    SELECT id, project_id
+    FROM requirement_iterations
+    WHERE id = ?
+  `).get(normalizedIterationId);
+
+  if (!iteration) {
+    throw new Error("Iteration not found");
+  }
+
+  if (iteration.project_id !== projectId) {
+    throw new Error("Iteration must belong to the same project as the requirement");
+  }
+
+  return iteration;
+};
+
+exports.createRequirement = async ({ project_id, title, description, external_references, labels, sprint, fix_version, release, iteration_id, priority, status, created_by }) => {
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
@@ -841,13 +865,14 @@ exports.createRequirement = async ({ project_id, title, description, external_re
   `).get(project_id);
 
   if (!project) throw new Error("Project not found");
+  await ensureIterationBelongsToProject(iteration_id, project_id);
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("requirement");
 
   await db.prepare(`
-    INSERT INTO requirements (id, display_id, project_id, title, description, external_references, labels, sprint, fix_version, release, priority, status, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO requirements (id, display_id, project_id, title, description, external_references, labels, sprint, fix_version, release, iteration_id, priority, status, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     display_id,
@@ -859,6 +884,7 @@ exports.createRequirement = async ({ project_id, title, description, external_re
     normalizeText(sprint),
     normalizeText(fix_version),
     normalizeText(release),
+    normalizeText(iteration_id),
     priority ?? 3,
     status || null,
     created_by || null,
@@ -913,10 +939,11 @@ exports.updateRequirement = async (id, data) => {
 
     if (!project) throw new Error("Project not found");
   }
+  await ensureIterationBelongsToProject(data.iteration_id, data.project_id ?? existing.project_id);
 
   await db.prepare(`
     UPDATE requirements
-    SET project_id = ?, title = ?, description = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET project_id = ?, title = ?, description = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, iteration_id = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     data.project_id ?? existing.project_id,
@@ -931,6 +958,7 @@ exports.updateRequirement = async (id, data) => {
     data.sprint !== undefined ? normalizeText(data.sprint) : existing.sprint,
     data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
     data.release !== undefined ? normalizeText(data.release) : existing.release,
+    data.iteration_id !== undefined ? normalizeText(data.iteration_id) : existing.iteration_id,
     data.priority ?? existing.priority,
     data.status ?? existing.status,
     data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,

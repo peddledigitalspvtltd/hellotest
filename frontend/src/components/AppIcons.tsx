@@ -123,6 +123,53 @@ export function FolderIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
+export function IterationIcon({ size = 16 }: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" height={size} viewBox="0 0 24 24" width={size}>
+      <path
+        d="M6.2 14.7a7.1 7.1 0 0 1 8.7-9.3"
+        stroke="#2f7dcc"
+        strokeLinecap="round"
+        strokeWidth="2.4"
+      />
+      <path
+        d="M14.7 2.9v4.7h-4.6"
+        stroke="#2f7dcc"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.4"
+      />
+      <path
+        d="M6 18.6h8.5"
+        stroke="#2f7dcc"
+        strokeLinecap="round"
+        strokeWidth="2.4"
+      />
+      <circle cx="11.6" cy="12.1" fill="#f28a20" r="3.9" />
+      <path
+        d="m9.8 12 1.25 1.25 2.35-2.55"
+        stroke="#ffffff"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M15.2 16.6h5.1"
+        stroke="#f28a20"
+        strokeLinecap="round"
+        strokeWidth="2.4"
+      />
+      <path
+        d="m18.2 13.7 3 2.9-3 2.9"
+        stroke="#f28a20"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.4"
+      />
+    </svg>
+  );
+}
+
 export function UsersIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

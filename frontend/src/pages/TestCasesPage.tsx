@@ -1,4 +1,5 @@
-import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -35,7 +36,6 @@ import {
 import { SharedStepsIcon as SharedStepsIconGraphic } from "../components/SharedStepsIcon";
 import { StatusBadge } from "../components/StatusBadge";
 import {
-  TileCardRequirementIcon,
   TileCardSuiteIcon,
   TileCardStepsIcon,
   formatTileCardLabel
@@ -190,6 +190,7 @@ type StepActionMenuAction = {
 
 type CaseStepFilter = "all" | "with-steps" | "no-steps";
 type CaseRunFilter = "all" | "with-runs" | "no-runs";
+const TEST_CASE_RENDER_BATCH_SIZE = 240;
 type SuiteTransferAction = "add" | "move" | "copy";
 type TestCaseExecutionAssigneeOption = AssigneeOption;
 
@@ -200,6 +201,77 @@ const TEST_CASE_REVIEW_STATUS_LABELS: Record<NonNullable<TestCase["review_status
   pending: "Pending",
   accepted: "Accepted",
   changes_requested: "Changes requested"
+};
+
+const TEST_CASE_WORKFLOW_STATUS_OPTIONS = [
+  { value: "ai-generated", label: "AI Generated" },
+  { value: "draft", label: "Draft" },
+  { value: "pending-review", label: "Pending for review" },
+  { value: "active", label: "Active" },
+  { value: "ready", label: "Ready" },
+  { value: "automated", label: "Automated" },
+  { value: "retired", label: "Retired" },
+  { value: "passed", label: "Passed" },
+  { value: "failed", label: "Failed" }
+];
+
+const TEST_CASE_WORKFLOW_STATUS_LABELS = Object.fromEntries(
+  TEST_CASE_WORKFLOW_STATUS_OPTIONS.map((option) => [option.value, option.label])
+) as Record<string, string>;
+
+const getTestCaseWorkflowStatus = (testCase: TestCase, latestStatus?: string | null, fallbackStatus = "active") => {
+  const normalizedLatest = String(latestStatus || "").toLowerCase();
+
+  if (testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending") {
+    return "ai-generated";
+  }
+
+  if ((testCase.review_status || "not_requested") === "pending") {
+    return "pending-review";
+  }
+
+  if (normalizedLatest === "failed" || normalizedLatest === "blocked") {
+    return "failed";
+  }
+
+  if (normalizedLatest === "passed") {
+    return "passed";
+  }
+
+  if (testCase.automated === "yes") {
+    return "automated";
+  }
+
+  const normalizedStatus = String(testCase.status || fallbackStatus || "active").toLowerCase();
+  return TEST_CASE_WORKFLOW_STATUS_LABELS[normalizedStatus] ? normalizedStatus : "active";
+};
+
+const formatTestCaseWorkflowStatus = (value: string) =>
+  TEST_CASE_WORKFLOW_STATUS_LABELS[value] || formatTileCardLabel(value, "Active");
+
+const getTestCaseExecutionTypeLabel = (steps: Array<Pick<TestStep, "step_type" | "api_request">> = []) => {
+  if (!steps.length) {
+    return "Web";
+  }
+
+  const types = new Set(steps.map((step) => normalizeStepType(step.step_type)));
+  const hasApi = Array.from(types).some((type) => type === "api") || steps.some((step) => Boolean(step.api_request));
+  const hasWeb = types.has("web");
+  const hasMobile = types.has("android") || types.has("ios");
+
+  if (hasMobile && (hasWeb || hasApi || types.size > 1)) {
+    return "Unified";
+  }
+
+  if (hasMobile) {
+    return "Mobile";
+  }
+
+  if (hasApi && !hasWeb) {
+    return "API";
+  }
+
+  return "Web";
 };
 
 function CaseLabelsField({
@@ -823,6 +895,154 @@ function TestCaseCreateIcon() {
   );
 }
 
+function TestCaseDropdownIcon() {
+  return (
+    <TestCaseActionIcon>
+      <path d="m6 9 6 6 6-6" />
+    </TestCaseActionIcon>
+  );
+}
+
+type TestCaseSplitAction = {
+  label: string;
+  description?: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+};
+
+function TestCaseSplitActionButton({
+  label,
+  icon,
+  tone = "blue",
+  disabled,
+  onClick,
+  menuLabel,
+  actions
+}: {
+  label: string;
+  icon: ReactNode;
+  tone?: "blue" | "green";
+  disabled?: boolean;
+  onClick: () => void;
+  menuLabel: string;
+  actions: TestCaseSplitAction[];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const availableActions = actions.filter((action) => !action.disabled);
+  const canOpenMenu = availableActions.length > 0;
+
+  useEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = Math.max(menuRef.current?.offsetWidth || 292, 292);
+      const menuHeight = menuRef.current?.offsetHeight || 190;
+      const viewportPadding = 10;
+      const left = Math.min(Math.max(viewportPadding, rect.right - menuWidth), window.innerWidth - menuWidth - viewportPadding);
+      const top = rect.bottom + 8 + menuHeight > window.innerHeight - viewportPadding
+        ? Math.max(viewportPadding, rect.top - menuHeight - 8)
+        : rect.bottom + 8;
+
+      setMenuStyle({
+        left,
+        top,
+        minWidth: "18.25rem",
+        maxWidth: "min(calc(100vw - 1.25rem), 23rem)",
+        opacity: 1
+      });
+    };
+
+    updateMenuPosition();
+    const frameId = window.requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setIsOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const menu = isOpen && canOpenMenu ? (
+    <div className={["run-action-dropdown test-case-action-dropdown", tone === "green" ? "test-case-run-action-dropdown" : ""].filter(Boolean).join(" ")} ref={menuRef} role="menu" style={menuStyle || { opacity: 0, pointerEvents: "none" }}>
+      {actions.map((action) => (
+        <button
+          disabled={action.disabled}
+          key={action.label}
+          onClick={() => {
+            setIsOpen(false);
+            action.onClick();
+          }}
+          role="menuitem"
+          type="button"
+        >
+          <span className="run-action-option-icon">{action.icon}</span>
+          <span className="run-action-option-copy">
+            <span className="run-action-option-title">
+              <strong>{action.label}</strong>
+              {action.description ? <InfoTooltip content={action.description} label={`${action.label} details`} trigger="span" /> : null}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  return (
+    <div className={["create-run-action-button", tone === "blue" ? "test-case-split-action-button" : "test-case-run-split-action-button"].join(" ")} ref={triggerRef}>
+      <button className="run-action-main" disabled={disabled} onClick={onClick} type="button">
+        {icon}
+        <span>{label}</span>
+      </button>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        aria-label={menuLabel}
+        className="run-action-toggle"
+        disabled={!canOpenMenu}
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <TestCaseDropdownIcon />
+      </button>
+      {menu ? createPortal(menu, document.body) : null}
+    </div>
+  );
+}
+
 function TestCaseDeleteIcon() {
   return (
     <TestCaseActionIcon>
@@ -988,6 +1208,7 @@ export function TestCasesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const deferredSearchTerm = useDeferredValue(searchTerm);
+  const [visibleTestCaseCount, setVisibleTestCaseCount] = useState(TEST_CASE_RENDER_BATCH_SIZE);
   const [caseStatusFilter, setCaseStatusFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
   const [caseStepFilter, setCaseStepFilter] = useState<CaseStepFilter>("all");
@@ -1765,6 +1986,14 @@ export function TestCasesPage() {
       }, {}),
     [requirements]
   );
+  const requirementDisplayIdById = useMemo(
+    () =>
+      requirements.reduce<Record<string, string>>((map, requirement) => {
+        map[requirement.id] = requirement.display_id || requirement.id;
+        return map;
+      }, {}),
+    [requirements]
+  );
   const suiteNameById = useMemo(
     () =>
       suites.reduce<Record<string, string>>((accumulator, suite) => {
@@ -1774,18 +2003,7 @@ export function TestCasesPage() {
     [suites]
   );
 
-  const caseStatusOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          testCases.map((testCase) => {
-            const history = historyByCaseId[testCase.id] || [];
-            return history[0]?.status || testCase.status || defaultTestCaseStatus;
-          })
-        )
-      ).sort((left, right) => left.localeCompare(right)),
-    [historyByCaseId, testCases]
-  );
+  const caseStatusOptions = TEST_CASE_WORKFLOW_STATUS_OPTIONS;
   const casePriorityOptions = useMemo(
     () => Array.from(new Set(testCases.map((testCase) => String(testCase.priority || 3)))).sort((left, right) => Number(left) - Number(right)),
     [testCases]
@@ -1828,7 +2046,8 @@ export function TestCasesPage() {
         (testCase.requirement_ids || [testCase.requirement_id]).map((id) => (id ? requirementTitleById[id] || "" : "")).find(Boolean) || "";
       const history = historyByCaseId[testCase.id] || [];
       const latest = history[0];
-      const derivedStatus = latest?.status || testCase.status || defaultTestCaseStatus;
+      const derivedStatus = getTestCaseWorkflowStatus(testCase, latest?.status, defaultTestCaseStatus);
+      const derivedStatusLabel = formatTestCaseWorkflowStatus(derivedStatus);
       const stepCount = stepCountByCaseId[testCase.id] || 0;
       const runCount = history.length;
 
@@ -1839,6 +2058,7 @@ export function TestCasesPage() {
           testCase.id,
           testCase.title,
           testCase.description || "",
+          derivedStatusLabel,
           ...(testCase.labels || []),
           TEST_CASE_REVIEW_STATUS_LABELS[testCase.review_status || "not_requested"],
           testCase.reviewer_id ? resolveAuditUserLabel(testCase.reviewer_id, userById) : "",
@@ -1896,7 +2116,7 @@ export function TestCasesPage() {
 
     return { groups, unassignedCases };
   }, [filteredCases, testCaseModules, testCases]);
-  const moduleTileEntries = useMemo(() => {
+	  const moduleTileEntries = useMemo(() => {
     const entries: Array<
       | { kind: "module"; module: TestCaseModule; count: number }
       | { kind: "unassigned"; count: number }
@@ -1920,8 +2140,19 @@ export function TestCasesPage() {
       moduleCaseGroups.unassignedCases.forEach((testCase) => entries.push({ kind: "case", testCase }));
     }
 
-    return entries;
-  }, [collapsedModuleIds, deferredSearchTerm, moduleCaseGroups]);
+	    return entries;
+	  }, [collapsedModuleIds, deferredSearchTerm, moduleCaseGroups]);
+  const visibleModuleTileEntries = useMemo(
+    () => moduleTileEntries.slice(0, visibleTestCaseCount),
+    [moduleTileEntries, visibleTestCaseCount]
+  );
+  const hasMoreVisibleTestCases = catalogViewMode === "tile"
+    ? visibleModuleTileEntries.length < moduleTileEntries.length
+    : visibleTestCaseCount < filteredCases.length;
+
+  useEffect(() => {
+    setVisibleTestCaseCount(TEST_CASE_RENDER_BATCH_SIZE);
+  }, [appTypeId, casePriorityFilter, caseRunFilter, caseStatusFilter, caseStepFilter, catalogViewMode, deferredSearchTerm]);
 
   const activeCaseFilterCount =
     Number(caseStatusFilter !== "all") +
@@ -3322,6 +3553,82 @@ export function TestCasesPage() {
       await refreshCases();
     } catch (error) {
       showError(error, "Unable to delete selected modules");
+    }
+  };
+
+  const handleDeleteSelectedTestCaseItems = async () => {
+    const selectedCases = testCases.filter((item) => selectedActionTestCaseIds.includes(item.id));
+    const selectedModules = selectedModuleIds;
+
+    if (!selectedCases.length && !selectedModules.length) {
+      return;
+    }
+
+    if ((selectedCases.length && !canDeleteTestCases) || (selectedModules.length && !canDeleteTestCases)) {
+      showError(new Error("Permission required: testcase.delete"), "Unable to delete selected items");
+      return;
+    }
+
+    const parts = [
+      selectedCases.length ? `${selectedCases.length} test case${selectedCases.length === 1 ? "" : "s"}` : "",
+      selectedModules.length ? `${selectedModules.length} module${selectedModules.length === 1 ? "" : "s"}` : ""
+    ].filter(Boolean);
+    const confirmed = await confirmDelete({
+      message: `Delete ${parts.join(" and ")}? Historical execution evidence stays preserved, and cases from deleted modules stay available as unassigned cases.`
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingSelectedTestCases(true);
+
+    try {
+      const [caseResults, moduleResults] = await Promise.all([
+        Promise.allSettled(selectedCases.map((testCase) => api.testCases.delete(testCase.id))),
+        Promise.allSettled(selectedModules.map((moduleId) => deleteTestCaseModule.mutateAsync(moduleId)))
+      ]);
+      const deletedCaseIds = selectedCases
+        .filter((_, index) => caseResults[index]?.status === "fulfilled")
+        .map((testCase) => testCase.id);
+      const deletedModuleIds = selectedModules.filter((_, index) => moduleResults[index]?.status === "fulfilled");
+      const failedCount = caseResults.filter((result) => result.status === "rejected").length + moduleResults.filter((result) => result.status === "rejected").length;
+
+      deletedCaseIds.forEach((testCaseId) => {
+        clearStoredTestCaseParameterDraft(buildTestCaseParameterDraftScopeKey({ isCreating: false, testCaseId }));
+      });
+      setSelectedActionTestCaseIds((current) => current.filter((id) => !deletedCaseIds.includes(id)));
+      setSelectedModuleIds((current) => current.filter((id) => !deletedModuleIds.includes(id)));
+
+      if (deletedCaseIds.includes(selectedTestCaseId)) {
+        syncTestCaseSearchParams(null);
+        setSelectedTestCaseId("");
+        setCaseDraft(emptyCaseDraft);
+        setDraftSteps([]);
+        setNewStepDraft(EMPTY_STEP_DRAFT);
+        setStepInsertIndex(null);
+        setStepInsertGroupContext(null);
+        setSelectedStepIds([]);
+        setExpandedStepIds([]);
+        setExpandedStepGroupIds([]);
+        setIsCreating(false);
+      }
+
+      if (deletedCaseIds.length || deletedModuleIds.length) {
+        await refreshCases();
+      }
+
+      if (failedCount) {
+        setMessageTone("error");
+        setMessage(`${deletedCaseIds.length} test case${deletedCaseIds.length === 1 ? "" : "s"} and ${deletedModuleIds.length} module${deletedModuleIds.length === 1 ? "" : "s"} deleted, ${failedCount} failed.`);
+        return;
+      }
+
+      showSuccess(`${deletedCaseIds.length} test case${deletedCaseIds.length === 1 ? "" : "s"} and ${deletedModuleIds.length} module${deletedModuleIds.length === 1 ? "" : "s"} deleted.`);
+    } catch (error) {
+      showError(error, "Unable to delete selected items");
+    } finally {
+      setIsDeletingSelectedTestCases(false);
     }
   };
 
@@ -6211,7 +6518,7 @@ export function TestCasesPage() {
     },
     {
       key: "quality",
-      label: "AI score",
+      label: "Test Quality",
       width: 104,
       minWidth: 92,
       render: (testCase) => testCase.ai_quality_score === null || testCase.ai_quality_score === undefined ? "—" : `${testCase.ai_quality_score}%`
@@ -6222,7 +6529,7 @@ export function TestCasesPage() {
       defaultVisible: false,
       width: 320,
       minWidth: 180,
-      render: (testCase) => richTextToPlainText(testCase.description) || "No description yet for this test case."
+      render: (testCase) => <span className="data-table-description-clamp">{richTextToPlainText(testCase.description) || "No description yet for this test case."}</span>
     },
     {
       key: "externalReferences",
@@ -6240,7 +6547,7 @@ export function TestCasesPage() {
       render: (testCase) => {
         const history = historyByCaseId[testCase.id] || [];
         const latest = history[0];
-        return formatTileCardLabel(latest?.status || testCase.status || defaultTestCaseStatus, "Active");
+        return <StatusBadge value={formatTestCaseWorkflowStatus(getTestCaseWorkflowStatus(testCase, latest?.status, defaultTestCaseStatus))} />;
       }
     },
     {
@@ -6828,31 +7135,6 @@ export function TestCasesPage() {
             { label: "Mapped", value: coverageMetrics.covered },
             { label: "Automated", value: coverageMetrics.automated }
           ]}
-          actions={
-            <>
-	              <button className="ghost-button" disabled={!canImportTestCases || !appTypeId} onClick={() => {
-	                setImportBatches([]);
-	                setImportFileWarnings([]);
-	                setImportSourceSelection("auto");
-	                setIsImportModalOpen(true);
-	              }} type="button">
-                <TestCaseImportIcon />
-                <span>Bulk Import</span>
-              </button>
-	              <button className="ghost-button" disabled={!canUseTestCaseAi || !canCreateTestCases || !requirements.length || !appTypeId} onClick={openAiStudio} type="button">
-	                <TestCaseSparkIcon />
-	                <span>AI Test Case Generation</span>
-	              </button>
-	              <button className="ghost-button" disabled={!canExportTestCases || !filteredCases.length} onClick={() => void handleExportCsv()} type="button">
-	                <TestCaseExportIcon />
-	                <span>Export test cases</span>
-	              </button>
-	              <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => beginCreateCase()} type="button">
-	                <TestCaseCreateIcon />
-	                <span>New Test Case</span>
-              </button>
-            </>
-          }
         />
       ) : null}
 
@@ -6887,8 +7169,8 @@ export function TestCasesPage() {
                     <select value={caseStatusFilter} onChange={(event) => setCaseStatusFilter(event.target.value)}>
                       <option value="all">All statuses</option>
                       {caseStatusOptions.map((status) => (
-                        <option key={status} value={status}>
-                          {formatTileCardLabel(status, "Active")}
+                        <option key={status.value} value={status.value}>
+                          {status.label}
                         </option>
                       ))}
                     </select>
@@ -6953,114 +7235,148 @@ export function TestCasesPage() {
                 <SelectAllIcon />
                 <span>Select all</span>
               </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!selectedActionTestCaseIds.length}
-                onClick={() => setSelectedActionTestCaseIds([])}
-                type="button"
-              >
-                <ClearSelectionIcon />
-                <span>Clear</span>
-              </button>
-	              <button className="ghost-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => beginCreateCase()} type="button">
-	                <TestCaseCreateIcon />
-	                <span>New case</span>
-	              </button>
-	              <button className="ghost-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => setIsCreateModuleModalOpen(true)} type="button">
-	                <FolderIcon />
-	                <span>Create module</span>
-	              </button>
-	              <button
-	                className="ghost-button catalog-selection-button"
-	                disabled={!canDeleteTestCases || !selectedModuleIds.length}
-	                onClick={() => void handleDeleteSelectedModules()}
-                type="button"
-              >
-                <TrashIcon />
-                <span>Delete modules</span>
-              </button>
-              <CatalogActionMenu
-                actions={[
-	                  {
-	                    label: "Create suite",
-	                    description: "Create a suite before adding selected cases.",
-	                    icon: <TileCardSuiteIcon />,
-	                    disabled: !canCreateSuites || !appTypeId,
-	                    featureKeys: ["qaira.manual.suites"],
-	                    requiredPermissions: ["suite.create"],
-	                    onClick: () => setIsCreateSuiteModalOpen(true)
-	                  },
-                  {
-                    label: "Create manual run",
-	                    description: "Start a manual execution run for selected cases.",
-	                    icon: <TestCaseRunIcon />,
-	                    disabled: !canCreateRuns || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-	                    featureKeys: ["qaira.manual.runs"],
-	                    requiredPermissions: ["run.create"],
-	                    onClick: () => {
+              {selectedActionTestCaseIds.length ? (
+                <button
+                  className="ghost-button catalog-selection-button"
+                  onClick={() => setSelectedActionTestCaseIds([])}
+                  type="button"
+                >
+                  <ClearSelectionIcon />
+                  <span>Clear</span>
+                </button>
+              ) : null}
+              {selectedActionTestCaseIds.length ? (
+                <>
+                  <button
+                    className="primary-button catalog-selection-button"
+                    disabled={!canBuildAutomation || !canUseAutomationAi || !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending}
+                    onClick={() => void handleScheduleSelectedManualAutomation()}
+                    type="button"
+                  >
+                    <TestCaseSparkIcon />
+                    <span>{buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`}</span>
+                  </button>
+                  <TestCaseSplitActionButton
+                    disabled={!canCreateRuns || !projectId || !appTypeId || !session?.user.id}
+                    icon={<TestCaseRunIcon />}
+                    label="Run manually"
+                    menuLabel="Open selected test case run options"
+                    tone="green"
+                    onClick={() => {
                       setExecutionStartMode("manual");
                       setIsCreateExecutionModalOpen(true);
-                    }
-                  },
-	                  {
-	                    label: "Create local run",
-		                    description: "Start a local execution run for selected cases.",
-		                    icon: <TestCaseRunIcon />,
-		                    disabled: !canRunLocalAutomation || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-		                    featureKeys: ["qaira.automation.local_execution"],
-		                    requiredPermissions: ["automation.run.local"],
-	                    onClick: () => {
-                      setExecutionStartMode("local");
-                      setIsCreateExecutionModalOpen(true);
-                    }
-                  },
-	                  {
-	                    label: "Create remote run",
-		                    description: "Start a remote execution run for selected cases.",
-		                    icon: <TestCaseRunIcon />,
-		                    disabled: !canRunRemoteAutomation || !projectId || !appTypeId || !selectedActionTestCaseIds.length || !session?.user.id,
-		                    featureKeys: ["qaira.automation.remote_execution"],
-		                    requiredPermissions: ["automation.run.remote"],
-	                    onClick: () => {
-                      setExecutionStartMode("remote");
-                      setIsCreateExecutionModalOpen(true);
+                    }}
+                    actions={[
+                      {
+                        label: "Run local automation",
+                        description: "Start a local execution run for selected automated cases.",
+                        icon: <TestCaseRunIcon />,
+                        disabled: !canRunLocalAutomation || !projectId || !appTypeId || !session?.user.id,
+                        onClick: () => {
+                          setExecutionStartMode("local");
+                          setIsCreateExecutionModalOpen(true);
+                        }
+                      },
+                      {
+                        label: "Run remote automation",
+                        description: "Start a remote execution run for selected automated cases.",
+                        icon: <TestCaseRunIcon />,
+                        disabled: !canRunRemoteAutomation || !projectId || !appTypeId || !session?.user.id,
+                        onClick: () => {
+                          setExecutionStartMode("remote");
+                          setIsCreateExecutionModalOpen(true);
+                        }
+                      }
+                    ]}
+                  />
+                </>
+              ) : null}
+              <TestCaseSplitActionButton
+                disabled={!canCreateTestCases || !appTypeId}
+                icon={<TestCaseCreateIcon />}
+                label="Create Test Case"
+                menuLabel="Open create test case options"
+                onClick={() => beginCreateCase()}
+                actions={[
+                  {
+                    label: "Bulk Import",
+                    description: "Import test cases from CSV, XML, JSON, or supported source exports.",
+                    icon: <TestCaseImportIcon />,
+                    disabled: !canImportTestCases || !appTypeId,
+                    onClick: () => {
+                      setImportBatches([]);
+                      setImportFileWarnings([]);
+                      setImportSourceSelection("auto");
+                      setIsImportModalOpen(true);
                     }
                   },
                   {
-                    label: buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`,
-	                    description: "Queue selected manual cases for AI automation build.",
-	                    icon: <TestCaseSparkIcon />,
-	                    disabled: !canBuildAutomation || !canUseAutomationAi || !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending,
-	                    featureKeys: ["qaira.ai.automation"],
-	                    permissionMode: "all" as const,
-	                    requiredPermissions: ["automation.build", "automation.ai"],
-	                    onClick: () => void handleScheduleSelectedManualAutomation()
-	                  },
+                    label: "AI Test Case Generation",
+                    description: "Generate draft test cases from linked requirements with AI assistance.",
+                    icon: <TestCaseSparkIcon />,
+                    disabled: !canUseTestCaseAi || !canCreateTestCases || !requirements.length || !appTypeId,
+                    onClick: openAiStudio
+                  }
+                ]}
+              />
+              <TestCaseSplitActionButton
+                disabled={!selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk" || !canUpdateTestCases}
+                icon={<TestCaseAcceptIcon />}
+                label="Review AI Generated Case"
+                menuLabel="Open AI generated case review options"
+                onClick={() => void handleReviewSelectedGeneratedCases("accept")}
+                actions={[
                   {
-                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "accept" ? "Accepting AI generated cases" : `Accept AI generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
+                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "accept" ? "Accepting AI generated cases" : `Accept generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
                     description: "Accept selected AI-generated cases.",
-	                    icon: <TestCaseAcceptIcon />,
-	                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
-	                    requiredPermissions: ["testcase.update"],
-	                    onClick: () => void handleReviewSelectedGeneratedCases("accept"),
-                    tone: "primary"
+                    icon: <TestCaseAcceptIcon />,
+                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk" || !canUpdateTestCases,
+                    onClick: () => void handleReviewSelectedGeneratedCases("accept")
                   },
                   {
-                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "reject" ? "Rejecting AI Generated cases" : `Reject AI Generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
+                    label: schedulerActionCaseId === "bulk" && schedulerActionKind === "reject" ? "Rejecting AI generated cases" : `Reject generated${selectedPendingGeneratedCases.length ? ` (${selectedPendingGeneratedCases.length})` : ""}`,
                     description: "Reject selected AI-generated cases.",
-	                    icon: <TestCaseRejectIcon />,
-	                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk",
-	                    requiredPermissions: ["testcase.delete"],
-	                    onClick: () => void handleReviewSelectedGeneratedCases("reject"),
-                    tone: "danger"
-                  },
+                    icon: <TestCaseRejectIcon />,
+                    disabled: !selectedPendingGeneratedCases.length || schedulerActionCaseId === "bulk" || !canDeleteTestCases,
+                    onClick: () => void handleReviewSelectedGeneratedCases("reject")
+                  }
+                ]}
+              />
+              <button className="ghost-button" disabled={!canExportTestCases || !filteredCases.length} onClick={() => void handleExportCsv()} type="button">
+                <TestCaseExportIcon />
+                <span>Export</span>
+              </button>
+		              <button className="ghost-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => setIsCreateModuleModalOpen(true)} type="button">
+		                <FolderIcon />
+		                <span>Create module</span>
+	              </button>
+              {selectedActionTestCaseIds.length || selectedModuleIds.length ? (
+                <button
+                  className="ghost-button danger catalog-selection-button"
+                  disabled={isDeletingSelectedTestCases || !canDeleteTestCases}
+                  onClick={() => void handleDeleteSelectedTestCaseItems()}
+                  type="button"
+                >
+                  <TrashIcon />
+                  <span>
+                    {isDeletingSelectedTestCases
+                      ? "Deleting"
+                      : `Delete (${selectedActionTestCaseIds.length + selectedModuleIds.length})`}
+                  </span>
+                </button>
+              ) : null}
+              <TestCaseSplitActionButton
+                disabled={!canCreateSuites || !appTypeId}
+                icon={<TileCardSuiteIcon />}
+                label="Create Suite"
+                menuLabel="Open suite actions"
+                onClick={() => setIsCreateSuiteModalOpen(true)}
+                actions={[
                   {
                     label: `Add to suite${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
 	                    description: "Attach selected cases to one or more existing suites without removing current links.",
 	                    icon: <AddIcon />,
 	                    disabled: !canUpdateSuites || !selectedActionTestCaseIds.length || !appTypeId,
-	                    featureKeys: ["qaira.manual.suites"],
-	                    requiredPermissions: ["suite.update"],
 	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "add")
 	                  },
                   {
@@ -7068,8 +7384,6 @@ export function TestCasesPage() {
 	                    description: "Replace selected cases' suite links with the chosen suite scope.",
 	                    icon: <MoveIcon />,
 	                    disabled: !canUpdateSuites || !selectedActionTestCaseIds.length || !appTypeId,
-	                    featureKeys: ["qaira.manual.suites"],
-	                    requiredPermissions: ["suite.update"],
 	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "move")
 	                  },
                   {
@@ -7077,20 +7391,9 @@ export function TestCasesPage() {
 	                    description: "Duplicate selected cases and steps into another suite, app type, or project.",
 	                    icon: <CopyIcon />,
 	                    disabled: !selectedActionTestCaseIds.length || !appTypeId,
-	                    requiredPermissions: ["testcase.create"],
 	                    onClick: () => openSuiteTransferModal(selectedActionTestCaseIds, "copy")
-	                  },
-                  {
-                    label: isDeletingSelectedTestCases ? "Deleting selected cases" : `Delete${selectedActionTestCaseIds.length ? ` (${selectedActionTestCaseIds.length})` : ""}`,
-                    description: "Delete selected test cases while preserving existing run history.",
-	                    icon: <TestCaseDeleteIcon />,
-	                    disabled: !selectedActionTestCaseIds.length || isDeletingSelectedTestCases,
-	                    requiredPermissions: ["testcase.delete"],
-	                    onClick: () => void handleDeleteSelectedCases(),
-                    tone: "danger"
                   }
                 ]}
-                label="More test case tile actions"
               />
             </div>
 
@@ -7106,7 +7409,7 @@ export function TestCasesPage() {
 
               {!isLibraryLoading && filteredCases.length && catalogViewMode === "tile" ? (
                 <div className="tile-browser-grid">
-                  {moduleTileEntries.map((entry) => {
+	                  {visibleModuleTileEntries.map((entry) => {
                     if (entry.kind === "module") {
                       const isCollapsed = collapsedModuleIds.includes(entry.module.id);
                       const isSelected = selectedModuleIds.includes(entry.module.id);
@@ -7206,18 +7509,17 @@ export function TestCasesPage() {
                     const isActive = selectedTestCaseId === testCase.id && !isCreating;
                     const history = (historyByCaseId[testCase.id] || []).slice(0, 10);
                     const latest = history[0];
-                    const requirementTitle =
-                      (testCase.requirement_ids || [testCase.requirement_id]).map((id) => (id ? requirementTitleById[id] || "" : "")).find(Boolean) || "";
+                    const linkedRequirementId = (testCase.requirement_ids || [testCase.requirement_id]).find((id) => Boolean(id && requirementTitleById[id]));
+                    const requirementTitle = linkedRequirementId ? requirementTitleById[linkedRequirementId] || "" : "";
+                    const requirementDisplayId = linkedRequirementId ? requirementDisplayIdById[linkedRequirementId] : "";
                     const stepCount = stepCountByCaseId[testCase.id] || 0;
-                    const caseStatusValue = latest?.status || testCase.status || defaultTestCaseStatus;
                     const suiteCount = (testCase.suite_ids || []).length || 0;
                     const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
                     const passedRuns = history.filter((result) => result.status === "passed").length;
                     const passRate = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
-                    const statusLabel = formatTileCardLabel(caseStatusValue, "Ready");
+                    const statusLabel = formatTestCaseWorkflowStatus(getTestCaseWorkflowStatus(testCase, latest?.status, defaultTestCaseStatus));
                     const isFailedCase = ["failed", "blocked"].includes(String(latest?.status || "").toLowerCase());
                     const isUnlinkedCase = !requirementTitle;
-                    const isAiGeneratedCase = Boolean(testCase.ai_generation_source);
                     const isPendingSchedulerCase =
                       testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending";
                     const isRunningCase = schedulerActionCaseId === testCase.id && schedulerActionKind === "run";
@@ -7230,9 +7532,7 @@ export function TestCasesPage() {
                       ? 100
                       : Math.min(96, Math.max(26, 36 + stepCount * 4 + (requirementTitle ? 14 : 0) + (history.length ? 8 : 0) - failedRunCount * 6));
                     const stabilityScore = history.length ? passRate : 0;
-                    const caseTypeLabel = testCase.automated === "yes" ? "Auto" : "Manual";
-                    const moduleName = caseModuleById.get(testCase.id)?.name || "Unassigned";
-                    const reviewLabel = TEST_CASE_REVIEW_STATUS_LABELS[testCase.review_status || "not_requested"];
+                    const caseTypeLabel = getTestCaseExecutionTypeLabel(allStepsByCaseId[testCase.id] || []);
                     const qualityScore = testCase.ai_quality_score === null || testCase.ai_quality_score === undefined
                       ? calculateTestCaseAiQualityScore({
                           title: testCase.title,
@@ -7370,22 +7670,17 @@ export function TestCasesPage() {
                         <div className="tile-card-main">
                           <div className="tile-card-select-row test-case-card-header">
                             <label className="checkbox-field test-case-delete-checkbox" onClick={(event) => event.stopPropagation()}>
-                              <input
-                                checked={isSelectedForAction}
+	                              <input
+	                                checked={isSelectedForAction}
                                 onChange={(event) =>
                                   setSelectedActionTestCaseIds((current) =>
                                     event.target.checked ? [...new Set([...current, testCase.id])] : current.filter((id) => id !== testCase.id)
                                   )
                                 }
-	                                type="checkbox"
-	                              />
-	                            </label>
-	                            <div className="test-case-card-badge-row">
-	                              {isAiGeneratedCase ? <span className="test-case-source-badge">AI Generated</span> : null}
-	                              {isAiGeneratedCase && selectedAppType?.type === "api" ? <span className="test-case-source-badge is-api">API Capture</span> : null}
-	                              <span className="test-case-source-badge is-module">{moduleName}</span>
-	                              <span className="test-case-source-badge is-review">{reviewLabel}</span>
-	                            </div>
+		                                type="checkbox"
+		                              />
+		                            </label>
+		                            <DisplayIdBadge value={testCase.display_id || testCase.id} />
 	                            <div className="catalog-inline-actions test-case-top-actions">
 	                              {isPendingSchedulerCase ? renderAiGeneratedDecision(testCase) : null}
 	                              <StatusBadge value={statusLabel} />
@@ -7393,18 +7688,17 @@ export function TestCasesPage() {
 	                                <CatalogActionMenu actions={tileActions} label={`${testCase.title} actions`} />
 	                              </div>
 	                            </div>
-	                          </div>
-	                          <div className="test-case-requirement-block">
-	                            <span className="test-case-requirement-label">
-	                              <TileCardRequirementIcon />
-	                              Requirement
-	                            </span>
-	                            <p>{requirementTitle || "No requirement linked"}</p>
-	                          </div>
-	                          <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
-	                            <DisplayIdBadge value={testCase.display_id || testCase.id} />
-	                            <strong>{testCase.title}</strong>
-	                          </div>
+		                          </div>
+		                          <div className="test-case-requirement-block">
+		                            <span className="test-case-requirement-label">Requirement</span>
+		                            <p>
+		                              {requirementDisplayId ? <DisplayIdBadge value={requirementDisplayId} /> : null}
+		                              <strong>{requirementTitle || "No requirement linked"}</strong>
+		                            </p>
+		                          </div>
+		                          <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+		                            <strong>{testCase.title}</strong>
+		                          </div>
 	                          <RichTextContent className="tile-card-description" value={testCase.description} fallback="No description yet for this test case." />
 	                          <div className="test-case-card-stats" aria-label={`${testCase.title} facts`}>
 	                            <span title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}>
@@ -7415,9 +7709,9 @@ export function TestCasesPage() {
                               <strong>{caseTypeLabel}</strong>
                               <small>Type</small>
                             </span>
-                            <span title={`${qualityScore}% AI Test Quality Score`}>
+                            <span title={`${qualityScore}% Test Quality Score`}>
                               <strong>{qualityScore}%</strong>
-                              <small>AI score</small>
+                              <small>Test Quality</small>
                             </span>
                             <span title={`${failedRunCount} failed or blocked recent run${failedRunCount === 1 ? "" : "s"}`}>
                               <strong>{failedRunCount ? `${failedRunCount}x` : "0x"}</strong>
@@ -7584,7 +7878,21 @@ export function TestCasesPage() {
                   ) : null}
                 </div>
               ) : null}
-              {!isLibraryLoading && !filteredCases.length ? (
+	              {!isLibraryLoading && hasMoreVisibleTestCases ? (
+	                <div className="catalog-progressive-load">
+	                  <span>
+	                    Showing {Math.min(visibleTestCaseCount, filteredCases.length)} of {filteredCases.length} matching test cases.
+	                  </span>
+	                  <button
+	                    className="ghost-button"
+	                    onClick={() => setVisibleTestCaseCount((current) => current + TEST_CASE_RENDER_BATCH_SIZE)}
+	                    type="button"
+	                  >
+	                    Load more
+	                  </button>
+	                </div>
+	              ) : null}
+	              {!isLibraryLoading && !filteredCases.length ? (
                 testCases.length ? (
                   <div className="empty-state compact">No test cases match the current search.</div>
                 ) : (
@@ -7697,7 +8005,7 @@ export function TestCasesPage() {
                               ))}
                             </select>
                           </FormField>
-                          <FormField label="AI Test Quality Score">
+                          <FormField label="Test Quality Score">
                             <div className="ai-quality-inline">
                               <span className={computedCaseAiQualityScore < 70 ? "ai-quality-score is-low" : "ai-quality-score"}>
                                 {computedCaseAiQualityScore}%
@@ -8633,7 +8941,7 @@ export function TestCasesPage() {
       {isQualitySuggestionModalOpen ? (
         <div className="modal-backdrop" onClick={() => setIsQualitySuggestionModalOpen(false)} role="presentation">
           <div
-            aria-label="AI Test Quality Score suggestions"
+            aria-label="Test Quality Score suggestions"
             aria-modal="true"
             className="modal-card resource-modal-card"
             onClick={(event) => event.stopPropagation()}
@@ -8641,7 +8949,7 @@ export function TestCasesPage() {
           >
             <div className="resource-modal-header">
               <div className="resource-modal-title">
-                <p>AI Test Quality Score</p>
+                <p>Test Quality Score</p>
                 <h3>{computedCaseAiQualityScore}% quality</h3>
               </div>
               <button className="ghost-button" onClick={() => setIsQualitySuggestionModalOpen(false)} type="button">Close</button>

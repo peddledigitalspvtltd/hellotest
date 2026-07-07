@@ -17,6 +17,7 @@ module.exports = async function (fastify) {
       sprint: { required: false, type: "string" },
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
+      iteration_id: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" }
     }, req.body);
@@ -136,6 +137,7 @@ module.exports = async function (fastify) {
       sprint: { required: false, type: "string" },
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
+      iteration_id: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" }
     }, req.body);

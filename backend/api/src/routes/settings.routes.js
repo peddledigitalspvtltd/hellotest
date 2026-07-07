@@ -81,4 +81,13 @@ module.exports = async function (fastify) {
       id: req.params.id
     });
   });
+
+  fastify.delete("/settings/api-keys/:id/permanent", async (req) => {
+    await fastify.authenticate(req);
+    await fastify.requirePermission("api_key.manage")(req);
+    return apiKeyService.deleteApiKey({
+      user_id: req.user.id,
+      id: req.params.id
+    });
+  });
 };

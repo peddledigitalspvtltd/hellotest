@@ -16,13 +16,15 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useAuth } from "../auth/AuthContext";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { AddIcon, ClearSelectionIcon, PlayIcon, SaveIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
+import { SubnavTabs } from "../components/SubnavTabs";
 import { ToastMessage } from "../components/ToastMessage";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
@@ -1256,29 +1258,18 @@ export function AgenticWorkflowsPage() {
           { label: "Runs", value: runs.length },
           { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
         ]}
-        actions={(
-          <>
-            <button
-              className="primary-button"
-              disabled={emptyScope}
-              onClick={() => openDraft()}
-              type="button"
-            >
-              <AddIcon />
-              Create Agentic Workflow
-            </button>
-          </>
-        )}
       />
 
-      <div className="agentic-workflows-tabs" role="tablist" aria-label="Agentic workflow sections">
-        <button className={activeTab === "workflows" ? "is-active" : ""} onClick={() => setActiveTab("workflows")} type="button">
-          Workflows <span>{workflows.length}</span>
-        </button>
-        <button className={activeTab === "runs" ? "is-active" : ""} onClick={() => setActiveTab("runs")} type="button">
-          Workflow Runs <span>{runs.length}</span>
-        </button>
-      </div>
+      <SubnavTabs
+        ariaLabel="Agentic workflow sections"
+        className="agentic-workflows-tabs"
+        items={[
+          { value: "workflows", label: "Workflows", meta: String(workflows.length), icon: <SparkIcon /> },
+          { value: "runs", label: "Workflow Runs", meta: String(runs.length), icon: <PlayIcon /> }
+        ]}
+        onChange={setActiveTab}
+        value={activeTab}
+      />
 
       <div className="agentic-page-stage">
       {!draft && !selectedRun ? (
@@ -1306,43 +1297,30 @@ export function AgenticWorkflowsPage() {
                 </label>
               </div>
             </CatalogSearchFilter>
-            <button
-              className="ghost-button catalog-selection-button"
-              disabled={!visibleActionIds.length || areAllFilteredActionItemsSelected}
-              onClick={() => {
-                if (activeTab === "workflows") {
-                  setSelectedActionWorkflowIds((current) => Array.from(new Set([...current, ...visibleWorkflowIds])));
-                } else {
-                  setSelectedActionRunIds((current) => Array.from(new Set([...current, ...visibleRunIds])));
-                }
-              }}
-              type="button"
-            >
-              <SelectAllIcon />
-              <span>Select all</span>
-            </button>
-            <button
-              className="ghost-button catalog-selection-button"
-              disabled={!selectedActionIds.length}
-              onClick={() => {
+            <CatalogSelectionControls
+              allSelected={areAllFilteredActionItemsSelected}
+              canSelectAll={Boolean(visibleActionIds.length)}
+              onClear={() => {
                 if (activeTab === "workflows") {
                   setSelectedActionWorkflowIds([]);
                 } else {
                   setSelectedActionRunIds([]);
                 }
               }}
-              type="button"
-            >
-              <ClearSelectionIcon />
-              <span>Clear</span>
-            </button>
+              onSelectAll={() => {
+                if (activeTab === "workflows") {
+                  setSelectedActionWorkflowIds((current) => Array.from(new Set([...current, ...visibleWorkflowIds])));
+                } else {
+                  setSelectedActionRunIds((current) => Array.from(new Set([...current, ...visibleRunIds])));
+                }
+              }}
+              selectedCount={selectedActionIds.length}
+            />
             {activeTab === "workflows" ? (
-              <div className="agentic-workflows-toolbar-actions">
-                <button className="ghost-button" disabled={emptyScope} onClick={() => openDraft()} type="button">
-                  <AddIcon />
-                  New
-                </button>
-              </div>
+              <button className="primary-button catalog-selection-button" disabled={emptyScope} onClick={() => openDraft()} type="button">
+                <AddIcon />
+                <span>Create Agentic Workflow</span>
+              </button>
             ) : null}
           </div>
 

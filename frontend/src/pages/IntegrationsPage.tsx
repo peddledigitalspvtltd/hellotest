@@ -4,18 +4,17 @@ import { useAuth } from "../auth/AuthContext";
 import {
   ActivityIcon,
   AddIcon,
-  ClearSelectionIcon,
   ExportIcon,
   GithubIcon,
   GoogleDriveIcon,
   ImportIcon,
   MailIcon,
   PlugIcon,
-  SelectAllIcon,
   SparkIcon,
   UsersIcon
 } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
@@ -1618,24 +1617,13 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	                    </div>
 	                  </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleIntegrationIds.length || areAllFilteredIntegrationsSelected}
-                  onClick={() => setSelectedActionIntegrationIds((current) => Array.from(new Set([...current, ...visibleIntegrationIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionIntegrationIds.length}
-                  onClick={() => setSelectedActionIntegrationIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredIntegrationsSelected}
+                  canSelectAll={Boolean(visibleIntegrationIds.length)}
+                  onClear={() => setSelectedActionIntegrationIds([])}
+                  onSelectAll={() => setSelectedActionIntegrationIds((current) => Array.from(new Set([...current, ...visibleIntegrationIds])))}
+                  selectedCount={selectedActionIntegrationIds.length}
+                />
                 <CatalogViewToggle onChange={setIntegrationCatalogViewMode} value={integrationCatalogViewMode} />
                 {embedded && integrationActions ? <div className="catalog-toolbar-actions">{integrationActions}</div> : null}
               </div>

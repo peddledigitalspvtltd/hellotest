@@ -1,8 +1,9 @@
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, ClearSelectionIcon, LayersIcon, OpenIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, LayersIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -730,7 +731,15 @@ export function SharedStepsPage() {
     setMessage(error instanceof Error ? error.message : fallback);
   };
 
-  const refreshGroups = async () => {
+  const refreshGroups = async (options: { preserveSelectedGroupId?: string } = {}) => {
+    const preserveSelectedGroupId = options.preserveSelectedGroupId;
+    if (preserveSelectedGroupId) {
+      await queryClient.invalidateQueries({ queryKey: ["shared-step-groups", appTypeId] });
+      await queryClient.invalidateQueries({ queryKey: ["shared-step-groups"] });
+      setSelectedGroupId(preserveSelectedGroupId);
+      return;
+    }
+
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["shared-step-groups"] }),
       queryClient.invalidateQueries({ queryKey: ["shared-step-groups", appTypeId] })
@@ -973,6 +982,7 @@ export function SharedStepsPage() {
 
     const steps = normalizeGroupSteps(groupDraft.steps);
     const parameterValues = filterStepParameterValues(normalizeStepParameterValues(sharedParameterValues), detectedSharedParameters);
+    let savedGroupId = selectedGroup?.id || "";
 
     try {
       if (isCreating) {
@@ -987,6 +997,7 @@ export function SharedStepsPage() {
 
         upsertSharedStepGroupInCache(queryClient, appTypeId, createdGroup);
 
+        savedGroupId = createdGroup.id;
         syncSharedGroupSearchParams(getRoutableId(createdGroup) || createdGroup.id);
         setSelectedGroupId(createdGroup.id);
         setIsCreating(false);
@@ -1006,6 +1017,9 @@ export function SharedStepsPage() {
         const refreshedGroup = await api.sharedStepGroups.get(selectedGroup.id);
 
         upsertSharedStepGroupInCache(queryClient, appTypeId, refreshedGroup);
+        savedGroupId = refreshedGroup.id;
+        syncSharedGroupSearchParams(getRoutableId(refreshedGroup) || refreshedGroup.id);
+        setSelectedGroupId(refreshedGroup.id);
         setGroupDraft(draftFromGroup(refreshedGroup));
 
         showSuccess(
@@ -1015,7 +1029,7 @@ export function SharedStepsPage() {
         );
       }
 
-      await refreshGroups();
+      await refreshGroups({ preserveSelectedGroupId: savedGroupId });
     } catch (error) {
       showError(error, "Unable to save shared step group");
     }
@@ -1115,6 +1129,7 @@ export function SharedStepsPage() {
     [requirements.length, sharedGroups.length, suites.length, testCases.length]
   );
   const allStepsSelected = Boolean(groupDraft.steps.length) && selectedStepIds.length === groupDraft.steps.length;
+  const isSharedGroupWorkspaceOpen = isCreating || Boolean(selectedGroupId);
   const sharedEditorActions: SharedGroupStepActionMenuAction[] = [
     {
       label: "Expand all steps",
@@ -1164,22 +1179,18 @@ export function SharedStepsPage() {
   return (
     <div className="page-content page-content--library-full">
       {confirmationDialog}
-      <PageHeader
-        eyebrow="Shared Step Groups"
-        title="Shared Step Groups"
-        description="Curate repeatable step blocks once. Shared groups promoted from test cases and groups created here land in the same reusable library."
-        meta={[
-          { label: "Groups", value: coverageMeta.total },
-          { label: "Reusable steps", value: coverageMeta.totalSteps },
-          { label: "Case links", value: coverageMeta.usedInCases }
-        ]}
-        actions={
-          <button className="primary-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
-            <AddIcon />
-            New shared group
-          </button>
-        }
-      />
+      {!isSharedGroupWorkspaceOpen ? (
+        <PageHeader
+          eyebrow="Shared Step Groups"
+          title="Shared Step Groups"
+          description="Curate repeatable step blocks once. Shared groups promoted from test cases and groups created here land in the same reusable library."
+          meta={[
+            { label: "Groups", value: coverageMeta.total },
+            { label: "Reusable steps", value: coverageMeta.totalSteps },
+            { label: "Case links", value: coverageMeta.usedInCases }
+          ]}
+        />
+      ) : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
@@ -1210,35 +1221,22 @@ export function SharedStepsPage() {
                   </div>
                 </div>
               </CatalogSearchFilter>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!visibleGroupIds.length || selectedVisibleGroupIds.length === visibleGroupIds.length}
-                onClick={() => setSelectedGroupIds((current) => Array.from(new Set([...current, ...visibleGroupIds])))}
-                type="button"
-              >
-                <SelectAllIcon />
-                <span>Select all</span>
-              </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!selectedGroupIds.length}
-                onClick={() => setSelectedGroupIds([])}
-                type="button"
-              >
-                <ClearSelectionIcon />
-                <span>Clear</span>
-              </button>
-              <button className="ghost-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
-                New group
-              </button>
-              <button
-                className="ghost-button danger"
-                disabled={!selectedVisibleGroupIds.length || deleteSharedGroup.isPending}
-                onClick={() => void handleDeleteSelectedGroups()}
-                type="button"
-              >
-                <TrashIcon />
-                <span>{deleteSharedGroup.isPending ? "Deleting selected" : "Delete selected"}</span>
+              <CatalogSelectionControls
+                allSelected={selectedVisibleGroupIds.length === visibleGroupIds.length}
+                canSelectAll={Boolean(visibleGroupIds.length)}
+                deleteAction={{
+                  disabled: deleteSharedGroup.isPending,
+                  label: deleteSharedGroup.isPending ? "Deleting selected" : "Delete selected",
+                  onClick: () => void handleDeleteSelectedGroups(),
+                  visible: Boolean(selectedVisibleGroupIds.length)
+                }}
+                onClear={() => setSelectedGroupIds([])}
+                onSelectAll={() => setSelectedGroupIds((current) => Array.from(new Set([...current, ...visibleGroupIds])))}
+                selectedCount={selectedGroupIds.length}
+              />
+              <button className="primary-button catalog-selection-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
+                <AddIcon />
+                <span>New shared group</span>
               </button>
             </div>
 
@@ -1275,15 +1273,15 @@ export function SharedStepsPage() {
                                       : current.filter((groupId) => groupId !== group.id)
                                   );
 	                                }}
-	                                type="checkbox"
-	                              />
-	                            </label>
-	                          </div>
-	                          <div className="tile-card-header">
-		                            <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
-	                              <DisplayIdBadge value={group.display_id || group.id} />
-	                              <strong>{group.name}</strong>
-	                            </div>
+		                                type="checkbox"
+		                              />
+		                            </label>
+		                            <DisplayIdBadge value={group.display_id || group.id} />
+		                          </div>
+		                          <div className="tile-card-header">
+			                            <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+		                              <strong>{group.name}</strong>
+		                            </div>
 	                          </div>
                           <RichTextContent className="tile-card-description" value={group.description} fallback={preview} />
                           <div className="tile-card-facts" aria-label={`${group.name} facts`}>

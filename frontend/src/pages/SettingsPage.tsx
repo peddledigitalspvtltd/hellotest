@@ -120,6 +120,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [createdApiKeyRecord, setCreatedApiKeyRecord] = useState<UserApiKey | null>(null);
   const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
   const [revokingApiKeyId, setRevokingApiKeyId] = useState("");
+  const [deletingApiKeyId, setDeletingApiKeyId] = useState("");
   const [expandedSettingsSections, setExpandedSettingsSections] = useState<Record<SettingsSectionId, boolean>>(DEFAULT_EXPANDED_SETTINGS_SECTIONS);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -383,6 +384,35 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   };
 
+  const handleDeleteApiKey = async (apiKeyRecord: UserApiKey) => {
+    if (!canManageApiKeys) {
+      setMessage("You do not have permission to manage API keys.");
+      setMessageTone("error");
+      return;
+    }
+
+    if (!window.confirm(`Delete API key "${apiKeyRecord.name}" from this list? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingApiKeyId(apiKeyRecord.id);
+    setMessage("");
+    try {
+      await api.settings.deleteApiKey(apiKeyRecord.id);
+      if (createdApiKeyRecord?.id === apiKeyRecord.id) {
+        setCreatedApiKey("");
+        setCreatedApiKeyRecord(null);
+      }
+      await apiKeysQuery.refetch();
+      setMessageTone("success");
+      setMessage("API key deleted.");
+    } catch (error) {
+      showError(error, "Unable to delete API key.");
+    } finally {
+      setDeletingApiKeyId("");
+    }
+  };
+
   const toggleSettingsSection = (section: SettingsSectionId) => {
     setExpandedSettingsSections((current) => ({
       ...current,
@@ -580,15 +610,26 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <span>Created {formatApiDate(apiKeyRecord.created_at)}</span>
                     <span>Last used {formatApiDate(apiKeyRecord.last_used_at)}</span>
                   </div>
-                  <button
-                    className="ghost-button compact danger"
-                    disabled={!apiKeyRecord.is_active || revokingApiKeyId === apiKeyRecord.id}
-                    onClick={() => void handleRevokeApiKey(apiKeyRecord)}
-                    type="button"
-                  >
-                    <TrashIcon size={15} />
-                    <span>{revokingApiKeyId === apiKeyRecord.id ? "Revoking..." : "Revoke"}</span>
-                  </button>
+                  <div className="settings-api-key-actions">
+                    <button
+                      className="ghost-button compact danger"
+                      disabled={!apiKeyRecord.is_active || revokingApiKeyId === apiKeyRecord.id || deletingApiKeyId === apiKeyRecord.id}
+                      onClick={() => void handleRevokeApiKey(apiKeyRecord)}
+                      type="button"
+                    >
+                      <span>{revokingApiKeyId === apiKeyRecord.id ? "Revoking..." : "Revoke"}</span>
+                    </button>
+                    <button
+                      aria-label={`Delete API key ${apiKeyRecord.name}`}
+                      className="ghost-button compact danger icon-only-button"
+                      disabled={deletingApiKeyId === apiKeyRecord.id}
+                      onClick={() => void handleDeleteApiKey(apiKeyRecord)}
+                      title="Delete API key"
+                      type="button"
+                    >
+                      <TrashIcon size={15} />
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

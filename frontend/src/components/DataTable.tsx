@@ -237,6 +237,28 @@ export function DataTable<T>({
     () => orderedColumns.filter((column) => column.canToggle === false || visibleColumnKeySet.has(column.key)),
     [orderedColumns, visibleColumnKeySet]
   );
+  const estimatedColumnWidths = useMemo(() => {
+    const sampleRows = rows.slice(0, 80);
+
+    return activeColumns.reduce<Record<string, number>>((widths, column) => {
+      if (column.width) {
+        return widths;
+      }
+
+      const sampleValues = [
+        column.label,
+        ...sampleRows.map((row) => {
+          const value = column.sortValue?.(row);
+          return value === null || value === undefined ? "" : String(value);
+        })
+      ];
+      const longest = sampleValues.reduce((length, value) => Math.max(length, value.length), 0);
+      const estimatedWidth = Math.min(DEFAULT_MAX_COLUMN_WIDTH, Math.max(DEFAULT_MIN_COLUMN_WIDTH, longest * 7 + 56));
+
+      widths[column.key] = clampColumnWidth(column, estimatedWidth);
+      return widths;
+    }, {});
+  }, [activeColumns, rows]);
 
   const updateColumnPreference = (updater: (current: NormalizedColumnPreference) => NormalizedColumnPreference) => {
     setColumnPreference((current) => normalizeColumnPreference(columns, updater(current)));
@@ -250,7 +272,7 @@ export function DataTable<T>({
   };
 
   const getColumnWidth = (column: DataTableColumn<T>) =>
-    enableColumnResize ? columnWidths[column.key] || column.width || DEFAULT_COLUMN_WIDTH : undefined;
+    enableColumnResize ? columnWidths[column.key] || column.width || estimatedColumnWidths[column.key] || DEFAULT_COLUMN_WIDTH : undefined;
 
   const handleColumnResizePointerDown = (column: DataTableColumn<T>, event: ReactPointerEvent<HTMLSpanElement>) => {
     if (!enableColumnResize || column.canResize === false) {
@@ -650,11 +672,16 @@ export function DataTable<T>({
                               type="button"
                             >
                               <span className="data-table-header-label">{column.label}</span>
-                              {sortState?.key === column.key ? (
-                                <span aria-hidden="true" className="data-table-sort-indicator">
-                                  {sortState.direction === "asc" ? "Asc" : "Desc"}
-                                </span>
-                              ) : null}
+                              <span
+                                aria-hidden="true"
+                                className={[
+                                  "data-table-sort-indicator",
+                                  sortState?.key === column.key ? "is-active" : "",
+                                  sortState?.key === column.key && sortState.direction === "desc" ? "is-desc" : "is-asc"
+                                ].filter(Boolean).join(" ")}
+                              >
+                                <DataTableSortArrowIcon />
+                              </span>
                             </button>
                           ) : <span className="data-table-header-label">{column.label}</span>
                         )}
@@ -743,5 +770,14 @@ export function DataTable<T>({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function DataTableSortArrowIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+      <path d="M12 5v14" />
+      <path d="m7 10 5-5 5 5" />
+    </svg>
   );
 }

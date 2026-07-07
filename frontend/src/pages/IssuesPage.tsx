@@ -2,10 +2,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { BugIcon, ClearSelectionIcon, SelectAllIcon } from "../components/AppIcons";
+import { BugIcon, ExportIcon } from "../components/AppIcons";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -130,6 +132,24 @@ const buildIssuePayload = (draft: IssueDraft, userId: string) => ({
   status: draft.status
 });
 
+const csvEscape = (value: unknown) => {
+  const text = String(value ?? "").replace(/\r?\n/g, " ").trim();
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+const downloadCsv = (filename: string, rows: string[][]) => {
+  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
 export function IssuesPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
@@ -240,8 +260,16 @@ export function IssuesPage() {
   };
   const issueListColumns = useMemo<Array<DataTableColumn<Issue>>>(() => [
     {
+      key: "id",
+      label: "ID",
+      width: 132,
+      minWidth: 100,
+      sortValue: (item) => item.id,
+      render: (item) => <DisplayIdBadge value={item.id} />
+    },
+    {
       key: "title",
-      label: "Issue",
+      label: "Issue Title",
       canToggle: false,
       width: 280,
       minWidth: 180,
@@ -249,9 +277,15 @@ export function IssuesPage() {
       render: (item) => (
         <div className="data-table-multiline">
           <strong>{item.title}</strong>
-          <span className="data-table-multiline-line">{richTextToPlainText(item.message)}</span>
         </div>
       )
+    },
+    {
+      key: "description",
+      label: "Description",
+      width: 360,
+      minWidth: 200,
+      render: (item) => <span className="data-table-description-clamp">{richTextToPlainText(item.message)}</span>
     },
     {
       key: "status",
@@ -329,15 +363,31 @@ export function IssuesPage() {
       sortValue: (item) => item.user_name || item.user_email || item.user_id || "",
       render: (item) => item.user_name || item.user_email || item.user_id || "Unknown"
     },
-    {
-      key: "message",
-      label: "Message",
-      defaultVisible: false,
-      width: 360,
-      minWidth: 200,
-      render: (item) => richTextToPlainText(item.message)
-    }
   ], [assigneeLabelById, defaultIssueStatus, runLabelById]);
+
+  const handleExportIssuesCsv = () => {
+    downloadCsv("issues.csv", [
+      ["ID", "Issue Title", "Description", "Status", "Jira Bug Key", "Severity", "Priority", "Linked Test Run", "Environment", "Build", "Assignee", "Reporter", "Steps To Reproduce", "Expected Result", "Actual Result", "Root Cause"],
+      ...filteredItems.map((item) => [
+        item.id,
+        item.title,
+        richTextToPlainText(item.message),
+        formatTileCardLabel(item.status, "Open"),
+        item.jira_bug_key || "",
+        formatTileCardLabel(item.severity, "Not set"),
+        formatTileCardLabel(item.priority, "Not set"),
+        runLabelById.get(item.linked_test_run_id || "") || item.linked_test_run_id || "",
+        item.environment || "",
+        item.build || "",
+        item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "Unassigned",
+        item.user_name || item.user_email || item.user_id || "Unknown",
+        richTextToPlainText(item.steps_to_reproduce),
+        richTextToPlainText(item.expected_result),
+        richTextToPlainText(item.actual_result),
+        richTextToPlainText(item.root_cause)
+      ])
+    ]);
+  };
 
   useEffect(() => {
     if (searchParams.get("create") !== "1") {
@@ -495,31 +545,18 @@ export function IssuesPage() {
   return (
     <div className="page-content">
       {confirmationDialog}
-      <PageHeader
-        eyebrow="Defects"
-        title="Report Issue"
-        description="Capture Jira-ready bugs with reproduction details, run context, ownership, and root cause."
-        meta={[
-          { label: "Issues", value: items.length },
-          { label: "Open", value: openIssueCount },
-          { label: "Selected", value: isCreating ? "New draft" : selectedItem?.status || "None" }
-        ]}
-        actions={
-          <button
-            className="primary-button"
-            onClick={() => {
-              syncIssueSearchParams(null);
-              setIsCreating(true);
-              setSelectedIssueId("");
-              setDraft(emptyDraft);
-            }}
-            type="button"
-          >
-            <BugIcon />
-            Report Issue
-          </button>
-        }
-      />
+      {!(isCreating || selectedItem) ? (
+        <PageHeader
+          eyebrow="Defects"
+          title="Report Issue"
+          description="Capture Jira-ready bugs with reproduction details, run context, ownership, and root cause."
+          meta={[
+            { label: "Issues", value: items.length },
+            { label: "Open", value: openIssueCount },
+            { label: "Selected", value: "None" }
+          ]}
+        />
+      ) : null}
 
       {message ? <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p> : null}
 
@@ -545,23 +582,29 @@ export function IssuesPage() {
                   </div>
                 </div>
               </CatalogSearchFilter>
+              <CatalogSelectionControls
+                allSelected={areAllFilteredIssuesSelected}
+                canSelectAll={Boolean(visibleIssueIds.length)}
+                onClear={() => setSelectedActionIssueIds([])}
+                onSelectAll={() => setSelectedActionIssueIds((current) => Array.from(new Set([...current, ...visibleIssueIds])))}
+                selectedCount={selectedActionIssueIds.length}
+              />
               <button
-                className="ghost-button catalog-selection-button"
-                disabled={!visibleIssueIds.length || areAllFilteredIssuesSelected}
-                onClick={() => setSelectedActionIssueIds((current) => Array.from(new Set([...current, ...visibleIssueIds])))}
+                className="primary-button catalog-selection-button"
+                onClick={() => {
+                  syncIssueSearchParams(null);
+                  setIsCreating(true);
+                  setSelectedIssueId("");
+                  setDraft(emptyDraft);
+                }}
                 type="button"
               >
-                <SelectAllIcon />
-                <span>Select all</span>
+                <BugIcon />
+                <span>Report Issue</span>
               </button>
-              <button
-                className="ghost-button catalog-selection-button"
-                disabled={!selectedActionIssueIds.length}
-                onClick={() => setSelectedActionIssueIds([])}
-                type="button"
-              >
-                <ClearSelectionIcon />
-                <span>Clear</span>
+              <button className="ghost-button catalog-selection-button" disabled={!filteredItems.length} onClick={handleExportIssuesCsv} type="button">
+                <ExportIcon />
+                <span>Export</span>
               </button>
               <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
             </div>
@@ -598,6 +641,7 @@ export function IssuesPage() {
                           />
                           <span className="sr-only">Select issue</span>
                         </label>
+                        <DisplayIdBadge value={item.id} />
                       </div>
                       <div className="tile-card-header">
                         <span className="issue-card-badge">IS</span>

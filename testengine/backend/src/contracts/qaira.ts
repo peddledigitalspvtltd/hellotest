@@ -98,6 +98,14 @@ export type EngineManualSpec = {
   intent: string;
   preconditions: string[];
   steps: string[];
+  detailed_steps?: Array<{
+    id?: string | null;
+    order?: number | null;
+    action: string;
+    expected_result?: string | null;
+    automation_code?: string | null;
+    api_request?: unknown;
+  }>;
   assertions: string[];
   test_data: Record<string, string>;
   environment_notes?: string | null;
@@ -321,6 +329,11 @@ export type EngineRunEnvelope = {
     app?: string | null;
   } | null;
   manual_spec: EngineManualSpec;
+  auto_repair_brief?: {
+    goal?: string;
+    screen_selection?: string;
+    correction_policy?: string[];
+  } | null;
   attached_script?: EngineAttachedScript | null;
   hooks?: EngineRunHook[];
   object_repository?: EngineObjectRepositoryEntry[];

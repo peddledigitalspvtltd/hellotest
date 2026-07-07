@@ -218,6 +218,25 @@ const revokeApiKey = async ({ user_id, id }) => {
   };
 };
 
+const deleteApiKey = async ({ user_id, id }) => {
+  if (!user_id || !id) {
+    throw createError("API key id is required.", 400);
+  }
+
+  const result = await db.prepare(`
+    DELETE FROM user_api_keys
+    WHERE id = ?
+      AND user_id = ?
+    RETURNING id
+  `).get(id, user_id);
+
+  if (!result) {
+    throw createError("API key not found.", 404);
+  }
+
+  return { deleted: true, id: result.id };
+};
+
 const verifyApiKey = async (apiKey) => {
   const normalized = normalizeText(apiKey);
 
@@ -292,6 +311,7 @@ module.exports = {
   API_KEY_PREFIX,
   API_KEY_SCOPES,
   createApiKey,
+  deleteApiKey,
   extractApiKeyFromRequest,
   isApiKeyToken,
   isScopeAllowed,

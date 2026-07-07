@@ -38,10 +38,7 @@
   line-height: 1.6;
   font-weight: 400;
   color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(108, 163, 255, 0.4), transparent 40%),
-    radial-gradient(circle at top right, rgba(33, 104, 243, 0.18), transparent 30%),
-    linear-gradient(180deg, #f4f9ff 0%, #eef5ff 100%);
+  background: #f8fafc !important;
   background-attachment: fixed;
 }
 
@@ -211,6 +208,8 @@ body > .modal-backdrop {
   justify-content: center;
   overflow: auto;
   overscroll-behavior: contain;
+  padding: max(2rem, env(safe-area-inset-top)) max(2rem, env(safe-area-inset-right)) max(3.5rem, env(safe-area-inset-bottom)) max(2rem, env(safe-area-inset-left));
+  background: rgba(248, 250, 252, 0.82) !important;
 }
 
 .modal-card,
@@ -218,9 +217,187 @@ body > .modal-backdrop {
 .people-modal-card,
 .modal-card.ai-modal-card,
 .modal-card.ai-design-modal {
-  max-height: min(92dvh, 64rem);
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 3rem);
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  background: #ffffff;
   border-radius: 8px;
+}
+
+.table-wrap,
+.catalog-table-wrap,
+.import-preview-table {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 1.25rem;
+  scrollbar-gutter: stable both-edges;
+}
+
+.tile-browser-pane-scroll,
+.requirement-link-picker,
+.sidebar-scope-project-list,
+.data-table-config-panel,
+.run-action-dropdown {
+  scroll-padding: 1rem;
+  scrollbar-gutter: stable;
+}
+
+.workspace-main > .page-content,
+.page-content,
+.page-content.page-content--library-full,
+.page-content.page-content--executions-full,
+.page-content--automation,
+.page-content--testops,
+.modal-card,
+.resource-modal-card,
+.people-modal-card {
+  background: #f8fafc !important;
+}
+
+.data-table-header-sort-button {
+  gap: 0.35rem;
+}
+
+.data-table-sort-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  color: rgba(100, 116, 139, 0.5);
+  transform: rotate(180deg);
+  transition: color 0.16s ease, transform 0.16s ease;
+}
+
+.data-table-sort-indicator.is-active {
+  color: var(--primary);
+}
+
+.data-table-sort-indicator.is-active.is-asc {
+  transform: rotate(0deg);
+}
+
+.data-table-sort-indicator.is-active.is-desc {
+  transform: rotate(180deg);
+}
+
+.tile-card-description,
+.test-case-catalog-card .tile-card-description,
+.requirement-catalog-card .tile-card-description {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.tile-card-title-group::before,
+.tile-card-description::before {
+  display: block;
+  margin-bottom: 0.18rem;
+  color: #64748b;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.tile-card-title-group::before {
+  content: "Title";
+}
+
+.tile-card-description::before {
+  content: "Description";
+}
+
+.requirement-split-action-button {
+  flex: 0 1 auto;
+}
+
+.requirement-action-dropdown {
+  z-index: 1400;
+}
+
+.requirement-iteration-header {
+  grid-column: 1 / -1;
+}
+
+.requirement-traceability-shell {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(126, 149, 188, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.requirement-traceability-head {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.requirement-traceability-head strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.requirement-traceability-head span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.requirement-run-sparkline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  min-width: 2.9rem;
+  min-height: 1.6rem;
+}
+
+.requirement-run-bar {
+  width: 0.32rem;
+  min-width: 0.32rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #94a3b8;
+  cursor: pointer;
+}
+
+.requirement-run-bar.is-passed {
+  background: #16a34a;
+}
+
+.requirement-run-bar.is-failed {
+  background: #dc2626;
+}
+
+.requirement-run-defect-link {
+  min-width: auto;
+  padding: 0;
+  font-size: 0.72rem;
+}
+
+.catalog-progressive-load {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 1rem;
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 750;
+  text-align: center;
 }
 
 .modal-card > form,
@@ -12526,6 +12703,16 @@ textarea:disabled,
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   max-height: min(58vh, 36rem);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.requirement-import-modal-card .import-preview-table {
+  max-height: min(52vh, 30rem);
+}
+
+.requirement-import-modal-card .import-preview-table .data-table {
+  min-width: 58rem;
 }
 
 .requirement-import-source-toggle {
@@ -25515,6 +25702,37 @@ button.pom-member-row {
   overflow-wrap: anywhere;
 }
 
+.ai-requirement-improve-modal {
+  width: min(72rem, calc(100vw - 2rem)) !important;
+}
+
+.ai-requirement-improve-modal .requirement-create-modal-body {
+  grid-template-columns: minmax(18rem, 0.86fr) minmax(0, 1.14fr);
+  gap: 1rem;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.ai-requirement-improve-modal .record-grid {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+.ai-requirement-improve-modal .action-row {
+  justify-content: flex-start;
+}
+
+.ai-requirement-improve-modal .ai-requirement-review {
+  align-content: start;
+}
+
+@media (max-width: 900px) {
+  .ai-requirement-improve-modal .requirement-create-modal-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .agent-education-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
@@ -29059,6 +29277,22 @@ textarea:focus-visible,
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92)),
     radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 34%);
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08);
+}
+
+.overview-layout .overview-hero .page-header-text,
+.overview-layout .overview-hero .page-header-title-row,
+.overview-layout .overview-hero .page-description {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.overview-layout .overview-hero .page-header-text {
+  align-items: flex-start;
+  justify-items: start;
 }
 
 .overview-layout .page-header-title-row {
@@ -37616,15 +37850,6 @@ body > .nested-modal-backdrop {
     font-size: 0.66rem !important;
   }
 
-  .page-description-info,
-  .info-tooltip-trigger.page-description-info {
-    flex: 0 0 auto !important;
-    width: 1.75rem !important;
-    min-width: 1.75rem !important;
-    height: 1.75rem !important;
-    min-height: 1.75rem !important;
-  }
-
   .page-actions,
   .panel-head-actions,
   .panel-head-actions-row,
@@ -41186,6 +41411,61 @@ body > .nested-modal-backdrop {
   overflow-y: auto !important;
 }
 
+.iteration-requirement-picker {
+  display: grid;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.iteration-requirement-picker-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.iteration-requirement-picker-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: min(40vh, 24rem);
+  min-height: 8rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.iteration-requirement-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.72rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.iteration-requirement-option span {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.iteration-requirement-option strong,
+.iteration-requirement-option small {
+  overflow-wrap: anywhere;
+}
+
+.iteration-requirement-option small {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 760px) {
+  .iteration-requirement-picker-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Sidebar project and app type selector. */
 .sidebar-scope-selector {
   width: 100%;
@@ -42843,5 +43123,2188 @@ body > .nested-modal-backdrop {
 
   .project-card-select-row .project-card-top-actions .project-health-badge {
     max-width: none !important;
+  }
+}
+
+/* 2026-07 authoring UX alignment */
+.workspace-main.main--library-fill,
+.workspace-main.main--library-fill > .page-content,
+.workspace-main.main--library-fill > .page-content.page-content--library-full,
+.workspace-main.main--library-fill > .page-content.page-content--workspace-focus,
+.workspace-main.main--library-fill .workspace-master-detail,
+.workspace-main.main--library-fill .workspace-master-detail-pane,
+.workspace-main.main--library-fill .workspace-master-detail-browse,
+.workspace-main.main--library-fill .workspace-master-detail-detail,
+.workspace-main.main--library-fill .suite-design-workspace,
+.workspace-main.main--library-fill .shared-step-workspace-form,
+.workspace-main.main--library-fill .requirement-detail-column,
+.modal-backdrop,
+.modal-card,
+.suite-test-case-editor-modal,
+.suite-create-modal {
+  background: #f8fafc !important;
+  background-image: none !important;
+}
+
+.workspace-main.main--library-fill > .page-content > .workspace-section-tabs-shell {
+  margin-top: 0.45rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  width: auto !important;
+  max-width: 100% !important;
+  padding: 0.18rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.62) !important;
+  box-shadow: none !important;
+  overflow-x: auto !important;
+  scrollbar-width: thin;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab {
+  min-height: 2rem !important;
+  padding: 0.42rem 0.7rem !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  color: #475569 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab:hover,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab:hover {
+  background: rgba(37, 99, 235, 0.07) !important;
+  color: #1d4ed8 !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab.is-active,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab.is-active {
+  background: #eaf2ff !important;
+  color: #1d4ed8 !important;
+  box-shadow: none !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-indicator,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab.is-active .subnav-tab-indicator {
+  display: none !important;
+}
+
+.requirement-split-action-button,
+.test-case-split-action-button {
+  border-color: rgba(37, 99, 235, 0.34) !important;
+  background: linear-gradient(180deg, #2f7df5, #1d4ed8) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button:hover:not(:has(button:disabled)),
+.requirement-split-action-button:focus-within,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+}
+
+.requirement-action-dropdown,
+.test-case-action-dropdown {
+  border-color: rgba(37, 99, 235, 0.2) !important;
+}
+
+.requirement-action-dropdown button,
+.test-case-action-dropdown button {
+  align-items: start !important;
+  border-color: rgba(37, 99, 235, 0.28) !important;
+  background: linear-gradient(180deg, #2f7df5, #1d4ed8) !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.16) !important;
+}
+
+.requirement-action-dropdown button:hover:not(:disabled),
+.test-case-action-dropdown button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+}
+
+.run-action-option-copy,
+.run-action-option-title {
+  min-width: 0;
+}
+
+.run-action-option-copy {
+  display: grid !important;
+  gap: 0.18rem !important;
+}
+
+.run-action-option-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+}
+
+.run-action-option-copy small {
+  display: block;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.tile-card-select-row .display-id-badge {
+  flex: 0 0 auto;
+  margin-left: 0.32rem;
+}
+
+.requirement-tile-header .tile-card-title-group {
+  min-width: 0;
+}
+
+.test-case-requirement-block p {
+  display: flex !important;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.test-case-requirement-block p strong {
+  min-width: 0;
+  font-size: inherit;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-case-requirement-block .display-id-badge {
+  flex: 0 0 auto;
+}
+
+.data-table-header-sort-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.18rem !important;
+  width: auto !important;
+}
+
+.data-table-header-label {
+  flex: 0 0 auto;
+}
+
+.data-table-sort-indicator {
+  flex: 0 0 auto;
+  margin-left: 0 !important;
+}
+
+.data-table-description-clamp {
+  display: -webkit-box !important;
+  max-width: min(34rem, 48vw);
+  overflow: hidden !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  line-height: 1.35;
+}
+
+.catalog-data-table tbody td:has(.data-table-description-clamp),
+.data-table tbody td:has(.data-table-description-clamp) {
+  vertical-align: top !important;
+}
+
+@media (max-width: 768px) {
+  .workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+  .workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs {
+    display: flex !important;
+    width: 100% !important;
+  }
+
+  .data-table-description-clamp {
+    max-width: 18rem;
+  }
+}
+
+/* 2026-07 tab strip and catalog card refinement */
+.workspace-main.main--library-fill > .page-content > .workspace-section-tabs-shell {
+  position: static !important;
+  z-index: auto;
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.35rem 0 0.45rem !important;
+  pointer-events: auto;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.24) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab {
+  min-height: 2.35rem !important;
+  padding: 0.42rem 0.78rem 0.52rem !important;
+  border-radius: 6px 6px 0 0 !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+  color: #526179 !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab.is-active,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab.is-active {
+  background: transparent !important;
+  color: #1d4ed8 !important;
+  box-shadow: inset 0 -2px 0 #1d4ed8 !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab.is-active .subnav-tab-meta,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab.is-active .subnav-tab-meta {
+  color: #64748b !important;
+}
+
+.tile-card-select-row {
+  gap: 0.18rem !important;
+}
+
+.tile-card-select-row > .checkbox-field {
+  flex: 0 0 auto !important;
+  gap: 0 !important;
+}
+
+.tile-card-select-row > .display-id-badge,
+.tile-card-select-row .checkbox-field + .display-id-badge {
+  margin-left: 0 !important;
+  opacity: 0.9;
+}
+
+.tile-card-description,
+.test-case-catalog-card .tile-card-description,
+.requirement-catalog-card .tile-card-description {
+  white-space: normal !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block {
+  display: grid !important;
+  gap: 0.22rem !important;
+}
+
+.tile-card-title-group::before,
+.tile-card-description::before {
+  content: none !important;
+  display: none !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block .test-case-requirement-label {
+  display: block !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.test-case-catalog-card .test-case-requirement-block p {
+  margin: 0 !important;
+}
+
+.data-table-sort-indicator,
+.data-table-sort-indicator.is-active,
+.data-table-sort-indicator.is-asc,
+.data-table-sort-indicator.is-desc {
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.data-table-sort-indicator svg {
+  display: block;
+}
+
+.requirement-split-action-button .run-action-main,
+.requirement-split-action-button .run-action-toggle,
+.test-case-split-action-button .run-action-main,
+.test-case-split-action-button .run-action-toggle {
+  color: #ffffff !important;
+}
+
+.requirement-split-action-button,
+.requirement-split-action-button:hover:not(:has(button:disabled)),
+.requirement-split-action-button:focus-within,
+.test-case-split-action-button,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button .info-tooltip-trigger,
+.test-case-split-action-button .info-tooltip-trigger,
+.test-case-run-split-action-button .info-tooltip-trigger {
+  color: #ffffff !important;
+  opacity: 0.92;
+}
+
+.test-case-run-split-action-button {
+  border-color: rgba(13, 157, 108, 0.34) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 12px 26px rgba(13, 157, 108, 0.22) !important;
+}
+
+.run-action-toggle {
+  position: relative;
+}
+
+.run-action-toggle .run-action-toggle-info {
+  position: absolute;
+  top: 0.18rem;
+  right: 0.22rem;
+  display: inline-flex !important;
+  width: auto;
+  height: auto;
+  transform: scale(0.7);
+  transform-origin: top right;
+  opacity: 0.92;
+}
+
+.run-action-toggle .run-action-toggle-info svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+/* Keep workspace section tabs compact and adjacent on one horizontal line. */
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs {
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: 0 !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab {
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+/* Restore consistent tile-card labels and plain requirement text blocks. */
+.tile-card-title-group {
+  display: grid !important;
+  align-items: start !important;
+  gap: 0.18rem !important;
+  min-width: 0 !important;
+}
+
+.tile-card-title-group::before,
+.tile-card-description::before {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.tile-card-title-group::before {
+  content: "Title" !important;
+}
+
+.tile-card-description::before {
+  content: "Description" !important;
+}
+
+.tile-card-title-group strong,
+.tile-card-description {
+  width: 100%;
+}
+
+.tile-card-description,
+.test-case-catalog-card .tile-card-description,
+.requirement-catalog-card .tile-card-description {
+  display: block !important;
+  overflow: hidden !important;
+}
+
+.tile-card-description > *,
+.test-case-catalog-card .tile-card-description > *,
+.requirement-catalog-card .tile-card-description > * {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.test-case-catalog-card .test-case-requirement-block,
+.suite-coverage-block {
+  display: grid !important;
+  gap: 0.18rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block .test-case-requirement-label,
+.suite-coverage-block .test-case-requirement-label {
+  display: block !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.test-case-catalog-card .test-case-requirement-block p,
+.suite-coverage-block p {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 0.35rem !important;
+  margin: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  line-height: 1.35 !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block p strong {
+  font-size: inherit !important;
+  font-weight: 850 !important;
+}
+
+.tile-card-select-row > .display-id-badge,
+.tile-card-select-row .checkbox-field + .display-id-badge,
+.test-case-catalog-card .display-id-badge {
+  max-width: none !important;
+}
+
+.tile-card-select-row > .display-id-badge code,
+.tile-card-select-row .checkbox-field + .display-id-badge code {
+  color: var(--primary-strong) !important;
+  font-size: 0.78rem !important;
+  font-weight: 800 !important;
+}
+
+.test-case-run-split-action-button:hover:not(:has(button:disabled)),
+.test-case-run-split-action-button:focus-within {
+  border-color: rgba(13, 157, 108, 0.44) !important;
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+}
+
+.test-case-run-action-dropdown {
+  border-color: rgba(13, 157, 108, 0.2) !important;
+}
+
+.test-case-run-action-dropdown button {
+  border-color: rgba(13, 157, 108, 0.28) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 10px 22px rgba(13, 157, 108, 0.16) !important;
+}
+
+.test-case-run-action-dropdown button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+}
+
+/* Workspace tabs should read as page-level tabs, evenly distributed across the available row. */
+.workspace-main.main--library-fill > .page-content > .workspace-section-tabs-shell {
+  width: 100% !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  gap: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.26) !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  grid-template-columns: auto minmax(0, auto) !important;
+  justify-content: center !important;
+  justify-items: center !important;
+  align-items: center !important;
+  column-gap: 0.42rem !important;
+  padding: 0.5rem 0.55rem 0.62rem !important;
+  text-align: center !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-icon {
+  grid-column: 1 !important;
+  margin: 0 !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-copy {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  text-align: center !important;
+}
+
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-copy strong,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-meta {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Keep sidebar and workspace flush together on wide monitors. */
+@media (min-width: 901px) {
+  .app-shell,
+  .app-shell.app-layout,
+  .app-shell.app-layout--workspace-wide {
+    gap: 0 !important;
+    column-gap: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .workspace-main,
+  .workspace-main.main,
+  .workspace-main.main--library-fill {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  .app-layout .sidebar,
+  .sidebar {
+    margin-right: 0 !important;
+  }
+
+  .workspace-main[data-route="/"] {
+    padding-left: 0 !important;
+  }
+
+  .workspace-main[data-route="/"] > .page-content.page-content--overview.overview-layout {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+  }
+}
+
+/* Extend workspace section tab styling to other sectioned pages. */
+.admin-space-tabs,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs,
+.page-agentic-workflows .agentic-workflows-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  gap: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.26) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-space-tabs .subnav-tab,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab,
+.page-agentic-workflows .agentic-workflows-tabs > button {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, auto) auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  justify-items: center !important;
+  column-gap: 0.42rem !important;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 2.35rem !important;
+  margin: 0 !important;
+  padding: 0.5rem 0.55rem 0.62rem !important;
+  border: 0 !important;
+  border-radius: 6px 6px 0 0 !important;
+  background: transparent !important;
+  color: #526179 !important;
+  text-align: center !important;
+  box-shadow: none !important;
+}
+
+.admin-space-tabs .subnav-tab.is-active,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab.is-active,
+.page-agentic-workflows .agentic-workflows-tabs > button.is-active {
+  color: #1d4ed8 !important;
+  box-shadow: inset 0 -2px 0 #1d4ed8 !important;
+}
+
+.admin-space-tabs .subnav-tab-icon,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs > button > svg {
+  grid-column: 1 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  margin: 0 !important;
+  color: currentColor !important;
+}
+
+.admin-space-tabs .subnav-tab-copy,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-copy {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  text-align: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > button > strong {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+}
+
+.admin-space-tabs .subnav-tab-copy strong,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-copy strong,
+.admin-space-tabs .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.admin-space-tabs .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta {
+  color: #64748b !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > button > span {
+  grid-column: 3 !important;
+  min-width: 1.35rem !important;
+  height: 1.35rem !important;
+}
+
+/* Final workspace tab/count and split-action refinements. */
+.subnav-tab-meta,
+.admin-space-tabs .subnav-tab-meta,
+.workspace-section-tabs-shell .subnav-tab-meta,
+.workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  display: inline !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+  font-size: 0.78rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  grid-template-columns: auto minmax(0, auto) !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  display: flex !important;
+  grid-column: 2 !important;
+  align-items: baseline !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  text-align: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  color: currentColor !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.run-action-toggle .run-action-toggle-info {
+  display: none !important;
+}
+
+.run-action-dropdown .run-action-option-copy {
+  display: flex !important;
+  min-width: 0 !important;
+}
+
+.run-action-dropdown .run-action-option-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.34rem !important;
+  min-width: 0 !important;
+  color: #fff !important;
+}
+
+.run-action-dropdown .run-action-option-title strong,
+.run-action-dropdown .run-action-option-title .info-tooltip-trigger,
+.run-action-dropdown .run-action-option-icon {
+  color: #fff !important;
+}
+
+.run-action-dropdown .run-action-option-title .info-tooltip-trigger {
+  flex: 0 0 auto !important;
+  opacity: 0.95 !important;
+}
+
+.people-role-create-card,
+.people-role-create-card.is-permission-expanded {
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-modal-form {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-role-create-body,
+.people-role-create-card.is-permission-expanded .people-role-create-body,
+.people-role-create-card .people-role-create-permissions,
+.people-role-create-card .role-permission-editor--create,
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-role-create-body,
+.people-role-create-card.is-permission-expanded .people-role-create-body {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+.people-role-create-card .people-role-create-permissions,
+.people-role-create-card .role-permission-editor--create,
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  height: 100% !important;
+}
+
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.people-role-create-card .permission-group-strip,
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding-bottom: 4.5rem !important;
+  scroll-padding-bottom: 4.5rem !important;
+}
+
+.people-role-create-card .permission-group-strip .permission-group-card:last-child {
+  margin-bottom: 3.5rem !important;
+}
+
+/* Final tile-card consistency across catalog card views. */
+.tile-browser-grid .tile-card-title-group,
+.catalog-grid .tile-card-title-group,
+.record-card .tile-card-title-group {
+  display: grid !important;
+  gap: 0.18rem !important;
+  align-items: start !important;
+  min-width: 0 !important;
+}
+
+.tile-browser-grid .tile-card-title-group::before,
+.catalog-grid .tile-card-title-group::before,
+.record-card .tile-card-title-group::before,
+.tile-browser-grid .tile-card-description::before,
+.catalog-grid .tile-card-description::before,
+.record-card .tile-card-description::before {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.tile-browser-grid .tile-card-title-group::before,
+.catalog-grid .tile-card-title-group::before,
+.record-card .tile-card-title-group::before {
+  content: "Title" !important;
+}
+
+.tile-browser-grid .tile-card-description::before,
+.catalog-grid .tile-card-description::before,
+.record-card .tile-card-description::before {
+  content: "Description" !important;
+}
+
+.tile-browser-grid .tile-card-title-group strong,
+.catalog-grid .tile-card-title-group strong,
+.record-card .tile-card-title-group strong {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  color: #111827 !important;
+  font-size: 0.92rem !important;
+  font-weight: 850 !important;
+  line-height: 1.28 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-overflow: ellipsis !important;
+  white-space: normal !important;
+}
+
+.tile-browser-grid .tile-card-description,
+.catalog-grid .tile-card-description,
+.record-card .tile-card-description {
+  display: block !important;
+  overflow: hidden !important;
+  color: #475569 !important;
+  font-size: 0.82rem !important;
+  line-height: 1.42 !important;
+  white-space: normal !important;
+}
+
+.tile-browser-grid .tile-card-description > *,
+.catalog-grid .tile-card-description > *,
+.record-card .tile-card-description > * {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  text-overflow: ellipsis !important;
+}
+
+.tile-browser-grid .test-case-requirement-block,
+.catalog-grid .test-case-requirement-block {
+  display: grid !important;
+  gap: 0.18rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.tile-browser-grid .test-case-requirement-block .test-case-requirement-label,
+.catalog-grid .test-case-requirement-block .test-case-requirement-label {
+  display: block !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.tile-browser-grid .test-case-requirement-block p,
+.catalog-grid .test-case-requirement-block p {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: 0.92rem !important;
+  font-weight: 850 !important;
+  line-height: 1.28 !important;
+}
+
+.tile-browser-grid .test-case-requirement-block p strong,
+.catalog-grid .test-case-requirement-block p strong {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+.tile-browser-pane-footer:not(.is-scrollable),
+.tile-browser-pane-top-button:not(.is-ready) {
+  display: none !important;
+}
+
+.admin-space-tabs .subnav-tab-indicator,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab > .subnav-tab-indicator {
+  display: none !important;
+}
+
+/* Final header and toolbar alignment refinements. */
+.page-header-eyebrow {
+  display: none !important;
+}
+
+.page-header-text {
+  flex: 0 1 min(42rem, 100%) !important;
+  max-width: min(42rem, 100%) !important;
+}
+
+.page-header-title {
+  max-width: 22ch !important;
+}
+
+.test-case-split-action-button,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within,
+.test-case-split-action-button:active,
+.test-case-catalog-toolbar .test-case-split-action-button,
+.test-case-catalog-toolbar .test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-catalog-toolbar .test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.test-case-split-action-button .run-action-main,
+.test-case-split-action-button .run-action-toggle,
+.test-case-split-action-button .run-action-main:hover:not(:disabled),
+.test-case-split-action-button .run-action-toggle:hover:not(:disabled) {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.create-run-action-button--test-runs,
+.create-run-action-button--test-suites,
+.create-run-action-button--test-runs:hover:not(:has(button:disabled)),
+.create-run-action-button--test-suites:hover:not(:has(button:disabled)),
+.create-run-action-button--test-runs:focus-within,
+.create-run-action-button--test-suites:focus-within {
+  border-color: rgba(13, 157, 108, 0.38) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 12px 26px rgba(13, 157, 108, 0.22) !important;
+}
+
+.create-run-action-button--test-runs .run-action-main,
+.create-run-action-button--test-runs .run-action-toggle,
+.create-run-action-button--test-suites .run-action-main,
+.create-run-action-button--test-suites .run-action-toggle,
+.create-run-action-button--test-runs .run-action-main:hover:not(:disabled),
+.create-run-action-button--test-runs .run-action-toggle:hover:not(:disabled),
+.create-run-action-button--test-suites .run-action-main:hover:not(:disabled),
+.create-run-action-button--test-suites .run-action-toggle:hover:not(:disabled) {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.create-run-action-button--test-runs .run-action-main span,
+.create-run-action-button--test-suites .run-action-main span {
+  color: #ffffff !important;
+  font-weight: 850 !important;
+}
+
+.suite-sidebar-toolbar .suite-toolbar-smart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  flex: 0 0 auto !important;
+}
+
+.suite-sidebar-toolbar .primary-button.catalog-selection-button,
+.test-case-catalog-toolbar .primary-button.catalog-selection-button {
+  min-height: 2.72rem !important;
+  border-radius: 999px !important;
+}
+
+.requirement-iteration-list-header {
+  margin: 0.25rem 0 0.65rem !important;
+}
+
+/* Final alignment and action-menu cleanup pass. */
+.page-header.card.page-header--no-actions {
+  width: fit-content !important;
+  max-width: min(34rem, 100%) !important;
+  min-height: 0 !important;
+  padding: 0.85rem 1rem !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-text {
+  max-width: min(30rem, 100%) !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-title {
+  max-width: 18ch !important;
+  font-size: clamp(1.12rem, 1.6vw, 1.42rem) !important;
+}
+
+.test-case-catalog-card .tile-card-select-row,
+.test-case-catalog-card .tile-card-select-row > .checkbox-field {
+  gap: 0 !important;
+  column-gap: 0 !important;
+}
+
+.test-case-catalog-card .tile-card-select-row > .display-id-badge,
+.test-case-catalog-card .tile-card-select-row .checkbox-field + .display-id-badge {
+  margin-left: 0 !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group,
+.test-case-catalog-card .test-case-card-title-group--identity {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+  justify-items: stretch !important;
+  gap: 0.18rem !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group::before,
+.test-case-catalog-card .test-case-card-title-group--identity::before {
+  grid-column: 1 !important;
+  justify-self: start !important;
+  margin-left: 0 !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group strong,
+.test-case-catalog-card .test-case-card-title-group--identity strong {
+  grid-column: 1 !important;
+  justify-self: start !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  text-align: left !important;
+}
+
+.run-action-dropdown button,
+.run-action-dropdown button:hover:not(:disabled),
+.requirement-action-dropdown button,
+.test-case-action-dropdown button {
+  border-color: rgba(29, 78, 216, 0.34) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18) !important;
+}
+
+.run-action-dropdown--test-runs button,
+.run-action-dropdown--test-suites button,
+.test-case-run-action-dropdown button,
+.run-action-dropdown--test-runs button:hover:not(:disabled),
+.run-action-dropdown--test-suites button:hover:not(:disabled),
+.test-case-run-action-dropdown button:hover:not(:disabled) {
+  border-color: rgba(13, 157, 108, 0.28) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(13, 157, 108, 0.16) !important;
+}
+
+.run-action-dropdown button strong,
+.run-action-dropdown button .run-action-option-title,
+.run-action-dropdown button .run-action-option-icon,
+.run-action-dropdown button .info-tooltip-trigger {
+  color: #ffffff !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  grid-template-columns: auto minmax(0, auto) !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  order: 0 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  order: 1 !important;
+}
+
+/* Final compact page-header and agentic-tab corrections. */
+.page-header.card {
+  width: fit-content !important;
+  max-width: min(38rem, 100%) !important;
+  min-height: 0 !important;
+}
+
+.page-header.card .page-header-text {
+  max-width: min(32rem, 100%) !important;
+}
+
+.page-header.card .page-actions {
+  margin-left: 0.5rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs,
+.page-agentic-workflows .agentic-workflows-tabs.subnav-tabs {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  width: 100% !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.42rem !important;
+  min-width: 0 !important;
+  padding: 0.52rem 0.65rem 0.62rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  order: 0 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  color: currentColor !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  order: 1 !important;
+  align-items: baseline !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  display: inline !important;
+  flex: 0 1 auto !important;
+  color: currentColor !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  display: inline !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+  font-size: 0.74rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+
+/* Targeted workflow/status and action refinements. */
+.settings-api-key-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.icon-only-button {
+  width: 2.15rem !important;
+  min-width: 2.15rem !important;
+  height: 2.15rem !important;
+  padding: 0 !important;
+  justify-content: center;
+}
+
+.status-badge.ai,
+.status-badge.automated {
+  background: rgba(33, 104, 243, 0.1);
+  color: var(--primary-strong);
+}
+
+.status-badge.pending {
+  background: rgba(154, 58, 47, 0.14);
+  color: var(--danger);
+}
+
+.status-badge.draft {
+  background: rgba(193, 120, 32, 0.16);
+  color: #b96b00;
+}
+
+.status-badge.active,
+.status-badge.ready {
+  background: rgba(46, 125, 82, 0.14);
+  color: var(--success);
+}
+
+.status-badge.retired {
+  background: rgba(83, 98, 122, 0.14);
+  color: #53627a;
+}
+
+.project-card-select-row .project-card-top-actions {
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: calc(100% - 1rem) !important;
+}
+
+.project-card-select-row .project-card-top-actions .project-health-badge,
+.project-health-badge {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center;
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+}
+
+.requirement-split-action-button,
+.requirement-split-action-button:has(button:disabled),
+.requirement-split-action-button:hover,
+.requirement-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button .run-action-main,
+.requirement-split-action-button .run-action-toggle,
+.requirement-split-action-button .run-action-main:disabled,
+.requirement-split-action-button .run-action-toggle:disabled,
+.requirement-split-action-button:hover .run-action-main,
+.requirement-split-action-button:hover .run-action-toggle {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.overview-layout .overview-hero.page-header.card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  gap: 1rem !important;
+}
+
+.overview-layout .overview-hero.page-header.card .page-header-text {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: min(64rem, 100%) !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.45rem !important;
+  text-align: left !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.overview-layout .overview-hero .page-header-title-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+}
+
+.overview-layout .overview-hero .page-header-title,
+.overview-layout .overview-hero .page-description {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  text-align: left !important;
+  white-space: normal !important;
+}
+
+.overview-layout .overview-hero.page-header.card .page-actions {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  display: inline-grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  justify-items: start !important;
+  column-gap: 0.45rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  align-self: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  align-items: center !important;
+  line-height: 1 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Final width/header/action fixes. */
+.workspace-layout > .workspace-main,
+.workspace-main > .page-header.card,
+.workspace-main > .workspace-content,
+.workspace-main > .page-content,
+.page-content > .page-header.card,
+.workspace-content > .page-header.card {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card .page-header-text {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: min(64rem, 100%) !important;
+  justify-self: start !important;
+  text-align: left !important;
+}
+
+.page-header.card .page-header-title {
+  max-width: none !important;
+  text-align: left !important;
+}
+
+.page-header.card.page-header--no-actions {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-text {
+  max-width: min(64rem, 100%) !important;
+}
+
+.people-access-page {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.people-access-page .workspace-master-detail,
+.people-access-page .workspace-master-detail-panel,
+.people-access-page .workspace-master-detail-panel > .panel {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+.people-roles-workspace.workspace-master-detail--split {
+  grid-template-columns: minmax(22rem, 0.95fr) minmax(36rem, 1.35fr) !important;
+  width: 100% !important;
+  max-width: none !important;
+  overflow: visible !important;
+}
+
+.people-roles-workspace .workspace-master-detail-detail-panel,
+.people-roles-workspace .workspace-master-detail-browse-panel {
+  overflow: visible !important;
+}
+
+.people-catalog-toolbar .catalog-toolbar-actions,
+.design-list-toolbar .catalog-toolbar-actions {
+  margin-left: 0 !important;
+}
+
+.design-list-toolbar {
+  align-items: center !important;
+}
+
+@media (max-width: 1180px) {
+  .people-roles-workspace.workspace-master-detail--split {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+:root[data-theme="dark"] .workspace-layout > .workspace-main,
+:root[data-theme="dark"] .workspace-main > .workspace-content,
+:root[data-theme="dark"] .workspace-main > .page-content,
+:root[data-theme="dark"] .page-content,
+:root[data-theme="dark"] .workspace-content {
+  background:
+    linear-gradient(180deg, rgba(12, 24, 40, 0.96), rgba(8, 16, 29, 0.94)),
+    #07111f !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .workspace-main > .page-header.card,
+:root[data-theme="dark"] .page-content > .page-header.card,
+:root[data-theme="dark"] .workspace-content > .page-header.card {
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.98), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+.requirements-health-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.requirements-health-card {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 251, 255, 0.9)),
+    #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+}
+
+.requirements-health-card > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.requirements-health-card span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.requirements-health-card strong {
+  color: #0f172a;
+  font-size: clamp(1.45rem, 2.2vw, 2.1rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.requirements-health-card p {
+  min-height: 2.25rem;
+  margin: 0;
+  color: #475569;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.requirements-health-meter {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.requirements-health-meter span {
+  display: block;
+  height: 100%;
+  min-width: 0.25rem;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #0d9488);
+}
+
+.requirements-health-card.tone-coverage .requirements-health-meter span {
+  background: linear-gradient(90deg, #0d9488, #16a34a);
+}
+
+.requirements-health-card.tone-defects .requirements-health-meter span {
+  background: linear-gradient(90deg, #f59e0b, #dc2626);
+}
+
+@media (max-width: 900px) {
+  .requirements-health-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root[data-theme="dark"] .requirements-health-card {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.96), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-card span,
+:root[data-theme="dark"] .requirements-health-card p {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-card strong {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-meter {
+  background: rgba(148, 163, 184, 0.18) !important;
+}
+
+/* Final dark-theme coverage for page surfaces, catalog views, and modal dialogs. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #07111f;
+  --bg: #07111f;
+  --card-bg: #0e1a2b;
+  --surface: rgba(12, 24, 40, 0.9);
+  --surface-strong: #111f33;
+  --panel: rgba(12, 24, 40, 0.92);
+  --panel-strong: #111f33;
+  --border: rgba(148, 163, 184, 0.22);
+  --line: rgba(148, 163, 184, 0.22);
+  --text: #e5edf8;
+  --text-primary: #f3f7ff;
+  --text-secondary: #a9b8cc;
+  --muted: #9fb0c6;
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --primary-strong: #93c5fd;
+  --accent: #60a5fa;
+  --accent-strong: #bfdbfe;
+  --success: #5ee0a4;
+  --danger: #fb7185;
+  --error: #fb7185;
+  --glass-surface: rgba(15, 23, 42, 0.78);
+  --glass-surface-strong: rgba(17, 31, 51, 0.96);
+  --glass-border: rgba(148, 163, 184, 0.24);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --workspace-master-border: rgba(148, 163, 184, 0.22);
+  --workspace-master-surface: rgba(8, 16, 29, 0.86);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.2), transparent 32%),
+    linear-gradient(180deg, #07111f 0%, #050a13 100%) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] ::selection {
+  background: rgba(96, 165, 250, 0.38);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] * {
+  scrollbar-color: rgba(96, 165, 250, 0.45) rgba(15, 23, 42, 0.9);
+}
+
+:root[data-theme="dark"] .workspace-main,
+:root[data-theme="dark"] .workspace-main.main,
+:root[data-theme="dark"] .workspace-main.main--library-fill,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content.page-content--library-full,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content.page-content--workspace-focus,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-pane,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-browse,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-detail,
+:root[data-theme="dark"] .workspace-main.main--library-fill .suite-design-workspace,
+:root[data-theme="dark"] .workspace-main.main--library-fill .shared-step-workspace-form,
+:root[data-theme="dark"] .workspace-main.main--library-fill .requirement-detail-column,
+:root[data-theme="dark"] .workspace-main > .page-content,
+:root[data-theme="dark"] .workspace-main > .workspace-content,
+:root[data-theme="dark"] .page-content,
+:root[data-theme="dark"] .workspace-content,
+:root[data-theme="dark"] .page,
+:root[data-theme="dark"] .admin-space-page,
+:root[data-theme="dark"] .auth-page {
+  background:
+    linear-gradient(180deg, rgba(12, 24, 40, 0.94), rgba(8, 16, 29, 0.9)),
+    var(--workspace-master-surface) !important;
+  background-image: linear-gradient(180deg, rgba(12, 24, 40, 0.94), rgba(8, 16, 29, 0.9)) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .page-header,
+:root[data-theme="dark"] .page-header.card,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .record-card,
+:root[data-theme="dark"] .tile-card,
+:root[data-theme="dark"] .catalog-card,
+:root[data-theme="dark"] .virtual-card,
+:root[data-theme="dark"] .stat-card,
+:root[data-theme="dark"] .mini-card,
+:root[data-theme="dark"] .stack-item,
+:root[data-theme="dark"] .segment,
+:root[data-theme="dark"] .step-card,
+:root[data-theme="dark"] .step-create,
+:root[data-theme="dark"] .detail-summary,
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .metric-strip,
+:root[data-theme="dark"] .settings-section,
+:root[data-theme="dark"] .settings-prompt-card,
+:root[data-theme="dark"] .settings-api-key-card,
+:root[data-theme="dark"] .feature-flag-group-card,
+:root[data-theme="dark"] .agentic-flow-shell,
+:root[data-theme="dark"] .agentic-inspector-card,
+:root[data-theme="dark"] .agentic-run-summary,
+:root[data-theme="dark"] .agentic-json-panel,
+:root[data-theme="dark"] .automation-detail-panel,
+:root[data-theme="dark"] .automation-description-panel,
+:root[data-theme="dark"] .automation-hook-card,
+:root[data-theme="dark"] .automation-linked-manual-card,
+:root[data-theme="dark"] .automation-create-card,
+:root[data-theme="dark"] .test-case-module-header,
+:root[data-theme="dark"] .permission-group-card,
+:root[data-theme="dark"] .permission-option,
+:root[data-theme="dark"] .permission-transfer-column {
+  border-color: var(--glass-border) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.96), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+}
+
+:root[data-theme="dark"] .record-card:hover,
+:root[data-theme="dark"] .tile-card:hover,
+:root[data-theme="dark"] .catalog-card:hover,
+:root[data-theme="dark"] .record-card.is-active,
+:root[data-theme="dark"] .tile-card.is-active,
+:root[data-theme="dark"] .catalog-data-table tbody tr.is-active-row {
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  background:
+    linear-gradient(180deg, rgba(30, 64, 110, 0.64), rgba(15, 35, 65, 0.88)),
+    var(--panel-strong) !important;
+}
+
+:root[data-theme="dark"] .page-header-title,
+:root[data-theme="dark"] .panel-heading,
+:root[data-theme="dark"] .panel-head strong,
+:root[data-theme="dark"] .tile-card-title-group strong,
+:root[data-theme="dark"] .catalog-grid .tile-card-title-group strong,
+:root[data-theme="dark"] .record-card .tile-card-title-group strong,
+:root[data-theme="dark"] .test-case-card-title-group strong,
+:root[data-theme="dark"] .record-card strong,
+:root[data-theme="dark"] .stack-item strong,
+:root[data-theme="dark"] .segment strong,
+:root[data-theme="dark"] .mini-card strong,
+:root[data-theme="dark"] .form-field > span,
+:root[data-theme="dark"] .dialog-header strong,
+:root[data-theme="dark"] .modal-card h2,
+:root[data-theme="dark"] .modal-card h3,
+:root[data-theme="dark"] .data-table-header-label,
+:root[data-theme="dark"] .data-table th {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .page-description,
+:root[data-theme="dark"] .panel-head p,
+:root[data-theme="dark"] .tile-card-description,
+:root[data-theme="dark"] .tile-card-description > *,
+:root[data-theme="dark"] .record-card span,
+:root[data-theme="dark"] .record-card small,
+:root[data-theme="dark"] .stack-item span,
+:root[data-theme="dark"] .segment span,
+:root[data-theme="dark"] .mini-card span,
+:root[data-theme="dark"] .checkbox-field,
+:root[data-theme="dark"] .modal-card p,
+:root[data-theme="dark"] .modal-card small,
+:root[data-theme="dark"] .data-table td,
+:root[data-theme="dark"] .data-table-description-clamp,
+:root[data-theme="dark"] .empty-state,
+:root[data-theme="dark"] .empty-state p {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .tile-browser-grid .tile-card-title-group::before,
+:root[data-theme="dark"] .catalog-grid .tile-card-title-group::before,
+:root[data-theme="dark"] .record-card .tile-card-title-group::before,
+:root[data-theme="dark"] .tile-browser-grid .tile-card-description::before,
+:root[data-theme="dark"] .catalog-grid .tile-card-description::before,
+:root[data-theme="dark"] .record-card .tile-card-description::before,
+:root[data-theme="dark"] .tile-card-fact,
+:root[data-theme="dark"] .execution-card-fact,
+:root[data-theme="dark"] .test-case-card-stats span,
+:root[data-theme="dark"] .page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  color: #9fb0c6 !important;
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] .compact-select,
+:root[data-theme="dark"] .rich-text-editor-surface,
+:root[data-theme="dark"] .settings-input-field input,
+:root[data-theme="dark"] .settings-input-field select,
+:root[data-theme="dark"] .settings-prompt-card textarea,
+:root[data-theme="dark"] .modal-card input,
+:root[data-theme="dark"] .modal-card select,
+:root[data-theme="dark"] .modal-card textarea,
+:root[data-theme="dark"] .people-modal-card input,
+:root[data-theme="dark"] .people-modal-card select,
+:root[data-theme="dark"] .people-modal-card textarea,
+:root[data-theme="dark"] .agentic-workflow-form input,
+:root[data-theme="dark"] .agentic-workflow-form select,
+:root[data-theme="dark"] .agentic-inspector-card input,
+:root[data-theme="dark"] .agentic-inspector-card select,
+:root[data-theme="dark"] .agentic-inspector-card textarea {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  background: rgba(2, 6, 23, 0.72) !important;
+  color: var(--text-primary) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder,
+:root[data-theme="dark"] .rich-text-editor-surface[data-empty="true"]::before {
+  color: rgba(169, 184, 204, 0.72) !important;
+}
+
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus,
+:root[data-theme="dark"] textarea:focus,
+:root[data-theme="dark"] .rich-text-editor-surface:focus {
+  border-color: rgba(96, 165, 250, 0.7) !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18) !important;
+  outline: none !important;
+}
+
+:root[data-theme="dark"] .modal-backdrop,
+:root[data-theme="dark"] body > .modal-backdrop,
+:root[data-theme="dark"] .nested-modal-backdrop {
+  background: rgba(2, 6, 23, 0.78) !important;
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+
+:root[data-theme="dark"] .modal-card,
+:root[data-theme="dark"] .resource-modal-card,
+:root[data-theme="dark"] .people-modal-card,
+:root[data-theme="dark"] .modal-card.ai-modal-card,
+:root[data-theme="dark"] .modal-card.ai-design-modal,
+:root[data-theme="dark"] .requirement-create-modal,
+:root[data-theme="dark"] .suite-test-case-editor-modal,
+:root[data-theme="dark"] .suite-create-modal,
+:root[data-theme="dark"] .step-parameter-dialog,
+:root[data-theme="dark"] .hook-picker-dialog,
+:root[data-theme="dark"] .object-repository-usage-dialog,
+:root[data-theme="dark"] .modal-case-picker,
+:root[data-theme="dark"] .ai-studio-panel,
+:root[data-theme="dark"] .ai-case-card,
+:root[data-theme="dark"] .ai-case-step-card {
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.98), rgba(9, 18, 32, 0.98)),
+    #0b1220 !important;
+  background-image: linear-gradient(180deg, rgba(17, 31, 51, 0.98), rgba(9, 18, 32, 0.98)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.52) !important;
+}
+
+:root[data-theme="dark"] .dialog-header,
+:root[data-theme="dark"] .resource-modal-header,
+:root[data-theme="dark"] .step-parameter-dialog-header,
+:root[data-theme="dark"] .modal-card-header,
+:root[data-theme="dark"] .modal-footer,
+:root[data-theme="dark"] .people-modal-actions,
+:root[data-theme="dark"] .ai-studio-actions {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  background: transparent !important;
+}
+
+:root[data-theme="dark"] .design-list-toolbar,
+:root[data-theme="dark"] .test-case-catalog-toolbar,
+:root[data-theme="dark"] .requirement-catalog-toolbar,
+:root[data-theme="dark"] .resource-catalog-toolbar,
+:root[data-theme="dark"] .issue-catalog-toolbar,
+:root[data-theme="dark"] .catalog-search-filter,
+:root[data-theme="dark"] .catalog-filter-popover,
+:root[data-theme="dark"] .catalog-action-menu-panel,
+:root[data-theme="dark"] .run-action-dropdown,
+:root[data-theme="dark"] .test-case-run-menu-panel,
+:root[data-theme="dark"] .project-dropdown-menu,
+:root[data-theme="dark"] .app-type-dropdown-menu,
+:root[data-theme="dark"] .step-card-menu-panel,
+:root[data-theme="dark"] .step-type-menu,
+:root[data-theme="dark"] .data-table-config-panel,
+:root[data-theme="dark"] .recorder-more-menu-popover,
+:root[data-theme="dark"] .resource-column-utility-popover {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(15, 23, 42, 0.96) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.38) !important;
+}
+
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tabs,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar.subnav-tabs,
+:root[data-theme="dark"] .workspace-section-tabs-shell,
+:root[data-theme="dark"] .subnav-tabs,
+:root[data-theme="dark"] .section-switch-bar.subnav-tabs {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab,
+:root[data-theme="dark"] .subnav-tab,
+:root[data-theme="dark"] .section-switch-bar .subnav-tab,
+:root[data-theme="dark"] .catalog-view-button,
+:root[data-theme="dark"] .ghost-button,
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .sidebar-icon-button,
+:root[data-theme="dark"] .step-action-button,
+:root[data-theme="dark"] .rich-text-tool-button,
+:root[data-theme="dark"] .data-table-config-trigger,
+:root[data-theme="dark"] .data-table-visible-column-chip {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(15, 23, 42, 0.66) !important;
+  color: #dbeafe !important;
+}
+
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab:hover,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab:hover,
+:root[data-theme="dark"] .subnav-tab:hover,
+:root[data-theme="dark"] .catalog-view-button:hover:not(:disabled),
+:root[data-theme="dark"] .ghost-button:hover:not(:disabled),
+:root[data-theme="dark"] .icon-button:hover:not(:disabled),
+:root[data-theme="dark"] .rich-text-tool-button:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.42) !important;
+  background: rgba(30, 64, 110, 0.62) !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .subnav-tab.is-active,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-section-tabs-shell .section-switch-bar .subnav-tab.is-active,
+:root[data-theme="dark"] .subnav-tab.is-active,
+:root[data-theme="dark"] .catalog-view-button.is-active {
+  border-color: rgba(96, 165, 250, 0.48) !important;
+  background: rgba(37, 99, 235, 0.34) !important;
+  color: #bfdbfe !important;
+  box-shadow: inset 0 -2px 0 #60a5fa !important;
+}
+
+:root[data-theme="dark"] .table-wrap,
+:root[data-theme="dark"] .catalog-table-wrap,
+:root[data-theme="dark"] .import-preview-table,
+:root[data-theme="dark"] .data-table,
+:root[data-theme="dark"] .catalog-data-table {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  background: rgba(8, 16, 29, 0.78) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .data-table thead,
+:root[data-theme="dark"] .catalog-data-table thead,
+:root[data-theme="dark"] .data-table th,
+:root[data-theme="dark"] .catalog-data-table th {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: rgba(15, 23, 42, 0.96) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .data-table td,
+:root[data-theme="dark"] .catalog-data-table td,
+:root[data-theme="dark"] .data-table tbody tr,
+:root[data-theme="dark"] .catalog-data-table tbody tr {
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  background: transparent !important;
+}
+
+:root[data-theme="dark"] .data-table tbody tr:hover,
+:root[data-theme="dark"] .catalog-data-table tbody tr:hover {
+  background: rgba(30, 64, 110, 0.34) !important;
+}
+
+:root[data-theme="dark"] .status-badge,
+:root[data-theme="dark"] .status-pill,
+:root[data-theme="dark"] .count-pill,
+:root[data-theme="dark"] .display-id-badge,
+:root[data-theme="dark"] .tile-card-status,
+:root[data-theme="dark"] .step-kind-badge,
+:root[data-theme="dark"] .automation-type-pill,
+:root[data-theme="dark"] .settings-api-scope-pill,
+:root[data-theme="dark"] .project-health-badge {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(15, 23, 42, 0.76) !important;
+  color: #dbeafe !important;
+}
+
+:root[data-theme="dark"] .status-badge.pending,
+:root[data-theme="dark"] .status-pill.danger,
+:root[data-theme="dark"] .project-health-badge.danger,
+:root[data-theme="dark"] .ghost-button.danger,
+:root[data-theme="dark"] button.danger {
+  border-color: rgba(251, 113, 133, 0.38) !important;
+  background: rgba(127, 29, 29, 0.32) !important;
+  color: #fecdd3 !important;
+}
+
+:root[data-theme="dark"] .status-badge.active,
+:root[data-theme="dark"] .status-badge.ready,
+:root[data-theme="dark"] .status-badge.automated,
+:root[data-theme="dark"] .status-pill.success,
+:root[data-theme="dark"] .count-pill.success {
+  border-color: rgba(94, 224, 164, 0.36) !important;
+  background: rgba(6, 78, 59, 0.32) !important;
+  color: #bbf7d0 !important;
+}
+
+:root[data-theme="dark"] .status-badge.draft,
+:root[data-theme="dark"] .status-pill.warning {
+  border-color: rgba(251, 191, 36, 0.36) !important;
+  background: rgba(120, 53, 15, 0.32) !important;
+  color: #fde68a !important;
+}
+
+:root[data-theme="dark"] code,
+:root[data-theme="dark"] pre,
+:root[data-theme="dark"] .code-block,
+:root[data-theme="dark"] .settings-api-key-reveal code,
+:root[data-theme="dark"] .settings-api-key-card code,
+:root[data-theme="dark"] .automation-validation-preview,
+:root[data-theme="dark"] .api-response-tree {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  background: rgba(2, 6, 23, 0.82) !important;
+  color: #e2e8f0 !important;
+}
+
+/* Last dark-mode guard for page-specific surfaces with older light fallbacks. */
+:root[data-theme="dark"] {
+  --surface-elevated: #111f33;
+  --surface-muted: rgba(15, 23, 42, 0.72);
+  --shell-panel: rgba(15, 23, 42, 0.86);
+  --ink-900: var(--text-primary);
+  --ink-700: #cbd5e1;
+  --ink-500: var(--text-secondary);
+}
+
+:root[data-theme="dark"] .agent-education-panel,
+:root[data-theme="dark"] .agent-context-cockpit,
+:root[data-theme="dark"] .agent-education-card,
+:root[data-theme="dark"] .agent-context-source-grid .checkbox-field,
+:root[data-theme="dark"] .agent-context-metrics .mini-card,
+:root[data-theme="dark"] .knowledge-item-modal,
+:root[data-theme="dark"] .permission-designer,
+:root[data-theme="dark"] .permission-designer-summary,
+:root[data-theme="dark"] .permission-option-list,
+:root[data-theme="dark"] .role-permission-editor,
+:root[data-theme="dark"] .test-case-module-children,
+:root[data-theme="dark"] .execution-step-table,
+:root[data-theme="dark"] .execution-step-table-head,
+:root[data-theme="dark"] .execution-step-card-block,
+:root[data-theme="dark"] .execution-evidence-modal-body,
+:root[data-theme="dark"] .automation-response-shell,
+:root[data-theme="dark"] .automation-assertion-shell,
+:root[data-theme="dark"] .api-response-tree-panel,
+:root[data-theme="dark"] .admin-space-card,
+:root[data-theme="dark"] .auth-card,
+:root[data-theme="dark"] .auth-panel,
+:root[data-theme="dark"] .auth-story-card {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.96), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .agent-education-panel h2,
+:root[data-theme="dark"] .agent-context-cockpit h2,
+:root[data-theme="dark"] .agent-education-card strong,
+:root[data-theme="dark"] .permission-designer strong,
+:root[data-theme="dark"] .permission-option-title,
+:root[data-theme="dark"] .execution-step-table-head,
+:root[data-theme="dark"] .auth-card h1,
+:root[data-theme="dark"] .auth-card h2 {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .agent-education-panel p,
+:root[data-theme="dark"] .agent-context-cockpit p,
+:root[data-theme="dark"] .agent-education-card span,
+:root[data-theme="dark"] .permission-option-description,
+:root[data-theme="dark"] .permission-option-code,
+:root[data-theme="dark"] .execution-step-card-footer-note,
+:root[data-theme="dark"] .auth-card p {
+  color: var(--text-secondary) !important;
+}
+
+/* Final page-header title alignment authority. */
+.page-header .page-header-text,
+.page-header.card .page-header-text,
+.page-header .page-header-copy,
+.page-header.card .page-header-copy,
+.page-header .page-header-title-row,
+.page-header.card .page-header-title-row {
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  justify-items: start !important;
+  text-align: left !important;
+}
+
+.page-header .page-header-title,
+.page-header.card .page-header-title,
+.projects-command-copy .page-header-title,
+.overview-layout .page-header-title,
+.page-content--test-data .page-header-title {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  text-align: left !important;
+}
+
+/* Final shared header and toolbar layout authority. */
+.page-header,
+.page-header.card {
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+
+.page-header .page-header-text,
+.page-header.card .page-header-text {
+  flex: 0 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+}
+
+.page-header .page-header-title-row,
+.page-header.card .page-header-title-row {
+  display: flex !important;
+  width: 100% !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  gap: 0 !important;
+}
+
+.page-actions {
+  align-self: flex-start !important;
+}
+
+.executions-list-toolbar {
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+.executions-list-toolbar > .catalog-search-filter {
+  flex: 0 1 360px !important;
+  width: min(360px, 100%) !important;
+  min-width: 220px !important;
+  max-width: 360px !important;
+}
+
+.executions-list-toolbar .catalog-toolbar-actions,
+.executions-list-toolbar .executions-run-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+  margin-left: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+.resource-catalog-toolbar {
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+.resource-catalog-toolbar > .primary-button,
+.knowledge-repo-toolbar > .primary-button {
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
+}
+
+.knowledge-repo-toolbar {
+  margin-bottom: 1rem !important;
+}
+
+@media (max-width: 860px) {
+  .executions-list-toolbar > .catalog-search-filter {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .executions-list-toolbar .catalog-toolbar-actions,
+  .executions-list-toolbar .executions-run-actions,
+  .resource-catalog-toolbar > .primary-button,
+  .knowledge-repo-toolbar > .primary-button {
+    width: 100% !important;
   }
 }

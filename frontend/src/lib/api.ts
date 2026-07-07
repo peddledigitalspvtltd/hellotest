@@ -32,6 +32,7 @@ import type {
   Project,
   ProjectMember,
   Requirement,
+  RequirementIteration,
   Role,
   SessionPayload,
   RecorderSessionResponse,
@@ -367,6 +368,10 @@ export const api = {
     revokeApiKey: (id: string) =>
       request<{ revoked: boolean; api_key: UserApiKey }>(`/settings/api-keys/${id}`, {
         method: "DELETE"
+      }),
+    deleteApiKey: (id: string) =>
+      request<{ deleted: boolean; id: string }>(`/settings/api-keys/${id}/permanent`, {
+        method: "DELETE"
       })
   },
   featureFlags: {
@@ -485,7 +490,7 @@ export const api = {
   requirements: {
     list: (query?: { project_id?: string; status?: string; priority?: number }) =>
       request<Requirement[]>(`/requirements${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; priority?: number; status?: string }) =>
+    create: (input: { project_id: string; title: string; description?: string; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; priority?: number; status?: string }) =>
       request<{ id: string }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     bulkImport: (input: { project_id: string; rows: Array<Record<string, unknown>> }) =>
       request<BatchQueueResponse>("/requirements/import", {
@@ -537,9 +542,30 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; priority: number; status: string }>) =>
+    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; iteration_id: string; priority: number; status: string }>) =>
       request<{ updated: boolean }>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/requirements/${id}`, { method: "DELETE" })
+  },
+  requirementIterations: {
+    list: (query?: { project_id?: string }) =>
+      request<RequirementIteration[]>(`/requirement-iterations${toQueryString(query)}`),
+    get: (id: string) =>
+      request<RequirementIteration>(`/requirement-iterations/${id}`),
+    create: (input: { project_id: string; name: string; description?: string; requirement_ids?: string[] }) =>
+      request<{ id: string }>("/requirement-iterations", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: Partial<{ name: string; description: string; requirement_ids: string[] }>) =>
+      request<{ updated: boolean }>(`/requirement-iterations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    assignRequirements: (id: string, requirement_ids: string[], append = true) =>
+      request<{ updated: boolean; assigned: number }>(`/requirement-iterations/${id}/requirements`, {
+        method: "POST",
+        body: JSON.stringify({ requirement_ids, append })
+      }),
+    removeRequirements: (id: string, requirement_ids: string[]) =>
+      request<{ updated: boolean; removed: number }>(`/requirement-iterations/${id}/requirements`, {
+        method: "DELETE",
+        body: JSON.stringify({ requirement_ids })
+      }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/requirement-iterations/${id}`, { method: "DELETE" })
   },
   knowledgeRepo: {
     list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),

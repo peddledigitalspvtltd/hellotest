@@ -1,9 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { AddIcon, ClearSelectionIcon, ExportIcon, ImportIcon, SelectAllIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
+import { AddIcon, ExportIcon, ImportIcon, UsersIcon } from "../components/AppIcons";
 import { api } from "../lib/api";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
@@ -985,7 +986,6 @@ export function PeoplePage({
             { label: "Roles", value: roleItems.length },
             { label: "Your access", value: canManageUsers ? "User manager" : isAdmin ? "Admin" : "Member" }
           ]}
-          actions={accessActions}
         />
       ) : null}
 
@@ -1032,35 +1032,19 @@ export function PeoplePage({
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleUserIds.length || areAllFilteredUsersSelected}
-                  onClick={() => setSelectedActionUserIds((current) => Array.from(new Set([...current, ...visibleUserIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionUserIds.length}
-                  onClick={() => setSelectedActionUserIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
-                <button
-                  className="ghost-button danger catalog-selection-button"
-                  disabled={!selectedActionUserIds.length}
-                  onClick={() => void handleDeleteSelectedUsers()}
-                  type="button"
-                >
-                  <TrashIcon />
-                  <span>Delete users</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredUsersSelected}
+                  canSelectAll={Boolean(visibleUserIds.length)}
+                  deleteAction={{
+                    label: "Delete users",
+                    onClick: () => void handleDeleteSelectedUsers()
+                  }}
+                  onClear={() => setSelectedActionUserIds([])}
+                  onSelectAll={() => setSelectedActionUserIds((current) => Array.from(new Set([...current, ...visibleUserIds])))}
+                  selectedCount={selectedActionUserIds.length}
+                />
                 <CatalogViewToggle onChange={setUserCatalogViewMode} value={userCatalogViewMode} />
-                {embedded && accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
+                {accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
               </div>
               {isUserCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isUserCatalogLoading && filteredUserItems.length && userCatalogViewMode === "tile" ? (
@@ -1213,6 +1197,7 @@ export function PeoplePage({
         />
       ) : (
         <WorkspaceMasterDetail
+          className="people-roles-workspace"
           browseView={(
             <Panel
               title="Roles"
@@ -1238,35 +1223,19 @@ export function PeoplePage({
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!visibleRoleIds.length || areAllFilteredRolesSelected}
-                  onClick={() => setSelectedActionRoleIds((current) => Array.from(new Set([...current, ...visibleRoleIds])))}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionRoleIds.length}
-                  onClick={() => setSelectedActionRoleIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
-                <button
-                  className="ghost-button danger catalog-selection-button"
-                  disabled={!selectedActionRoleIds.length}
-                  onClick={() => void handleDeleteSelectedRoles()}
-                  type="button"
-                >
-                  <TrashIcon />
-                  <span>Delete roles</span>
-                </button>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredRolesSelected}
+                  canSelectAll={Boolean(visibleRoleIds.length)}
+                  deleteAction={{
+                    label: "Delete roles",
+                    onClick: () => void handleDeleteSelectedRoles()
+                  }}
+                  onClear={() => setSelectedActionRoleIds([])}
+                  onSelectAll={() => setSelectedActionRoleIds((current) => Array.from(new Set([...current, ...visibleRoleIds])))}
+                  selectedCount={selectedActionRoleIds.length}
+                />
                 <CatalogViewToggle onChange={setRoleCatalogViewMode} value={roleCatalogViewMode} />
-                {embedded && accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
+                {accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
               </div>
               {isRoleCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isRoleCatalogLoading && filteredRoleItems.length && roleCatalogViewMode === "tile" ? (

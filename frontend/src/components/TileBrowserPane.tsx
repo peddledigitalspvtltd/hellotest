@@ -177,27 +177,29 @@ export function TileBrowserPane({
       >
         {children}
       </div>
-      <div className={["tile-browser-pane-footer", isScrollable ? "is-scrollable" : ""].filter(Boolean).join(" ")}>
-        <button
-          aria-label="Jump to top"
-          className={["tile-browser-pane-top-button", isAwayFromTop ? "is-ready" : ""].filter(Boolean).join(" ")}
-          onClick={() => {
-            const node = scrollRef.current;
-            if (!node) {
-              return;
-            }
+      {isScrollable && isAwayFromTop ? (
+        <div className="tile-browser-pane-footer is-scrollable">
+          <button
+            aria-label="Jump to top"
+            className="tile-browser-pane-top-button is-ready"
+            onClick={() => {
+              const node = scrollRef.current;
+              if (!node) {
+                return;
+              }
 
-            node.scrollTo({ top: 0, behavior: "smooth" });
-            findPageScrollHost(node)?.scrollTo({ top: 0, behavior: "smooth" });
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setIsAwayFromTop(false);
-          }}
-          title="Jump to top"
-          type="button"
-        >
-          <ArrowUpIcon />
-        </button>
-      </div>
+              node.scrollTo({ top: 0, behavior: "smooth" });
+              findPageScrollHost(node)?.scrollTo({ top: 0, behavior: "smooth" });
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setIsAwayFromTop(false);
+            }}
+            title="Jump to top"
+            type="button"
+          >
+            <ArrowUpIcon />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

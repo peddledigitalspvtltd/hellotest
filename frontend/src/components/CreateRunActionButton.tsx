@@ -5,6 +5,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import { PlayIcon } from "./AppIcons";
+import { InfoTooltip } from "./InfoTooltip";
 
 export type CreateRunSource = "TEST_CASES" | "TEST_SUITES" | "TEST_RUNS";
 export type CreateRunMode = "MANUAL" | "LOCAL" | "REMOTE";
@@ -14,7 +15,9 @@ export interface CreateRunActionButtonProps {
   selectedTestCaseIds?: string[];
   selectedSuiteIds?: string[];
   selectedRunIds?: string[];
+  className?: string;
   disabled?: boolean;
+  label?: string;
   onCreateManualRun: () => void;
   onCreateLocalRun: () => void;
   onCreateRemoteRun: () => void;
@@ -39,7 +42,9 @@ export function CreateRunActionButton({
   selectedTestCaseIds = [],
   selectedSuiteIds = [],
   selectedRunIds = [],
+  className = "",
   disabled = false,
+  label = "Create Manual Run",
   onCreateManualRun,
   onCreateLocalRun,
   onCreateRemoteRun
@@ -145,23 +150,27 @@ export function CreateRunActionButton({
 
   const menu = isOpen && canOpenMenu ? (
     <div
-      className="run-action-dropdown"
+      className={`run-action-dropdown run-action-dropdown--${source.toLowerCase().replace(/_/g, "-")}`}
       ref={menuRef}
       role="menu"
       style={menuStyle || { opacity: 0, pointerEvents: "none" }}
     >
       <button disabled={!canCreateLocalRuns} onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
-        <span>
-          <strong>Create Local Run</strong>
-          <small>Use local Test Engine execution.</small>
+        <span className="run-action-option-copy">
+          <span className="run-action-option-title">
+            <strong>Local Run</strong>
+            <InfoTooltip content="Use local Test Engine execution." label="Create Local Run details" trigger="span" />
+          </span>
         </span>
       </button>
       <button disabled={!canCreateRemoteRuns} onClick={() => handleSelect("REMOTE")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
-        <span>
-          <strong>Create Remote Run</strong>
-          <small>Use configured remote Test Engine.</small>
+        <span className="run-action-option-copy">
+          <span className="run-action-option-title">
+            <strong>Remote Run</strong>
+            <InfoTooltip content="Use configured remote Test Engine." label="Create Remote Run details" trigger="span" />
+          </span>
         </span>
       </button>
       {selectionCount ? (
@@ -171,7 +180,14 @@ export function CreateRunActionButton({
   ) : null;
 
   return (
-    <div className="create-run-action-button" ref={triggerRef}>
+    <div
+      className={[
+        "create-run-action-button",
+        `create-run-action-button--${source.toLowerCase().replace(/_/g, "-")}`,
+        className
+      ].filter(Boolean).join(" ")}
+      ref={triggerRef}
+    >
       <button
         className="run-action-main"
         disabled={isManualDisabled}
@@ -179,7 +195,7 @@ export function CreateRunActionButton({
         type="button"
       >
         <PlayIcon />
-        <span>Create Manual Run</span>
+        <span>{label}</span>
       </button>
       <button
         aria-expanded={isOpen}

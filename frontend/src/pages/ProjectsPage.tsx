@@ -2,9 +2,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, ClearSelectionIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, SelectAllIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
@@ -1501,16 +1502,6 @@ export function ProjectsPage() {
         <div className="projects-command-copy">
           <h2 className="page-header-title">Projects</h2>
           <p>Monitor project health, automation maturity, execution confidence and delivery blockers from one workspace.</p>
-          <div className="projects-command-actions">
-            <button className="primary-button projects-create-button" disabled={!canCreateProjects} onClick={openCreateProjectModal} type="button">
-              <AddIcon />
-              Create New Project
-            </button>
-            <button className="ghost-button" onClick={() => navigate("/executions")} type="button">
-              <PlayIcon />
-              View Run Console
-            </button>
-          </div>
         </div>
           <div className="projects-command-insight">
           <span className="projects-ai-chip">AI Insight</span>
@@ -1612,26 +1603,15 @@ export function ProjectsPage() {
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!filteredProjectItems.length || areAllFilteredProjectsSelected}
-                  onClick={() =>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredProjectsSelected}
+                  canSelectAll={Boolean(filteredProjectItems.length)}
+                  onClear={() => setSelectedActionProjectIds([])}
+                  onSelectAll={() =>
                     setSelectedActionProjectIds((current) => [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])])
                   }
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedActionProjectIds.length}
-                  onClick={() => setSelectedActionProjectIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                  selectedCount={selectedActionProjectIds.length}
+                />
                 <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
                 <button
                   className="ghost-button projects-catalog-create-button"
@@ -1640,17 +1620,19 @@ export function ProjectsPage() {
                   type="button"
                 >
                   <AddIcon />
-                  <span>Create Project</span>
+                  <span>Create New Project</span>
                 </button>
-                <button
-                  className="ghost-button danger projects-catalog-delete-button"
-                  disabled={!canDeleteProjects || !selectedActionProjectIds.length || deleteProject.isPending}
-                  onClick={() => void handleDeleteSelectedProjects()}
-                  type="button"
-                >
-                  <TrashIcon />
-                  <span>{deleteProject.isPending ? "Deleting…" : `Delete selected${selectedActionProjectIds.length ? ` (${selectedActionProjectIds.length})` : ""}`}</span>
-                </button>
+                {selectedActionProjectIds.length ? (
+                  <button
+                    className="ghost-button danger projects-catalog-delete-button"
+                    disabled={!canDeleteProjects || deleteProject.isPending}
+                    onClick={() => void handleDeleteSelectedProjects()}
+                    type="button"
+                  >
+                    <TrashIcon />
+                    <span>{deleteProject.isPending ? "Deleting…" : `Delete selected (${selectedActionProjectIds.length})`}</span>
+                  </button>
+                ) : null}
               </div>
             )}
           >

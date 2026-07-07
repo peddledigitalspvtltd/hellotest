@@ -1,8 +1,9 @@
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, ClearSelectionIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
@@ -3527,45 +3528,38 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     </div>
                   </div>
                 </CatalogSearchFilter>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!filteredAutomationCases.length || areAllFilteredAutomationCasesSelected}
-                  onClick={() =>
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredAutomationCasesSelected}
+                  canSelectAll={Boolean(filteredAutomationCases.length)}
+                  onClear={() => setSelectedAutomationCaseIds([])}
+                  onSelectAll={() =>
                     setSelectedAutomationCaseIds((current) => [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])])
                   }
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedAutomationCaseIds.length}
-                  onClick={() => setSelectedAutomationCaseIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
+                  selectedCount={selectedAutomationCaseIds.length}
+                />
                 <CatalogViewToggle onChange={setAutomationCatalogViewMode} value={automationCatalogViewMode} />
-	                <button
-	                  className="ghost-button catalog-run-button"
-	                  disabled={!canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
-                  onClick={() => runSelectedAutomationCases.mutate("local")}
-                  type="button"
-                >
-                  <PlayIcon />
-                  <span>Run local</span>
-                </button>
-	                <button
-	                  className="ghost-button catalog-run-button"
-	                  disabled={!canRunRemoteAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending || (!selectedAutomationCaseIds.length && !activeAutomatedCase)}
-                  onClick={() => runSelectedAutomationCases.mutate("remote")}
-                  type="button"
-                >
-                  <OpenIcon />
-                  <span>Run remote</span>
-                </button>
+                {selectedAutomationCaseIds.length || activeAutomatedCase ? (
+                  <>
+                    <button
+                      className="ghost-button catalog-run-button"
+                      disabled={!canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
+                      onClick={() => runSelectedAutomationCases.mutate("local")}
+                      type="button"
+                    >
+                      <PlayIcon />
+                      <span>Run local</span>
+                    </button>
+                    <button
+                      className="ghost-button catalog-run-button"
+                      disabled={!canRunRemoteAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
+                      onClick={() => runSelectedAutomationCases.mutate("remote")}
+                      type="button"
+                    >
+                      <OpenIcon />
+                      <span>Run remote</span>
+                    </button>
+                  </>
+                ) : null}
                 <button className="primary-button automation-choose-manual-toolbar-button" onClick={() => navigate("/test-cases")} type="button">
                   <AddIcon />
                   <span>Choose manual case</span>

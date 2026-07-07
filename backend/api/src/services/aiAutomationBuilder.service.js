@@ -246,7 +246,7 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
   params.push(Math.max(0, Number(offset) || 0));
 
-  return obsDb.prepare(query).all(...params);
+  return obsDb.prepare(query).all(...params).map(normalizeLearningCacheRow).filter(Boolean);
 };
 
 const listLearningCacheScreenRows = async ({ appTypeId, screenName } = {}) =>
@@ -1179,12 +1179,66 @@ const summarizeCache = (rows = []) =>
   rows.filter((row) => row?.locator_intent !== "__screen__" && row?.metadata?.record_kind !== "screen").map((row) => ({
     page_key: row.page_key,
     page_url: row.page_url,
+    screen_name: row.metadata?.screen_name || row.page_key || "",
+    object_name: row.metadata?.object_name || row.locator_intent || "",
+    object_role: row.metadata?.object_role || "field",
     intent: row.locator_intent,
     locator: row.locator,
     kind: row.locator_kind || "unknown",
     confidence: Number(row.confidence || 0),
-    hit_count: Number(row.hit_count || 0)
+    hit_count: Number(row.hit_count || 0),
+    usage_keywords: Array.isArray(row.metadata?.usage_keywords) ? row.metadata.usage_keywords : [],
+    target_criteria: Array.isArray(row.metadata?.target_criteria) ? row.metadata.target_criteria : []
   }));
+
+const summarizeScreenCatalog = (rows = []) => {
+  const screens = new Map();
+
+  rows.forEach((row) => {
+    const metadata = row?.metadata || {};
+    const screenName = normalizeText(metadata.screen_name || row.page_key || row.locator_intent);
+
+    if (!screenName) {
+      return;
+    }
+
+    const existing = screens.get(screenName) || {
+      screen_name: screenName,
+      page_key: row.page_key || screenName,
+      page_url: row.page_url || null,
+      page_title: metadata.page_title || null,
+      page_identity: metadata.page_identity || null,
+      url_pattern_value: metadata.url_pattern_value || metadata.page_identity || row.page_url || null,
+      field_count: 0,
+      fields: []
+    };
+
+    if (row.locator_intent !== "__screen__" && metadata.record_kind !== "screen") {
+      existing.field_count += 1;
+      existing.fields.push({
+        object_name: metadata.object_name || row.locator_intent,
+        object_role: metadata.object_role || "field",
+        object_label: metadata.object_label || null,
+        locator: row.locator,
+        locator_kind: row.locator_kind || "unknown",
+        confidence: Number(row.confidence || 0),
+        usage_keywords: Array.isArray(metadata.usage_keywords) ? metadata.usage_keywords : [],
+        target_criteria: Array.isArray(metadata.target_criteria) ? metadata.target_criteria.slice(0, 4) : []
+      });
+    }
+
+    screens.set(screenName, existing);
+  });
+
+  return Array.from(screens.values())
+    .map((screen) => ({
+      ...screen,
+      fields: screen.fields
+        .sort((left, right) => Number(right.confidence || 0) - Number(left.confidence || 0))
+        .slice(0, 40)
+    }))
+    .sort((left, right) => left.screen_name.localeCompare(right.screen_name));
+};
 
 const summarizeKnowledge = (rows = []) =>
   (Array.isArray(rows) ? rows : [])
@@ -2052,12 +2106,16 @@ const buildPrompt = ({
     "- For API requests inferred from captured network, create api_request objects only for meaningful business API calls and ignore analytics, fonts, images, telemetry, auth refresh noise, and static assets.",
     "- Preserve the manual step sequence. Do not add hidden side-effect steps.",
     "- When existing automation code is supplied, map it to the manual step with the closest intent and flow position; express supported UI actions as Playwright-style page/expect code instead of opaque code.",
-    "- Reuse learning cache locators when they match the step intent and page.",
+    "- First inspect the manual case details and the complete Object Repository screen catalog. Pick every screen relevant to the case flow, then use only fields from those relevant screens when generating step automation.",
+    "- If a manual step references a field that appears on multiple screens, prefer the screen that best matches the surrounding step sequence and expected result.",
+    "- Reuse Object Repository locators when they match the selected screen, field intent, and manual step. When using Object Repository names, pass the Screen.Field text to page.locator(...).",
+    "- If no relevant repository field exists for a step, generate the most stable semantic locator and include it in learned_locators with a clear page_key and intent.",
     "",
     "Return strict JSON with this shape:",
     "{",
     '  "summary": "string",',
     '  "base_url": "string or null",',
+    '  "relevant_screens": ["Screen Name"],',
     '  "steps": [',
     "    {",
     '      "step_id": "string",',
@@ -2083,6 +2141,8 @@ const buildPrompt = ({
     `App type: ${testCase.app_type_name || testCase.app_type_id || "Unknown app"} (${testCase.app_type_kind || "web"})`,
     `Case: ${testCase.title}`,
     `Description: ${testCase.description || "No description provided."}`,
+    `External references: ${(safeJson(testCase.external_references, []) || []).join(", ") || "None"}`,
+    `Labels: ${(safeJson(testCase.labels, []) || []).join(", ") || "None"}`,
     `Start URL: ${startUrl || "Not provided"}`,
     "",
     "Execution context selected for automation:",
@@ -2091,11 +2151,14 @@ const buildPrompt = ({
     "Manual steps:",
     JSON.stringify(steps.map(summarizeStep), null, 2),
     "",
+    "Object Repository screen catalog. Choose relevant_screens from this list before mapping fields to steps:",
+    JSON.stringify(summarizeScreenCatalog(cacheRows), null, 2),
+    "",
+    "Fields from the Object Repository, grouped by screen metadata:",
+    JSON.stringify(summarizeCache(cacheRows), null, 2),
+    "",
     "Reusable test data:",
     JSON.stringify(safeJson(testCase.parameter_values, {}), null, 2),
-    "",
-    "Learning cache:",
-    JSON.stringify(summarizeCache(cacheRows), null, 2),
     "",
     "AI Knowledge / local agent education:",
     JSON.stringify(summarizeKnowledge(knowledgeRows?.knowledge || knowledgeRows), null, 2)

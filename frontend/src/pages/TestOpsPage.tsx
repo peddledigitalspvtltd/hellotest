@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { ActivityIcon, ClearSelectionIcon, OpenIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { InfoTooltip } from "../components/InfoTooltip";
@@ -999,35 +1000,19 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   </div>
                 </CatalogSearchFilter>
                 <CatalogViewToggle onChange={setBatchProcessViewMode} value={batchProcessViewMode} />
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!filteredBatchTransactions.length || areAllFilteredBatchLogsSelected}
-                  onClick={() => setSelectedBatchLogIds((current) => [...new Set([...current, ...visibleBatchTransactionIds])])}
-                  type="button"
-                >
-                  <SelectAllIcon />
-                  <span>Select all</span>
-                </button>
-                <button
-                  className="ghost-button catalog-selection-button"
-                  disabled={!selectedBatchLogIds.length}
-                  onClick={() => setSelectedBatchLogIds([])}
-                  type="button"
-                >
-                  <ClearSelectionIcon />
-                  <span>Clear</span>
-                </button>
-	                {canManageTransactions ? (
-	                  <button
-	                    className="ghost-button danger catalog-selection-button"
-	                    disabled={!selectedBatchLogTransactions.length || deleteBatchLog.isPending}
-                    onClick={() => void handleDeleteSelectedBatchLogs()}
-                    type="button"
-                  >
-                    <TrashIcon size={16} />
-                    <span>{deleteBatchLog.isPending ? "Deleting..." : "Delete logs"}</span>
-                  </button>
-                ) : null}
+                <CatalogSelectionControls
+                  allSelected={areAllFilteredBatchLogsSelected}
+                  canSelectAll={Boolean(filteredBatchTransactions.length)}
+                  deleteAction={canManageTransactions ? {
+                    disabled: deleteBatchLog.isPending,
+                    label: deleteBatchLog.isPending ? "Deleting..." : "Delete logs",
+                    onClick: () => void handleDeleteSelectedBatchLogs(),
+                    visible: Boolean(selectedBatchLogTransactions.length)
+                  } : undefined}
+                  onClear={() => setSelectedBatchLogIds([])}
+                  onSelectAll={() => setSelectedBatchLogIds((current) => [...new Set([...current, ...visibleBatchTransactionIds])])}
+                  selectedCount={selectedBatchLogIds.length}
+                />
                 {selectedBatchLogIds.length ? <span className="count-pill">{selectedBatchLogIds.length} selected</span> : null}
               </div>
             }

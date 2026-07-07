@@ -32,8 +32,8 @@ const PERMISSION_GROUPS = [
     ]
   },
   {
-    key: "design",
-    label: "Design",
+    key: "test_management",
+    label: "Test Management",
     permissions: [
       ["requirement.view", "View requirements"],
       ["requirement.create", "Create requirements"],
@@ -41,6 +41,10 @@ const PERMISSION_GROUPS = [
       ["requirement.update", "Update requirements"],
       ["requirement.delete", "Delete requirements"],
       ["requirement.ai", "Use AI requirement optimization and test design"],
+      ["requirement_iteration.view", "View requirement iterations"],
+      ["requirement_iteration.create", "Create requirement iterations"],
+      ["requirement_iteration.update", "Update requirement iterations and assignments"],
+      ["requirement_iteration.delete", "Delete requirement iterations"],
       ["testcase.view", "View test cases"],
       ["testcase.create", "Create, accept, and generate test cases"],
       ["testcase.import", "Import test cases from CSV, JUnit, TestNG, and source files"],
@@ -59,7 +63,7 @@ const PERMISSION_GROUPS = [
   },
   {
     key: "automation",
-    label: "Automation",
+    label: "Automation Management",
     permissions: [
       ["automation.view", "View automation workspace and object repository"],
       ["automation.repository.manage", "Create, import, update, improve, and delete object repository entries"],
@@ -71,7 +75,13 @@ const PERMISSION_GROUPS = [
       ["automation.code.view", "View generated step-level automation code and script previews"],
       ["automation.run.local", "Create and start local Playwright or local Test Engine automation runs"],
       ["automation.run.remote", "Create and start remote Test Engine automation runs"],
-      ["automation.preview", "Run local API/request previews"],
+      ["automation.preview", "Run local API/request previews"]
+    ]
+  },
+  {
+    key: "ai_agentic",
+    label: "AI Agentic",
+    permissions: [
       ["agentic_workflow.view", "View agentic workflows and workflow run snapshots"],
       ["agentic_workflow.manage", "Create, update, and delete agentic workflows"],
       ["agentic_workflow.run", "Launch agentic workflow runs"]
@@ -170,6 +180,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     "requirement.import",
     "requirement.update",
     "requirement.ai",
+    "requirement_iteration.view",
+    "requirement_iteration.create",
+    "requirement_iteration.update",
     "testcase.view",
     "testcase.create",
     "testcase.import",
@@ -298,6 +311,13 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/requirements/:id", "requirement.view"],
   ["PUT", "/requirements/:id", "requirement.update"],
   ["DELETE", "/requirements/:id", "requirement.delete"],
+  ["GET", "/requirement-iterations", "requirement_iteration.view"],
+  ["GET", "/requirement-iterations/:id", "requirement_iteration.view"],
+  ["POST", "/requirement-iterations", "requirement_iteration.create"],
+  ["PUT", "/requirement-iterations/:id", "requirement_iteration.update"],
+  ["POST", "/requirement-iterations/:id/requirements", "requirement_iteration.update"],
+  ["DELETE", "/requirement-iterations/:id/requirements", "requirement_iteration.update"],
+  ["DELETE", "/requirement-iterations/:id", "requirement_iteration.delete"],
   ["POST", "/requirements/:id/ai-optimize-preview", "requirement.ai"],
   ["POST", "/requirements/:id/generate-test-cases", "requirement.ai"],
   ["POST", "/requirements/:id/design-test-cases-preview", "requirement.ai"],

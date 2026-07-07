@@ -895,6 +895,13 @@ const createPersistablePayload = async ({
   const normalizedSteps = normalizeSteps(steps);
   const normalizedAutomated = normalizeAutomated(automated);
   const resolvedReviewStatus = normalizeReviewStatus(review_status, resolvedReviewerId);
+  const resolvedStatus = resolvedAiGenerationSource || resolvedReviewStatus === "pending"
+    ? "draft"
+    : resolvedReviewStatus === "accepted"
+      ? "ready"
+      : resolvedReviewStatus === "changes_requested"
+        ? "draft"
+        : normalizeStatus(status);
 
   return {
     app_type_id: resolvedAppTypeId,
@@ -914,7 +921,7 @@ const createPersistablePayload = async ({
       normalizedSteps.some((step) => Boolean(step.automation_code || step.api_request))
     ),
     priority: normalizePriority(priority),
-    status: normalizeStatus(status),
+    status: resolvedStatus,
     display_id,
     steps: normalizedSteps,
     ai_generation_source: resolvedAiGenerationSource,
@@ -1437,6 +1444,11 @@ exports.updateTestCase = async (id, data) => {
     data.automated === undefined ? existing.automation_status : null,
     Boolean(payload.steps?.some((step) => step.automation_code || step.api_request))
   );
+  if (payload.review_status === "pending" || payload.review_status === "changes_requested") {
+    payload.status = "draft";
+  } else if (payload.review_status === "accepted") {
+    payload.status = "ready";
+  }
 
   const executeUpdate = db.transaction(async () => {
     await updateTestCaseRecord.run(
@@ -1556,11 +1568,13 @@ exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}
   };
   history.push(entry);
 
+  const nextStatus = resolvedStatus === "accepted" ? "ready" : resolvedStatus === "changes_requested" || resolvedStatus === "pending" ? "draft" : existing.status || DEFAULT_STATUS;
+
   await db.prepare(`
     UPDATE test_cases
-    SET review_status = ?, review_history = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET review_status = ?, status = ?, review_history = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(resolvedStatus, history, reviewedBy || existing.updated_by || existing.created_by || null, id);
+  `).run(resolvedStatus, nextStatus, history, reviewedBy || existing.updated_by || existing.created_by || null, id);
 
   const appType = existing.app_type_id ? await selectAppType.get(existing.app_type_id) : null;
   const recipientId = normalizeText(existing.created_by);
@@ -1609,7 +1623,13 @@ exports.acceptGeneratedTestCase = async (id) => {
     throw new Error("Only pending scheduler-generated test cases can be accepted");
   }
 
-  await updateGeneratedReviewState.run("accepted", id);
+  await db.prepare(`
+    UPDATE test_cases
+    SET ai_generation_review_status = 'accepted',
+        status = 'ready',
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(id);
   return { accepted: true };
 };
 

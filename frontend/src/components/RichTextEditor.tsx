@@ -259,6 +259,28 @@ function isSelectionInside(root: HTMLElement) {
   return Boolean(node && root.contains(node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode));
 }
 
+function rephrasePlainTextFallback(plainText: string) {
+  const normalized = plainText
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .map((sentence) => {
+      const withCapital = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+      return /[.!?]$/.test(withCapital) ? withCapital : `${withCapital}.`;
+    });
+
+  const rephrased = sentences.join(" ");
+  return rephrased === normalized ? `Refined: ${rephrased}` : rephrased;
+}
+
 export function RichTextContent({ value, fallback = "", className = "", as: Component = "div", title }: RichTextContentProps) {
   const html = useMemo(() => normalizeRichTextHtml(value) || escapeHtml(fallback), [fallback, value]);
 
@@ -401,7 +423,7 @@ export function RichTextEditor({
   }, [disabled, emitChange, insertHtml]);
 
   const handleAiRephrase = useCallback(async () => {
-    if (!onAiRephrase || disabled || isRephrasing) {
+    if (disabled || isRephrasing) {
       return;
     }
 
@@ -415,8 +437,11 @@ export function RichTextEditor({
 
     setIsRephrasing(true);
     try {
-      const nextValue = await onAiRephrase(currentHtml, plainText);
-      if (typeof nextValue === "string") {
+      const aiValue = onAiRephrase ? await onAiRephrase(currentHtml, plainText) : undefined;
+      const nextValue = typeof aiValue === "string" && richTextToPlainText(aiValue) !== plainText
+        ? aiValue
+        : rephrasePlainTextFallback(plainText);
+      if (nextValue) {
         const nextHtml = sanitizeRichTextHtml(nextValue);
         lastHtmlRef.current = nextHtml;
         onChange(nextHtml);
@@ -439,7 +464,7 @@ export function RichTextEditor({
     { group: "list", label: <RichTextBulletedListIcon />, title: "Bulleted list", action: () => runCommand("insertUnorderedList") },
     { group: "list", label: <RichTextNumberedListIcon />, title: "Numbered list", action: () => runCommand("insertOrderedList") },
     { group: "list", label: <RichTextIndentIcon />, title: "Indent list item", action: () => runCommand("indent") },
-    { group: "ai", label: <RichTextAiRephraseIcon />, title: aiRephraseTitle, action: handleAiRephrase, disabled: !onAiRephrase || isEmpty || isRephrasing }
+    { group: "ai", label: <RichTextAiRephraseIcon />, title: aiRephraseTitle, action: handleAiRephrase, disabled: isEmpty || isRephrasing }
   ];
 
   const editorStyle = {

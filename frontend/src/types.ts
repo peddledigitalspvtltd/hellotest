@@ -125,6 +125,7 @@ export type Requirement = {
   id: string;
   display_id?: string | null;
   project_id: string;
+  iteration_id?: string | null;
   title: string;
   description: string | null;
   external_references?: string[];
@@ -137,6 +138,20 @@ export type Requirement = {
   test_case_ids?: string[];
   defect_ids?: string[];
   defects?: RequirementDefectLink[];
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type RequirementIteration = {
+  id: string;
+  display_id?: string | null;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  requirement_count?: number;
+  requirement_ids?: string[];
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;

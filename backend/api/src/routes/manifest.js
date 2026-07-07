@@ -8,6 +8,7 @@ const routeModules = [
   { area: "people", module: require("./projectMembers.routes") },
   { area: "environment", module: require("./appTypes.routes") },
   { area: "design", module: require("./requirements.routes") },
+  { area: "design", module: require("./requirementIterations.routes") },
   { area: "ops", module: require("./issues.routes") },
   { area: "connect", module: require("./integrations.routes") },
   { area: "workspace", module: require("./settings.routes") },
