@@ -1,6 +1,6 @@
 # QAIra
 
-QAIra is a QA management workspace with a Fastify backend, a React frontend, and PostgreSQL for persistence.
+QAIra is a QA management workspace with a Fastify backend, a React frontend, PostgreSQL for relational persistence, and MinIO-compatible object storage for binary test evidence.
 
 This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, which avoids the read-only database file issues that were happening with mounted `.db` files.
 
@@ -9,6 +9,7 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 - Backend: Fastify on Node.js
 - Frontend: React + Vite
 - Database: PostgreSQL 16
+- Attachments: MinIO / S3-compatible object storage through the official JavaScript SDK
 - Containers: Docker Compose
 
 ## Repo layout
@@ -16,8 +17,8 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 - `backend/api`: Fastify API
 - `backend/db/schema.sql`: PostgreSQL schema loaded on first database boot
 - `backend/db/seed.sql`: sample data loaded on first database boot
-- `backend/docker-compose.yml`: backend + PostgreSQL only
-- `docker-compose.full.yml`: full stack with PostgreSQL, API, and frontend
+- `backend/docker-compose.yml`: backend + PostgreSQL + MinIO
+- `docker-compose.full.yml`: full stack with PostgreSQL, MinIO, API, and frontend
 - `docker-compose.platform.yml`: full stack plus HAProxy, Prometheus, Grafana, Loki, Promtail, and OpenTelemetry Collector
 - `frontend`: React app
 - `testengine`: standalone Playwright worker plane
@@ -36,6 +37,8 @@ Open the apps:
 - Frontend: `http://localhost:8080`
 - API: `http://localhost:3000`
 - PostgreSQL: `localhost:5432`
+- MinIO API: `localhost:9000`
+- MinIO console: `http://localhost:9001`
 
 On the first boot, the Postgres container creates the `qaira` database and automatically runs:
 
@@ -90,6 +93,8 @@ cd backend
 ```
 
 The API will be available at `http://localhost:3000`.
+
+The Compose credentials are development defaults. Set unique `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` values for every hosted environment; the API keeps these server-side and stores only object pointers and metadata in PostgreSQL.
 
 ## Start Individual Services
 
@@ -190,6 +195,12 @@ The seed file creates these users:
 - `SESSION_SECRET`
 - `CORS_ORIGIN`
 - `LOG_LEVEL`
+- `STORAGE_PROVIDER` (`minio` for the bundled object store, or `s3` for a compatible hosted endpoint)
+- `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_USE_SSL`
+- `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_REGION`
+- `MAX_ATTACHMENT_BYTES` (defaults to 100 MiB)
+
+Attachment uploads are streamed through the authenticated API. PostgreSQL stores the QAira entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Keep object-storage credentials on the API service only—never expose them through the frontend runtime config.
 
 ### PostgreSQL container
 

@@ -116,6 +116,12 @@ const updateOrder = db.prepare(`
   WHERE id = ?
 `);
 
+const updateStepAutomation = db.prepare(`
+  UPDATE test_steps
+  SET step_type = ?, automation_code = ?, api_request = ?
+  WHERE id = ?
+`);
+
 const normalizeText = (value) => {
   if (typeof value !== "string") {
     return null;
@@ -163,81 +169,6 @@ const normalizeSharedSteps = (steps = []) => {
       ...step,
       step_order: index + 1
     }));
-};
-
-const ensureHttpUrl = (value) => {
-  const normalized = normalizeRichText(value);
-
-  if (!normalized) {
-    throw new Error("Request URL is required");
-  }
-
-  let parsedUrl;
-
-  try {
-    parsedUrl = new URL(normalized);
-  } catch {
-    throw new Error("Request URL must be a valid absolute URL");
-  }
-
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw new Error("Only http and https API requests are supported");
-  }
-
-  return parsedUrl.toString();
-};
-
-const serializeApiBody = (request, headers) => {
-  const bodyMode = request.body_mode || "none";
-  const body = normalizeRichText(request.body);
-
-  if (bodyMode === "none" || !body) {
-    return undefined;
-  }
-
-  if (bodyMode === "json" && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  } else if (bodyMode === "text" && !headers.has("content-type")) {
-    headers.set("content-type", "text/plain; charset=utf-8");
-  } else if (bodyMode === "xml" && !headers.has("content-type")) {
-    headers.set("content-type", "application/xml");
-  } else if (bodyMode === "form" && !headers.has("content-type")) {
-    headers.set("content-type", "application/x-www-form-urlencoded");
-  }
-
-  return body;
-};
-
-const mapResponseHeaders = (response) => {
-  const headers = {};
-
-  response.headers.forEach((value, key) => {
-    headers[key] = value;
-  });
-
-  return headers;
-};
-
-const parseResponseJson = (bodyText, contentType) => {
-  const normalizedBody = typeof bodyText === "string" ? bodyText.trim() : "";
-
-  if (!normalizedBody) {
-    return null;
-  }
-
-  const looksLikeJson = String(contentType || "").toLowerCase().includes("json")
-    || normalizedBody.startsWith("{")
-    || normalizedBody.startsWith("[");
-
-  if (!looksLikeJson) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(normalizedBody);
-  } catch {
-    return null;
-  }
 };
 
 const ensureTestCase = async (testCaseId) => {
@@ -405,6 +336,39 @@ exports.updateTestStep = async (id, data = {}) => {
   await transaction();
   await syncSharedGroupFromStep(await ensureStep(id));
   return { updated: true };
+};
+
+exports.moveTestStepAutomation = async ({ source_step_id, target_step_id } = {}) => {
+  if (!source_step_id || !target_step_id || source_step_id === target_step_id) {
+    throw new Error("Choose two different test steps to move automation");
+  }
+
+  const source = await ensureStep(source_step_id);
+  const target = await ensureStep(target_step_id);
+
+  if (source.test_case_id !== target.test_case_id) {
+    throw new Error("Automation can only move between steps in the same test case");
+  }
+
+  const transaction = db.transaction(async () => {
+    await updateStepAutomation.run(
+      normalizeTestStepType(target.step_type, "web"),
+      normalizeRichText(target.automation_code),
+      parseJsonValue(target.api_request, null),
+      source.id
+    );
+    await updateStepAutomation.run(
+      normalizeTestStepType(source.step_type, "web"),
+      normalizeRichText(source.automation_code),
+      parseJsonValue(source.api_request, null),
+      target.id
+    );
+  });
+
+  await transaction();
+  await syncSharedGroupFromStep(await ensureStep(source.id));
+  await syncSharedGroupFromStep(await ensureStep(target.id));
+  return { moved: true, source_step_id, target_step_id };
 };
 
 exports.reorderTestSteps = async (testCaseId, stepIds = []) => {

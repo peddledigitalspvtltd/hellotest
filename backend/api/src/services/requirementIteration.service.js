@@ -14,6 +14,23 @@ const normalizeText = (value) => {
 const normalizeTextList = (values = []) =>
   [...new Set((Array.isArray(values) ? values : []).map((value) => normalizeText(value)).filter(Boolean))];
 
+const normalizeState = (value, fallback = "future") => {
+  const state = normalizeText(value) || fallback;
+  if (!["future", "active", "closed"].includes(state)) throw new Error("Invalid iteration state");
+  return state;
+};
+
+const normalizeDate = (value) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(Date.parse(`${normalized}T00:00:00Z`))) throw new Error("Invalid iteration date");
+  return normalized;
+};
+
+const validateDateRange = (startDate, endDate) => {
+  if (startDate && endDate && endDate <= startDate) throw new Error("Iteration end date must be after its start date");
+};
+
 const selectProject = db.prepare(`
   SELECT id
   FROM projects
@@ -114,7 +131,7 @@ exports.getIteration = async (id) => {
   return hydrateIteration(iteration);
 };
 
-exports.createIteration = async ({ project_id, name, description, requirement_ids = [], created_by } = {}) => {
+exports.createIteration = async ({ project_id, name, description, goal, state, start_date, end_date, requirement_ids = [], created_by } = {}) => {
   const project = await ensureProjectExists(project_id);
   const normalizedName = normalizeText(name);
 
@@ -128,12 +145,15 @@ exports.createIteration = async ({ project_id, name, description, requirement_id
   const id = uuid();
   const displayId = await displayIdService.createDisplayId("requirement_iteration");
   const actorId = normalizeText(created_by);
+  const startDate = normalizeDate(start_date);
+  const endDate = normalizeDate(end_date);
+  validateDateRange(startDate, endDate);
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
-      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, created_by, updated_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(id, displayId, project.id, normalizedName, normalizeText(description), actorId, actorId);
+      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, state, start_date, end_date, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(id, displayId, project.id, normalizedName, normalizeText(description), normalizeText(goal) || normalizeText(description), normalizeState(state), startDate, endDate, actorId, actorId);
 
     for (const requirementId of requirementIds) {
       await db.prepare(`
@@ -158,6 +178,9 @@ exports.updateIteration = async (id, data = {}) => {
   }
 
   const requirementIds = data.requirement_ids !== undefined ? normalizeTextList(data.requirement_ids) : null;
+  const startDate = data.start_date !== undefined ? normalizeDate(data.start_date) : existing.start_date;
+  const endDate = data.end_date !== undefined ? normalizeDate(data.end_date) : existing.end_date;
+  validateDateRange(startDate, endDate);
 
   if (requirementIds) {
     await ensureRequirementsMatchProject(requirementIds, existing.project_id);
@@ -166,11 +189,15 @@ exports.updateIteration = async (id, data = {}) => {
   const transaction = db.transaction(async () => {
     await db.prepare(`
       UPDATE requirement_iterations
-      SET name = ?, description = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      SET name = ?, description = ?, goal = ?, state = ?, start_date = ?, end_date = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
       nextName,
       data.description !== undefined ? normalizeText(data.description) : existing.description,
+      data.goal !== undefined ? normalizeText(data.goal) : existing.goal,
+      data.state !== undefined ? normalizeState(data.state, existing.state) : normalizeState(existing.state),
+      startDate,
+      endDate,
       normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,
       id
     );

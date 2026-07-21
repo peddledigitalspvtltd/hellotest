@@ -9,6 +9,7 @@ const aiAutomationBuilderService = require("../services/aiAutomationBuilder.serv
 const automationGeneratorService = require("../services/automationGenerator.service");
 const batchProcessService = require("../services/batchProcess.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
+const testCaseVersionService = require("../services/testCaseVersion.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
@@ -678,6 +679,44 @@ module.exports = async function (fastify) {
     return service.getTestCases({ suite_id, requirement_id, status, app_type_id });
   });
 
+  fastify.get("/test-cases/:id/versions", async (req) => {
+    await fastify.authenticate(req);
+    const testCase = await service.getTestCase(req.params.id);
+    if (testCase.app_type_id) {
+      const appType = await appTypeService.getAppType(testCase.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    }
+    return testCaseVersionService.list(req.params.id);
+  });
+
+  fastify.get("/test-cases/:id/versions/:revision", async (req) => {
+    await fastify.authenticate(req);
+    const testCase = await service.getTestCase(req.params.id);
+    if (testCase.app_type_id) {
+      const appType = await appTypeService.getAppType(testCase.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    }
+    return testCaseVersionService.get(req.params.id, Number(req.params.revision));
+  });
+
+  fastify.post("/test-cases/:id/versions/:revision/restore", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      expected_revision: { required: false, type: "number" }
+    }, req.body || {});
+    const testCase = await service.getTestCase(req.params.id);
+    if (testCase.app_type_id) {
+      const appType = await appTypeService.getAppType(testCase.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    }
+    return testCaseVersionService.restore({
+      testCaseId: req.params.id,
+      revision: Number(req.params.revision),
+      userId: req.user.id,
+      expectedRevision: req.body?.expected_revision
+    });
+  });
+
   fastify.get("/test-cases/:id", async (req) => {
     await fastify.authenticate(req);
     const testCase = await service.getTestCase(req.params.id);
@@ -807,7 +846,8 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
-      target_step_id: { required: false, type: "string" }
+      target_step_id: { required: false, type: "string" },
+      included_action_indices: { required: false, type: "array", items: "number" }
     }, req.body || {});
 
     const testCase = await service.getTestCase(req.params.id);
@@ -830,6 +870,7 @@ module.exports = async function (fastify) {
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
       target_step_id: req.body?.target_step_id,
+      included_action_indices: req.body?.included_action_indices,
       created_by: req.user.id
     });
   });

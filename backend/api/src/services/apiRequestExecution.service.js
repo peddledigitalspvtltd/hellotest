@@ -2,6 +2,9 @@ const { normalizeApiRequest } = require("../utils/testStepAutomation");
 const { materializeTemplateValue } = require("../utils/testDataGenerators");
 
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+const API_PREVIEW_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const RETRYABLE_RESPONSE_STATUSES = new Set([429, 502, 503, 504]);
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -165,6 +168,62 @@ const serializeApiBody = (request, headers) => {
   }
 
   return body;
+};
+
+const waitForRetry = (attempt) => new Promise((resolve) => {
+  const exponentialDelay = Math.min(1500, 200 * (2 ** Math.max(0, attempt - 1)));
+  const jitter = Math.floor(Math.random() * 120);
+  setTimeout(resolve, exponentialDelay + jitter);
+});
+
+const readLimitedResponseBody = async (response, maxBytes = API_PREVIEW_MAX_RESPONSE_BYTES) => {
+  if (!response.body?.getReader) {
+    const bodyText = await response.text();
+    const encoded = Buffer.byteLength(bodyText, "utf8");
+    return {
+      bodyText: encoded > maxBytes ? Buffer.from(bodyText).subarray(0, maxBytes).toString("utf8") : bodyText,
+      bytesReceived: Math.min(encoded, maxBytes),
+      truncated: encoded > maxBytes
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let bytesReceived = 0;
+  let truncated = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      const remaining = maxBytes - bytesReceived;
+
+      if (remaining <= 0) {
+        truncated = true;
+        await reader.cancel("QAira API preview response limit reached");
+        break;
+      }
+
+      const accepted = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+      chunks.push(decoder.decode(accepted, { stream: true }));
+      bytesReceived += accepted.byteLength;
+
+      if (accepted.byteLength < value.byteLength) {
+        truncated = true;
+        await reader.cancel("QAira API preview response limit reached");
+        break;
+      }
+    }
+  } finally {
+    chunks.push(decoder.decode());
+  }
+
+  return { bodyText: chunks.join(""), bytesReceived, truncated };
 };
 
 const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
@@ -689,26 +748,63 @@ const runResolvedApiRequest = async (request) => {
     headers.set(key, header.value || "");
   }
 
+  const requestBody = method === "GET" || method === "HEAD" ? undefined : serializeApiBody(normalizedRequest, headers);
   const startedAt = Date.now();
+  const startedAtIso = new Date(startedAt).toISOString();
+  const maxAttempts = IDEMPOTENT_METHODS.has(method) ? 2 : 1;
+  const attempts = [];
   let response;
 
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: method === "GET" || method === "HEAD" ? undefined : serializeApiBody(normalizedRequest, headers),
-      signal: AbortSignal.timeout(20000)
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("API request timed out after 20 seconds");
-    }
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const attemptStartedAt = Date.now();
 
-    throw new Error(error instanceof Error ? error.message : "Unable to run API request");
+    try {
+      response = await fetch(url, {
+        method,
+        headers,
+        body: requestBody,
+        signal: AbortSignal.timeout(20000)
+      });
+      attempts.push({
+        attempt,
+        status: response.status,
+        duration_ms: Date.now() - attemptStartedAt,
+        outcome: RETRYABLE_RESPONSE_STATUSES.has(response.status) && attempt < maxAttempts ? "retrying" : "completed"
+      });
+
+      if (RETRYABLE_RESPONSE_STATUSES.has(response.status) && attempt < maxAttempts) {
+        await response.body?.cancel();
+        await waitForRetry(attempt);
+        continue;
+      }
+
+      break;
+    } catch (error) {
+      const timedOut = error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name);
+      attempts.push({
+        attempt,
+        status: null,
+        duration_ms: Date.now() - attemptStartedAt,
+        outcome: attempt < maxAttempts ? "retrying" : "failed",
+        error: timedOut ? "Request timed out after 20 seconds" : (error instanceof Error ? error.message : "Network request failed")
+      });
+
+      if (attempt < maxAttempts) {
+        await waitForRetry(attempt);
+        continue;
+      }
+
+      throw new Error(timedOut ? "API request timed out after 20 seconds" : (error instanceof Error ? error.message : "Unable to run API request"));
+    }
   }
 
-  const bodyText = await response.text();
+  if (!response) {
+    throw new Error("Unable to run API request");
+  }
+
+  const { bodyText, bytesReceived, truncated } = await readLimitedResponseBody(response);
   const contentType = response.headers.get("content-type");
+  const completedAt = Date.now();
 
   return {
     request: {
@@ -725,7 +821,18 @@ const runResolvedApiRequest = async (request) => {
       content_type: contentType,
       body_text: bodyText,
       body_json: parseResponseJson(bodyText, contentType),
-      duration_ms: Date.now() - startedAt
+      duration_ms: completedAt - startedAt,
+      size_bytes: bytesReceived,
+      truncated
+    },
+    trace: {
+      started_at: startedAtIso,
+      completed_at: new Date(completedAt).toISOString(),
+      total_duration_ms: completedAt - startedAt,
+      request_size_bytes: requestBody ? Buffer.byteLength(requestBody, "utf8") : 0,
+      response_size_bytes: bytesReceived,
+      response_truncated: truncated,
+      attempts
     }
   };
 };
@@ -751,8 +858,11 @@ exports.runApiRequestPreview = async (input, options = {}) => {
       content_type: preview.response.content_type,
       body_text: preview.response.body_text,
       body_json: preview.response.body_json,
-      duration_ms: preview.response.duration_ms
+      duration_ms: preview.response.duration_ms,
+      size_bytes: preview.response.size_bytes,
+      truncated: preview.response.truncated
     },
+    trace: preview.trace,
     ai_suggestions: buildAiResponseSuggestions(preview)
   };
 };

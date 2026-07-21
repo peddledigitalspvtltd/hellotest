@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ColumnsIcon, DragHandleIcon, PinIcon } from "./AppIcons";
+import { ColumnsIcon, DragHandleIcon, PinIcon, SearchIcon } from "./AppIcons";
 import { InfoTooltip } from "./InfoTooltip";
+import { discoverRowColumns, formatDiscoveredValue } from "../lib/tablePreferences/columnDiscovery";
 import {
   DEFAULT_COLUMN_WIDTH,
   DEFAULT_MAX_COLUMN_WIDTH,
@@ -19,6 +20,10 @@ import {
   type StoredColumnPreference
 } from "../lib/tablePreferences/columnPreferences";
 
+const DEFAULT_COLUMN_COMPRESSION_RATIO = 0.85;
+const SELECTION_COLUMN_WIDTH = 36;
+const COLUMN_CONFIG_WIDTH = 28;
+
 export type DataTableColumn<T> = {
   key: string;
   label: string;
@@ -33,6 +38,9 @@ export type DataTableColumn<T> = {
   minWidth?: number;
   maxWidth?: number;
   preferenceLabel?: string;
+  description?: string;
+  group?: string;
+  dataType?: "boolean" | "date" | "list" | "number" | "text";
 };
 
 export function DataTable<T>({
@@ -48,7 +56,8 @@ export function DataTable<T>({
   onRowDragEnd,
   enableHeaderColumnReorder = false,
   enableColumnResize = false,
-  enableRowSelection = true
+  enableRowSelection = true,
+  includeDiscoveredColumns = true
 }: {
   columns: Array<DataTableColumn<T>>;
   rows: T[];
@@ -65,13 +74,32 @@ export function DataTable<T>({
   enableHeaderColumnReorder?: boolean;
   enableColumnResize?: boolean;
   enableRowSelection?: boolean;
+  includeDiscoveredColumns?: boolean;
 }) {
   const [isColumnConfigOpen, setIsColumnConfigOpen] = useState(false);
+  const [columnSearch, setColumnSearch] = useState("");
   const [draggedColumnKey, setDraggedColumnKey] = useState("");
   const [sortState, setSortState] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(() => new Set());
+  const discoveredColumns = useMemo<Array<DataTableColumn<T>>>(() => {
+    if (!includeDiscoveredColumns) return [];
+    return discoverRowColumns(rows, columns.map((column) => column.key)).map((column) => ({
+      ...column,
+      defaultVisible: false,
+      render: (row: T) => (
+        <span className="data-table-discovered-value" title={formatDiscoveredValue((row as Record<string, unknown>)[column.key], column.dataType)}>
+          {formatDiscoveredValue((row as Record<string, unknown>)[column.key], column.dataType)}
+        </span>
+      ),
+      sortValue: (row: T) => {
+        const value = (row as Record<string, unknown>)[column.key];
+        return typeof value === "number" ? value : Array.isArray(value) ? value.join(", ") : String(value ?? "");
+      }
+    }));
+  }, [columns, includeDiscoveredColumns, rows]);
+  const resolvedColumns = useMemo(() => [...columns, ...discoveredColumns], [columns, discoveredColumns]);
   const [columnPreference, setColumnPreference] = useState<NormalizedColumnPreference>(() =>
-    normalizeColumnPreference(columns, storageKey ? readStoredColumnPreference(storageKey) : null)
+    normalizeColumnPreference(resolvedColumns, storageKey ? readStoredColumnPreference(storageKey) : null)
   );
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => columnPreference.columnWidths);
   const [isPreferenceHydrated, setIsPreferenceHydrated] = useState(!storageKey);
@@ -83,8 +111,8 @@ export function DataTable<T>({
   const [columnConfigPanelPosition, setColumnConfigPanelPosition] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
 
   useEffect(() => {
-    setColumnPreference((current) => normalizeColumnPreference(columns, current));
-  }, [columns]);
+    setColumnPreference((current) => normalizeColumnPreference(resolvedColumns, current));
+  }, [resolvedColumns]);
 
   useEffect(() => {
     setColumnWidths(columnPreference.columnWidths);
@@ -99,7 +127,7 @@ export function DataTable<T>({
     const localPreference = readStoredColumnPreference(storageKey);
 
     if (localPreference) {
-      setColumnPreference(normalizeColumnPreference(columns, localPreference));
+      setColumnPreference(normalizeColumnPreference(resolvedColumns, localPreference));
     }
 
     void loadWorkspacePreferenceCache().then((preferences) => {
@@ -109,11 +137,11 @@ export function DataTable<T>({
 
       const remotePreference = preferences[storageKey];
       if (remotePreference && typeof remotePreference === "object" && !Array.isArray(remotePreference)) {
-        const normalizedRemotePreference = normalizeColumnPreference(columns, remotePreference as StoredColumnPreference);
+        const normalizedRemotePreference = normalizeColumnPreference(resolvedColumns, remotePreference as StoredColumnPreference);
         setColumnPreference(normalizedRemotePreference);
         writeStoredColumnPreference(storageKey, normalizedRemotePreference);
       } else if (localPreference) {
-        const normalizedLocalPreference = normalizeColumnPreference(columns, localPreference);
+        const normalizedLocalPreference = normalizeColumnPreference(resolvedColumns, localPreference);
         void saveWorkspacePreference(storageKey, normalizedLocalPreference).catch(() => undefined);
       }
 
@@ -123,7 +151,7 @@ export function DataTable<T>({
     return () => {
       isActive = false;
     };
-  }, [columns, storageKey]);
+  }, [resolvedColumns, storageKey]);
 
   useEffect(() => {
     if (!storageKey || !isPreferenceHydrated) {
@@ -215,16 +243,16 @@ export function DataTable<T>({
 
   const columnByKey = useMemo(
     () =>
-      columns.reduce<Record<string, DataTableColumn<T>>>((accumulator, column) => {
+      resolvedColumns.reduce<Record<string, DataTableColumn<T>>>((accumulator, column) => {
         accumulator[column.key] = column;
         return accumulator;
       }, {}),
-    [columns]
+    [resolvedColumns]
   );
-  const configurableColumns = useMemo(() => columns.filter((column) => column.canToggle !== false), [columns]);
+  const configurableColumns = useMemo(() => resolvedColumns.filter((column) => column.canToggle !== false), [resolvedColumns]);
   const hasCustomSelectionColumn = useMemo(
-    () => columns.some((column) => column.key === "select" || column.key === "selection" || column.key.startsWith("select-")),
-    [columns]
+    () => resolvedColumns.some((column) => column.key === "select" || column.key === "selection" || column.key.startsWith("select-")),
+    [resolvedColumns]
   );
   const isSelectionColumn = (column: DataTableColumn<T>) => isSelectionColumnKey(column.key);
   const shouldRenderSelectionColumn = enableRowSelection && !hasCustomSelectionColumn;
@@ -253,7 +281,8 @@ export function DataTable<T>({
         })
       ];
       const longest = sampleValues.reduce((length, value) => Math.max(length, value.length), 0);
-      const estimatedWidth = Math.min(DEFAULT_MAX_COLUMN_WIDTH, Math.max(DEFAULT_MIN_COLUMN_WIDTH, longest * 7 + 56));
+      const headerChromeWidth = column.sortValue ? 36 : 20;
+      const estimatedWidth = Math.min(DEFAULT_MAX_COLUMN_WIDTH, Math.max(DEFAULT_MIN_COLUMN_WIDTH, longest * 7 + headerChromeWidth));
 
       widths[column.key] = clampColumnWidth(column, estimatedWidth);
       return widths;
@@ -261,7 +290,14 @@ export function DataTable<T>({
   }, [activeColumns, rows]);
 
   const updateColumnPreference = (updater: (current: NormalizedColumnPreference) => NormalizedColumnPreference) => {
-    setColumnPreference((current) => normalizeColumnPreference(columns, updater(current)));
+    setColumnPreference((current) => normalizeColumnPreference(resolvedColumns, updater(current)));
+  };
+
+  const showAllColumns = () => {
+    updateColumnPreference((current) => ({
+      ...current,
+      visibleColumnKeys: configurableColumns.map((column) => column.key)
+    }));
   };
 
   const moveColumn = (draggedKey: string, targetKey: string) => {
@@ -271,8 +307,28 @@ export function DataTable<T>({
     }));
   };
 
-  const getColumnWidth = (column: DataTableColumn<T>) =>
-    enableColumnResize ? columnWidths[column.key] || column.width || estimatedColumnWidths[column.key] || DEFAULT_COLUMN_WIDTH : undefined;
+  const getColumnWidth = (column: DataTableColumn<T>) => {
+    if (!enableColumnResize) {
+      return undefined;
+    }
+
+    if (isSelectionColumn(column)) {
+      return SELECTION_COLUMN_WIDTH;
+    }
+
+    const storedWidth = columnWidths[column.key];
+    if (storedWidth) {
+      return storedWidth;
+    }
+
+    if (column.width) {
+      const headerWidth = column.label.length * 7 + (column.sortValue ? 36 : 20);
+      const compactPreferredWidth = Math.round(column.width * DEFAULT_COLUMN_COMPRESSION_RATIO);
+      return clampColumnWidth(column, Math.min(column.width, Math.max(headerWidth, compactPreferredWidth)));
+    }
+
+    return estimatedColumnWidths[column.key] || DEFAULT_COLUMN_WIDTH;
+  };
 
   const handleColumnResizePointerDown = (column: DataTableColumn<T>, event: ReactPointerEvent<HTMLSpanElement>) => {
     if (!enableColumnResize || column.canResize === false) {
@@ -346,8 +402,12 @@ export function DataTable<T>({
     });
   };
 
+  const setDensity = (density: NormalizedColumnPreference["density"]) => {
+    updateColumnPreference((current) => ({ ...current, density }));
+  };
+
   const resetColumns = () => {
-    const defaultPreference = normalizeColumnPreference(columns);
+    const defaultPreference = normalizeColumnPreference(resolvedColumns);
 
     setIsPreferenceHydrated(true);
     setColumnPreference(defaultPreference);
@@ -367,7 +427,7 @@ export function DataTable<T>({
       return rows;
     }
 
-    const sortColumn = columns.find((column) => column.key === sortState.key);
+    const sortColumn = resolvedColumns.find((column) => column.key === sortState.key);
     if (!sortColumn?.sortValue) {
       return rows;
     }
@@ -401,7 +461,7 @@ export function DataTable<T>({
         return comparison ? comparison * directionMultiplier : left.index - right.index;
       })
       .map(({ row }) => row);
-  }, [columns, rows, sortState]);
+  }, [resolvedColumns, rows, sortState]);
 
   const sortedRowKeys = useMemo(
     () => sortedRows.map((row, index) => String(getRowKey ? getRowKey(row, index) : index)),
@@ -471,6 +531,14 @@ export function DataTable<T>({
     });
   };
 
+  const normalizedColumnSearch = columnSearch.trim().toLowerCase();
+  const filteredOrderedColumns = orderedColumns.filter((column) => {
+    if (!normalizedColumnSearch) return true;
+    return [getColumnPreferenceLabel(column), column.description, column.group, column.key]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedColumnSearch));
+  });
+
   const columnConfigPanel = isColumnConfigOpen ? (
     <div
       className="data-table-config-panel"
@@ -484,78 +552,106 @@ export function DataTable<T>({
     >
       <div className="data-table-config-head">
         <div className="data-table-config-title-row">
-          <strong>Column configuration</strong>
+          <div>
+            <strong>Configure columns</strong>
+            <span>{columnPreference.visibleColumnKeys.length} of {configurableColumns.length} visible</span>
+          </div>
           <InfoTooltip
-            content="Show or hide details, then drag rows to reorder how list view appears."
+            content="Search, show, hide, and reorder project fields. Newly available feature properties appear under Additional fields."
             label="Column configuration information"
           />
         </div>
+        <label className="data-table-config-search">
+          <SearchIcon size={16} />
+          <input
+            aria-label="Search columns"
+            onChange={(event) => setColumnSearch(event.target.value)}
+            placeholder="Search fields"
+            type="search"
+            value={columnSearch}
+          />
+        </label>
+        <div className="data-table-config-quick-actions">
+          <button onClick={showAllColumns} type="button">Show all</button>
+          <button onClick={resetColumns} type="button">Use defaults</button>
+        </div>
       </div>
       <div className="data-table-config-options">
-        {orderedColumns.map((column) => {
+        {!filteredOrderedColumns.length ? (
+          <div className="data-table-config-no-results">No fields match “{columnSearch.trim()}”.</div>
+        ) : null}
+        {filteredOrderedColumns.map((column, index) => {
           const columnLabel = getColumnPreferenceLabel(column);
           const isVisible = visibleColumnKeySet.has(column.key);
           const isPinned = column.canToggle === false;
           const isLastVisibleColumn = isVisible && columnPreference.visibleColumnKeys.length === 1;
+          const columnGroup = column.group || "Core fields";
+          const previousColumn = filteredOrderedColumns[index - 1];
+          const previousGroup = previousColumn ? previousColumn.group || "Core fields" : "";
 
           return (
-            <div
-              className={[
-                "data-table-config-option",
-                draggedColumnKey === column.key ? "is-dragging" : "",
-                isVisible ? "is-visible" : ""
-              ].filter(Boolean).join(" ")}
-              draggable={column.canReorder !== false}
-              key={column.key}
-              onDragEnd={() => setDraggedColumnKey("")}
-              onDragOver={(event) => {
-                if (!draggedColumnKey || draggedColumnKey === column.key || column.canReorder === false) {
-                  return;
-                }
-                event.preventDefault();
-              }}
-              onDragStart={() => setDraggedColumnKey(column.key)}
-              onDrop={(event) => {
-                if (!draggedColumnKey || column.canReorder === false) {
-                  return;
-                }
+            <div className="data-table-config-option-block" key={column.key}>
+              {columnGroup !== previousGroup ? <div className="data-table-config-group">{columnGroup}</div> : null}
+              <div
+                className={[
+                  "data-table-config-option",
+                  draggedColumnKey === column.key ? "is-dragging" : "",
+                  isVisible ? "is-visible" : ""
+                ].filter(Boolean).join(" ")}
+                draggable={!normalizedColumnSearch && column.canReorder !== false}
+                onDragEnd={() => setDraggedColumnKey("")}
+                onDragOver={(event) => {
+                  if (!draggedColumnKey || draggedColumnKey === column.key || column.canReorder === false) {
+                    return;
+                  }
+                  event.preventDefault();
+                }}
+                onDragStart={() => setDraggedColumnKey(column.key)}
+                onDrop={(event) => {
+                  if (!draggedColumnKey || column.canReorder === false) {
+                    return;
+                  }
 
-                event.preventDefault();
-                updateColumnPreference((current) => ({
-                  ...current,
-                  orderedColumnKeys: moveColumnKey(current.orderedColumnKeys, draggedColumnKey, column.key)
-                }));
-                setDraggedColumnKey("");
-              }}
-            >
-              <span aria-hidden="true" className="data-table-config-drag-handle">
-                <DragHandleIcon />
-              </span>
-              <div className="data-table-config-option-copy">
-                <strong>{columnLabel}</strong>
-              </div>
-              {isPinned ? (
-                <span aria-label="Pinned column" className="data-table-config-option-state" title="Pinned column">
-                  <PinIcon />
+                  event.preventDefault();
+                  updateColumnPreference((current) => ({
+                    ...current,
+                    orderedColumnKeys: moveColumnKey(current.orderedColumnKeys, draggedColumnKey, column.key)
+                  }));
+                  setDraggedColumnKey("");
+                }}
+              >
+                <span aria-hidden="true" className="data-table-config-drag-handle">
+                  <DragHandleIcon />
                 </span>
-              ) : (
-                <label className="data-table-config-toggle">
-                  <input
-                    checked={isVisible}
-                    disabled={isLastVisibleColumn}
-                    onChange={() => toggleColumn(column.key)}
-                    type="checkbox"
-                  />
-                </label>
-              )}
+                <div className="data-table-config-option-copy">
+                  <strong>{columnLabel}</strong>
+                  <span>{column.description || `${column.dataType || "Feature"} field`}</span>
+                </div>
+                {isPinned ? (
+                  <span aria-label="Pinned column" className="data-table-config-option-state" title="Pinned column">
+                    <PinIcon />
+                  </span>
+                ) : (
+                  <label className="data-table-config-toggle">
+                    <input
+                      checked={isVisible}
+                      disabled={isLastVisibleColumn}
+                      onChange={() => toggleColumn(column.key)}
+                      type="checkbox"
+                    />
+                  </label>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
       <div className="data-table-config-actions">
-        <button className="link-button data-table-config-reset" onClick={resetColumns} type="button">
-          Reset defaults
-        </button>
+        <span>Row density</span>
+        <div className="data-table-density-control" role="group" aria-label="Row density">
+          <button className={columnPreference.density === "comfortable" ? "is-active" : ""} onClick={() => setDensity("comfortable")} type="button">Comfortable</button>
+          <button className={columnPreference.density === "compact" ? "is-active" : ""} onClick={() => setDensity("compact")} type="button">Compact</button>
+        </div>
       </div>
     </div>
   ) : null;
@@ -566,36 +662,47 @@ export function DataTable<T>({
         <button
           aria-expanded={isColumnConfigOpen}
           aria-haspopup="menu"
-          aria-label="Column configuration"
+          aria-label={`Configure columns (${columnPreference.visibleColumnKeys.length} visible)`}
           className="ghost-button data-table-config-trigger"
           onClick={() => {
             updateColumnConfigPanelPosition();
             setIsColumnConfigOpen((current) => !current);
           }}
           ref={columnConfigTriggerRef}
-          title="Column configuration"
+          title={`Configure columns (${columnPreference.visibleColumnKeys.length} visible)`}
           type="button"
         >
           <ColumnsIcon />
-          <span className="data-table-config-count">{columnPreference.visibleColumnKeys.length}</span>
         </button>
         {columnConfigPanel && typeof document !== "undefined" ? createPortal(columnConfigPanel, document.body) : null}
       </div>
     </div>
   ) : null;
 
+  const resizableTableWidth = enableColumnResize
+    ? activeColumns.reduce((width, column) => width + (getColumnWidth(column) || 0), shouldRenderSelectionColumn ? SELECTION_COLUMN_WIDTH : 0)
+      + (columnConfigControl ? COLUMN_CONFIG_WIDTH : 0)
+    : undefined;
+
   return (
-    <div className="data-table-shell">
+    <div className={`data-table-shell data-table-shell--${columnPreference.density}`}>
       {!rows.length ? <div className="empty-state">{emptyMessage}</div> : null}
 
       {rows.length ? (
         <div className="table-wrap catalog-table-wrap">
-          <table className={["data-table catalog-data-table", enableColumnResize ? "is-resizable" : ""].filter(Boolean).join(" ")}>
+          <table
+            className={["data-table catalog-data-table", enableColumnResize ? "is-resizable" : ""].filter(Boolean).join(" ")}
+            style={resizableTableWidth ? { width: `${resizableTableWidth}px` } : undefined}
+          >
             {enableColumnResize ? (
               <colgroup>
                 {shouldRenderSelectionColumn ? <col className="data-table-selection-col" /> : null}
                 {activeColumns.map((column) => (
-                  <col key={column.key} style={{ width: `${getColumnWidth(column)}px` }} />
+                  <col
+                    className={isSelectionColumn(column) ? "data-table-selection-col" : undefined}
+                    key={column.key}
+                    style={{ width: `${getColumnWidth(column)}px` }}
+                  />
                 ))}
                 {columnConfigControl ? <col className="data-table-control-col" /> : null}
               </colgroup>

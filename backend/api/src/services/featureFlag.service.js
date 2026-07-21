@@ -3,6 +3,14 @@ const db = require("../db");
 const FEATURE_FLAGS_SETTINGS_KEY = "feature_flags";
 
 const PERMISSION_FEATURES = {
+  "dashboard.view": ["qaira.analytics.dashboards"],
+  "dashboard.manage": ["qaira.analytics.dashboards"],
+  "quality_insight.view": ["qaira.ai.quality_insights"],
+  "project.view": ["qaira.ops.projects"],
+  "project.create": ["qaira.ops.projects"],
+  "project.update": ["qaira.ops.projects"],
+  "project.delete": ["qaira.ops.projects"],
+  "project.sync": ["qaira.ops.projects"],
   "settings.manage": ["qaira.ops.admin"],
   "workspace_preferences.manage": ["qaira.ops.admin"],
   "api_key.manage": ["qaira.api.keys"],
@@ -19,6 +27,7 @@ const PERMISSION_FEATURES = {
   "requirement.view": ["qaira.manual.requirements"],
   "requirement.create": ["qaira.manual.requirements"],
   "requirement.import": ["qaira.manual.requirements"],
+  "requirement.export": ["qaira.manual.requirements"],
   "requirement.update": ["qaira.manual.requirements"],
   "requirement.delete": ["qaira.manual.requirements"],
   "requirement.ai": ["qaira.ai.requirement_design"],
@@ -40,17 +49,32 @@ const PERMISSION_FEATURES = {
   "suite.create": ["qaira.manual.suites"],
   "suite.update": ["qaira.manual.suites"],
   "suite.delete": ["qaira.manual.suites"],
+  "plan.view": ["qaira.manual.plans"],
+  "plan.create": ["qaira.manual.plans"],
+  "plan.update": ["qaira.manual.plans"],
+  "plan.delete": ["qaira.manual.plans"],
+  "quality_gate.view": ["qaira.manual.quality_gates"],
+  "quality_gate.create": ["qaira.manual.quality_gates"],
+  "quality_gate.update": ["qaira.manual.quality_gates"],
+  "quality_gate.delete": ["qaira.manual.quality_gates"],
+  "quality_gate.ai": ["qaira.ai.quality_insights"],
   "automation.view": ["qaira.automation.workspace"],
+  "automation.asset.create": ["qaira.automation.assets"],
+  "automation.asset.update": ["qaira.automation.assets"],
+  "automation.asset.delete": ["qaira.automation.assets"],
   "automation.repository.manage": ["qaira.automation.object_repository"],
   "automation.repository.import": ["qaira.automation.object_repository"],
   "automation.repository.export": ["qaira.automation.object_repository"],
   "automation.build": ["qaira.automation.builder"],
   "automation.ai": ["qaira.ai.automation"],
+  "content.ai": ["qaira.ai.content_rephrase"],
   "automation.recorder": ["qaira.automation.step_recording"],
   "automation.code.view": ["qaira.automation.step_code"],
   "automation.run.local": ["qaira.automation.local_execution"],
   "automation.run.remote": ["qaira.automation.remote_execution"],
-  "automation.preview": ["qaira.api.preview"],
+  "automation.run.parallel": ["qaira.automation.parallel_execution"],
+  "automation.analytics.view": ["qaira.automation.analytics"],
+  "automation.preview": ["qaira.automation.preview"],
   "agentic_workflow.view": ["qaira.ai.agentic_workflows"],
   "agentic_workflow.manage": ["qaira.ai.agentic_workflows"],
   "agentic_workflow.run": ["qaira.ai.agentic_workflows"],
@@ -68,14 +92,17 @@ const PERMISSION_FEATURES = {
   "schedule.update": ["qaira.automation.batch_process"],
   "schedule.run": ["qaira.automation.batch_process"],
   "schedule.delete": ["qaira.automation.batch_process"],
-  "environment.view": ["qaira.mobile.appium"],
-  "environment.manage": ["qaira.mobile.appium"],
-  "configuration.view": ["qaira.mobile.appium"],
-  "configuration.manage": ["qaira.mobile.appium"],
-  "data.view": ["qaira.manual.test_cases"],
-  "data.manage": ["qaira.manual.test_cases"],
-  "data.import": ["qaira.manual.test_cases"],
-  "data.export": ["qaira.manual.test_cases"],
+  "environment.view": ["qaira.manual.environments"],
+  "environment.manage": ["qaira.manual.environments"],
+  "configuration.view": ["qaira.manual.environments"],
+  "configuration.manage": ["qaira.manual.environments"],
+  "data.view": ["qaira.manual.test_data"],
+  "data.manage": ["qaira.manual.test_data"],
+  "data.import": ["qaira.manual.test_data"],
+  "data.export": ["qaira.manual.test_data"],
+  "data.ai": ["qaira.ai.test_data_generation"],
+  "mobile.view": ["qaira.mobile.appium"],
+  "mobile.manage": ["qaira.mobile.appium"],
   "app_type.view": ["qaira.mobile.appium"],
   "app_type.manage": ["qaira.mobile.appium"],
   "integration.view": ["qaira.api.integrations"],
@@ -89,8 +116,9 @@ const PERMISSION_FEATURES = {
   "transaction.manage": ["qaira.ops.background_jobs"],
   "transaction.artifact.download": ["qaira.ops.background_jobs"],
   "notification.view": ["qaira.ops.notifications"],
-  "feedback.view": ["qaira.ops.background_jobs"],
-  "feedback.manage": ["qaira.ops.background_jobs"],
+  "notification.manage": ["qaira.ops.notifications"],
+  "feedback.view": ["qaira.manual.bugs"],
+  "feedback.manage": ["qaira.manual.bugs"],
   "ops.view": ["qaira.ops.telemetry"],
   "ops.manage": ["qaira.ops.telemetry"]
 };
@@ -116,7 +144,20 @@ const FEATURE_GROUPS = [
       { key: "qaira.manual.requirements", label: "Requirements", routes: ["/requirements"] },
       { key: "qaira.manual.test_cases", label: "Test cases", routes: ["/test-cases", "/shared-steps", "/design"] },
       { key: "qaira.manual.suites", label: "Suites and shared steps", routes: ["/design", "/shared-steps"] },
-      { key: "qaira.manual.runs", label: "Manual runs and reports", routes: ["/executions"] }
+      { key: "qaira.manual.runs", label: "Manual runs and reports", routes: ["/executions"] },
+      { key: "qaira.manual.bugs", label: "Bugs", routes: ["/issues", "/feedback"] },
+      { key: "qaira.manual.plans", label: "Test plans", routes: ["/test-plans"] },
+      { key: "qaira.manual.quality_gates", label: "Quality gates", routes: ["/quality-gates"] },
+      { key: "qaira.manual.environments", label: "Environments and configurations", routes: ["/test-environments", "/test-configurations"] },
+      { key: "qaira.manual.test_data", label: "Test data", routes: ["/test-data"] }
+    ]
+  },
+  {
+    key: "analytics",
+    label: "Analytics",
+    description: "Project-scoped quality analytics and configurable dashboards.",
+    features: [
+      { key: "qaira.analytics.dashboards", label: "Quality and custom dashboards", routes: ["/"] }
     ]
   },
   {
@@ -125,12 +166,16 @@ const FEATURE_GROUPS = [
     description: "Automation authoring, object repository, recorder capture, step code, local/remote execution, and batch process operations.",
     features: [
       { key: "qaira.automation.workspace", label: "Automation workspace", routes: ["/automation"] },
+      { key: "qaira.automation.preview", label: "Run step automation preview", routes: ["/executions", "/test-cases"], permissions: ["automation.preview"], default_enabled: false },
+      { key: "qaira.automation.analytics", label: "Automation quality analytics", routes: ["/"], permissions: ["automation.analytics.view", "dashboard.view"], default_enabled: false },
+      { key: "qaira.automation.assets", label: "Automation assets", routes: ["/automation-assets"] },
       { key: "qaira.automation.object_repository", label: "Object repository", routes: ["/object-repository"] },
       { key: "qaira.automation.builder", label: "Automation builder", routes: ["/test-cases", "/automation"] },
       { key: "qaira.automation.step_code", label: "Auto test and step-level code", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "qaira.automation.step_recording", label: "Step-level recording", routes: ["/test-cases", "/automation", "/object-repository"] },
       { key: "qaira.automation.local_execution", label: "Local Playwright and local runs", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "qaira.automation.remote_execution", label: "Remote automation runs", routes: ["/test-cases", "/automation", "/executions"] },
+      { key: "qaira.automation.parallel_execution", label: "Parallel automation execution", routes: ["/design", "/test-cases", "/executions"] },
       { key: "qaira.automation.batch_process", label: "Batch process", routes: ["/testops"] }
     ]
   },
@@ -141,6 +186,10 @@ const FEATURE_GROUPS = [
     features: [
       { key: "qaira.ai.requirement_design", label: "Requirement design", routes: ["/requirements", "/design"] },
       { key: "qaira.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
+      { key: "qaira.ai.test_data_generation", label: "Synthetic test data generation", routes: ["/test-data"] },
+      { key: "qaira.ai.content_rephrase", label: "Rich-text AI rephrase", routes: ["/requirements", "/test-cases", "/design", "/issues", "/automation", "/shared-steps", "/test-environments", "/test-data"] },
+      { key: "qaira.ai.bug_triage", label: "AI-assisted bug triage", routes: ["/issues", "/feedback"], permissions: ["feedback.manage"] },
+      { key: "qaira.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
       { key: "qaira.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "qaira.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },
       { key: "qaira.ai.knowledge", label: "Knowledge repo", routes: ["/knowledge-repo"] },
@@ -178,6 +227,8 @@ const FEATURE_GROUPS = [
       { key: "qaira.ops.background_jobs", label: "Background jobs", routes: ["/testops"] },
       { key: "qaira.ops.telemetry", label: "OPS telemetry", routes: ["/ops-telemetry", "/traces"] },
       { key: "qaira.ops.notifications", label: "Notifications", routes: ["/notifications"] },
+      { key: "qaira.ops.projects", label: "Projects and application types", routes: ["/projects"] },
+      { key: "qaira.ops.settings", label: "Workspace settings", routes: ["/settings"] },
       { key: "qaira.ops.admin", label: "Administration", routes: ["/admin-space", "/people"] }
     ]
   }
@@ -185,7 +236,7 @@ const FEATURE_GROUPS = [
 
 const withPermissionCodes = (feature) => ({
   ...feature,
-  permissions: [...(FEATURE_PERMISSION_CODES[feature.key] || [])].sort()
+  permissions: [...new Set([...(feature.permissions || []), ...(FEATURE_PERMISSION_CODES[feature.key] || [])])].sort()
 });
 
 const FEATURE_GROUPS_WITH_PERMISSIONS = FEATURE_GROUPS.map((group) => ({
@@ -201,7 +252,7 @@ const FEATURE_DEFINITIONS = FEATURE_GROUPS_WITH_PERMISSIONS.flatMap((group) =>
   }))
 );
 
-const DEFAULT_FEATURE_FLAGS = Object.fromEntries(FEATURE_DEFINITIONS.map((feature) => [feature.key, true]));
+const DEFAULT_FEATURE_FLAGS = Object.fromEntries(FEATURE_DEFINITIONS.map((feature) => [feature.key, feature.default_enabled !== false]));
 
 const normalizeObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 

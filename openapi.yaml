@@ -24,6 +24,8 @@ tags:
   - name: Executions
   - name: Execution Schedules
   - name: Execution Results
+  - name: Evidence
+  - name: Quality Analytics
   - name: Test Engine
 paths:
   /auth/signup:
@@ -496,6 +498,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BulkImportRequirementsResponse"
+  /requirements/ai-create-preview:
+    post:
+      tags: [Requirements]
+      summary: Generate bounded requirement drafts for explicit human review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                integration_id: { type: string }
+                additional_context: { type: string, maxLength: 20000 }
+                external_links:
+                  type: array
+                  maxItems: 20
+                  items: { type: string }
+                images:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: object
+                    required: [url]
+                    properties:
+                      name: { type: string }
+                      url: { type: string }
+                max_requirements: { type: integer, minimum: 1, maximum: 6 }
+                priority: { type: integer, minimum: 1, maximum: 5 }
+                status: { type: string }
+      responses:
+        "200":
+          description: Review-only requirement candidates with provenance and fallback disclosure
   /requirements/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -792,6 +828,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /test-steps/move-automation:
+    post:
+      tags: [Test Steps]
+      summary: Move or swap an automation block between manual test steps
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_step_id, target_step_id]
+              properties:
+                source_step_id:
+                  type: string
+                target_step_id:
+                  type: string
+      responses:
+        "200":
+          description: Automation block moved transactionally
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  moved:
+                    type: boolean
+                  source_step_id:
+                    type: string
+                  target_step_id:
+                    type: string
+
   /integrations:
     get:
       tags: [Integrations]
@@ -990,6 +1057,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpdatedResponse"
+  /executions/{id}/{level}/{scopeId}/assignment:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - { name: level, in: path, required: true, schema: { type: string, enum: [suites, modules, cases] } }
+      - { name: scopeId, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Executions]
+      summary: Set or clear an inherited suite, module, or case assignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateExecutionAssignmentRequest"
+      responses:
+        "200": { description: Scope assignment updated and effective case assignments recalculated }
   /executions/{id}/rerun:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1353,6 +1436,258 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TestEngineJobCompletionResponse"
+  /attachments/meta:
+    get:
+      tags: [Evidence]
+      summary: Read object-storage attachment capabilities
+      responses:
+        "200":
+          description: Attachment provider and upload limit
+  /attachments:
+    get:
+      tags: [Evidence]
+      summary: List attachments for a project-scoped QAira record
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - { name: entity_type, in: query, required: true, schema: { type: string, enum: [requirement, test_case, test_suite, shared_step_group, execution, execution_result, issue] } }
+        - { name: entity_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Attachment metadata; binary bodies are loaded only from the download endpoint
+    post:
+      tags: [Evidence]
+      summary: Stream one attachment to MinIO-compatible object storage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [project_id, entity_type, entity_id, file]
+              properties:
+                project_id: { type: string }
+                entity_type: { type: string }
+                entity_id: { type: string }
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Stored attachment metadata
+  /attachments/{id}/download:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Evidence]
+      summary: Stream an authorized attachment from object storage
+      responses:
+        "200":
+          description: Attachment binary
+  /attachments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    delete:
+      tags: [Evidence]
+      summary: Delete an attachment and its metadata
+      responses:
+        "200": { description: Attachment deleted }
+  /comments:
+    get:
+      tags: [Evidence]
+      summary: List comments for a project-scoped QAira record
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - { name: entity_type, in: query, required: true, schema: { type: string } }
+        - { name: entity_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Ordered record comments }
+    post:
+      tags: [Evidence]
+      summary: Add a comment to a project-scoped QAira record
+      responses:
+        "200": { description: Created comment }
+  /test-cases/{id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Test Cases]
+      summary: List retained test-case revisions
+      responses:
+        "200": { description: Up to 20 prior revisions }
+  /test-cases/{id}/versions/{revision}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - { name: revision, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [Test Cases]
+      summary: Read a retained test-case snapshot
+      responses:
+        "200": { description: Versioned test-case content }
+  /test-cases/{id}/versions/{revision}/restore:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - { name: revision, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      tags: [Test Cases]
+      summary: Restore a retained snapshot after preserving the current revision and resetting approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision]
+              properties:
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200": { description: Restored test case }
+        "409": { description: Test case changed after version history was loaded }
+  /requirements/{id}/ai-impact-preview:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Requirements]
+      summary: Preview linked requirement change impact without mutating records
+      responses:
+        "200": { description: Explainable impact graph with provenance }
+  /test-cases/{id}/ai-impact-preview:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Test Cases]
+      summary: Preview linked test-case change impact without mutating records
+      responses:
+        "200": { description: Explainable impact graph with provenance }
+  /executions/{id}/ai-failure-clusters:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Executions]
+      summary: Preview deterministic failed/blocked result clusters
+      responses:
+        "200": { description: Evidence-linked failure clusters with an explicit unclassified group }
+  /ai/quality-insights:
+    get:
+      tags: [Quality Analytics]
+      summary: Preview project or release-scoped quality insights
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - { name: release, in: query, schema: { type: string } }
+        - { name: sprint, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Release readiness metrics, findings, limitations, and provenance }
+  /ai/rich-text-rephrase:
+    post:
+      tags: [Quality Analytics]
+      summary: Rephrase a project-scoped rich-text authoring field with the configured LLM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, content]
+              properties:
+                project_id: { type: string }
+                content: { type: string, maxLength: 20000 }
+                content_html: { type: string, maxLength: 40000 }
+                entity_type: { type: string }
+                entity_title: { type: string }
+                field_label: { type: string }
+                aria_label: { type: string }
+      responses:
+        "200":
+          description: Sanitized allowlisted HTML plus integration and human-review provenance
+  /feedback/ai-draft-preview:
+    post:
+      tags: [Issues]
+      summary: Create a review-only bug draft from bounded QAira evidence
+      responses:
+        "200": { description: Evidence-linked draft, confidence, provenance, and human-review requirement }
+  /issues/ai-draft-preview:
+    post:
+      tags: [Issues]
+      summary: Alias for the review-only bug drafting endpoint
+      responses:
+        "200": { description: Evidence-linked draft, confidence, provenance, and human-review requirement }
+  /requirement-iterations:
+    get:
+      tags: [Requirements]
+      summary: List project requirement iterations
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Iterations with lifecycle dates, state, goal, and requirement membership }
+    post:
+      tags: [Requirements]
+      summary: Create a requirement iteration
+      responses:
+        "200": { description: Created iteration }
+  /requirement-iterations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Requirements]
+      summary: Read an iteration
+      responses:
+        "200": { description: Requirement iteration }
+    put:
+      tags: [Requirements]
+      summary: Update iteration name, goal, lifecycle state, dates, or membership
+      responses:
+        "200": { description: Updated iteration }
+    delete:
+      tags: [Requirements]
+      summary: Delete an iteration without deleting its requirements
+      responses:
+        "200": { description: Deleted iteration }
+  /quality-dashboards:
+    get:
+      tags: [Quality Analytics]
+      summary: List saved project quality dashboards
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Saved dashboards }
+    post:
+      tags: [Quality Analytics]
+      summary: Save an explicitly approved quality dashboard
+      responses:
+        "200": { description: Saved dashboard }
+  /quality-dashboards/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Quality Analytics]
+      summary: Read a saved dashboard
+      responses:
+        "200": { description: Saved dashboard }
+    put:
+      tags: [Quality Analytics]
+      summary: Update a saved dashboard
+      responses:
+        "200": { description: Updated dashboard }
+    delete:
+      tags: [Quality Analytics]
+      summary: Delete a saved dashboard
+      responses:
+        "200": { description: Dashboard deleted }
+  /analytics/query:
+    post:
+      tags: [Quality Analytics]
+      summary: Evaluate one bounded project-scoped dashboard gadget
+      responses:
+        "200": { description: Gadget result }
+  /analytics/query-batch:
+    post:
+      tags: [Quality Analytics]
+      summary: Evaluate up to 12 project-scoped dashboard gadgets
+      responses:
+        "200": { description: Per-gadget results and structured errors }
+  /analytics/dashboard-design-preview:
+    post:
+      tags: [Quality Analytics]
+      summary: Produce a review-only stakeholder dashboard design
+      responses:
+        "200": { description: Unsaved dashboard preview with provenance }
 components:
   parameters:
     IdParam:
@@ -2134,6 +2469,10 @@ components:
           $ref: "#/components/schemas/StringMap"
         sort_order: { type: integer }
         assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
+        assignment_source: { type: string, nullable: true, enum: [run, suite, module, case] }
         assigned_user:
           nullable: true
           allOf:
@@ -2201,6 +2540,24 @@ components:
           allOf:
             - $ref: "#/components/schemas/ExecutionScopedDataSet"
         assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
+        suite_assignments:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        module_assignments:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        case_assignments:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
         assigned_user:
           nullable: true
           allOf:
@@ -2228,13 +2585,18 @@ components:
         test_configuration_id: { type: string }
         test_data_set_id: { type: string }
         assigned_to: { type: string }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
         name: { type: string }
         created_by: { type: string }
     UpdateExecutionAssignmentRequest:
       type: object
       properties:
         assigned_to: { type: string, nullable: true }
-      required: [assigned_to]
+        assigned_to_ids:
+          type: array
+          items: { type: string }
     RerunExecutionRequest:
       type: object
       required: [created_by]

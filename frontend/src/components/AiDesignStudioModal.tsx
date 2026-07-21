@@ -472,9 +472,9 @@ export function AiDesignStudioModal({
                     />
                   </FormField>
 
-                  <FormField label="Reference photos">
+                  <FormField label="Reference images or videos">
                     <input
-                      accept="image/*"
+                      accept="image/*,video/*"
                       multiple
                       onChange={(event) => {
                         onAddImages(event.target.files);

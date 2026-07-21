@@ -60,6 +60,16 @@ module.exports = async function (fastify) {
     return service.updateTestStep(req.params.id, req.body);
   });
 
+  fastify.post("/test-steps/move-automation", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      source_step_id: { required: true, type: "string" },
+      target_step_id: { required: true, type: "string" }
+    }, req.body);
+
+    return service.moveTestStepAutomation(req.body);
+  });
+
   fastify.post("/test-steps/duplicate", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({

@@ -9,6 +9,7 @@ const fastify = require("fastify")({
 });
 
 const cors = require("@fastify/cors");
+const multipart = require("@fastify/multipart");
 const { config } = require("./config");
 const { ensureRuntimeSchema: ensureMainRuntimeSchema } = require("./db/bootstrap");
 const { ensureRuntimeSchema: ensureObsRuntimeSchema } = require("./obsDb/bootstrap");
@@ -43,6 +44,14 @@ fastify.register(cors, {
   exposedHeaders: ["X-Request-ID", "X-Trace-ID", "traceparent"],
   credentials: true,
   maxAge: 86400
+});
+
+fastify.register(multipart, {
+  limits: {
+    files: 1,
+    fields: 10,
+    fileSize: config.objectStorage.maxAttachmentBytes
+  }
 });
 
 fastify.register(require("./plugins/errorHandler"));

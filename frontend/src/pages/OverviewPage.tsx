@@ -1,16 +1,32 @@
-import { useMemo, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FolderIcon, LayersIcon, PlayIcon } from "../components/AppIcons";
+import { DialogCloseButton } from "../components/DialogCloseButton";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { QualityIntelligencePanel } from "../components/QualityIntelligencePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { canAccessPath, hasPermission } from "../lib/permissions";
 import type { ExecutionResult } from "../types";
 
 type DashboardTone = "success" | "info" | "neutral" | "error";
+type OverviewSectionId = "health" | "command" | "pillars" | "delivery" | "flow" | "automation" | "evidence";
+
+const DEFAULT_OVERVIEW_SECTION_LAYOUT: Array<{ id: OverviewSectionId; label: string; visible: boolean }> = [
+  { id: "health", label: "Release health", visible: true },
+  { id: "command", label: "Quality snapshot and actions", visible: true },
+  { id: "pillars", label: "Quality pillars", visible: true },
+  { id: "delivery", label: "Release lanes and attention", visible: true },
+  { id: "flow", label: "QA flow and run momentum", visible: true },
+  { id: "automation", label: "Automation analytics", visible: true },
+  { id: "evidence", label: "Risk and recent run evidence", visible: true }
+];
 
 const compactNumberFormatter = new Intl.NumberFormat("en", {
   notation: "compact",
@@ -116,10 +132,14 @@ function DashboardToneChip({
   return <span className={`dashboard-tone-chip tone-${tone}`}>{label}</span>;
 }
 
-export function OverviewPage() {
+function QualityAnalyticsDashboard() {
   const navigate = useNavigate();
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewAutomationAnalytics = hasPermission(session, "automation.analytics.view")
+    && hasPermission(session, "dashboard.view")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.analytics"]);
   const {
     users,
     issues,
@@ -146,6 +166,48 @@ export function OverviewPage() {
   const executionsListRaw = executions.data || [];
   const executionResultsListRaw = executionResults.data || [];
   const activeProjectId = projectId || projectsList[0]?.id || "";
+  const layoutStorageKey = `qaira:overview-layout:${session?.user.id || "anonymous"}:${activeProjectId || "workspace"}`;
+  const [sectionLayout, setSectionLayout] = useState(DEFAULT_OVERVIEW_SECTION_LAYOUT);
+  const [isLayoutDialogOpen, setIsLayoutDialogOpen] = useState(false);
+  const [isMetricEvidenceOpen, setIsMetricEvidenceOpen] = useState(false);
+  const layoutDialogRef = useDialogFocus<HTMLDivElement>({ active: isLayoutDialogOpen, onClose: () => setIsLayoutDialogOpen(false) });
+  const metricEvidenceDialogRef = useDialogFocus<HTMLDivElement>({ active: isMetricEvidenceOpen, onClose: () => setIsMetricEvidenceOpen(false) });
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(layoutStorageKey) || "null") as Array<{ id?: string; visible?: boolean }> | null;
+      if (!Array.isArray(stored)) {
+        setSectionLayout(DEFAULT_OVERVIEW_SECTION_LAYOUT);
+        return;
+      }
+      const byId = new Map(stored.map((item) => [item.id, item]));
+      const ordered = stored
+        .map((item) => DEFAULT_OVERVIEW_SECTION_LAYOUT.find((section) => section.id === item.id))
+        .filter((item): item is (typeof DEFAULT_OVERVIEW_SECTION_LAYOUT)[number] => Boolean(item))
+        .map((item) => ({ ...item, visible: byId.get(item.id)?.visible !== false }));
+      DEFAULT_OVERVIEW_SECTION_LAYOUT.forEach((item) => {
+        if (!ordered.some((candidate) => candidate.id === item.id)) ordered.push(item);
+      });
+      setSectionLayout(ordered);
+    } catch {
+      setSectionLayout(DEFAULT_OVERVIEW_SECTION_LAYOUT);
+    }
+  }, [layoutStorageKey]);
+
+  useEffect(() => {
+    window.localStorage.setItem(layoutStorageKey, JSON.stringify(sectionLayout));
+  }, [layoutStorageKey, sectionLayout]);
+
+  const sectionVisible = (id: OverviewSectionId) => sectionLayout.find((item) => item.id === id)?.visible !== false;
+  const sectionOrder = (id: OverviewSectionId) => sectionLayout.findIndex((item) => item.id === id) + 1;
+  const moveOverviewSection = (id: OverviewSectionId, direction: -1 | 1) => setSectionLayout((current) => {
+    const index = current.findIndex((item) => item.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return current;
+    const next = [...current];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
   const selectedProject = projectsList.find((project) => String(project.id) === String(activeProjectId)) || null;
   const appTypesList = useMemo(
     () => appTypesListRaw.filter((appType) => String(appType.project_id) === String(activeProjectId)),
@@ -236,7 +298,7 @@ export function OverviewPage() {
     [caseStepCountById, testCasesList]
   );
 
-  const automationReadiness = useMemo(() => {
+  const designCompleteness = useMemo(() => {
     if (!testCasesList.length) {
       return 0;
     }
@@ -256,6 +318,21 @@ export function OverviewPage() {
 
     return Math.round((automatedCasesCount / testCasesList.length) * 100);
   }, [automatedCasesCount, testCasesList.length]);
+  const automatedExecutions = useMemo(
+    () => executionsList.filter((execution) => execution.trigger === "ci" || execution.trigger === "local"),
+    [executionsList]
+  );
+  const automatedExecutionIds = useMemo(() => new Set(automatedExecutions.map((execution) => execution.id)), [automatedExecutions]);
+  const automatedLatestResults = useMemo(
+    () => latestExecutionResultsList.filter((result) => automatedExecutionIds.has(result.execution_id)),
+    [automatedExecutionIds, latestExecutionResultsList]
+  );
+  const automatedPassRate = useMemo(
+    () => automatedLatestResults.length
+      ? Math.round((automatedLatestResults.filter((result) => result.status === "passed").length / automatedLatestResults.length) * 100)
+      : 0,
+    [automatedLatestResults]
+  );
 
   const executionStatusCounts = useMemo(() => {
     return executionsList.reduce(
@@ -295,9 +372,10 @@ export function OverviewPage() {
   const latestPassRate = latestExecutionSummary.total ? latestExecutionSummary.percent : passRate;
   const latestFailedSignals = latestExecutionSummary.failed + latestExecutionSummary.blocked;
 
+  const releaseRiskPenalty = Math.min(18, (latestFailedSignals * 3) + (executionStatusCounts.failed * 2));
   const releaseReadinessScore = useMemo(
-    () => Math.round((requirementCoverage * 0.38) + (automationCoverage * 0.27) + (latestPassRate * 0.35)),
-    [automationCoverage, latestPassRate, requirementCoverage]
+    () => Math.max(0, Math.round((requirementCoverage * 0.35) + (designCompleteness * 0.25) + (latestPassRate * 0.4)) - releaseRiskPenalty),
+    [designCompleteness, latestPassRate, releaseRiskPenalty, requirementCoverage]
   );
 
   const adminUserCount = useMemo(
@@ -390,7 +468,7 @@ export function OverviewPage() {
         tone: coverageGapCount ? "error" as const : "success" as const
       },
       {
-        id: "design",
+        id: "suites",
         title: "Shape suite flows",
         detail: "Curate release-ready suite structure, ordering, and reuse in the suite studio.",
         meta: `${suitesList.length} suite${suitesList.length === 1 ? "" : "s"} live`,
@@ -398,13 +476,21 @@ export function OverviewPage() {
         tone: suitesList.length ? "info" as const : "neutral" as const
       },
       {
-        id: "automation",
-        title: "Deepen automation",
-        detail: "Turn reusable cases into executable low-code assets by adding steps and expected results.",
+        id: "design",
+        title: "Complete test design",
+        detail: "Add steps and expected results so reusable cases can produce decision-grade execution evidence.",
         meta: `${casesMissingStepsCount} case${casesMissingStepsCount === 1 ? "" : "s"} missing steps`,
         to: "/test-cases",
         tone: casesMissingStepsCount ? "info" as const : "success" as const
       },
+      ...(canViewAutomationAnalytics ? [{
+        id: "automation",
+        title: "Expand automation reach",
+        detail: "Prioritize stable, repeatable cases that reduce manual execution effort without weakening review controls.",
+        meta: `${Math.max(testCasesList.length - automatedCasesCount, 0)} automation candidate${testCasesList.length - automatedCasesCount === 1 ? "" : "s"}`,
+        to: "/automation",
+        tone: automationCoverage >= 70 ? "success" as const : "info" as const
+      }] : []),
       {
         id: "executions",
         title: "Run release checks",
@@ -414,7 +500,7 @@ export function OverviewPage() {
         tone: executionStatusCounts.failed ? "error" as const : executionStatusCounts.running ? "info" as const : "success" as const
       }
     ];
-  }, [casesMissingStepsCount, coverageGapCount, executionStatusCounts.failed, executionStatusCounts.running, suitesList.length]);
+  }, [automatedCasesCount, automationCoverage, canViewAutomationAnalytics, casesMissingStepsCount, coverageGapCount, executionStatusCounts.failed, executionStatusCounts.running, suitesList.length, testCasesList.length]);
   const visibleQuickActions = useMemo(
     () => quickActions.filter((action) => canAccessPath(session, action.to)),
     [quickActions, session]
@@ -442,8 +528,8 @@ export function OverviewPage() {
         value: compactNumberFormatter.format(testCasesList.length),
         title: "Suites, cases, and executable steps are turning scope into reusable assets.",
         description: "This is where QAira is strongest today: reusable cases, suite structure, and run-ready authoring.",
-        tone: automationReadiness >= 70 ? "success" as const : testCasesList.length ? "info" as const : "neutral" as const,
-        chipLabel: `${automationReadiness}% executable`,
+        tone: designCompleteness >= 70 ? "success" as const : testCasesList.length ? "info" as const : "neutral" as const,
+        chipLabel: `${designCompleteness}% run ready`,
         stats: [
           `${suitesList.length} suite${suitesList.length === 1 ? "" : "s"}`,
           `${casesWithStepsCount} with steps`,
@@ -482,7 +568,7 @@ export function OverviewPage() {
   }, [
     adminUserCount,
     appTypesList.length,
-    automationReadiness,
+    designCompleteness,
     casesMissingStepsCount,
     casesWithStepsCount,
     coverageGapCount,
@@ -721,9 +807,9 @@ export function OverviewPage() {
         id: "executable",
         label: "Executable",
         value: casesWithStepsCount,
-        detail: `${automationReadiness}% ready for execution`,
-        chipLabel: automationReadiness >= 70 ? "Automation" : "Build out",
-        tone: automationReadiness >= 70 ? "success" as const : "info" as const
+        detail: `${designCompleteness}% have executable steps`,
+        chipLabel: designCompleteness >= 70 ? "Run ready" : "Build out",
+        tone: designCompleteness >= 70 ? "success" as const : "info" as const
       },
       {
         id: "evidence",
@@ -734,7 +820,7 @@ export function OverviewPage() {
         tone: latestExecutionResultsList.length ? "success" as const : "neutral" as const
       }
     ];
-  }, [automationReadiness, casesWithStepsCount, latestExecutionResultsList.length, mappedRequirementsCount, requirementCoverage, requirementsList.length, suitesList.length, testCasesList.length]);
+  }, [casesWithStepsCount, designCompleteness, latestExecutionResultsList.length, mappedRequirementsCount, requirementCoverage, requirementsList.length, suitesList.length, testCasesList.length]);
 
   const commandSignals = useMemo(() => {
     return [
@@ -745,10 +831,10 @@ export function OverviewPage() {
         tone: requirementCoverage >= 80 ? "success" as const : "info" as const
       },
       {
-        label: "Automation readiness",
-        value: automationReadiness,
+        label: "Design completeness",
+        value: designCompleteness,
         detail: `${casesWithStepsCount}/${testCasesList.length || 0} cases have executable steps`,
-        tone: automationReadiness >= 70 ? "success" as const : "info" as const
+        tone: designCompleteness >= 70 ? "success" as const : "info" as const
       },
       {
         label: "Run confidence",
@@ -757,7 +843,7 @@ export function OverviewPage() {
         tone: resultStatusCounts.failed ? "danger" as const : passRate >= 80 ? "success" as const : "info" as const
       }
     ];
-  }, [automationReadiness, casesWithStepsCount, mappedRequirementsCount, passRate, requirementCoverage, requirementsList.length, resultStatusCounts.blocked, resultStatusCounts.failed, resultStatusCounts.running, testCasesList.length]);
+  }, [casesWithStepsCount, designCompleteness, mappedRequirementsCount, passRate, requirementCoverage, requirementsList.length, resultStatusCounts.blocked, resultStatusCounts.failed, resultStatusCounts.running, testCasesList.length]);
 
   const topRecommendation = useMemo(() => {
     if (coverageGaps.length) {
@@ -792,10 +878,9 @@ export function OverviewPage() {
   const canManageProjects = hasPermission(session, "project.view");
   const canOpenSuites = hasPermission(session, "suite.view");
   const canOpenRuns = hasPermission(session, "run.view");
-
   return (
     <div className="page-content page-content--overview overview-layout">
-      <header className="page-header card overview-hero">
+      <header className="page-header card overview-hero" style={{ order: 0 }}>
         <div className="page-header-text">
           <div className="page-header-title-row">
             <span className="eyebrow">Quality Command Center</span>
@@ -803,11 +888,12 @@ export function OverviewPage() {
           </div>
           <h1 className="page-header-title">{selectedProject?.name || "Select a project"}</h1>
           <p className="page-description">
-            Monitor release readiness, requirement coverage, automation confidence, latest execution health, and AI-prioritized risks for the active project.
+            Monitor release readiness, requirement coverage, test-design completeness, latest execution health, and AI-prioritized risks for the active project.
           </p>
         </div>
 
         <div className="page-actions">
+          <button className="ghost-button" onClick={() => setIsLayoutDialogOpen(true)} type="button">Customize dashboard</button>
           {canManageProjects ? (
             <button className="ghost-button" onClick={() => navigate("/projects")} type="button">
               <FolderIcon />
@@ -829,7 +915,7 @@ export function OverviewPage() {
         </div>
       </header>
 
-      <section className="health-grid" aria-label="Project health overview">
+      {sectionVisible("health") ? <section className="health-grid" aria-label="Project health overview" style={{ order: sectionOrder("health") }}>
         <article className="health-card release-card">
           <div className="health-card-head">
             <span>Release Readiness</span>
@@ -843,6 +929,7 @@ export function OverviewPage() {
             <div>
               <h2>{releaseHeadline}</h2>
               <p>{readinessNarrative}</p>
+              <button className="ghost-button compact overview-evidence-button" onClick={() => setIsMetricEvidenceOpen(true)} type="button">Why this release posture?</button>
             </div>
           </div>
         </article>
@@ -855,10 +942,10 @@ export function OverviewPage() {
         </article>
 
         <article className="stat-card info">
-          <span>Automation Coverage</span>
-          <strong>{automationCoverage}%</strong>
-          <small>{automatedCasesCount} automated scenario{automatedCasesCount === 1 ? "" : "s"}</small>
-          <i className="meter"><em style={healthMeterStyle(automationCoverage)} /></i>
+          <span>Design Completeness</span>
+          <strong>{designCompleteness}%</strong>
+          <small>{casesWithStepsCount} / {testCasesList.length || 0} cases with executable steps</small>
+          <i className="meter"><em style={healthMeterStyle(designCompleteness)} /></i>
         </article>
 
         <article className="stat-card danger">
@@ -874,9 +961,9 @@ export function OverviewPage() {
           <small>{releaseBlockerCount} release blocker{releaseBlockerCount === 1 ? "" : "s"}</small>
           <i className="meter warning"><em style={healthMeterStyle(Math.min(100, openRiskCount ? 35 + openRiskCount * 6 : 8))} /></i>
         </article>
-      </section>
+      </section> : null}
 
-      <div className="dashboard-hero-grid">
+      {sectionVisible("command") ? <div className="dashboard-hero-grid" style={{ order: sectionOrder("command") }}>
         <Panel
           className="dashboard-command-panel"
           title="Workspace quality snapshot"
@@ -942,9 +1029,9 @@ export function OverviewPage() {
             {!visibleQuickActions.length ? <div className="empty-state compact">No recommended actions are available for your current permissions.</div> : null}
           </div>
         </Panel>
-      </div>
+      </div> : null}
 
-      <div className="dashboard-pillar-grid">
+      {sectionVisible("pillars") ? <div className="dashboard-pillar-grid" style={{ order: sectionOrder("pillars") }}>
         {workspacePillars.map((pillar) => (
           <div className="dashboard-pillar-card" key={pillar.id}>
             <div className="dashboard-pillar-head">
@@ -961,9 +1048,9 @@ export function OverviewPage() {
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
 
-      <div className="two-column-grid">
+      {sectionVisible("delivery") ? <div className="two-column-grid" style={{ order: sectionOrder("delivery") }}>
         <Panel title="Release lanes" subtitle="App types where scope, reusable cases, suites, and run health come together into a real delivery lane.">
           <div className="stack-list">
             {releaseLanes.map((lane) => (
@@ -1012,9 +1099,9 @@ export function OverviewPage() {
             {!attentionQueue.length ? <div className="empty-state compact">No urgent work is crowding the board right now.</div> : null}
           </div>
         </Panel>
-      </div>
+      </div> : null}
 
-      <div className="two-column-grid">
+      {sectionVisible("flow") ? <div className="two-column-grid" style={{ order: sectionOrder("flow") }}>
         <Panel title="QA flow" subtitle="How scope is currently moving through reusable design and into run evidence inside QAira.">
           <div className="dashboard-funnel-grid">
             {funnelMetrics.map((metric) => (
@@ -1062,9 +1149,24 @@ export function OverviewPage() {
             <div className="empty-state compact">Run the first execution to start building release momentum on the dashboard.</div>
           )}
         </Panel>
-      </div>
+      </div> : null}
 
-      <div className="two-column-grid">
+      {canViewAutomationAnalytics && sectionVisible("automation") ? (
+        <div style={{ order: sectionOrder("automation") }}><Panel
+          className="automation-analytics-panel"
+          title="Automation reach and reliability"
+          subtitle="Restricted to automation-enabled roles and projects. These operational metrics are excluded from release-readiness scoring."
+        >
+          <div className="automation-analytics-grid">
+            <article className="automation-analytics-card"><span>Case coverage</span><strong>{automationCoverage}%</strong><small>{automatedCasesCount} of {testCasesList.length} cases marked automated</small><i className="meter"><em style={healthMeterStyle(automationCoverage)} /></i></article>
+            <article className="automation-analytics-card"><span>Automated runs</span><strong>{automatedExecutions.length}</strong><small>CI and local-agent executions in the active project</small></article>
+            <article className="automation-analytics-card"><span>Automated pass rate</span><strong>{automatedPassRate}%</strong><small>{automatedLatestResults.length} latest automated result{automatedLatestResults.length === 1 ? "" : "s"}</small></article>
+            <article className="automation-analytics-card"><span>Candidate backlog</span><strong>{Math.max(testCasesList.length - automatedCasesCount, 0)}</strong><small>Non-automated cases; prioritize by stability and repeatability</small></article>
+          </div>
+        </Panel></div>
+      ) : null}
+
+      {sectionVisible("evidence") ? <div className="two-column-grid" style={{ order: sectionOrder("evidence") }}>
         <Panel title="Risk hotspots" subtitle="The cases creating the loudest failure or blocked signal across recent run evidence.">
           <div className="stack-list">
             {riskHotspots.map((hotspot) => (
@@ -1118,7 +1220,98 @@ export function OverviewPage() {
             {!recentExecutions.length ? <div className="empty-state compact">No release checks captured yet. Start an execution to create the first signal.</div> : null}
           </div>
         </Panel>
-      </div>
+      </div> : null}
+
+      {isLayoutDialogOpen ? (
+        <div className="modal-backdrop" onClick={() => setIsLayoutDialogOpen(false)} role="presentation">
+          <div aria-labelledby="overview-layout-title" aria-modal="true" className="modal-card overview-layout-dialog" onClick={(event) => event.stopPropagation()} ref={layoutDialogRef} role="dialog" tabIndex={-1}>
+            <div className="modal-card-head">
+              <div><span className="eyebrow">Dashboard layout</span><h2 id="overview-layout-title">Customize quality dashboard</h2><p>Reorder or hide sections for this browser. This browser-only preference creates no backend or project API traffic.</p></div>
+              <DialogCloseButton label="Close dashboard customization" onClick={() => setIsLayoutDialogOpen(false)} />
+            </div>
+            <div className="overview-layout-list">
+              {sectionLayout.map((section, index) => (
+                <article className="overview-layout-row" key={section.id}>
+                  <label><input checked={section.visible} onChange={(event) => setSectionLayout((current) => current.map((item) => item.id === section.id ? { ...item, visible: event.target.checked } : item))} type="checkbox" /><span><strong>{section.label}</strong><small>{section.visible ? "Visible" : "Hidden"}</small></span></label>
+                  <div className="action-row"><button className="ghost-button compact" disabled={index === 0} onClick={() => moveOverviewSection(section.id, -1)} type="button">Up</button><button className="ghost-button compact" disabled={index === sectionLayout.length - 1} onClick={() => moveOverviewSection(section.id, 1)} type="button">Down</button></div>
+                </article>
+              ))}
+            </div>
+            <div className="modal-actions"><button className="ghost-button" onClick={() => setSectionLayout(DEFAULT_OVERVIEW_SECTION_LAYOUT)} type="button">Restore defaults</button><button className="primary-button" onClick={() => setIsLayoutDialogOpen(false)} type="button">Done</button></div>
+          </div>
+        </div>
+      ) : null}
+
+      {isMetricEvidenceOpen ? (
+        <div className="modal-backdrop" onClick={() => setIsMetricEvidenceOpen(false)} role="presentation">
+          <div aria-labelledby="metric-evidence-title" aria-modal="true" className="modal-card metric-evidence-dialog" onClick={(event) => event.stopPropagation()} ref={metricEvidenceDialogRef} role="dialog" tabIndex={-1}>
+            <div className="modal-card-head">
+              <div><span className="eyebrow">Metric evidence</span><h2 id="metric-evidence-title">Why this release posture?</h2><p>Scores guide attention; people own the release decision.</p></div>
+              <DialogCloseButton label="Close release posture evidence" onClick={() => setIsMetricEvidenceOpen(false)} />
+            </div>
+            <div className="metric-evidence-grid">
+              <article><span>Current score</span><strong>{releaseReadinessScore}%</strong><small>{releaseStateLabel}</small></article>
+              <article><span>Requirement traceability</span><strong>{requirementCoverage}%</strong><small>{mappedRequirementsCount} of {requirementsList.length} requirements linked</small></article>
+              <article><span>Design completeness</span><strong>{designCompleteness}%</strong><small>{casesWithStepsCount} of {testCasesList.length} cases have executable steps</small></article>
+              <article><span>Latest pass confidence</span><strong>{latestPassRate}%</strong><small>{latestFailedSignals} failed or blocked latest signals</small></article>
+            </div>
+            <div className="metric-evidence-formula"><strong>Calculation</strong><span>35% traceability + 25% design completeness + 40% latest pass confidence, minus a bounded failed/blocked run penalty. Automation adoption does not raise it.</span></div>
+            <div className="metric-evidence-formula"><strong>Limits</strong><span>This operational dashboard uses the latest hosted QAira scope. Confirm release, sprint, defect severity, and evidence completeness in Release readiness before a go/no-go decision.</span></div>
+            <div className="modal-actions"><button className="primary-button" onClick={() => { setIsMetricEvidenceOpen(false); navigate("/?view=readiness"); }} type="button">Open release evidence</button></div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function QualityIntelligenceDashboardRoute({ view }: { view: "readiness" | "dashboards" }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const [projectId] = useCurrentProject();
+  const { requirements, executions, projects } = useWorkspaceData();
+  const activeProjectId = projectId || projects.data?.[0]?.id || "";
+  const scopedRequirements = (requirements.data || []).filter((item) => String(item.project_id) === String(activeProjectId));
+  const scopedExecutions = (executions.data || []).filter((item) => String(item.project_id) === String(activeProjectId));
+  const releaseOptions = [...new Set([
+    ...scopedRequirements.flatMap((item) => [item.release, item.fix_version]),
+    ...scopedExecutions.map((item) => item.release)
+  ].filter((value): value is string => Boolean(value?.trim())).map((value) => value.trim()))].sort((left, right) => left.localeCompare(right));
+  const sprintOptions = [...new Set([
+    ...scopedRequirements.map((item) => item.sprint),
+    ...scopedExecutions.map((item) => item.sprint)
+  ].filter((value): value is string => Boolean(value?.trim())).map((value) => value.trim()))].sort((left, right) => left.localeCompare(right));
+
+  return (
+    <div className="page-content page-content--overview overview-layout">
+      {activeProjectId ? (
+        <QualityIntelligencePanel
+          canManage={hasPermission(session, "dashboard.manage")}
+          canUseAutomation={hasPermission(session, "automation.analytics.view")
+            && hasPermission(session, "dashboard.view")
+            && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.analytics"])}
+          canUseInsights={hasPermission(session, "quality_insight.view")}
+          projectId={String(activeProjectId)}
+          releases={releaseOptions}
+          sprints={sprintOptions}
+          selectedView={view}
+        />
+      ) : <div className="empty-state compact">Select a project to open quality intelligence.</div>}
+    </div>
+  );
+}
+
+export function OverviewPage() {
+  const [searchParams] = useSearchParams();
+  const requestedView = searchParams.get("view");
+
+  if (requestedView === "readiness") {
+    return <QualityIntelligenceDashboardRoute view="readiness" />;
+  }
+
+  if (requestedView === "custom") {
+    return <QualityIntelligenceDashboardRoute view="dashboards" />;
+  }
+
+  return <QualityAnalyticsDashboard />;
 }

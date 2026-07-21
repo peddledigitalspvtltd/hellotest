@@ -63,7 +63,7 @@ const SCOPE_RULES = {
     readPermissions: new Set([...COMMON_READ_PERMISSIONS, "testcase.view"])
   },
   runs: {
-    prefixes: ["run.", "result.", "schedule.", "feedback."],
+    prefixes: ["run.", "result.", "schedule.", "feedback.", "attachment.", "comment.", "dashboard.", "quality_insight."],
     readPermissions: new Set([...COMMON_READ_PERMISSIONS, "testcase.view", "suite.view"])
   },
   environment: {

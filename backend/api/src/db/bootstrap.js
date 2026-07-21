@@ -145,6 +145,10 @@ const statements = [
       scope TEXT NOT NULL DEFAULT 'test_case_generation',
       name TEXT NOT NULL,
       description TEXT,
+      goal TEXT,
+      state TEXT NOT NULL DEFAULT 'future',
+      start_date DATE,
+      end_date DATE,
       domain TEXT,
       role TEXT,
       test_type TEXT,
@@ -337,6 +341,19 @@ const statements = [
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS build TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS project_id TEXT`,
+  `ALTER TABLE feedback DROP CONSTRAINT IF EXISTS feedback_project_id_fkey`,
+  `ALTER TABLE feedback ADD CONSTRAINT feedback_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_suite_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_module_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_requirement_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS sprint TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS fix_version TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS release TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_project_created ON feedback (project_id, created_at DESC)`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT`,
   `
@@ -444,6 +461,9 @@ const statements = [
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS case_assignments JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS release TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS sprint TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS build TEXT`,
@@ -536,6 +556,12 @@ const statements = [
   `,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS display_id TEXT`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS goal TEXT`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'future'`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date DATE`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date DATE`,
+  `ALTER TABLE requirement_iterations DROP CONSTRAINT IF EXISTS requirement_iterations_state_check`,
+  `ALTER TABLE requirement_iterations ADD CONSTRAINT requirement_iterations_state_check CHECK (state IN ('future', 'active', 'closed'))`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
@@ -619,12 +645,16 @@ const statements = [
       external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
       suite_id TEXT,
       suite_name TEXT,
+      module_id TEXT,
+      module_name TEXT,
       priority INTEGER,
       status TEXT,
       parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
       suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
       sort_order INTEGER NOT NULL DEFAULT 1,
       assigned_to TEXT,
+      assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      assignment_source TEXT,
       PRIMARY KEY (execution_id, test_case_id)
     )
   `,
@@ -643,6 +673,11 @@ const statements = [
   `ALTER TABLE execution_case_snapshots ALTER COLUMN suite_parameter_values SET NOT NULL`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT`,
+  `UPDATE execution_case_snapshots SET assigned_to_ids = jsonb_build_array(assigned_to), assignment_source = COALESCE(assignment_source, 'run') WHERE assigned_to IS NOT NULL AND BTRIM(assigned_to) <> '' AND assigned_to_ids = '[]'::jsonb`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS module_id TEXT`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS module_name TEXT`,
   `
     CREATE TABLE IF NOT EXISTS execution_step_snapshots (
       execution_id TEXT NOT NULL,
@@ -1519,7 +1554,77 @@ const statements = [
     SET display_id = 'SG-' || numbered.seq
     FROM numbered
     WHERE shared_step_groups.id = numbered.id
+  `,
   `
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      bucket_name TEXT NOT NULL,
+      object_name TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size_bytes BIGINT NOT NULL DEFAULT 0,
+      etag TEXT,
+      checksum_sha256 TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, entity_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_project ON attachments (project_id, created_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS entity_comments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_entity_comments_entity ON entity_comments (entity_type, entity_id, created_at ASC)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_versions (
+      id TEXT PRIMARY KEY,
+      test_case_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      change_summary TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE (test_case_id, revision)
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_versions_case ON test_case_versions (test_case_id, revision DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS quality_dashboards (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      layout TEXT NOT NULL DEFAULT 'two-column',
+      gadgets JSONB NOT NULL DEFAULT '[]'::jsonb,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_by TEXT,
+      updated_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_quality_dashboards_project ON quality_dashboards (project_id, updated_at DESC)`
 ];
 
 const ensureRuntimeSchema = async () => {

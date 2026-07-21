@@ -18,6 +18,20 @@ services:
       timeout: 5s
       retries: 20
 
+  minio:
+    image: minio/minio:latest
+    container_name: qaira-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-qaira}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-qaira-minio-dev-secret}
+    volumes:
+      - qaira-minio-data:/data
+    restart: unless-stopped
+
   api:
     build: ./api
     container_name: qaira-api
@@ -27,9 +41,19 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
       SESSION_SECRET: ${SESSION_SECRET:-qaira-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-qaira}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-qaira-minio-dev-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-qaira-attachments}
+      MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -38,3 +62,4 @@ services:
 
 volumes:
   qaira-postgres-data:
+  qaira-minio-data:

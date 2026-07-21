@@ -1894,6 +1894,7 @@ export function StepAutomationDialog({
   const [androidKeywordMessage, setAndroidKeywordMessage] = useState("");
   const [curlImportText, setCurlImportText] = useState("");
   const [curlImportMessage, setCurlImportMessage] = useState("");
+  const apiWorkbenchPrefix = `api-workbench-${String(step.id || step.step_order || "draft").replace(/[^A-Za-z0-9_-]/g, "-")}`;
 
   useEffect(() => {
     setStepType(normalizeStepType(step.step_type));
@@ -2405,6 +2406,18 @@ export function StepAutomationDialog({
 
             {stepType === "api" ? (
               <div className="automation-api-editor">
+                <nav aria-label="API automation workbench sections" className="automation-api-workbench-nav">
+                  <a href={`#${apiWorkbenchPrefix}-request`}>Request</a>
+                  <a href={`#${apiWorkbenchPrefix}-data`}>Variables & data</a>
+                  <a href={`#${apiWorkbenchPrefix}-response`}>Response</a>
+                  <a href={`#${apiWorkbenchPrefix}-assertions`}>Assertions</a>
+                  <a href={`#${apiWorkbenchPrefix}-trace`}>Execution trace</a>
+                </nav>
+
+                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-request`}>
+                  <span>01</span>
+                  <div><strong>Request</strong><small>Compose directly or parse an executable cURL request.</small></div>
+                </div>
                 <div className="automation-inline-grid">
                   <FormField label="HTTP method">
                     <select
@@ -2510,6 +2523,32 @@ export function StepAutomationDialog({
                   </div>
                 </details>
 
+                <details className="automation-request-details automation-api-data-panel" id={`${apiWorkbenchPrefix}-data`}>
+                  <summary>
+                    <span>Variables & test data</span>
+                    <strong>{availableParameters.length}</strong>
+                  </summary>
+                  <div className="automation-request-details-body">
+                    {groupedAvailableParameters.length ? groupedAvailableParameters.map((group) => (
+                      <div className="automation-api-data-group" key={group.label}>
+                        <strong>{group.label}</strong>
+                        <div>
+                          {group.items.map((parameter) => (
+                            <span className="automation-response-header-chip" key={parameter.name}>
+                              <strong>{parameter.token}</strong>
+                              <span>{parameterValues[parameter.name] || "Unresolved"}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )) : <span>No scoped case, suite, or run variables are referenced yet.</span>}
+                  </div>
+                </details>
+
+                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-response`}>
+                  <span>02</span>
+                  <div><strong>Response</strong><small>Execute, inspect headers and body, then select structured values.</small></div>
+                </div>
                 <div className="automation-response-shell">
                   <div className="automation-response-header">
                     <div className="automation-response-title-row">
@@ -2538,7 +2577,7 @@ export function StepAutomationDialog({
                         <SparkIcon />
                         <span>
                           <strong>AI suggest</strong>
-                          <small>Assertions and Parsers</small>
+                          <small>Build assertions & parsers</small>
                         </span>
                       </button>
                     </div>
@@ -2558,7 +2597,38 @@ export function StepAutomationDialog({
                         <span className="automation-response-pill">
                           {apiPreview.response.content_type || "Unknown content type"}
                         </span>
+                        <span className="automation-response-pill">{apiPreview.response.size_bytes || 0} bytes</span>
                       </div>
+
+                      {apiPreview.trace ? (
+                        <details className="automation-request-details automation-api-trace" id={`${apiWorkbenchPrefix}-trace`} open>
+                          <summary>
+                            <span>Executable request trace</span>
+                            <strong>{apiPreview.trace.attempts.length} attempt{apiPreview.trace.attempts.length === 1 ? "" : "s"}</strong>
+                          </summary>
+                          <div className="automation-request-details-body">
+                            <div className="automation-api-trace-summary">
+                              <span><strong>{apiPreview.trace.total_duration_ms} ms</strong> total</span>
+                              <span><strong>{apiPreview.trace.request_size_bytes} B</strong> request</span>
+                              <span><strong>{apiPreview.trace.response_size_bytes} B</strong> response</span>
+                              <span><strong>{apiPreview.trace.response_truncated ? "Capped" : "Complete"}</strong> payload</span>
+                            </div>
+                            <ol className="automation-api-trace-attempts">
+                              {apiPreview.trace.attempts.map((attempt) => (
+                                <li key={attempt.attempt}>
+                                  <span>Attempt {attempt.attempt}</span>
+                                  <strong>{attempt.status || attempt.outcome}</strong>
+                                  <span>{attempt.duration_ms} ms</span>
+                                  {attempt.error ? <small>{attempt.error}</small> : null}
+                                </li>
+                              ))}
+                            </ol>
+                            {apiPreview.trace.response_truncated ? (
+                              <div className="inline-message warning-message">Response preview was capped at 2 MB to protect the browser and API process. Assertions run against the captured preview only.</div>
+                            ) : null}
+                          </div>
+                        </details>
+                      ) : null}
 
                       {apiPreview.ai_suggestions ? (
                         <div className="automation-response-meta">
@@ -2686,8 +2756,12 @@ export function StepAutomationDialog({
                   ) : null}
                 </div>
 
+                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-assertions`}>
+                  <span>03</span>
+                  <div><strong>Assertions & validations</strong><small>Validate status, headers, body text, or exact JSON paths.</small></div>
+                </div>
                 <FormField
-                  label="Response validations"
+                  label="Assertions and response validations"
                   hint="Add the checks that should run after the response returns."
                 >
                   <ApiValidationRowsEditor
@@ -2699,7 +2773,7 @@ export function StepAutomationDialog({
                 </FormField>
 
                 <FormField
-                  label="Response parsers"
+                  label="Response variables and parsers"
                   hint="Persist JSON paths that define scoped params from this API response. These captured tokens are treated as part of the case parameter set."
                 >
                   <div className="automation-grid-stack">

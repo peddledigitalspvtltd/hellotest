@@ -138,6 +138,10 @@ module.exports = async function (fastify) {
       resolveExecutionModePermission(req.body.execution_mode, "run.create")
     );
 
+    if (req.body.parallel_enabled || Number(req.body.parallel_count || 1) > 1) {
+      await requireFeaturePermission(fastify, req, "automation.run.parallel");
+    }
+
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
 
@@ -229,13 +233,33 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
-      assigned_to: { required: false, type: "string" }
+      assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" }
     }, req.body);
 
     const execution = await service.getExecution(req.params.id);
     await projectService.getProject(execution.project_id, req.user.id);
 
     return service.updateExecutionCaseAssignment(req.params.id, req.params.testCaseId, req.body);
+  });
+
+  fastify.put("/executions/:id/:level/:scopeId/assignment", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      assigned_to: { required: false, type: "string" },
+      assigned_to_ids: { required: false, type: "array", items: "string" }
+    }, req.body);
+
+    if (!["suites", "modules", "cases"].includes(req.params.level)) {
+      const error = new Error("Assignment level must be suites, modules, or cases");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const execution = await service.getExecution(req.params.id);
+    await projectService.getProject(execution.project_id, req.user.id);
+    return service.updateExecutionScopeAssignment(req.params.id, req.params.level, req.params.scopeId, req.body);
   });
 
   fastify.post("/executions/:id/rerun", async (req) => {

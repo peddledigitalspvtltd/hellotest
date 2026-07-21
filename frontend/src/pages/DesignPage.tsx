@@ -2,7 +2,7 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactN
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, ClearSelectionIcon, EyeIcon, GridIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
+import { AddIcon, ClearSelectionIcon, CollapseExpandIcon, EyeIcon, GridIcon, LayersIcon, SelectAllIcon } from "../components/AppIcons";
 import { CreateRunActionButton } from "../components/CreateRunActionButton";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -35,7 +35,10 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { hasPermission } from "../lib/permissions";
 import {
   collectStepParameters,
   filterStepParameterValues,
@@ -213,6 +216,9 @@ export function DesignPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canConfigureParallelExecution = hasPermission(session, "automation.run.parallel")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.parallel_execution"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
@@ -1337,8 +1343,8 @@ export function DesignPage() {
         test_data_set_id: selectedExecutionDataSetId || undefined,
         execution_mode: executionStartMode,
         engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
-        parallel_enabled: executionParallelEnabled || undefined,
-        parallel_count: executionParallelEnabled ? executionParallelCount : undefined,
+        parallel_enabled: canConfigureParallelExecution && executionParallelEnabled || undefined,
+        parallel_count: canConfigureParallelExecution && executionParallelEnabled ? executionParallelCount : undefined,
         execution_hooks: executionHookDraft.length ? executionHookDraft : undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
         release: executionRelease.trim() || undefined,
@@ -1761,6 +1767,7 @@ export function DesignPage() {
             historyByCaseId={historyByCaseId}
             requirements={requirements}
             stepCountByCaseId={stepCountByCaseId}
+            moduleLabelByCaseId={suitePickerModuleLabelByCaseId}
             onSearch={setSearchTerm}
             onStatusFilter={setStatusFilter}
             onCasePriorityFilter={setCasePriorityFilter}
@@ -1817,6 +1824,7 @@ export function DesignPage() {
         <SuiteExecutionModal
           assigneeOptions={assigneeOptions}
           canCreateExecution={Boolean(projectId && appTypeId && executionTargetSuiteIds.length && session?.user.id)}
+          canConfigureParallelExecution={canConfigureParallelExecution}
           executionHookDraft={executionHookDraft}
           executionName={executionName}
           executionRelease={executionRelease}
@@ -2325,6 +2333,7 @@ function TestCaseList({
   historyByCaseId,
   requirements,
   stepCountByCaseId,
+  moduleLabelByCaseId,
   onSearch,
   onStatusFilter,
   onCasePriorityFilter,
@@ -2355,6 +2364,7 @@ function TestCaseList({
   historyByCaseId: Record<string, ExecutionResult[]>;
   requirements: Requirement[];
   stepCountByCaseId: Record<string, number>;
+  moduleLabelByCaseId: Record<string, string>;
   onSearch: (value: string) => void;
   onStatusFilter: (value: string) => void;
   onCasePriorityFilter: (value: string) => void;
@@ -2371,6 +2381,17 @@ function TestCaseList({
   const [draggedCaseId, setDraggedCaseId] = useState("");
   const casesWithRequirements = cases.filter((testCase) => testCase.requirement_id || testCase.requirement_ids?.length).length;
   const casesWithHistory = cases.filter((testCase) => (historyByCaseId[testCase.id] || []).length > 0).length;
+  const moduleSummaries = useMemo(() => Object.entries(cases.reduce<Record<string, TestCase[]>>((groups, testCase) => {
+    const moduleName = moduleLabelByCaseId[testCase.id] || "Unassigned module";
+    groups[moduleName] = groups[moduleName] || [];
+    groups[moduleName].push(testCase);
+    return groups;
+  }, {})).map(([name, moduleCases]) => ({
+    name,
+    count: moduleCases.length,
+    automated: moduleCases.filter((testCase) => testCase.automated === "yes").length,
+    withRequirements: moduleCases.filter((testCase) => Boolean(testCase.requirement_ids?.length || testCase.requirement_id)).length
+  })), [cases, moduleLabelByCaseId]);
   const getRequirementTitleForCase = (testCase: TestCase) =>
     requirements
       .find((item) => (testCase.requirement_ids || [testCase.requirement_id]).includes(item.id))
@@ -2407,6 +2428,12 @@ function TestCaseList({
         const latest = history[0];
         return formatTileCardLabel(latest?.status || testCase.status || defaultCaseStatus, "Active");
       }
+    },
+    {
+      key: "module",
+      label: "Module",
+      render: (testCase) => moduleLabelByCaseId[testCase.id] || "Unassigned module",
+      sortValue: (testCase) => moduleLabelByCaseId[testCase.id] || "Unassigned module"
     },
     {
       key: "automated",
@@ -2453,7 +2480,7 @@ function TestCaseList({
       label: "Runs",
       render: (testCase) => (historyByCaseId[testCase.id] || []).length
     }
-  ], [defaultCaseStatus, historyByCaseId, requirements, stepCountByCaseId]);
+  ], [defaultCaseStatus, historyByCaseId, moduleLabelByCaseId, requirements, stepCountByCaseId]);
 
   return (
     <Panel
@@ -2556,6 +2583,20 @@ function TestCaseList({
           <button className="primary-button" onClick={onCreateCase} type="button"><AddIcon />New Test Case</button>
         </div>
 
+        {selectedSuite && moduleSummaries.length ? (
+          <div aria-label="Modules represented in this suite" className="suite-module-summary-strip">
+            {moduleSummaries.map((module) => (
+              <div className="suite-module-summary" key={module.name}>
+                <LayersIcon />
+                <span>
+                  <strong>{module.name}</strong>
+                  <small>{module.count} cases · {module.automated} automated · {module.withRequirements} traced</small>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {selectedSuite ? (
           <div className="detail-summary suite-workspace-card">
             <strong>{selectedSuite.name}</strong>
@@ -2598,6 +2639,7 @@ function TestCaseList({
                   ? 100
                   : Math.min(96, Math.max(26, 36 + stepCount * 4 + (requirement ? 14 : 0) + (history.length ? 8 : 0) - failedRunCount * 6));
                 const caseTypeLabel = testCase.automated === "yes" ? "Auto" : "Manual";
+                const moduleLabel = moduleLabelByCaseId[testCase.id] || "Unassigned module";
                 const isRiskCase = failedRunCount > 0;
                 const isWarningCase = !requirement || stabilityScore < 60;
                 const aiInsightTone = isRiskCase ? "danger" : isWarningCase ? "warning" : "success";
@@ -2655,6 +2697,7 @@ function TestCaseList({
 	                          <StatusBadge value={caseStatusLabel} />
 	                        </div>
 	                      </div>
+	                      <div className="suite-case-module-label"><LayersIcon /><span>{moduleLabel}</span></div>
 	                      <div className="test-case-requirement-block">
 	                        <span className="test-case-requirement-label">
 	                          <TileCardLinkIcon />
@@ -2978,11 +3021,11 @@ function SuiteCaseEditorModal({
               <div className="step-editor step-editor--embedded">
                 {!isCreatingCase && displaySteps.length ? (
                   <div className="action-row">
-                    <button className="ghost-button" onClick={onExpandAllSteps} type="button">
-                      Expand all
+                    <button aria-label="Expand all steps" className="ghost-button explorer-icon-button" onClick={onExpandAllSteps} title="Expand all steps" type="button">
+                      <CollapseExpandIcon isExpanded={false} />
                     </button>
-                    <button className="ghost-button" onClick={onCollapseAllSteps} type="button">
-                      Collapse all
+                    <button aria-label="Collapse all steps" className="ghost-button explorer-icon-button" onClick={onCollapseAllSteps} title="Collapse all steps" type="button">
+                      <CollapseExpandIcon isExpanded={true} />
                     </button>
                   </div>
                 ) : null}
@@ -3139,7 +3182,7 @@ function EditorAccordionSection({
         </div>
         <div className="editor-accordion-toggle-meta">
           <span className="editor-accordion-toggle-count">{countLabel}</span>
-          <span className="editor-accordion-toggle-state">{isExpanded ? "Collapse" : "Expand"}</span>
+          <span aria-hidden="true" className="editor-accordion-toggle-state explorer-toggle-glyph"><CollapseExpandIcon isExpanded={isExpanded} /></span>
         </div>
       </button>
       {isExpanded ? <div className="editor-accordion-body">{children}</div> : null}
@@ -3348,6 +3391,7 @@ function SuiteExecutionModal({
   executionHookDraft,
   testCases,
   canCreateExecution,
+  canConfigureParallelExecution,
   isSubmitting,
   onAssigneeChange,
   onEnvironmentChange,
@@ -3386,6 +3430,7 @@ function SuiteExecutionModal({
   executionHookDraft: RunHookSelection[];
   testCases: TestCase[];
   canCreateExecution: boolean;
+  canConfigureParallelExecution: boolean;
   isSubmitting: boolean;
   onAssigneeChange: (value: string[]) => void;
   onEnvironmentChange: (value: string) => void;
@@ -3477,6 +3522,7 @@ function SuiteExecutionModal({
                   <label>
                     <input
                       checked={executionParallelEnabled}
+                      disabled={!canConfigureParallelExecution}
                       onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
                       type="checkbox"
                     />
@@ -3484,7 +3530,7 @@ function SuiteExecutionModal({
                   </label>
                   <input
                     aria-label="Parallel test count"
-                    disabled={!executionParallelEnabled}
+                    disabled={!canConfigureParallelExecution || !executionParallelEnabled}
                     min={1}
                     max={50}
                     onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}

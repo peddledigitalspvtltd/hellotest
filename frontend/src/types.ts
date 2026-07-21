@@ -150,6 +150,10 @@ export type RequirementIteration = {
   project_id: string;
   name: string;
   description?: string | null;
+  goal?: string | null;
+  state?: "future" | "active" | "closed" | string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   requirement_count?: number;
   requirement_ids?: string[];
   created_by?: string | null;
@@ -186,6 +190,7 @@ export type TestCaseReviewEvent = {
 
 export type Issue = {
   id: string;
+  project_id?: string | null;
   user_id: string;
   user_name?: string | null;
   user_email?: string | null;
@@ -200,12 +205,52 @@ export type Issue = {
   build?: string | null;
   jira_bug_key?: string | null;
   linked_test_run_id?: string | null;
+  linked_test_case_ids?: string[];
+  linked_test_suite_ids?: string[];
+  linked_module_ids?: string[];
+  linked_requirement_ids?: string[];
+  labels?: string[];
+  sprint?: string | null;
+  fix_version?: string | null;
+  release?: string | null;
   assignee_id?: string | null;
   assignee_name?: string | null;
   assignee_email?: string | null;
   root_cause?: string | null;
   status: string | null;
   created_at?: string;
+  updated_at?: string;
+};
+
+export type AiBugDraftPreview = {
+  draft: {
+    title: string;
+    message: string;
+    steps_to_reproduce: string;
+    expected_result: string;
+    actual_result: string;
+    severity: "critical" | "high" | "medium" | "low";
+    priority: "p1" | "p2" | "p3" | "p4";
+    environment: string;
+    build: string;
+    labels: string[];
+    linked_test_run_id: string;
+    linked_test_case_ids: string[];
+    linked_requirement_ids: string[];
+    rationale: string;
+  };
+  citations: Array<{ type: string; id: string; title?: string | null }>;
+  provenance: {
+    generation_mode: "llm" | "deterministic";
+    provider: string;
+    model?: string | null;
+    confidence: number;
+    fallback_used: boolean;
+    fallback_reason?: string | null;
+    requires_human_review: true;
+    evidence: string[];
+    generated_at: string;
+  };
 };
 
 export type IntegrationType =
@@ -308,6 +353,37 @@ export type DomainMetadata = {
 export type AiDesignImageInput = {
   name?: string | null;
   url: string;
+};
+
+export type AiRequirementCreationCandidate = {
+  client_id: string;
+  title: string;
+  description: string;
+  external_references: string[];
+  priority: number;
+  status: string;
+  acceptance_criteria: string[];
+  risks: string[];
+  open_questions: string[];
+  change_summary: string[];
+  rationale: string;
+  quality_score: number;
+};
+
+export type AiRequirementCreationPreviewResponse = {
+  generated: number;
+  requirements: AiRequirementCreationCandidate[];
+  suggestion: AiRequirementCreationCandidate | null;
+  integration: { id: string; name: string; type: string; model?: string | null } | null;
+  fallback_used: boolean;
+  fallback_reason?: string | null;
+  requires_human_review: true;
+  provenance: {
+    capability: "requirement-creation-preview";
+    project_id: string;
+    evidence_refs: string[];
+    generated_at: string;
+  };
 };
 
 export type AiPromptTemplate = {
@@ -413,6 +489,17 @@ export type AiStepRephraseResponse = {
     action: string | null;
     expected_result: string | null;
   };
+};
+
+export type AiRichTextRephraseResponse = {
+  content: string;
+  integration: {
+    id: string;
+    name: string;
+    type: string;
+    model?: string | null;
+  };
+  provenance?: Record<string, unknown>;
 };
 
 export type AiTestCaseGenerationJob = {
@@ -687,6 +774,7 @@ export type RecorderSessionResponse = {
   id: string;
   purpose?: "automation-recording" | "repository-inspect" | null;
   status: "running" | "stopped" | "failed";
+  paused?: boolean;
   reused?: boolean;
   started_at?: string;
   stopped_at?: string | null;
@@ -778,6 +866,23 @@ export type ApiRequestPreview = {
     body_text: string;
     body_json?: unknown;
     duration_ms: number;
+    size_bytes?: number;
+    truncated?: boolean;
+  };
+  trace?: {
+    started_at: string;
+    completed_at: string;
+    total_duration_ms: number;
+    request_size_bytes: number;
+    response_size_bytes: number;
+    response_truncated: boolean;
+    attempts: Array<{
+      attempt: number;
+      status?: number | null;
+      duration_ms: number;
+      outcome: "retrying" | "completed" | "failed";
+      error?: string;
+    }>;
   };
   ai_suggestions?: {
     summary: string;
@@ -933,6 +1038,9 @@ export type Execution = {
   build?: string | null;
   assigned_to?: string | null;
   assigned_to_ids?: string[];
+  suite_assignments?: Record<string, string[]>;
+  module_assignments?: Record<string, string[]>;
+  case_assignments?: Record<string, string[]>;
   parallel_enabled?: boolean | null;
   parallel_count?: number | null;
   assigned_user?: {
@@ -1078,6 +1186,8 @@ export type ExecutionCaseSnapshot = {
   external_references?: string[];
   suite_id: string | null;
   suite_name: string | null;
+  module_id?: string | null;
+  module_name?: string | null;
   priority: number | null;
   status: string | null;
   parameter_values?: Record<string, string>;
@@ -1086,12 +1196,20 @@ export type ExecutionCaseSnapshot = {
   suite_parameter_template_values?: Record<string, string>;
   sort_order: number;
   assigned_to?: string | null;
+  assigned_to_ids?: string[];
+  assignment_source?: "run" | "suite" | "module" | "case" | null;
   assigned_user?: {
     id: string;
     email: string;
     name: string | null;
     avatar_data_url?: string | null;
   } | null;
+  assigned_users?: Array<{
+    id: string;
+    email: string;
+    name: string | null;
+    avatar_data_url?: string | null;
+  }>;
 };
 
 export type ExecutionStepSnapshot = {
@@ -1149,4 +1267,209 @@ export type ApiError = {
   statusCode?: number;
   error?: string;
   message?: string;
+};
+
+export type QairaEntityType = "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
+
+export type QairaAttachment = {
+  id: string;
+  project_id?: string;
+  entity_type?: QairaEntityType;
+  entity_id?: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+  checksum?: string | null;
+  created?: string | null;
+  thumbnail?: string | null;
+  author?: { displayName?: string; avatarUrls?: Record<string, string> } | null;
+};
+
+export type QairaComment = {
+  id: string;
+  body: string;
+  created: string | null;
+  updated: string | null;
+  author: { id?: string | null; displayName?: string; avatarUrls?: Record<string, string> } | null;
+};
+
+export type QualityDashboardGadget = {
+  id: string;
+  title: string;
+  data_source?: "jira" | "qaira";
+  release?: string;
+  type: "metric" | "donut" | "bar" | "stacked-bar" | "line" | "table";
+  jql: string;
+  group_by: "status" | "statusCategory" | "priority" | "issuetype" | "assignee" | "reporter" | "components" | "fixVersion" | "labels" | "sprint" | "resolution" | "module" | "createdWeek" | "updatedWeek" | "createdMonth" | "updatedMonth";
+  metric?: "count" | "resolved" | "unresolved" | "highPriority" | "unassigned" | "overdue" | "stale30d" | "created30d" | "resolved30d" | "resolutionRate" | "averageAgeDays" | "averageResolutionDays" | "releaseConfidence" | "requirementCoverage" | "coverageGaps" | "automationCoverage" | "executionCompletion" | "passRate" | "evidenceConfidence" | "openDefects" | "failedRuns" | "executionCycleHours" | "completedRuns30d" | "testCases" | "testSuites" | "testRuns" | "moduleCaseCount";
+  accent?: "blue" | "green" | "purple" | "orange" | "red" | "teal" | "slate";
+};
+
+export type QualityDashboard = {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  layout: "single" | "two-column" | "three-column";
+  gadgets: QualityDashboardGadget[];
+  is_default?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type QualityDashboardGadgetResult = {
+  project: { id: string; key: string; name: string };
+  jql: string;
+  evaluated_at: string;
+  gadget: QualityDashboardGadget;
+  total: number;
+  value: number;
+  value_label: string;
+  returned: number;
+  truncated: boolean;
+  series: Array<{ label: string; value: number }>;
+  rows: Array<{ id: string; key: string; title: string; status: string | null; priority: string | null; type: string | null; assignee: string | null; updated: string | null }>;
+  drilldown_target?: string;
+  methodology?: string;
+};
+
+export type QualityDashboardBatchResponse = {
+  project: { id: string; key: string; name: string };
+  evaluated_at: string;
+  results: Array<{ gadget_id: string; result?: QualityDashboardGadgetResult; error?: { code: string; message: string; status: number } }>;
+};
+
+export type QualityDashboardDesignPreviewResponse = AiAssistedPreviewBase & {
+  dashboard: QualityDashboard;
+  templates: Array<{ id: string; name: string; description: string; gadget_count: number }>;
+  rationale: string[];
+  decision_requires_human_approval: true;
+};
+
+export type AiAssistanceProvenance = {
+  capability: string;
+  generation_mode: string;
+  provider: string;
+  model: string | null;
+  request_id: string;
+  input_fingerprint: string;
+  generated_at: string;
+  confidence: number;
+  evidence: string[];
+  fallback_used: boolean;
+  fallback_reason?: string | null;
+  requires_human_review: boolean;
+};
+
+export type AiAssistedPreviewBase = {
+  integration: { id: string; name: string; type: string; model?: string | null; generation_mode?: string; direct_model_invocation?: boolean };
+  provenance: AiAssistanceProvenance;
+  generation_mode: string;
+  generated_at: string;
+  request_id: string;
+  input_fingerprint: string;
+  confidence: number;
+  fallback_used: boolean;
+  fallback_reason?: string | null;
+  requires_human_review: boolean;
+  preview_only: true;
+};
+
+export type RequirementImpactPreviewResponse = AiAssistedPreviewBase & {
+  requirement: { id: string; display_id: string; title: string; priority: number | null; risk_score: number };
+  impact: {
+    risk_level: "low" | "medium" | "high";
+    test_cases: Array<Record<string, unknown>>;
+    test_suites: Array<Record<string, unknown>>;
+    test_runs: Array<Record<string, unknown>>;
+    automation_assets: Array<Record<string, unknown>>;
+    totals: { test_cases: number; test_suites: number; test_runs: number; automation_assets: number };
+  };
+  explanation: string;
+  recommended_actions: string[];
+};
+
+export type TestCaseImpactPreviewResponse = AiAssistedPreviewBase & {
+  test_case: { id: string; display_id: string; title: string; status: string | null; priority: number | null; automation_status: string | null; step_count: number };
+  impact: {
+    risk_level: "low" | "medium" | "high";
+    requirements: Array<Record<string, unknown>>;
+    test_suites: Array<Record<string, unknown>>;
+    test_runs: Array<Record<string, unknown>>;
+    automation_assets: Array<Record<string, unknown>>;
+    object_repository_items: Array<Record<string, unknown>>;
+    totals: { requirements: number; test_suites: number; test_runs: number; automation_assets: number; object_repository_items: number };
+  };
+  risk_signals: string[];
+  explanation: string;
+  recommended_actions: string[];
+};
+
+export type ExecutionFailureClusterPreviewResponse = AiAssistedPreviewBase & {
+  execution: { id: string; display_id: string; name: string | null; status: string | null; release?: string | null; build?: string | null };
+  total_results: number;
+  failed_or_blocked_results: number;
+  clusters: Array<{ id: string; label: string; count: number; confidence: number; explanation: string; recommended_action: string; evidence_refs: string[]; members: Array<{ execution_result_id: string; test_case_id?: string | null; status: string; error_excerpt?: string | null; created_at?: string | null; updated_at?: string | null }> }>;
+  unclassified_count: number;
+  explanation: string;
+  recommended_actions: string[];
+};
+
+export type QualityInsightPreviewResponse = AiAssistedPreviewBase & {
+  scope: { project_id: string; release: string | null; sprint?: string | null };
+  summary: string;
+  metrics: Record<string, number>;
+  findings: Array<{ id: string; title: string; severity: string; description: string; action: string }>;
+  traceability: Array<{
+    id: string;
+    key: string;
+    title: string;
+    priority: number;
+    status: string | null;
+    test_case_count: number;
+    executed_count: number;
+    passed_count: number;
+    failed_or_blocked_count: number;
+    open_defect_count: number;
+    risk: "low" | "medium" | "high";
+    risk_score: number;
+  }>;
+  execution_evidence: Array<{
+    id: string;
+    key: string;
+    name: string;
+    status: string | null;
+    release: string | null;
+    sprint: string | null;
+    build: string | null;
+    started_at: string | null;
+    ended_at: string | null;
+    result_count: number;
+    passed_count: number;
+    failed_count: number;
+    blocked_count: number;
+  }>;
+  recommended_actions: string[];
+  limitations: string[];
+};
+
+export type TestCaseVersionSummary = {
+  revision: number;
+  captured_at: string | null;
+  captured_by: string | null;
+  reason: string;
+  title: string;
+  status: string | null;
+  step_count: number;
+};
+
+export type TestCaseVersionContent = Partial<TestCase> & { title: string; steps?: TestStep[] };
+
+export type TestCaseVersionSnapshot = {
+  schema: "qaira.testCaseVersion.v1";
+  revision: number;
+  captured_at: string;
+  captured_by: string | null;
+  reason: string;
+  content: TestCaseVersionContent;
 };

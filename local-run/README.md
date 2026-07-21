@@ -6,7 +6,7 @@ not replace or edit the existing root scripts or compose files.
 ## Files
 
 - `.env.example`: local defaults you can copy to `.env`.
-- `docker-compose.yml`: source-build local stack for Postgres, API, frontend, and Test Engine.
+- `docker-compose.yml`: source-build local stack for Postgres, MinIO, API, frontend, and Test Engine.
 - `docker-compose.images.yml`: image-based duplicate of the local stack.
 - `RECORDER_LOCAL_SETUP.md`: local recorder setup and QAira integration checklist.
 - `bin/start.sh`: start the local stack.
@@ -40,6 +40,8 @@ Open:
 
 - QAira frontend: `http://localhost:8080`
 - QAira API: `http://localhost:3000`
+- MinIO API: `http://localhost:9000`
+- MinIO console: `http://localhost:9001`
 - Host recorder: `http://localhost:4311`
 - Test Engine: `http://localhost:4301`
 - Test Engine OPS board: `http://localhost:4301/ops-telemetry`

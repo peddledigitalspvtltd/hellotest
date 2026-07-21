@@ -101,6 +101,28 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/requirements/ai-create-preview", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      integration_id: { required: false, type: "string" },
+      additional_context: { required: false, type: "string", maxLength: 20000 },
+      external_links: { required: false, type: "array", items: "string" },
+      images: { required: false, type: "array" },
+      max_requirements: { required: false, type: "number" },
+      priority: { required: false, type: "number" },
+      status: { required: false, type: "string" }
+    }, req.body || {});
+
+    await projectService.getProject(req.body.project_id, req.user.id);
+
+    return service.previewRequirementCreation({
+      ...req.body,
+      user_id: req.user.id
+    });
+  });
+
   fastify.get("/requirements", async (req) => {
     await fastify.authenticate(req);
     const { project_id, status, priority } = req.query;

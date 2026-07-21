@@ -18,7 +18,7 @@ const getSuiteIdsForExecution = db.prepare(`
 `);
 
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, sort_order, assigned_to
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, sort_order, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
@@ -59,6 +59,8 @@ const insertExecutionCaseSnapshot = db.prepare(`
     external_references,
     suite_id,
     suite_name,
+    module_id,
+    module_name,
     priority,
     status,
     parameter_values,
@@ -66,9 +68,11 @@ const insertExecutionCaseSnapshot = db.prepare(`
     suite_parameter_values,
     suite_parameter_template_values,
     sort_order,
-    assigned_to
+    assigned_to,
+    assigned_to_ids,
+    assignment_source
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertExecutionStepSnapshot = db.prepare(`
@@ -104,28 +108,36 @@ const selectCasesForSuite = db.prepare(`
     test_cases.external_references,
     test_cases.parameter_values,
     test_suites.parameter_values AS suite_parameter_values,
+    test_case_modules.id AS module_id,
+    test_case_modules.name AS module_name,
     test_cases.priority,
     test_cases.status,
     suite_test_cases.sort_order
   FROM suite_test_cases
   JOIN test_cases ON test_cases.id = suite_test_cases.test_case_id
   JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
+  LEFT JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id
+  LEFT JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id
   WHERE suite_test_cases.suite_id = ?
   ORDER BY suite_test_cases.sort_order ASC, test_cases.created_at DESC
 `);
 
 const selectCaseForExecution = db.prepare(`
   SELECT
-    id AS test_case_id,
-    app_type_id,
-    title AS test_case_title,
-    description AS test_case_description,
-    external_references,
-    parameter_values,
-    priority,
-    status
+    test_cases.id AS test_case_id,
+    test_cases.app_type_id,
+    test_cases.title AS test_case_title,
+    test_cases.description AS test_case_description,
+    test_cases.external_references,
+    test_cases.parameter_values,
+    test_cases.priority,
+    test_cases.status,
+    test_case_modules.id AS module_id,
+    test_case_modules.name AS module_name
   FROM test_cases
-  WHERE id = ?
+  LEFT JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id
+  LEFT JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id
+  WHERE test_cases.id = ?
 `);
 
 const selectPrimarySuiteForCaseExecution = db.prepare(`
@@ -171,7 +183,7 @@ const selectExecutionRecord = db.prepare(`
 `);
 
 const selectExecutionCaseSnapshot = db.prepare(`
-  SELECT execution_id, test_case_id, assigned_to
+  SELECT execution_id, test_case_id, suite_id, module_id, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
   WHERE execution_id = ? AND test_case_id = ?
 `);
@@ -184,7 +196,7 @@ const updateExecutionAssignment = db.prepare(`
 
 const updateExecutionCaseAssignment = db.prepare(`
   UPDATE execution_case_snapshots
-  SET assigned_to = ?
+  SET assigned_to = ?, assigned_to_ids = ?, assignment_source = ?
   WHERE execution_id = ? AND test_case_id = ?
 `);
 
@@ -252,6 +264,22 @@ function normalizeTextList(values = []) {
   });
 
   return normalized;
+}
+
+function normalizeAssignmentMap(value) {
+  const parsed = parseJsonValue(value, {});
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    return {};
+  }
+
+  return Object.entries(parsed).reduce((result, [scopeId, userIds]) => {
+    const normalizedScopeId = normalizeText(scopeId);
+    const normalizedUserIds = normalizeTextList(userIds);
+    if (normalizedScopeId && normalizedUserIds.length) {
+      result[normalizedScopeId] = normalizedUserIds;
+    }
+    return result;
+  }, {});
 }
 
 function normalizeBoolean(value, fallback = false) {
@@ -576,6 +604,9 @@ async function attachExecutionAssignee(execution) {
     return {
       ...execution,
       assigned_to_ids: [],
+      suite_assignments: normalizeAssignmentMap(execution.suite_assignments),
+      module_assignments: normalizeAssignmentMap(execution.module_assignments),
+      case_assignments: normalizeAssignmentMap(execution.case_assignments),
       assigned_users: [],
       assigned_user: null
     };
@@ -594,6 +625,9 @@ async function attachExecutionAssignee(execution) {
     ...execution,
     assigned_to: resolvedAssignedToIds[0] || null,
     assigned_to_ids: resolvedAssignedToIds,
+    suite_assignments: normalizeAssignmentMap(execution.suite_assignments),
+    module_assignments: normalizeAssignmentMap(execution.module_assignments),
+    case_assignments: normalizeAssignmentMap(execution.case_assignments),
     assigned_user: assignedUsers[0] || null,
     assigned_users: assignedUsers
   };
@@ -604,22 +638,34 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
     return [];
   }
 
-  const userIds = [...new Set(caseSnapshots.map((snapshot) => snapshot.assigned_to).filter(Boolean))];
+  const userIds = [...new Set(caseSnapshots.flatMap((snapshot) => {
+    const ids = normalizeTextList(parseJsonValue(snapshot.assigned_to_ids, []));
+    return ids.length ? ids : snapshot.assigned_to ? [snapshot.assigned_to] : [];
+  }))];
   const assignedUsersById = {};
 
   for (const userId of userIds) {
     assignedUsersById[userId] = shapeAssignedUser(await selectExecutionAssignee.get(userId));
   }
 
-  return caseSnapshots.map((snapshot) => ({
-    ...snapshot,
-    external_references: normalizeStoredReferenceList(snapshot.external_references),
-    parameter_values: normalizeParameterValues(snapshot.parameter_values),
-    parameter_template_values: normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values),
-    suite_parameter_values: normalizeParameterValues(snapshot.suite_parameter_values),
-    suite_parameter_template_values: normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values),
-    assigned_user: snapshot.assigned_to ? assignedUsersById[snapshot.assigned_to] || null : null
-  }));
+  return caseSnapshots.map((snapshot) => {
+    const assignedToIds = normalizeTextList(parseJsonValue(snapshot.assigned_to_ids, []));
+    const resolvedIds = assignedToIds.length ? assignedToIds : snapshot.assigned_to ? [snapshot.assigned_to] : [];
+    const assignedUsers = resolvedIds.map((id) => assignedUsersById[id]).filter(Boolean);
+    return {
+      ...snapshot,
+      external_references: normalizeStoredReferenceList(snapshot.external_references),
+      parameter_values: normalizeParameterValues(snapshot.parameter_values),
+      parameter_template_values: normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values),
+      suite_parameter_values: normalizeParameterValues(snapshot.suite_parameter_values),
+      suite_parameter_template_values: normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values),
+      assigned_to: resolvedIds[0] || null,
+      assigned_to_ids: resolvedIds,
+      assignment_source: snapshot.assignment_source || (resolvedIds.length ? "run" : null),
+      assigned_user: assignedUsers[0] || null,
+      assigned_users: assignedUsers
+    };
+  });
 }
 
 async function validateExecutionAssignee(projectId, assignedTo) {
@@ -650,6 +696,81 @@ async function validateExecutionAssignees(projectId, assignedToIds = []) {
   }
 
   return normalizedIds;
+}
+
+function resolveScopeAssignment(snapshot, execution) {
+  const runAssignees = normalizeTextList(parseJsonValue(execution?.assigned_to_ids, []));
+  const suiteAssignments = normalizeAssignmentMap(execution?.suite_assignments);
+  const moduleAssignments = normalizeAssignmentMap(execution?.module_assignments);
+  const caseAssignments = normalizeAssignmentMap(execution?.case_assignments);
+  let assignedToIds = runAssignees;
+  let source = runAssignees.length ? "run" : null;
+
+  if (snapshot?.suite_id && suiteAssignments[snapshot.suite_id]) {
+    assignedToIds = suiteAssignments[snapshot.suite_id];
+    source = "suite";
+  }
+  if (snapshot?.module_id && moduleAssignments[snapshot.module_id]) {
+    assignedToIds = moduleAssignments[snapshot.module_id];
+    source = "module";
+  }
+  if (snapshot?.test_case_id && caseAssignments[snapshot.test_case_id]) {
+    assignedToIds = caseAssignments[snapshot.test_case_id];
+    source = "case";
+  }
+
+  return { assignedToIds, source };
+}
+
+async function recalculateExecutionScopeAssignments(executionId, executionRecord) {
+  const execution = executionRecord || await selectExecutionRecord.get(executionId);
+  if (!execution) throw new Error("Execution not found");
+
+  const snapshots = await getCaseSnapshotsForExecution.all(executionId);
+
+  for (const snapshot of snapshots) {
+    const { assignedToIds, source } = resolveScopeAssignment(snapshot, execution);
+
+    await updateExecutionCaseAssignment.run(
+      assignedToIds[0] || null,
+      assignedToIds,
+      source,
+      executionId,
+      snapshot.test_case_id
+    );
+  }
+}
+
+async function updateExecutionScopeAssignment(executionId, level, scopeId, input = {}) {
+  const execution = await selectExecutionRecord.get(executionId);
+  if (!execution) throw new Error("Execution not found");
+
+  const definitions = {
+    suites: { property: "suite_assignments", snapshotField: "suite_id" },
+    modules: { property: "module_assignments", snapshotField: "module_id" },
+    cases: { property: "case_assignments", snapshotField: "test_case_id" }
+  };
+  const definition = definitions[level];
+  if (!definition) throw new Error("Unsupported assignment scope");
+
+  const normalizedScopeId = normalizeText(scopeId);
+  const snapshots = await getCaseSnapshotsForExecution.all(executionId);
+  if (!normalizedScopeId || !snapshots.some((snapshot) => snapshot[definition.snapshotField] === normalizedScopeId)) {
+    throw new Error("Selected assignment scope is not part of this run snapshot");
+  }
+
+  const assignedToIds = await validateExecutionAssignees(
+    execution.project_id,
+    input.assigned_to_ids !== undefined ? input.assigned_to_ids : input.assigned_to
+  );
+  const assignments = normalizeAssignmentMap(execution[definition.property]);
+  if (assignedToIds.length) assignments[normalizedScopeId] = assignedToIds;
+  else delete assignments[normalizedScopeId];
+
+  await db.prepare(`UPDATE executions SET ${definition.property} = ? WHERE id = ?`).run(assignments, executionId);
+  await recalculateExecutionScopeAssignments(executionId, { ...execution, [definition.property]: assignments });
+  executionCache.delete(executionId);
+  return { updated: true, scope_id: normalizedScopeId };
 }
 
 function resolveExecutionAssignee(assignedTo, createdBy) {
@@ -728,6 +849,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const stepSnapshots = [];
   const materializedSuiteParameters = new Map();
   const resolvedAssignedTo = normalizeText(options.assignedTo) || null;
+  const resolvedAssignedToIds = normalizeTextList(options.assignedToIds || (resolvedAssignedTo ? [resolvedAssignedTo] : []));
   let sortOrder = 0;
 
   for (const suiteRow of suiteRows) {
@@ -754,6 +876,8 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         external_references: normalizeStoredReferenceList(suiteCase.external_references),
         suite_id: suiteRow.suite_id,
         suite_name: suiteRow.suite_name,
+        module_id: suiteCase.module_id || null,
+        module_name: suiteCase.module_name || null,
         priority: suiteCase.priority,
         status: suiteCase.status,
         parameter_values: materializeParameterValues(parameterTemplateValues),
@@ -761,7 +885,9 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         suite_parameter_values: suiteParameterValues,
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
-        assigned_to: resolvedAssignedTo
+        assigned_to: resolvedAssignedTo,
+        assigned_to_ids: resolvedAssignedToIds,
+        assignment_source: resolvedAssignedToIds.length ? "run" : null
       });
 
       const steps = await selectStepsForCase.all(suiteCase.test_case_id);
@@ -809,6 +935,8 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         external_references: normalizeStoredReferenceList(directCase.external_references),
         suite_id: directCase.suite_id || null,
         suite_name: directCase.suite_name || null,
+        module_id: directCase.module_id || null,
+        module_name: directCase.module_name || null,
         priority: directCase.priority,
         status: directCase.status,
         parameter_values: materializeParameterValues(parameterTemplateValues),
@@ -816,7 +944,9 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         suite_parameter_values: materializeParameterValues(suiteParameterTemplateValues),
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
-        assigned_to: resolvedAssignedTo
+        assigned_to: resolvedAssignedTo,
+        assigned_to_ids: resolvedAssignedToIds,
+        assignment_source: resolvedAssignedToIds.length ? "run" : null
       });
 
       const steps = await selectStepsForCase.all(directCase.test_case_id);
@@ -925,7 +1055,8 @@ async function attachDetailedScope(execution) {
       suite_name: row.suite_name || "Deleted Suite"
     })),
     {
-      assignedTo: hydrated.assigned_to || null
+      assignedTo: hydrated.assigned_to || null,
+      assignedToIds: hydrated.assigned_to_ids || []
     }
   );
 
@@ -1167,7 +1298,8 @@ exports.createExecution = async ({
     const snapshotPayload = await buildSnapshotPayload(id, suiteRows, {
       persisted: true,
       directCases: directCaseRows,
-      assignedTo: resolvedAssignedTo
+      assignedTo: resolvedAssignedTo,
+      assignedToIds: resolvedAssignedToIds
     });
 
     for (const caseSnapshot of snapshotPayload.caseSnapshots) {
@@ -1179,6 +1311,8 @@ exports.createExecution = async ({
         caseSnapshot.external_references || [],
         caseSnapshot.suite_id,
         caseSnapshot.suite_name,
+        caseSnapshot.module_id,
+        caseSnapshot.module_name,
         caseSnapshot.priority,
         caseSnapshot.status,
         caseSnapshot.parameter_values || {},
@@ -1186,7 +1320,9 @@ exports.createExecution = async ({
         caseSnapshot.suite_parameter_values || {},
         caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values || {},
         caseSnapshot.sort_order,
-        caseSnapshot.assigned_to || null
+        caseSnapshot.assigned_to || null,
+        caseSnapshot.assigned_to_ids || (caseSnapshot.assigned_to ? [caseSnapshot.assigned_to] : []),
+        caseSnapshot.assignment_source || null
       );
     }
 
@@ -1396,9 +1532,12 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         build,
         assigned_to,
         assigned_to_ids,
+        suite_assignments,
+        module_assignments,
+        case_assignments,
         created_by
       )
-      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       nextExecutionId,
       sourceExecution.project_id,
@@ -1418,6 +1557,9 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       sourceExecution.build || null,
       rerunAssignedTo,
       normalizeTextList(sourceExecution.assigned_to_ids || [rerunAssignedTo]),
+      normalizeAssignmentMap(sourceExecution.suite_assignments),
+      normalizeAssignmentMap(sourceExecution.module_assignments),
+      normalizeAssignmentMap(sourceExecution.case_assignments),
       created_by
     );
 
@@ -1440,6 +1582,8 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         snapshot.external_references || [],
         snapshot.suite_id,
         snapshot.suite_name,
+        snapshot.module_id || null,
+        snapshot.module_name || null,
         snapshot.priority,
         snapshot.status,
         materializeParameterValues(parameterTemplateValues),
@@ -1447,7 +1591,9 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         suiteParameterValues,
         suiteParameterTemplateValues,
         index + 1,
-        rerunAssignedTo
+        snapshot.assigned_to || rerunAssignedTo,
+        normalizeTextList(snapshot.assigned_to_ids || snapshot.assigned_to || sourceExecution.assigned_to_ids || [rerunAssignedTo]),
+        snapshot.assignment_source || "run"
       );
     }
 
@@ -1930,6 +2076,7 @@ exports.updateExecution = async (id, input = {}) => {
       : normalizeTextList(input.assigned_to);
     await validateExecutionAssignees(execution.project_id, assignedToIds);
     await updateExecutionAssignment.run(assignedToIds[0] || null, assignedToIds, id);
+    await recalculateExecutionScopeAssignments(id, { ...execution, assigned_to: assignedToIds[0] || null, assigned_to_ids: assignedToIds });
   }
 
   const metadataFields = [];
@@ -1950,32 +2097,16 @@ exports.updateExecution = async (id, input = {}) => {
     `).run(...metadataValues, id);
   }
 
+  executionCache.delete(id);
   return { updated: true };
 };
 
 exports.updateExecutionCaseAssignment = async (executionId, testCaseId, input = {}) => {
-  if (!Object.prototype.hasOwnProperty.call(input, "assigned_to")) {
-    throw new Error("assigned_to is required");
-  }
-
-  const execution = await selectExecutionRecord.get(executionId);
-
-  if (!execution) {
-    throw new Error("Execution not found");
-  }
-
-  const caseSnapshot = await selectExecutionCaseSnapshot.get(executionId, testCaseId);
-
-  if (!caseSnapshot) {
-    throw new Error("Execution test case not found");
-  }
-
-  const assignedTo = normalizeText(input.assigned_to);
-  await validateExecutionAssignee(execution.project_id, assignedTo);
-  await updateExecutionCaseAssignment.run(assignedTo, executionId, testCaseId);
-
-  return { updated: true };
+  return updateExecutionScopeAssignment(executionId, "cases", testCaseId, input);
 };
+
+exports.updateExecutionScopeAssignment = updateExecutionScopeAssignment;
+exports.resolveScopeAssignment = resolveScopeAssignment;
 
 exports.deleteExecution = async (id) => {
   await exports.getExecution(id);

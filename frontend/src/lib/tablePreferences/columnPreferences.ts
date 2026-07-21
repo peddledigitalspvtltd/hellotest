@@ -12,18 +12,20 @@ export type ColumnPreferenceColumn = {
 
 export type StoredColumnPreference = {
   columnWidths?: Record<string, number>;
+  density?: "comfortable" | "compact";
   orderedColumnKeys?: string[];
   visibleColumnKeys?: string[];
 };
 
 export type NormalizedColumnPreference = {
   columnWidths: Record<string, number>;
+  density: "comfortable" | "compact";
   orderedColumnKeys: string[];
   visibleColumnKeys: string[];
 };
 
-export const DEFAULT_COLUMN_WIDTH = 160;
-export const DEFAULT_MIN_COLUMN_WIDTH = 72;
+export const DEFAULT_COLUMN_WIDTH = 136;
+export const DEFAULT_MIN_COLUMN_WIDTH = 64;
 export const DEFAULT_MAX_COLUMN_WIDTH = 640;
 
 let workspacePreferenceCache: Record<string, unknown> | null = null;
@@ -143,7 +145,8 @@ export const normalizeColumnPreference = <Column extends ColumnPreferenceColumn>
       ? (candidateVisibleKeys.length ? [...new Set(candidateVisibleKeys)] : [defaultVisibleColumnKeys[0] || Array.from(configurableColumnKeySet)[0]])
       : [],
     orderedColumnKeys,
-    columnWidths
+    columnWidths,
+    density: input?.density === "compact" ? "compact" : "comfortable"
   };
 };
 

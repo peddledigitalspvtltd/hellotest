@@ -1,6 +1,7 @@
 const db = require("../db");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 
 const DIRECT_CASE_SUITE_ID = "default";
 const DIRECT_CASE_SUITE_NAME = "Default";
@@ -213,7 +214,7 @@ const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => 
 
 const requestChatCompletion = async ({ integration, content }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -222,6 +223,7 @@ const requestChatCompletion = async ({ integration, content }) => {
     body: JSON.stringify({
       model: integration.model,
       temperature: 0.15,
+      response_format: { type: "json_object" },
       max_tokens: SMART_EXECUTION_MAX_OUTPUT_TOKENS,
       messages: [
         {
@@ -234,7 +236,7 @@ const requestChatCompletion = async ({ integration, content }) => {
         }
       ]
     })
-  });
+  }, { operation: "execution-planning.generate" });
 
   if (!response.ok) {
     const raw = await response.text();

@@ -139,6 +139,7 @@ CREATE TABLE requirements (
 
 CREATE TABLE feedback (
   id TEXT PRIMARY KEY,
+  project_id TEXT,
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -151,11 +152,21 @@ CREATE TABLE feedback (
   build TEXT,
   jira_bug_key TEXT,
   linked_test_run_id TEXT,
+  linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  linked_test_suite_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  linked_module_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  linked_requirement_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  sprint TEXT,
+  fix_version TEXT,
+  release TEXT,
   assignee_id TEXT,
   root_cause TEXT,
   retest_result TEXT,
   status TEXT DEFAULT 'open',
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL
 );
@@ -169,6 +180,37 @@ ALTER TABLE feedback ADD COLUMN IF NOT EXISTS environment TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS build TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS project_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_suite_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_module_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_requirement_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS sprint TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS fix_version TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS release TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS requirement_iterations (
+  id TEXT PRIMARY KEY,
+  display_id TEXT UNIQUE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  goal TEXT,
+  state TEXT NOT NULL DEFAULT 'future' CHECK (state IN ('future', 'active', 'closed')),
+  start_date DATE,
+  end_date DATE,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS goal TEXT;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'future';
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date DATE;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date DATE;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
@@ -416,6 +458,9 @@ CREATE TABLE executions (
   build TEXT,
   assigned_to TEXT,
   assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
+  module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
+  case_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMPTZ,
@@ -444,6 +489,8 @@ CREATE TABLE execution_case_snapshots (
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   suite_id TEXT,
   suite_name TEXT,
+  module_id TEXT,
+  module_name TEXT,
   priority INTEGER,
   status TEXT,
   parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -451,6 +498,9 @@ CREATE TABLE execution_case_snapshots (
   suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   sort_order INTEGER NOT NULL DEFAULT 1,
+  assigned_to TEXT,
+  assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  assignment_source TEXT CHECK(assignment_source IN ('run','suite','module','case')),
   PRIMARY KEY (execution_id, test_case_id),
   FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
 );
@@ -767,6 +817,9 @@ ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE executions
   ADD COLUMN IF NOT EXISTS assigned_to TEXT;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS case_assignments JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS release TEXT;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS sprint TEXT;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS build TEXT;
@@ -836,7 +889,14 @@ ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_va
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT;
+UPDATE execution_case_snapshots
+SET assigned_to_ids = jsonb_build_array(assigned_to), assignment_source = COALESCE(assignment_source, 'run')
+WHERE assigned_to IS NOT NULL AND BTRIM(assigned_to) <> '' AND assigned_to_ids = '[]'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS module_id TEXT;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS module_name TEXT;
 
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS defects JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -1019,3 +1079,79 @@ CREATE TABLE IF NOT EXISTS workspace_transaction_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_workspace_transaction_artifacts_lookup
   ON workspace_transaction_artifacts (transaction_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  bucket_name TEXT NOT NULL,
+  object_name TEXT NOT NULL UNIQUE,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+  size_bytes BIGINT NOT NULL DEFAULT 0,
+  etag TEXT,
+  checksum_sha256 TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_entity
+  ON attachments (entity_type, entity_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_project
+  ON attachments (project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS entity_comments (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_comments_entity
+  ON entity_comments (entity_type, entity_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS test_case_versions (
+  id TEXT PRIMARY KEY,
+  test_case_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  change_summary TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE (test_case_id, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_case_versions_case
+  ON test_case_versions (test_case_id, revision DESC);
+
+CREATE TABLE IF NOT EXISTS quality_dashboards (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  layout TEXT NOT NULL DEFAULT 'two-column',
+  gadgets JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_dashboards_project
+  ON quality_dashboards (project_id, updated_at DESC);

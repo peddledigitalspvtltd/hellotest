@@ -9,6 +9,8 @@ import type {
   AiDesignImageInput,
   AiDesignPreviewResponse,
   AiPromptTemplate,
+  AiRequirementCreationPreviewResponse,
+  AiRichTextRephraseResponse,
   AiStepRephraseResponse,
   AiTestCaseGenerationJob,
   AutomationBuildResponse,
@@ -21,6 +23,7 @@ import type {
   AppType,
   DomainMetadata,
   Execution,
+  ExecutionFailureClusterPreviewResponse,
   ExecutionResult,
   ExecutionSchedule,
   FeatureFlagSnapshot,
@@ -31,7 +34,17 @@ import type {
   PermissionGroup,
   Project,
   ProjectMember,
+  QairaAttachment,
+  QairaComment,
+  QairaEntityType,
+  QualityDashboard,
+  QualityDashboardBatchResponse,
+  QualityDashboardDesignPreviewResponse,
+  QualityDashboardGadget,
+  QualityDashboardGadgetResult,
+  QualityInsightPreviewResponse,
   Requirement,
+  RequirementImpactPreviewResponse,
   RequirementIteration,
   Role,
   SessionPayload,
@@ -41,6 +54,9 @@ import type {
   TestConfiguration,
   TestCase,
   TestCaseDefectLink,
+  TestCaseImpactPreviewResponse,
+  TestCaseVersionSnapshot,
+  TestCaseVersionSummary,
   TestCaseModule,
   TestDataSet,
   TestDataSetMode,
@@ -71,6 +87,7 @@ const API_BASE_URL =
 const SESSION_KEY = "qaira.session";
 
 type IssuePayload = {
+  project_id?: string;
   user_id: string;
   title: string;
   message: string;
@@ -83,6 +100,14 @@ type IssuePayload = {
   build?: string;
   jira_bug_key?: string;
   linked_test_run_id?: string;
+  linked_test_case_ids?: string[];
+  linked_test_suite_ids?: string[];
+  linked_module_ids?: string[];
+  linked_requirement_ids?: string[];
+  labels?: string[];
+  sprint?: string;
+  fix_version?: string;
+  release?: string;
   assignee_id?: string;
   root_cause?: string;
   status?: string;
@@ -226,6 +251,33 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   return response.blob();
 }
 
+async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const headers = new Headers();
+  const token = getStoredToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers,
+      body: formData,
+      signal: AbortSignal.timeout(120000)
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      throw new Error("Attachment upload timed out. Try a smaller file or check object storage connectivity.");
+    }
+    throw new Error(`Unable to reach API at ${API_BASE_URL}. Check your connection and try again.`);
+  }
+  const isJson = response.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await response.json() : null;
+  if (!response.ok) {
+    const error = (payload || {}) as ApiError;
+    throw new Error(error.message || `Upload failed with status ${response.status}`);
+  }
+  return payload as T;
+}
+
 type TestCaseImportSourceValue = "csv" | "junit_xml" | "testng_xml" | "postman_collection";
 
 type BatchQueueResponse = {
@@ -341,6 +393,67 @@ const splitTestCaseImportInput = (input: {
 };
 
 export const api = {
+  ai: {
+    qualityInsights: (query: { project_id: string; release?: string; sprint?: string }) =>
+      request<QualityInsightPreviewResponse>(`/ai/quality-insights${toQueryString(query)}`),
+    rephraseRichText: (input: {
+      project_id: string;
+      content: string;
+      content_html?: string;
+      entity_type?: string;
+      entity_title?: string;
+      field_label?: string;
+      aria_label?: string;
+    }) => request<AiRichTextRephraseResponse>("/ai/rich-text-rephrase", {
+      method: "POST",
+      body: JSON.stringify(input)
+    })
+  },
+  analytics: {
+    query: (projectId: string, gadget: QualityDashboardGadget) =>
+      request<QualityDashboardGadgetResult>("/analytics/query", {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId, gadget })
+      }),
+    queryBatch: (projectId: string, gadgets: QualityDashboardGadget[]) =>
+      request<QualityDashboardBatchResponse>("/analytics/query-batch", {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId, gadgets })
+      }),
+    designDashboard: (input: { project_id: string; stakeholder?: string; release?: string; prompt?: string }) =>
+      request<QualityDashboardDesignPreviewResponse>("/analytics/dashboard-design-preview", {
+        method: "POST",
+        body: JSON.stringify(input)
+      })
+  },
+  qualityDashboards: {
+    list: (projectId: string) => request<QualityDashboard[]>(`/quality-dashboards${toQueryString({ project_id: projectId })}`),
+    get: (id: string) => request<QualityDashboard>(`/quality-dashboards/${id}`),
+    create: (input: Omit<QualityDashboard, "id">) => request<QualityDashboard>("/quality-dashboards", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: Partial<QualityDashboard>) => request<QualityDashboard>(`/quality-dashboards/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string) => request<{ deleted: boolean; id: string }>(`/quality-dashboards/${id}`, { method: "DELETE" })
+  },
+  attachments: {
+    meta: () => request<{ enabled: boolean; provider: string; uploadLimit: number }>("/attachments/meta"),
+    list: (scope: { project_id: string; entity_type: QairaEntityType; entity_id: string }) =>
+      request<QairaAttachment[]>(`/attachments${toQueryString(scope)}`),
+    upload: (scope: { project_id: string; entity_type: QairaEntityType; entity_id: string }, file: File) => {
+      const formData = new FormData();
+      formData.append("project_id", scope.project_id);
+      formData.append("entity_type", scope.entity_type);
+      formData.append("entity_id", scope.entity_id);
+      formData.append("file", file, file.name);
+      return requestForm<QairaAttachment>("/attachments", formData);
+    },
+    download: (attachmentId: string) => requestBlob(`/attachments/${attachmentId}/download`),
+    delete: (attachmentId: string) => request<{ deleted: boolean; id: string }>(`/attachments/${attachmentId}`, { method: "DELETE" })
+  },
+  comments: {
+    list: (scope: { project_id: string; entity_type: QairaEntityType; entity_id: string }) =>
+      request<QairaComment[]>(`/comments${toQueryString(scope)}`),
+    create: (scope: { project_id: string; entity_type: QairaEntityType; entity_id: string }, body: string) =>
+      request<QairaComment>("/comments", { method: "POST", body: JSON.stringify({ ...scope, body }) })
+  },
   settings: {
     getLocalization: () => request<{ strings: Record<string, string> }>("/settings/localization"),
     updateLocalization: (input: { strings: Record<string, string> }) =>
@@ -506,6 +619,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    previewCreation: (input: { project_id: string; integration_id?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; max_requirements?: number; priority?: number; status?: string }) =>
+      request<AiRequirementCreationPreviewResponse>("/requirements/ai-create-preview", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
       request<AiDesignPreviewResponse>(`/requirements/${id}/design-test-cases-preview`, {
         method: "POST",
@@ -542,6 +660,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    previewImpact: (id: string, proposedChange?: Record<string, unknown>) =>
+      request<RequirementImpactPreviewResponse>(`/requirements/${id}/ai-impact-preview`, {
+        method: "POST",
+        body: JSON.stringify({ proposed_change: proposedChange || {} })
+      }),
     update: (id: string, input: Partial<{ project_id: string; title: string; description: string; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; iteration_id: string; priority: number; status: string }>) =>
       request<{ updated: boolean }>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/requirements/${id}`, { method: "DELETE" })
@@ -551,9 +674,9 @@ export const api = {
       request<RequirementIteration[]>(`/requirement-iterations${toQueryString(query)}`),
     get: (id: string) =>
       request<RequirementIteration>(`/requirement-iterations/${id}`),
-    create: (input: { project_id: string; name: string; description?: string; requirement_ids?: string[] }) =>
+    create: (input: { project_id: string; name: string; description?: string; goal?: string; state?: "future" | "active" | "closed"; start_date?: string; end_date?: string; requirement_ids?: string[] }) =>
       request<{ id: string }>("/requirement-iterations", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; requirement_ids: string[] }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; goal: string; state: "future" | "active" | "closed"; start_date: string; end_date: string; requirement_ids: string[] }>) =>
       request<{ updated: boolean }>(`/requirement-iterations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignRequirements: (id: string, requirement_ids: string[], append = true) =>
       request<{ updated: boolean; assigned: number }>(`/requirement-iterations/${id}/requirements`, {
@@ -578,10 +701,23 @@ export const api = {
     delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" })
   },
   issues: {
-    list: (query?: { user_id?: string; status?: string }) =>
+    list: (query?: { project_id?: string; user_id?: string; status?: string }) =>
       request<Issue[]>(`/feedback${toQueryString(query)}`),
     create: (input: IssuePayload) =>
       request<{ id: string }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
+    previewAiDraft: (input: {
+      project_id: string;
+      intent: string;
+      evidence?: string;
+      additional_context?: string;
+      linked_test_run_id?: string;
+      linked_test_case_ids?: string[];
+      linked_requirement_ids?: string[];
+      integration_id?: string;
+    }) => request<import("../types").AiBugDraftPreview>("/feedback/ai-draft-preview", {
+      method: "POST",
+      body: JSON.stringify(input)
+    }),
     update: (id: string, input: Partial<IssuePayload>) =>
       request<{ updated: boolean }>(`/feedback/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/feedback/${id}`, { method: "DELETE" })
@@ -826,6 +962,20 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    previewImpact: (id: string, proposedChange?: Record<string, unknown>) =>
+      request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
+        method: "POST",
+        body: JSON.stringify({ proposed_change: proposedChange || {} })
+      }),
+    listVersions: (id: string) =>
+      request<{ current_revision: number; retained_limit: number; versions: TestCaseVersionSummary[] }>(`/test-cases/${id}/versions`),
+    getVersion: (id: string, revision: number) =>
+      request<TestCaseVersionSnapshot>(`/test-cases/${id}/versions/${revision}`),
+    restoreVersion: (id: string, revision: number, expectedRevision: number) =>
+      request<{ restored: boolean; restored_from_revision: number; revision: number; test_case: TestCase }>(`/test-cases/${id}/versions/${revision}/restore`, {
+        method: "POST",
+        body: JSON.stringify({ expected_revision: expectedRevision })
+      }),
     extractLearningCacheFields: (input: {
       app_type_id?: string;
       screen_name: string;
@@ -956,7 +1106,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string; included_action_indices?: number[] }) =>
       request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, {
         method: "POST",
         body: JSON.stringify(input || {})
@@ -1035,6 +1185,11 @@ export const api = {
       request<{ id: string }>("/test-steps", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ test_case_id: string; step_order: number; action: string; expected_result: string; step_type: TestStep["step_type"] | null; automation_code: string; api_request: TestStep["api_request"]; group_id: string | null; group_name: string | null; group_kind: "local" | "reusable" | null; reusable_group_id: string | null }>) =>
       request<{ updated: boolean }>(`/test-steps/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    moveAutomation: (input: { source_step_id: string; target_step_id: string }) =>
+      request<{ moved: boolean; source_step_id: string; target_step_id: string }>("/test-steps/move-automation", {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     reorder: (test_case_id: string, step_ids: string[]) =>
       request<{ reordered: boolean }>(`/test-steps/reorder`, {
         method: "PUT",
@@ -1137,8 +1292,15 @@ export const api = {
         `/executions/${executionId}/cases/${testCaseId}/ai-analysis`,
         { method: "POST" }
       ),
-    updateCaseAssignment: (executionId: string, testCaseId: string, input: { assigned_to?: string }) =>
+    previewFailureClusters: (id: string) =>
+      request<ExecutionFailureClusterPreviewResponse>(`/executions/${id}/ai-failure-clusters`, {
+        method: "POST",
+        body: JSON.stringify({ scope: "failed-and-blocked" })
+      }),
+    updateCaseAssignment: (executionId: string, testCaseId: string, input: { assigned_to?: string; assigned_to_ids?: string[] }) =>
       request<{ updated: boolean }>(`/executions/${executionId}/cases/${testCaseId}/assignment`, { method: "PUT", body: JSON.stringify(input) }),
+    updateScopeAssignment: (executionId: string, level: "suites" | "modules" | "cases", scopeId: string, input: { assigned_to_ids?: string[]; assigned_to?: string }) =>
+      request<{ updated: boolean; scope_id: string }>(`/executions/${executionId}/${level}/${scopeId}/assignment`, { method: "PUT", body: JSON.stringify(input) }),
     rerun: (id: string, input: { failed_only?: boolean; created_by: string; name?: string }) =>
       request<{ id: string }>(`/executions/${id}/rerun`, { method: "POST", body: JSON.stringify(input) }),
     start: (id: string, input?: { execution_mode?: "local" | "remote"; engine_base_url?: string }) =>

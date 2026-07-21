@@ -20,6 +20,7 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useRecorderSessionPolling } from "../hooks/useRecorderSessionPolling";
 import { api } from "../lib/api";
 import { buildBrowserUrl } from "../lib/integrationUrls";
 import { hasPermission } from "../lib/permissions";
@@ -530,37 +531,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const learningCache = learningCacheQuery.data || [];
   const recorderLiveUrl = recorderSession?.live_view_url || "";
 
-  useEffect(() => {
-    if (!recorderSession?.status_url || recorderSession.status !== "running") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const refreshRecorderSession = async () => {
-      try {
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store" });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const next = await response.json() as Partial<RecorderSessionResponse>;
-
-        if (!cancelled) {
-          setRecorderSession((current) => current?.id === recorderSession.id ? { ...current, ...next } : current);
-        }
-      } catch {
-        // Live recorder counters are best-effort and should not interrupt the recorder.
-      }
-    };
-    const timer = window.setInterval(() => void refreshRecorderSession(), 1000);
-
-    void refreshRecorderSession();
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
+  useRecorderSessionPolling(recorderSession, setRecorderSession);
 
   const invalidateAutomationViews = () => {
     void queryClient.invalidateQueries({ queryKey: ["test-cases"] });

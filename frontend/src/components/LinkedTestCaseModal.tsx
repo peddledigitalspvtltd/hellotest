@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { buildCaseAutomationCode } from "../lib/stepAutomation";
 import { collectStepParameters, combineStepParameterValues, filterStepParameterValues, normalizeStepParameterValues } from "../lib/stepParameters";
@@ -10,7 +11,9 @@ import { StepParameterDialog } from "./StepParameterDialog";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { AutomationCodeIcon, CodePreviewDialog } from "./StepAutomationEditor";
 import { RichTextContent } from "./RichTextEditor";
-import { WorkspaceBackButton } from "./WorkspaceMasterDetail";
+import { DialogCloseButton } from "./DialogCloseButton";
+import { LoadingState } from "./LoadingState";
+import { CollapseExpandIcon } from "./AppIcons";
 
 const linkedCaseHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -51,6 +54,7 @@ export function LinkedTestCaseModal({
   testCase: TestCase;
   onClose: () => void;
 }) {
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [expandedSections, setExpandedSections] = useState({
     details: false,
     steps: false,
@@ -164,7 +168,9 @@ export function LinkedTestCaseModal({
           aria-modal="true"
           className="modal-card suite-test-case-editor-modal linked-test-case-modal linked-test-case-workspace-modal"
           onClick={(event) => event.stopPropagation()}
+          ref={dialogRef}
           role="dialog"
+          tabIndex={-1}
         >
           <div className="suite-test-case-editor-body linked-test-case-workspace-body">
             <div className="workspace-master-detail is-detail-open linked-test-case-workspace-shell">
@@ -172,11 +178,11 @@ export function LinkedTestCaseModal({
                 <Panel
                   actions={(
                     <div className="panel-head-actions-row">
-                      <WorkspaceBackButton label="Back to previous view" onClick={onClose} />
                       <button className="ghost-button" onClick={() => setIsParameterDialogOpen(true)} type="button">
                         <LinkedTestCaseParameterIcon />
                         <span>{detectedParameters.length ? `Test data · ${detectedParameters.length}` : "Test data"}</span>
                       </button>
+                      <DialogCloseButton label="Close test case workspace" onClick={onClose} />
                     </div>
                   )}
                   title="Test case workspace"
@@ -250,7 +256,7 @@ export function LinkedTestCaseModal({
                         title="Test steps"
                       >
                         <div className="stack-list">
-                          {stepsQuery.isLoading ? <div className="empty-state compact">Loading steps…</div> : null}
+                          {stepsQuery.isLoading ? <LoadingState label="Loading steps" /> : null}
                           {!stepsQuery.isLoading && steps.map((step) => (
                             <div className="stack-item" key={step.id}>
                               <div className="linked-test-case-step-copy">
@@ -280,7 +286,7 @@ export function LinkedTestCaseModal({
                         title="Run history"
                       >
                         <div className="stack-list">
-                          {historyQuery.isLoading ? <div className="empty-state compact">Loading run history…</div> : null}
+                          {historyQuery.isLoading ? <LoadingState label="Loading run history" /> : null}
                           {!historyQuery.isLoading && history.map((result) => {
                             const historyDetail =
                               result.error ||
@@ -375,8 +381,14 @@ function LinkedTestCaseSection({
         <div className="editor-accordion-toggle-meta">
           <span className="editor-accordion-toggle-count">{countLabel}</span>
           {actions ? <div className="editor-accordion-actions">{actions}</div> : null}
-          <button className="editor-accordion-toggle-state" onClick={onToggle} type="button">
-            {isExpanded ? "Collapse" : "Expand"}
+          <button
+            aria-label={isExpanded ? `Collapse ${title}` : `Expand ${title}`}
+            className="editor-accordion-toggle-state explorer-icon-button"
+            onClick={onToggle}
+            title={isExpanded ? "Collapse section" : "Expand section"}
+            type="button"
+          >
+            <CollapseExpandIcon isExpanded={isExpanded} />
           </button>
         </div>
       </div>

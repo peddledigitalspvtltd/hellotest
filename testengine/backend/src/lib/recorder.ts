@@ -54,6 +54,7 @@ type RecorderSession = {
   id: string;
   purpose: "automation-recording" | "repository-inspect" | null;
   status: "running" | "stopped" | "failed";
+  paused: boolean;
   started_at: string;
   stopped_at: string | null;
   start_url: string | null;
@@ -273,7 +274,11 @@ const touchSession = (session: RecorderSession) => {
 const pushRecorderAction = (
   session: RecorderSession,
   action: Omit<RecorderAction, "index" | "timestamp"> & Partial<Pick<RecorderAction, "index" | "timestamp">>
-) => {
+): RecorderAction | null => {
+  if (session.paused) {
+    return null;
+  }
+
   const actionType = String(action.type || "").toLowerCase();
   const actionLocator = normalizeText(action.locator);
   const actionPageId = normalizeText(action.page_id);
@@ -357,6 +362,7 @@ const serializeSession = (session: RecorderSession, options: { includeLiveViewPa
   id: session.id,
   purpose: session.purpose,
   status: session.status,
+  paused: session.paused,
   started_at: session.started_at,
   stopped_at: session.stopped_at,
   last_activity_at: session.last_activity_at,
@@ -722,7 +728,7 @@ const attachPageCapture = (session: RecorderSession, page: Page, logger: Fastify
   });
 
   page.on("requestfinished", (request) => {
-    if (!isUsefulNetworkRequest(request)) {
+    if (session.paused || !isUsefulNetworkRequest(request)) {
       return;
     }
 
@@ -734,6 +740,10 @@ const attachPageCapture = (session: RecorderSession, page: Page, logger: Fastify
         const contentType = headers["content-type"] || headers["Content-Type"] || null;
         const canReadBody = typeof contentType === "string" && /(json|text|xml|html|x-www-form-urlencoded)/i.test(contentType);
         const responseText = canReadBody ? await response?.text().catch(() => null) : null;
+
+        if (session.paused) {
+          return;
+        }
 
         pushBounded(session.network, {
           index: session.network.length + 1,
@@ -755,12 +765,16 @@ const attachPageCapture = (session: RecorderSession, page: Page, logger: Fastify
   });
 
   page.on("requestfailed", (request) => {
-    if (!isUsefulNetworkRequest(request)) {
+    if (session.paused || !isUsefulNetworkRequest(request)) {
       return;
     }
 
     void (async () => {
       const requestPage = resolveRequestPage(request);
+
+      if (session.paused) {
+        return;
+      }
 
       pushBounded(session.network, {
         index: session.network.length + 1,
@@ -1664,7 +1678,7 @@ const stopOrphanedSessions = async (logger: FastifyBaseLogger) => {
   const now = Date.now();
 
   for (const session of sessions.values()) {
-    if (session.status !== "running") {
+    if (session.status !== "running" || session.paused) {
       continue;
     }
 
@@ -2204,7 +2218,9 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
           y,
           source: "remote-control"
         });
-        void enrichRemoteClickAction(session, page, action.index, x, y, app.log);
+        if (action) {
+          void enrichRemoteClickAction(session, page, action.index, x, y, app.log);
+        }
         await page.mouse.click(x, y);
       } else if (type === "type") {
         const text = clipRawText(body?.text, REMOTE_TEXT_LIMIT);
@@ -2300,6 +2316,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     if (reusableSession) {
       reusableSession.actions.length = 0;
       reusableSession.network.length = 0;
+      reusableSession.paused = false;
       reusableSession.error = null;
       reusableSession.start_url = startUrl || reusableSession.start_url;
       for (const key of inspectResults.keys()) {
@@ -2377,6 +2394,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         id,
         purpose,
         status: "running",
+        paused: false,
         started_at: new Date().toISOString(),
         stopped_at: null,
         start_url: startUrl,
@@ -2436,6 +2454,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         id,
         purpose,
         status: session.status,
+        paused: session.paused,
         started_at: session.started_at,
         last_activity_at: session.last_activity_at,
         start_url: startUrl,
@@ -2467,6 +2486,46 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     }
 
     await stopSession(session);
+    return serializeSession(session);
+  });
+
+  app.post("/api/v1/recorder/sessions/:id/pause", async (request, reply) => {
+    const params = request.params as { id: string };
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Only a running recorder session can be paused" };
+    }
+
+    session.paused = true;
+    touchSession(session);
+    app.log.info({ sessionId: session.id }, "Recorder capture paused");
+    return serializeSession(session);
+  });
+
+  app.post("/api/v1/recorder/sessions/:id/resume", async (request, reply) => {
+    const params = request.params as { id: string };
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Only a running recorder session can be resumed" };
+    }
+
+    session.paused = false;
+    touchSession(session);
+    app.log.info({ sessionId: session.id }, "Recorder capture resumed");
     return serializeSession(session);
   });
 };

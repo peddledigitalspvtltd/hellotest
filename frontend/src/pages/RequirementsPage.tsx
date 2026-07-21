@@ -4,14 +4,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AddIcon, ClearSelectionIcon, ImportIcon, IterationIcon, OpenIcon, SearchIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AiEvidencePreview } from "../components/AiEvidencePreview";
+import { AiRequirementCreationModal } from "../components/AiRequirementCreationModal";
+import { ActivityIcon, AddIcon, BugIcon, ClearSelectionIcon, CollapseExpandIcon, ExportIcon, FileAddIcon, ImportIcon, IterationIcon, LayersIcon, OpenIcon, PencilIcon, SearchIcon, SelectAllIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
+import { DetailSectionTabs } from "../components/DetailSectionTabs";
+import { DialogCloseButton } from "../components/DialogCloseButton";
+import { EntityAttachmentPanel } from "../components/EntityAttachmentPanel";
+import { EntityCommentsPanel } from "../components/EntityCommentsPanel";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
+import { HierarchyLoadMoreButton } from "../components/HierarchyLoadMoreButton";
+import { HierarchyMetricStrip } from "../components/HierarchyMetricStrip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -42,7 +50,7 @@ import { parseRequirementCsv } from "../lib/requirementImport";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
-import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, TestCase, User } from "../types";
+import type { AiDesignImageInput, AiDesignedTestCaseCandidate, AiRequirementCreationCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, TestCase, User } from "../types";
 
 type RequirementDraft = {
   title: string;
@@ -58,6 +66,7 @@ type RequirementDraft = {
 };
 
 type RequirementSectionKey = "details" | "library" | "defects" | "runHistory";
+type RequirementDetailTab = "details" | "related" | "comments" | "grounding" | "cases" | "defects" | "history" | "evidence";
 type RequirementCoverageFilter = "all" | "linked" | "unlinked";
 
 type RequirementCoverageMetric = {
@@ -95,6 +104,19 @@ const createEmptyRequirementDraft = (defaultStatus = "open"): RequirementDraft =
   priority: 3,
   status: defaultStatus
 });
+
+const defaultIterationDates = () => {
+  const start = new Date();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 14);
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+};
+
+const formatIterationDateRange = (start?: string | null, end?: string | null) => {
+  if (!start && !end) return "Dates not set";
+  const format = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${String(value).slice(0, 10)}T00:00:00`)) : "Open";
+  return `${format(start)} – ${format(end)}`;
+};
 
 const createDefaultRequirementSections = (): Record<RequirementSectionKey, boolean> => ({
   details: true,
@@ -153,6 +175,7 @@ type RequirementSplitAction = {
 function RequirementSplitActionButton({
   label,
   icon,
+  iconOnly = false,
   disabled,
   onClick,
   menuLabel,
@@ -160,6 +183,7 @@ function RequirementSplitActionButton({
 }: {
   label: string;
   icon: ReactNode;
+  iconOnly?: boolean;
   disabled?: boolean;
   onClick: () => void;
   menuLabel: string;
@@ -263,10 +287,10 @@ function RequirementSplitActionButton({
   ) : null;
 
   return (
-    <div className="create-run-action-button requirement-split-action-button" ref={triggerRef}>
-      <button className="run-action-main" disabled={disabled} onClick={onClick} type="button">
+    <div className={`create-run-action-button requirement-split-action-button${iconOnly ? " is-explorer-compact" : ""}`} ref={triggerRef}>
+      <button aria-label={iconOnly ? label : undefined} className="run-action-main" disabled={disabled} onClick={onClick} title={iconOnly ? label : undefined} type="button">
         {icon}
-        <span>{label}</span>
+        {iconOnly ? null : <span>{label}</span>}
       </button>
       <button
         aria-expanded={isOpen}
@@ -299,6 +323,7 @@ export function RequirementsPage() {
   const { session } = useAuth();
   const canCreateRequirements = hasPermission(session, "requirement.create");
   const canImportRequirements = hasPermission(session, "requirement.import");
+  const canExportRequirements = hasPermission(session, "requirement.export");
   const canUpdateRequirements = hasPermission(session, "requirement.update");
   const canDeleteRequirements = hasPermission(session, "requirement.delete");
   const canUseRequirementAi = hasPermission(session, "requirement.ai");
@@ -307,6 +332,11 @@ export function RequirementsPage() {
   const canUpdateRequirementIterations = hasPermission(session, "requirement_iteration.update");
   const canDeleteRequirementIterations = hasPermission(session, "requirement_iteration.delete");
   const canCreateTestCases = hasPermission(session, "testcase.create");
+  const canViewAttachments = hasPermission(session, "attachment.view");
+  const canUploadAttachments = hasPermission(session, "attachment.create");
+  const canDeleteAttachments = hasPermission(session, "attachment.delete");
+  const canViewComments = hasPermission(session, "comment.view");
+  const canCreateComments = hasPermission(session, "comment.create");
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
@@ -320,8 +350,15 @@ export function RequirementsPage() {
   const [isCreateIterationModalOpen, setIsCreateIterationModalOpen] = useState(false);
   const [iterationDraftName, setIterationDraftName] = useState("");
   const [iterationDraftDescription, setIterationDraftDescription] = useState("");
+  const [iterationDraftStartDate, setIterationDraftStartDate] = useState(() => defaultIterationDates().start);
+  const [iterationDraftEndDate, setIterationDraftEndDate] = useState(() => defaultIterationDates().end);
+  const [iterationDraftState, setIterationDraftState] = useState<"future" | "active" | "closed">("future");
+  const [editingIteration, setEditingIteration] = useState<RequirementIteration | null>(null);
   const [iterationRequirementSearch, setIterationRequirementSearch] = useState("");
   const [collapsedIterationIds, setCollapsedIterationIds] = useState<string[]>([]);
+  const [isIterationHierarchySeeded, setIsIterationHierarchySeeded] = useState(false);
+  const [visibleIterationRequirementCounts, setVisibleIterationRequirementCounts] = useState<Record<string, number>>({});
+  const [visibleUnassignedRequirementCount, setVisibleUnassignedRequirementCount] = useState(15);
   const [selectedIterationIds, setSelectedIterationIds] = useState<string[]>([]);
   const [draggingRequirementIds, setDraggingRequirementIds] = useState<string[]>([]);
   const [requirementSearchTerm, setRequirementSearchTerm] = useState("");
@@ -334,6 +371,7 @@ export function RequirementsPage() {
   const [requirementCoverageFilter, setRequirementCoverageFilter] = useState<RequirementCoverageFilter>("all");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [expandedSections, setExpandedSections] = useState<Record<RequirementSectionKey, boolean>>(createDefaultRequirementSections);
+  const [activeRequirementDetailTab, setActiveRequirementDetailTab] = useState<RequirementDetailTab>("details");
   const [detailTestCaseSearchTerm, setDetailTestCaseSearchTerm] = useState("");
   const [isDetailTestCaseSearchActive, setIsDetailTestCaseSearchActive] = useState(false);
   const [defectSearchTerm, setDefectSearchTerm] = useState("");
@@ -365,6 +403,14 @@ export function RequirementsPage() {
   const [almRequirementSearch, setAlmRequirementSearch] = useState("");
   const [selectedAlmRequirementKeys, setSelectedAlmRequirementKeys] = useState<string[]>([]);
   const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState(false);
+  const [isAiRequirementCreationOpen, setIsAiRequirementCreationOpen] = useState(false);
+  const [requirementCreationContext, setRequirementCreationContext] = useState("");
+  const [requirementCreationLinksText, setRequirementCreationLinksText] = useState("");
+  const [requirementCreationImages, setRequirementCreationImages] = useState<AiDesignImageInput[]>([]);
+  const [requirementCreationMaxDrafts, setRequirementCreationMaxDrafts] = useState(4);
+  const [requirementCreationDrafts, setRequirementCreationDrafts] = useState<AiRequirementCreationCandidate[]>([]);
+  const [selectedRequirementCreationDraftIds, setSelectedRequirementCreationDraftIds] = useState<string[]>([]);
+  const [isCreatingRequirementDrafts, setIsCreatingRequirementDrafts] = useState(false);
   const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
   const [optimizeRequirementIndex, setOptimizeRequirementIndex] = useState(0);
   const [optimizeContext, setOptimizeContext] = useState("");
@@ -396,6 +442,18 @@ export function RequirementsPage() {
     queryFn: () => api.requirementIterations.list({ project_id: projectId }),
     enabled: Boolean(projectId && canViewRequirementIterations)
   });
+  useEffect(() => {
+    if (!requirementIterationsQuery.data || isIterationHierarchySeeded) return;
+    setCollapsedIterationIds(requirementIterationsQuery.data.map((iteration) => iteration.id));
+    setIsIterationHierarchySeeded(true);
+  }, [isIterationHierarchySeeded, requirementIterationsQuery.data]);
+
+  useEffect(() => {
+    setIsIterationHierarchySeeded(false);
+    setCollapsedIterationIds([]);
+    setVisibleIterationRequirementCounts({});
+    setVisibleUnassignedRequirementCount(15);
+  }, [projectId]);
   const testCasesQuery = useQuery({
     queryKey: ["requirements-test-cases", appTypeId],
     queryFn: () => api.testCases.list({ app_type_id: appTypeId }),
@@ -458,6 +516,9 @@ export function RequirementsPage() {
 
   const createRequirement = useMutation({ mutationFn: api.requirements.create });
   const createRequirementIteration = useMutation({ mutationFn: api.requirementIterations.create });
+  const updateRequirementIteration = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.requirementIterations.update>[1] }) => api.requirementIterations.update(id, input)
+  });
   const assignRequirementsToIteration = useMutation({
     mutationFn: ({ id, requirementIds, append }: { id: string; requirementIds: string[]; append?: boolean }) =>
       api.requirementIterations.assignRequirements(id, requirementIds, append ?? true)
@@ -490,6 +551,7 @@ export function RequirementsPage() {
     mutationFn: ({ requirementId, input }: { requirementId: string; input?: Parameters<typeof api.requirements.previewOptimization>[1] }) =>
       api.requirements.previewOptimization(requirementId, input)
   });
+  const previewRequirementCreation = useMutation({ mutationFn: api.requirements.previewCreation });
 
   const projects = projectsQuery.data || [];
   const appTypes = appTypesQuery.data || [];
@@ -649,6 +711,7 @@ export function RequirementsPage() {
 
     syncRequirementSearchParams(getRoutableId(targetRequirement) || requirementId);
     setSelectedRequirementId(requirementId);
+    setActiveRequirementDetailTab("details");
   };
   const optimizeTargets = useMemo(
     () =>
@@ -1030,6 +1093,15 @@ export function RequirementsPage() {
     return { groups, unassignedRequirements };
   }, [filteredRequirements, requirementIterations]);
 
+  const visibleIterationGroups = useMemo(() => ({
+    groups: requirementIterationGroups.groups.map(({ iteration, requirements: items }) => ({
+      iteration,
+      requirements: items.slice(0, visibleIterationRequirementCounts[iteration.id] || 25),
+      total: items.length
+    })),
+    unassignedRequirements: requirementIterationGroups.unassignedRequirements.slice(0, visibleUnassignedRequirementCount)
+  }), [requirementIterationGroups, visibleIterationRequirementCounts, visibleUnassignedRequirementCount]);
+
   const iterationTileEntries = useMemo(() => {
     const entries: Array<
       | { kind: "iteration"; iteration: RequirementIteration; count: number }
@@ -1037,12 +1109,12 @@ export function RequirementsPage() {
       | { kind: "requirement"; requirement: Requirement }
     > = [];
 
-    requirementIterationGroups.groups.forEach(({ iteration, requirements: groupRequirements }) => {
+    visibleIterationGroups.groups.forEach(({ iteration, requirements: groupRequirements, total }) => {
       if (!groupRequirements.length && requirementSearchTerm.trim()) {
         return;
       }
 
-      entries.push({ kind: "iteration", iteration, count: groupRequirements.length });
+      entries.push({ kind: "iteration", iteration, count: total });
       if (!collapsedIterationIds.includes(iteration.id)) {
         groupRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
       }
@@ -1050,11 +1122,11 @@ export function RequirementsPage() {
 
     if (requirementIterationGroups.unassignedRequirements.length) {
       entries.push({ kind: "unassigned", count: requirementIterationGroups.unassignedRequirements.length });
-      requirementIterationGroups.unassignedRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
+      visibleIterationGroups.unassignedRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
     }
 
     return entries;
-  }, [collapsedIterationIds, requirementIterationGroups, requirementSearchTerm]);
+  }, [collapsedIterationIds, requirementIterationGroups.unassignedRequirements.length, requirementSearchTerm, visibleIterationGroups]);
 
   const activeRequirementFilterCount =
     Number(requirementStatusFilter !== "all") +
@@ -1146,7 +1218,7 @@ export function RequirementsPage() {
     {
       key: "sprint",
       label: "Sprint",
-      defaultVisible: false,
+      defaultVisible: true,
       sortValue: (item) => item.sprint || "",
       render: (item) => item.sprint || "—"
     },
@@ -1311,6 +1383,24 @@ export function RequirementsPage() {
     requirementIterationById,
     userById
   ]);
+
+  const getScopedRequirementListColumns = (requirementIds: string[], selectionLabel: string) => requirementListColumns.map((column) => column.key === "select"
+    ? {
+        ...column,
+        headerRender: () => (
+          <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
+            <input
+              aria-label={selectionLabel}
+              checked={requirementIds.length > 0 && requirementIds.every((id) => deleteSelectedRequirementIds.includes(id))}
+              onChange={(event) => setDeleteSelectedRequirementIds((current) => event.target.checked
+                ? [...new Set([...current, ...requirementIds])]
+                : current.filter((id) => !requirementIds.includes(id)))}
+              type="checkbox"
+            />
+          </label>
+        )
+      }
+    : column);
 
   const selectedRequirementPassCoverage = selectedRequirement
     ? passCoverageByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
@@ -1558,6 +1648,27 @@ export function RequirementsPage() {
     setIsCreateModalOpen(true);
   };
 
+  const openAiRequirementCreation = () => {
+    if (!canUseRequirementAi || !canCreateRequirements) {
+      showError(null, `Permission required: ${!canUseRequirementAi ? "requirement.ai" : "requirement.create"}`);
+      return;
+    }
+    if (!projectId) {
+      showError(null, "Select a project before generating requirements.");
+      return;
+    }
+    setRequirementCreationDrafts([]);
+    setSelectedRequirementCreationDraftIds([]);
+    setPreviewMessage("");
+    setPreviewTone("success");
+    setIsAiRequirementCreationOpen(true);
+  };
+
+  const closeAiRequirementCreation = () => {
+    if (previewRequirementCreation.isPending || isCreatingRequirementDrafts) return;
+    setIsAiRequirementCreationOpen(false);
+  };
+
   const closeRequirementDetail = () => {
     syncRequirementSearchParams(null);
     setSelectedRequirementId("");
@@ -1661,23 +1772,73 @@ export function RequirementsPage() {
     }
   };
 
-  const handleCreateIteration = async (event: FormEvent<HTMLFormElement>) => {
+  const openCreateIteration = () => {
+    const dates = defaultIterationDates();
+    setEditingIteration(null);
+    setIterationDraftName("");
+    setIterationDraftDescription("");
+    setIterationDraftStartDate(dates.start);
+    setIterationDraftEndDate(dates.end);
+    setIterationDraftState("future");
+    setIterationRequirementSearch("");
+    setIsCreateIterationModalOpen(true);
+  };
+
+  const openEditIteration = (iteration: RequirementIteration) => {
+    setEditingIteration(iteration);
+    setIterationDraftName(iteration.name);
+    setIterationDraftDescription(iteration.goal || iteration.description || "");
+    setIterationDraftStartDate(String(iteration.start_date || "").slice(0, 10));
+    setIterationDraftEndDate(String(iteration.end_date || "").slice(0, 10));
+    setIterationDraftState((["future", "active", "closed"].includes(String(iteration.state)) ? iteration.state : "future") as "future" | "active" | "closed");
+    setIterationRequirementSearch("");
+    setIsCreateIterationModalOpen(true);
+  };
+
+  const handleSaveIteration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!canCreateRequirementIterations) {
-      showError(null, "Permission required: requirement_iteration.create");
+    if (editingIteration ? !canUpdateRequirementIterations : !canCreateRequirementIterations) {
+      showError(null, `Permission required: requirement_iteration.${editingIteration ? "update" : "create"}`);
       return;
     }
 
-    if (!projectId || !iterationDraftName.trim()) {
+    if (!projectId || !iterationDraftName.trim() || !iterationDraftStartDate || !iterationDraftEndDate) {
+      return;
+    }
+
+    if (iterationDraftEndDate <= iterationDraftStartDate) {
+      showError(null, "Iteration end date must be after its start date.");
       return;
     }
 
     try {
+      if (editingIteration) {
+        await updateRequirementIteration.mutateAsync({
+          id: editingIteration.id,
+          input: {
+            name: iterationDraftName.trim(),
+            description: iterationDraftDescription.trim(),
+            goal: richTextToPlainText(iterationDraftDescription).trim(),
+            state: iterationDraftState,
+            start_date: iterationDraftStartDate,
+            end_date: iterationDraftEndDate
+          }
+        });
+        setEditingIteration(null);
+        setIsCreateIterationModalOpen(false);
+        showSuccess("Iteration updated.");
+        await refresh();
+        return;
+      }
       const response = await createRequirementIteration.mutateAsync({
         project_id: projectId,
         name: iterationDraftName.trim(),
         description: iterationDraftDescription.trim() || undefined,
+        goal: richTextToPlainText(iterationDraftDescription).trim() || undefined,
+        state: iterationDraftState,
+        start_date: iterationDraftStartDate,
+        end_date: iterationDraftEndDate,
         requirement_ids: deleteSelectedRequirementIds
       });
       setIterationDraftName("");
@@ -1688,7 +1849,7 @@ export function RequirementsPage() {
       showSuccess("Iteration created.");
       await refresh();
     } catch (error) {
-      showError(error, "Unable to create iteration");
+      showError(error, editingIteration ? "Unable to update iteration" : "Unable to create iteration");
     }
   };
 
@@ -2056,6 +2217,99 @@ export function RequirementsPage() {
     }
   };
 
+  const handleAddRequirementCreationImages = async (files: FileList | null) => {
+    try {
+      const images = await readImageFiles(files);
+      setRequirementCreationImages((current) => appendUniqueImages(current, images).slice(0, 4));
+    } catch (error) {
+      setPreviewTone("error");
+      setPreviewMessage(error instanceof Error ? error.message : "Unable to attach the selected image");
+    }
+  };
+
+  const handlePreviewRequirementCreation = async () => {
+    if (!canUseRequirementAi || !projectId) {
+      setPreviewTone("error");
+      setPreviewMessage(!canUseRequirementAi ? "Permission required: requirement.ai" : "Select a project first.");
+      return;
+    }
+
+    try {
+      const response = await previewRequirementCreation.mutateAsync({
+        project_id: projectId,
+        integration_id: integrationId || undefined,
+        additional_context: requirementCreationContext || undefined,
+        external_links: parseExternalLinks(requirementCreationLinksText),
+        images: requirementCreationImages,
+        max_requirements: requirementCreationMaxDrafts,
+        priority: createDraft.priority,
+        status: createDraft.status || defaultRequirementStatus
+      });
+      setRequirementCreationDrafts(response.requirements);
+      setSelectedRequirementCreationDraftIds(response.requirements.map((candidate) => candidate.client_id));
+      setPreviewTone(response.fallback_used ? "error" : "success");
+      setPreviewMessage(response.fallback_used
+        ? response.fallback_reason || "A conservative local preview was used. Review every draft before creating it."
+        : `${response.generated} requirement draft${response.generated === 1 ? "" : "s"} generated using ${response.integration?.name || "AI"}. Human review is required.`);
+    } catch (error) {
+      setPreviewTone("error");
+      setPreviewMessage(error instanceof Error ? error.message : "Unable to generate requirement drafts");
+    }
+  };
+
+  const handleCreateSelectedRequirementDrafts = async () => {
+    if (!canCreateRequirements || !projectId) {
+      setPreviewTone("error");
+      setPreviewMessage(!canCreateRequirements ? "Permission required: requirement.create" : "Select a project first.");
+      return;
+    }
+    const selectedDrafts = requirementCreationDrafts.filter((candidate) => selectedRequirementCreationDraftIds.includes(candidate.client_id));
+    if (!selectedDrafts.length) {
+      setPreviewTone("error");
+      setPreviewMessage("Select at least one reviewed requirement draft.");
+      return;
+    }
+
+    setIsCreatingRequirementDrafts(true);
+    try {
+      const results = await Promise.allSettled(selectedDrafts.map((candidate) => {
+        const reviewSections = [
+          candidate.description,
+          candidate.acceptance_criteria.length ? `Acceptance criteria:\n${candidate.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : "",
+          candidate.risks.length ? `Risks:\n${candidate.risks.map((item) => `- ${item}`).join("\n")}` : "",
+          candidate.open_questions.length ? `Open questions:\n${candidate.open_questions.map((item) => `- ${item}`).join("\n")}` : ""
+        ].filter(Boolean).join("\n\n");
+        return api.requirements.create({
+          project_id: projectId,
+          title: candidate.title,
+          description: reviewSections,
+          external_references: candidate.external_references,
+          sprint: createDraft.sprint || undefined,
+          fix_version: createDraft.fixVersion || undefined,
+          release: createDraft.release || undefined,
+          iteration_id: createDraft.iterationId || undefined,
+          priority: candidate.priority,
+          status: candidate.status || defaultRequirementStatus
+        });
+      }));
+      const created = results.filter((result) => result.status === "fulfilled").length;
+      const failed = results.length - created;
+      if (created) await refresh();
+      if (!failed) {
+        setIsAiRequirementCreationOpen(false);
+        setRequirementCreationDrafts([]);
+        setSelectedRequirementCreationDraftIds([]);
+        showSuccess(`${created} reviewed AI requirement${created === 1 ? "" : "s"} created.`);
+      } else {
+        const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        setPreviewTone("error");
+        setPreviewMessage(`${created} created and ${failed} failed.${firstFailure?.reason instanceof Error ? ` ${firstFailure.reason.message}` : ""}`);
+      }
+    } finally {
+      setIsCreatingRequirementDrafts(false);
+    }
+  };
+
 	  const handlePreviewDesignedCases = async () => {
 	    if (!canUseRequirementAi) {
 	      setPreviewTone("error");
@@ -2323,6 +2577,54 @@ export function RequirementsPage() {
       defectDensity
     };
   }, [defectsByRequirementId, requirements]);
+  const exportRequirements = () => {
+    if (!canExportRequirements) return;
+    const selectedIds = new Set(deleteSelectedRequirementIds);
+    const rows = selectedIds.size ? filteredRequirements.filter((item) => selectedIds.has(item.id)) : filteredRequirements;
+    const quote = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csvRows = [
+      ["ID", "Title", "Description", "Status", "Priority", "Sprint", "Fix version", "Release", "Labels", "External references", "Linked test cases"],
+      ...rows.map((item) => [
+        item.display_id || item.id,
+        item.title,
+        richTextToPlainText(item.description || ""),
+        item.status || "",
+        item.priority || "",
+        item.sprint || "",
+        item.fix_version || "",
+        item.release || "",
+        (item.labels || []).join("; "),
+        (item.external_references || []).join("; "),
+        (item.test_case_ids || []).join("; ")
+      ])
+    ];
+    const blob = new Blob([csvRows.map((row) => row.map(quote).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `qaira-requirements-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const renderIterationMetrics = (items: Requirement[]) => {
+    const completeStatuses = new Set(["done", "closed", "completed", "accepted", "resolved"]);
+    const completed = items.filter((item) => completeStatuses.has(String(item.status || "").trim().toLowerCase())).length;
+    const covered = items.filter((item) => (linkedCaseIdsByRequirementId[item.id] || []).length > 0).length;
+    const highRisk = items.filter((item) => (item.priority ?? 3) <= 2 && !(linkedCaseIdsByRequirementId[item.id] || []).length).length;
+    const completion = items.length ? Math.round((completed / items.length) * 100) : 0;
+    const coverage = items.length ? Math.round((covered / items.length) * 100) : 0;
+    return (
+      <HierarchyMetricStrip
+        count={items.length}
+        noun="requirement"
+        metrics={[
+          { label: "Complete", value: `${completion}%`, tone: completion === 100 ? "success" : completion ? "info" : "neutral" },
+          { label: "Coverage", value: `${coverage}%`, tone: coverage === 100 ? "success" : coverage >= 70 ? "warning" : "danger" },
+          { label: "Priority gaps", value: highRisk, tone: highRisk ? "danger" : "success", title: "High-priority requirements without linked test coverage" }
+        ]}
+      />
+    );
+  };
   const isRequirementWorkspaceOpen = Boolean(selectedRequirement);
 
   return (
@@ -2521,7 +2823,8 @@ export function RequirementsPage() {
               ) : null}
               <RequirementSplitActionButton
                 disabled={!canCreateRequirements || !projectId}
-                icon={<AddIcon />}
+                icon={<FileAddIcon />}
+                iconOnly
                 label="Create Requirement"
                 menuLabel="Open create requirement options"
                 onClick={openCreateRequirementModal}
@@ -2539,9 +2842,25 @@ export function RequirementsPage() {
                     icon: <ImportIcon />,
                     disabled: !canImportRequirements || !projectId || !activeAlmIntegrations.length,
                     onClick: () => openRequirementImportModal("alm")
+                  },
+                  {
+                    label: "Create Requirements using AI",
+                    description: "Generate reviewable requirement drafts from prompt context, safe files, links, and reference images.",
+                    icon: <SparkIcon />,
+                    disabled: !canUseRequirementAi || !canCreateRequirements || !projectId,
+                    onClick: openAiRequirementCreation
                   }
                 ]}
               />
+              <button
+                className="ghost-button catalog-selection-button"
+                disabled={!canExportRequirements || !filteredRequirements.length}
+                onClick={exportRequirements}
+                type="button"
+              >
+                <ExportIcon />
+                <span>Export{deleteSelectedRequirementIds.length ? ` (${deleteSelectedRequirementIds.length})` : ""}</span>
+              </button>
               <RequirementSplitActionButton
                 disabled={!canUseRequirementAi || !canUpdateRequirements || !deleteSelectedRequirementIds.length}
                 icon={<SparkIcon />}
@@ -2574,10 +2893,7 @@ export function RequirementsPage() {
               <button
                 className="ghost-button catalog-selection-button"
                 disabled={!canCreateRequirementIterations || !projectId}
-                onClick={() => {
-                  setIterationRequirementSearch("");
-                  setIsCreateIterationModalOpen(true);
-                }}
+                onClick={openCreateIteration}
                 type="button"
               >
                 <IterationIcon />
@@ -2658,8 +2974,24 @@ export function RequirementsPage() {
                             <ChevronDownIcon />
                           </button>
                           <span className="module-folder-icon"><IterationIcon /></span>
-                          <strong>{entry.iteration.name}</strong>
-                          <span>{entry.count} requirement{entry.count === 1 ? "" : "s"}</span>
+                          <div className="requirement-iteration-identity">
+                            <strong>{entry.iteration.name}</strong>
+                            <small>{formatIterationDateRange(entry.iteration.start_date, entry.iteration.end_date)}</small>
+                          </div>
+                          <StatusBadge value={entry.iteration.state === "active" ? "Active" : entry.iteration.state === "closed" ? "Closed" : "Planned"} />
+                          {renderIterationMetrics(requirementIterationGroups.groups.find((group) => group.iteration.id === entry.iteration.id)?.requirements || [])}
+                          {!isCollapsed && entry.count > (visibleIterationRequirementCounts[entry.iteration.id] || 25) ? (
+                            <HierarchyLoadMoreButton
+                              batchSize={25}
+                              loaded={Math.min(visibleIterationRequirementCounts[entry.iteration.id] || 25, entry.count)}
+                              onLoad={() => setVisibleIterationRequirementCounts((current) => ({ ...current, [entry.iteration.id]: (current[entry.iteration.id] || 25) + 25 }))}
+                              scopeLabel={`requirements in ${entry.iteration.name}`}
+                              total={entry.count}
+                            />
+                          ) : null}
+                          {canUpdateRequirementIterations ? (
+                            <button className="ghost-button compact" onClick={(event) => { event.stopPropagation(); openEditIteration(entry.iteration); }} type="button">Edit</button>
+                          ) : null}
                         </div>
                       );
                     }
@@ -2669,7 +3001,16 @@ export function RequirementsPage() {
                         <div className="test-case-module-header is-unassigned requirement-iteration-header" key="iteration-unassigned">
                           <span className="module-folder-icon"><IterationIcon /></span>
                           <strong>Unassigned</strong>
-                          <span>{entry.count} requirement{entry.count === 1 ? "" : "s"}</span>
+                          {renderIterationMetrics(requirementIterationGroups.unassignedRequirements)}
+                          {entry.count > visibleUnassignedRequirementCount ? (
+                            <HierarchyLoadMoreButton
+                              batchSize={15}
+                              loaded={Math.min(visibleUnassignedRequirementCount, entry.count)}
+                              onLoad={() => setVisibleUnassignedRequirementCount((current) => current + 15)}
+                              scopeLabel="unassigned requirements"
+                              total={entry.count}
+                            />
+                          ) : null}
                         </div>
                       );
                     }
@@ -2814,26 +3155,97 @@ export function RequirementsPage() {
                   })}
                 </div>
               ) : null}
-              {!isRequirementCatalogLoading && filteredRequirements.length && catalogViewMode === "list" ? (
-                <>
+              {!isRequirementCatalogLoading && (filteredRequirements.length || requirementIterationGroups.groups.length) && catalogViewMode === "list" ? (
+                <div className="test-case-module-list requirement-iteration-list">
+                  {visibleIterationGroups.groups
+                    .filter(({ total }) => total || !requirementSearchTerm.trim())
+                    .map(({ iteration, requirements: groupRequirements, total }) => {
+                      const isCollapsed = collapsedIterationIds.includes(iteration.id);
+                      const requirementIds = groupRequirements.map((item) => item.id);
+                      const loaded = visibleIterationRequirementCounts[iteration.id] || 25;
+                      return (
+                        <section className="test-case-module-list-section" key={iteration.id}>
+                          <div
+                            className={draggingRequirementIds.length ? "test-case-module-header requirement-iteration-header is-drop-ready" : "test-case-module-header requirement-iteration-header"}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={() => void handleDropRequirementOnIteration(iteration.id)}
+                          >
+                            <label className="checkbox-field" onClick={(event) => event.stopPropagation()}>
+                              <input
+                                aria-label={`Select visible requirements in ${iteration.name}`}
+                                checked={requirementIds.length > 0 && requirementIds.every((id) => deleteSelectedRequirementIds.includes(id))}
+                                onChange={(event) => setDeleteSelectedRequirementIds((current) => event.target.checked
+                                  ? [...new Set([...current, ...requirementIds])]
+                                  : current.filter((id) => !requirementIds.includes(id)))}
+                                type="checkbox"
+                              />
+                            </label>
+                            <button
+                              aria-label={isCollapsed ? `Expand ${iteration.name}` : `Collapse ${iteration.name}`}
+                              className={isCollapsed ? "ghost-button compact module-toggle-button" : "ghost-button compact module-toggle-button is-expanded"}
+                              onClick={() => setCollapsedIterationIds((current) => current.includes(iteration.id) ? current.filter((id) => id !== iteration.id) : [...current, iteration.id])}
+                              type="button"
+                            ><ChevronDownIcon /></button>
+                            <span className="module-folder-icon"><IterationIcon /></span>
+                            <div className="requirement-iteration-identity">
+                              <strong>{iteration.name}</strong>
+                              <small>{formatIterationDateRange(iteration.start_date, iteration.end_date)}</small>
+                            </div>
+                            <StatusBadge value={iteration.state === "active" ? "Active" : iteration.state === "closed" ? "Closed" : "Planned"} />
+                            {renderIterationMetrics(requirementIterationGroups.groups.find((group) => group.iteration.id === iteration.id)?.requirements || [])}
+                            {!isCollapsed && total > loaded ? (
+                              <HierarchyLoadMoreButton batchSize={25} loaded={Math.min(loaded, total)} onLoad={() => setVisibleIterationRequirementCounts((current) => ({ ...current, [iteration.id]: loaded + 25 }))} scopeLabel={`requirements in ${iteration.name}`} total={total} />
+                            ) : null}
+                            {canUpdateRequirementIterations ? (
+                              <button className="ghost-button compact" onClick={(event) => { event.stopPropagation(); openEditIteration(iteration); }} type="button">Edit</button>
+                            ) : null}
+                          </div>
+                          {!isCollapsed ? (
+                            <DataTable
+                              columns={getScopedRequirementListColumns(requirementIds, `Select all visible requirements in ${iteration.name}`)}
+                              enableColumnResize
+                              emptyMessage="No requirements in this iteration."
+                              getRowDraggable={() => true}
+                              getRowClassName={(item) => (selectedRequirement?.id === item.id ? "is-active-row" : "")}
+                              getRowKey={(item) => item.id}
+                              hideToolbarCopy
+                              onRowDragEnd={() => setDraggingRequirementIds([])}
+                              onRowDragStart={(item) => setDraggingRequirementIds(deleteSelectedRequirementIds.includes(item.id) ? deleteSelectedRequirementIds : [item.id])}
+                              onRowClick={(item) => openRequirementWorkspace(item.id)}
+                              rows={groupRequirements}
+                              storageKey={`qaira:requirements:list-columns:${iteration.id}`}
+                            />
+                          ) : null}
+                        </section>
+                      );
+                    })}
                   {requirementIterationGroups.unassignedRequirements.length ? (
-                    <div className="test-case-module-header is-unassigned requirement-iteration-header requirement-iteration-list-header">
-                      <span className="module-folder-icon"><IterationIcon /></span>
-                      <strong>Unassigned iteration</strong>
-                      <span>{requirementIterationGroups.unassignedRequirements.length} requirement{requirementIterationGroups.unassignedRequirements.length === 1 ? "" : "s"}</span>
-                    </div>
+                    <section className="test-case-module-list-section">
+                      <div className="test-case-module-header is-unassigned requirement-iteration-header requirement-iteration-list-header">
+                        <span className="module-folder-icon"><IterationIcon /></span>
+                        <strong>Unassigned iteration</strong>
+                        {renderIterationMetrics(requirementIterationGroups.unassignedRequirements)}
+                        {requirementIterationGroups.unassignedRequirements.length > visibleUnassignedRequirementCount ? (
+                          <HierarchyLoadMoreButton batchSize={15} loaded={visibleIterationGroups.unassignedRequirements.length} onLoad={() => setVisibleUnassignedRequirementCount((current) => current + 15)} scopeLabel="unassigned requirements" total={requirementIterationGroups.unassignedRequirements.length} />
+                        ) : null}
+                      </div>
+                      <DataTable
+                        columns={getScopedRequirementListColumns(visibleIterationGroups.unassignedRequirements.map((item) => item.id), "Select all visible unassigned requirements")}
+                        enableColumnResize
+                        emptyMessage="No unassigned requirements match the current search."
+                        getRowDraggable={() => true}
+                        getRowClassName={(item) => (selectedRequirement?.id === item.id ? "is-active-row" : "")}
+                        getRowKey={(item) => item.id}
+                        hideToolbarCopy
+                        onRowDragEnd={() => setDraggingRequirementIds([])}
+                        onRowDragStart={(item) => setDraggingRequirementIds(deleteSelectedRequirementIds.includes(item.id) ? deleteSelectedRequirementIds : [item.id])}
+                        onRowClick={(item) => openRequirementWorkspace(item.id)}
+                        rows={visibleIterationGroups.unassignedRequirements}
+                        storageKey="qaira:requirements:list-columns:unassigned"
+                      />
+                    </section>
                   ) : null}
-                  <DataTable
-	                    columns={requirementListColumns}
-	                    enableColumnResize
-	                    emptyMessage="No requirements match the current search."
-                    getRowClassName={(item) => (selectedRequirement?.id === item.id ? "is-active-row" : "")}
-                    getRowKey={(item) => item.id}
-                    onRowClick={(item) => openRequirementWorkspace(item.id)}
-                    rows={filteredRequirements}
-                    storageKey="qaira:requirements:list-columns"
-                  />
-                </>
+                </div>
               ) : null}
               {!isRequirementCatalogLoading && !requirements.length ? (
                 <div className="empty-state compact">
@@ -2851,10 +3263,20 @@ export function RequirementsPage() {
               <div className="panel-head-actions-row">
                 <WorkspaceBackButton label="Back to requirement tiles" onClick={closeRequirementDetail} />
                 {selectedRequirement ? (
-	                  <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
-                    <AddIcon />
-                    <span>New Test Case</span>
-                  </button>
+	                  <>
+	                    <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
+                        <AddIcon />
+                        <span>New Test Case</span>
+                      </button>
+                      <button className="ghost-button" disabled={!canUseRequirementAi || !canUpdateRequirements || previewRequirementOptimization.isPending} onClick={() => openRequirementOptimization([selectedRequirement.id])} type="button">
+                        <SparkIcon />
+                        <span>AI Complete requirement</span>
+                      </button>
+                      <button className="ghost-button danger" disabled={!canDeleteRequirements || deleteRequirement.isPending} onClick={() => void handleDeleteRequirement()} type="button">
+                        <TrashIcon />
+                        <span>Delete Requirement</span>
+                      </button>
+                    </>
                 ) : null}
               </div>
             )}
@@ -2889,7 +3311,23 @@ export function RequirementsPage() {
                     </span>
                   </div>
                 </div>
-                <div className="requirement-accordion">
+                <DetailSectionTabs
+                  activeTab={activeRequirementDetailTab}
+                  ariaLabel="Requirement detail sections"
+                  items={[
+                    { value: "details", label: "Details", icon: <PencilIcon /> },
+                    { value: "related", label: "Related items", icon: <OpenIcon />, count: (selectedRequirement.external_references || []).length },
+                    { value: "comments", label: "Comments", icon: <CommentTabIcon /> },
+                    { value: "grounding", label: "AI Assurance", icon: <SparkIcon /> },
+                    { value: "cases", label: "Linked test cases", icon: <LayersIcon />, count: selectedTestCaseIds.length },
+                    { value: "defects", label: "Linked bugs", icon: <BugIcon />, count: selectedDefectIds.length },
+                    { value: "history", label: "Historical runs", icon: <ActivityIcon />, count: selectedRequirementRunHistory.length },
+                    { value: "evidence", label: "Attachments", icon: <AttachmentTabIcon /> }
+                  ]}
+                  onChange={setActiveRequirementDetailTab}
+                />
+                <div className="requirement-accordion detail-section-panel" role="tabpanel">
+                  {activeRequirementDetailTab === "details" ? (
                   <RequirementAccordionSection
                     countLabel={`${selectedTestCaseIds.length} linked`}
                     isExpanded={expandedSections.details}
@@ -2925,6 +3363,8 @@ export function RequirementsPage() {
 	                      </div>
                       <FormField label="Description">
                         <RichTextEditor
+                          aiRephraseContext={{ entityType: "requirement", entityTitle: draft.title, fieldLabel: "Description" }}
+                          aiRephraseTitle="Improve requirement description with AI"
                           rows={4}
                           value={draft.description}
                           onChange={(description) => setDraft((current) => ({ ...current, description }))}
@@ -2951,35 +3391,47 @@ export function RequirementsPage() {
                       </FormField>
 
                       <div className="action-row">
-	                        <button
-	                          className="ghost-button"
-	                          disabled={!canUseRequirementAi || !canUpdateRequirements || previewRequirementOptimization.isPending}
-                          onClick={() => {
-                            setOptimizationSuggestion(null);
-                            setPreviewMessage("");
-                            setIsOptimizeModalOpen(true);
-                          }}
-                          type="button"
-                        >
-                          <SparkIcon />
-                          AI complete
-                        </button>
 	                        <button className="primary-button" disabled={!canUpdateRequirements || updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending} type="submit">
                           {updateRequirement.isPending || replaceMappings.isPending || replaceDefectMappings.isPending ? "Saving…" : "Save requirement"}
-                        </button>
-	                        <button className="ghost-button danger" disabled={!canDeleteRequirements || deleteRequirement.isPending} onClick={() => void handleDeleteRequirement()} type="button">
-                          Delete requirement
                         </button>
                       </div>
 	                    </form>
 	                  </RequirementAccordionSection>
+                  ) : null}
 
-	                  <div className="requirement-traceability-shell">
+                  {activeRequirementDetailTab === "related" ? (
+                    <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
+                      <section className="requirement-related-panel">
+                        <div className="requirement-related-head"><div><strong>Related items</strong><span>External tickets, specifications, and delivery references connected to this requirement.</span></div><span className="count-pill">{(selectedRequirement.external_references || []).length}</span></div>
+                        <div className="requirement-related-list">
+                          {(selectedRequirement.external_references || []).map((reference) => {
+                            const isUrl = /^https?:\/\//i.test(reference);
+                            return <article className="requirement-related-item" key={reference}><div className="requirement-related-item-main"><strong>{reference}</strong><small>{isUrl ? "External link" : "External reference"}</small></div>{isUrl ? <a className="ghost-button compact" href={reference} rel="noreferrer" target="_blank"><OpenIcon /><span>Open</span></a> : null}</article>;
+                          })}
+                          {!selectedRequirement.external_references?.length ? <div className="empty-state compact">No related references are linked to this requirement yet.</div> : null}
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+
+                  {activeRequirementDetailTab === "grounding" ? (
+                    <div className="detail-section-panel requirement-detail-wide-panel test-case-assurance-panel" role="tabpanel">
+                      <div className="requirement-grounding-header"><div><strong>AI Assurance requirement grounding</strong><span>Review completeness and linked evidence before accepting AI-assisted changes.</span></div>{canUseRequirementAi ? <AiEvidencePreview label="Preview change impact" load={() => api.requirements.previewImpact(selectedRequirement.id, { title: draft.title, description: richTextToPlainText(draft.description), priority: draft.priority, status: draft.status, sprint: draft.sprint, release: draft.release || draft.fixVersion })} title={`Impact of changes to ${selectedRequirement.title}`} /> : null}</div>
+                      <div className="readiness-detail-grid">
+                        <article><span>Linked coverage</span><strong>{selectedTestCaseIds.length}</strong><p>Reusable test cases currently trace to this requirement.</p></article>
+                        <article><span>Historical evidence</span><strong>{selectedRequirementRunHistory.length}</strong><p>Deduplicated run and test-case result records support review.</p></article>
+                        <article><span>Open bug links</span><strong>{selectedDefectIds.length}</strong><p>Linked defects remain explicit evidence, not an automated approval.</p></article>
+                      </div>
+                      <div className="ai-assurance-strip"><span><strong>Project scoped</strong> evidence</span><span><strong>Preview only</strong> AI impact</span><span><strong>Human</strong> approval required</span></div>
+                    </div>
+                  ) : null}
+
+	                  {["cases", "defects", "history"].includes(activeRequirementDetailTab) ? <div className="requirement-traceability-shell">
 	                    <div className="requirement-traceability-head">
 	                      <strong>Traceability</strong>
 	                      <span>Linked runs, cases, and defects for this requirement.</span>
 	                    </div>
-	                  <RequirementAccordionSection
+	                  {activeRequirementDetailTab === "cases" ? <RequirementAccordionSection
                     countLabel={`${selectedTestCaseIds.length} linked`}
                     isExpanded={expandedSections.library}
                     onToggle={() => setExpandedSections((current) => ({ ...current, library: !current.library }))}
@@ -3001,9 +3453,9 @@ export function RequirementsPage() {
                       testCases={testCases}
                       onToggle={(testCaseId, checked) => toggleSelectedTestCase(setSelectedTestCaseIds, testCaseId, checked)}
                     />
-                  </RequirementAccordionSection>
+                  </RequirementAccordionSection> : null}
 
-                  <RequirementAccordionSection
+                  {activeRequirementDetailTab === "defects" ? <RequirementAccordionSection
                     countLabel={`${selectedDefectIds.length} linked`}
                     isExpanded={expandedSections.defects}
                     onToggle={() => setExpandedSections((current) => ({ ...current, defects: !current.defects }))}
@@ -3022,9 +3474,9 @@ export function RequirementsPage() {
                       selectedIds={selectedDefectIds}
                       onToggle={(issueId, checked) => toggleSelectedTestCase(setSelectedDefectIds, issueId, checked)}
                     />
-                  </RequirementAccordionSection>
+                  </RequirementAccordionSection> : null}
 
-                  <RequirementAccordionSection
+                  {activeRequirementDetailTab === "history" ? <RequirementAccordionSection
                     countLabel={`${selectedRequirementRunHistory.length} runs`}
                     isExpanded={expandedSections.runHistory}
                     onToggle={() => setExpandedSections((current) => ({ ...current, runHistory: !current.runHistory }))}
@@ -3032,8 +3484,29 @@ export function RequirementsPage() {
                     title="Run History"
                   >
 	                    <RequirementRunHistoryTable rows={selectedRequirementRunHistory} />
-	                  </RequirementAccordionSection>
-	                  </div>
+	                  </RequirementAccordionSection> : null}
+	                  </div> : null}
+	                  {activeRequirementDetailTab === "evidence" ? <div className="detail-section-panel requirement-detail-wide-panel entity-collaboration-grid" role="tabpanel">
+	                    <EntityAttachmentPanel
+	                      canDelete={canDeleteAttachments}
+	                      canUpload={canUploadAttachments}
+	                      canView={canViewAttachments}
+	                      entityId={selectedRequirement.id}
+	                      entityType="requirement"
+	                      projectId={projectId}
+	                      title="Requirement evidence"
+	                    />
+	                  </div> : null}
+	                  {activeRequirementDetailTab === "comments" ? <div className="detail-section-panel requirement-detail-wide-panel entity-collaboration-grid" role="tabpanel">
+	                    <EntityCommentsPanel
+	                      canComment={canCreateComments}
+	                      canView={canViewComments}
+	                      entityId={selectedRequirement.id}
+	                      entityType="requirement"
+	                      projectId={projectId}
+	                      title="Requirement comments"
+	                    />
+	                  </div> : null}
 	                </div>
               </div>
             ) : (
@@ -3056,16 +3529,14 @@ export function RequirementsPage() {
             <div className="requirement-create-header">
               <div className="requirement-create-title">
                 <div className="modal-title-info-row">
-                  <p className="eyebrow" id="create-requirement-title">Create requirement</p>
+                  <h2 className="dialog-title" id="create-requirement-title">Create requirement</h2>
                   <InfoTooltip
                     content="Create the requirement in a focused modal, then link any reusable test cases that already exist for the selected app type."
                     label="Create requirement information"
                   />
                 </div>
               </div>
-              <button className="ghost-button" disabled={createRequirement.isPending} onClick={closeCreateRequirementModal} type="button">
-                Close
-              </button>
+              <DialogCloseButton disabled={createRequirement.isPending} label="Close create requirement" onClick={closeCreateRequirementModal} />
             </div>
 
             <form className="requirement-create-modal-form" onSubmit={(event) => void handleCreateRequirement(event)}>
@@ -3116,6 +3587,8 @@ export function RequirementsPage() {
 	                  </div>
                   <FormField label="Description" inputId="create-requirement-description-input">
                     <RichTextEditor
+                      aiRephraseContext={{ entityType: "requirement", entityTitle: createDraft.title, fieldLabel: "Description" }}
+                      aiRephraseTitle="Improve requirement description with AI"
                       id="create-requirement-description-input"
                       rows={4}
                       value={createDraft.description}
@@ -3171,30 +3644,50 @@ export function RequirementsPage() {
       ) : null}
 
       {isCreateIterationModalOpen ? (
-        <div className="modal-backdrop modal-backdrop--scroll" onClick={() => setIsCreateIterationModalOpen(false)} role="presentation">
+        <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !createRequirementIteration.isPending && !updateRequirementIteration.isPending && setIsCreateIterationModalOpen(false)} role="presentation">
           <form
-            aria-label="Create requirement iteration"
+            aria-label={editingIteration ? "Edit requirement iteration" : "Create requirement iteration"}
             aria-modal="true"
             className="modal-card requirement-create-modal requirement-iteration-modal"
             onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => void handleCreateIteration(event)}
+            onSubmit={(event) => void handleSaveIteration(event)}
             role="dialog"
           >
             <div className="requirement-create-header">
               <div className="requirement-create-title">
-                <p className="eyebrow">Create iteration</p>
-                <p>Group requirements into a delivery iteration and drag additional requirements into it from the catalog.</p>
+                <p className="eyebrow">{editingIteration ? "Edit iteration" : "Create iteration"}</p>
+                <p>Define the delivery window, goal, lifecycle state, and requirement scope.</p>
               </div>
-              <button className="ghost-button" onClick={() => setIsCreateIterationModalOpen(false)} type="button">Close</button>
+              <DialogCloseButton disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending} label={`Close ${editingIteration ? "edit" : "create"} iteration`} onClick={() => { setEditingIteration(null); setIsCreateIterationModalOpen(false); }} />
             </div>
             <div className="requirement-create-modal-body requirement-create-modal-body--stacked">
               <FormField label="Iteration name" required>
                 <input autoFocus required value={iterationDraftName} onChange={(event) => setIterationDraftName(event.target.value)} />
               </FormField>
               <FormField label="Description">
-                <RichTextEditor value={iterationDraftDescription} onChange={setIterationDraftDescription} />
+                <RichTextEditor
+                  aiRephraseContext={{ entityType: "requirement iteration", entityTitle: iterationDraftName, fieldLabel: "Description" }}
+                  aiRephraseTitle="Improve iteration description with AI"
+                  value={iterationDraftDescription}
+                  onChange={setIterationDraftDescription}
+                />
               </FormField>
-              <div className="iteration-requirement-picker">
+              <div className="issue-form-grid issue-form-grid--triple">
+                <FormField label="Status" required>
+                  <select value={iterationDraftState} onChange={(event) => setIterationDraftState(event.target.value as "future" | "active" | "closed")}>
+                    <option value="future">Planned</option>
+                    <option value="active">Active</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </FormField>
+                <FormField label="Start date" required>
+                  <input required type="date" value={iterationDraftStartDate} onChange={(event) => setIterationDraftStartDate(event.target.value)} />
+                </FormField>
+                <FormField label="End date" required>
+                  <input min={iterationDraftStartDate} required type="date" value={iterationDraftEndDate} onChange={(event) => setIterationDraftEndDate(event.target.value)} />
+                </FormField>
+              </div>
+              {!editingIteration ? <div className="iteration-requirement-picker">
                 <div className="iteration-requirement-picker-toolbar">
                   <FormField label="Requirements">
                     <div className="search-input-with-icon">
@@ -3269,12 +3762,12 @@ export function RequirementsPage() {
                   <strong>{deleteSelectedRequirementIds.length} selected requirement{deleteSelectedRequirementIds.length === 1 ? "" : "s"}</strong>
                   <span>Selected requirements are moved into this iteration after creation.</span>
                 </div>
-              </div>
+              </div> : null}
             </div>
             <div className="action-row requirement-create-modal-actions">
-              <button className="ghost-button" onClick={() => setIsCreateIterationModalOpen(false)} type="button">Cancel</button>
-              <button className="primary-button" disabled={!canCreateRequirementIterations || createRequirementIteration.isPending || !iterationDraftName.trim()} type="submit">
-                {createRequirementIteration.isPending ? "Creating..." : "Create iteration"}
+              <button className="ghost-button" disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending} onClick={() => { setEditingIteration(null); setIsCreateIterationModalOpen(false); }} type="button">Cancel</button>
+              <button className="primary-button" disabled={(editingIteration ? !canUpdateRequirementIterations : !canCreateRequirementIterations) || createRequirementIteration.isPending || updateRequirementIteration.isPending || !iterationDraftName.trim() || !iterationDraftStartDate || !iterationDraftEndDate} type="submit">
+                {createRequirementIteration.isPending || updateRequirementIteration.isPending ? "Saving..." : editingIteration ? "Update iteration" : "Create iteration"}
               </button>
             </div>
           </form>
@@ -3308,15 +3801,11 @@ export function RequirementsPage() {
                   />
                 </div>
               </div>
-              <button
-                aria-label="Close bulk requirement import dialog"
-                className="ghost-button"
+              <DialogCloseButton
                 disabled={bulkImportRequirements.isPending || bulkImportAlmRequirements.isPending}
+                label="Close bulk requirement import"
                 onClick={() => setIsImportModalOpen(false)}
-                type="button"
-              >
-                Close
-              </button>
+              />
             </div>
 
             <div className="import-modal-body">
@@ -3545,6 +4034,36 @@ export function RequirementsPage() {
         </div>
       ) : null}
 
+      {isAiRequirementCreationOpen ? (
+        <AiRequirementCreationModal
+          additionalContext={requirementCreationContext}
+          appTypeId={appTypeId}
+          candidates={requirementCreationDrafts}
+          externalLinksText={requirementCreationLinksText}
+          integrationId={integrationId}
+          integrations={integrations}
+          isCreating={isCreatingRequirementDrafts}
+          isPreviewing={previewRequirementCreation.isPending}
+          maxRequirements={requirementCreationMaxDrafts}
+          onAddImages={(files) => void handleAddRequirementCreationImages(files)}
+          onAdditionalContextChange={setRequirementCreationContext}
+          onClose={closeAiRequirementCreation}
+          onCreate={() => void handleCreateSelectedRequirementDrafts()}
+          onExternalLinksTextChange={setRequirementCreationLinksText}
+          onIntegrationIdChange={setIntegrationId}
+          onMaxRequirementsChange={setRequirementCreationMaxDrafts}
+          onPreview={() => void handlePreviewRequirementCreation()}
+          onPreviewMessageDismiss={() => setPreviewMessage("")}
+          onRemoveImage={(url) => setRequirementCreationImages((current) => current.filter((image) => image.url !== url))}
+          onSelectedCandidateIdsChange={setSelectedRequirementCreationDraftIds}
+          previewMessage={previewMessage}
+          previewTone={previewTone}
+          projectId={projectId}
+          referenceImages={requirementCreationImages}
+          selectedCandidateIds={selectedRequirementCreationDraftIds}
+        />
+      ) : null}
+
       {isOptimizeModalOpen && activeOptimizeRequirement ? (
         <div
           className="modal-backdrop"
@@ -3572,18 +4091,15 @@ export function RequirementsPage() {
                     : "Generate a testable requirement upgrade, then accept all changes, decline, or apply only selected fields."}
                 </p>
               </div>
-              <button
-                className="ghost-button"
+              <DialogCloseButton
                 disabled={previewRequirementOptimization.isPending}
+                label="Close AI requirement improvement"
                 onClick={() => {
                   setIsOptimizeModalOpen(false);
                   setOptimizeRequirementIds([]);
                   setOptimizeRequirementIndex(0);
                 }}
-                type="button"
-              >
-                Close
-              </button>
+              />
             </div>
 
             <div className="requirement-create-modal-body">
@@ -4259,6 +4775,14 @@ function RequirementRunHistoryTable({ rows }: { rows: RequirementRunHistoryRow[]
   );
 }
 
+function CommentTabIcon() {
+  return <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="16"><path d="M5 5h14v10H9l-4 4V5Z" /></svg>;
+}
+
+function AttachmentTabIcon() {
+  return <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="16"><path d="m20.5 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7L9 17.4a2 2 0 1 1-2.8-2.8l8.5-8.5" /></svg>;
+}
+
 function RequirementLinkIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
@@ -4308,6 +4832,7 @@ function RequirementAccordionSection({
         aria-expanded={isExpanded}
         className="requirement-accordion-toggle"
         onClick={onToggle}
+        title={isExpanded ? `Collapse ${title}` : `Expand ${title}`}
         type="button"
       >
         <div className="requirement-accordion-toggle-main">
@@ -4321,7 +4846,7 @@ function RequirementAccordionSection({
         </div>
         <div className="requirement-accordion-toggle-meta">
           <span className="requirement-accordion-toggle-count">{countLabel}</span>
-          <span className="requirement-accordion-toggle-state">{isExpanded ? "Collapse" : "Expand"}</span>
+          <span aria-hidden="true" className="requirement-accordion-toggle-state explorer-toggle-glyph"><CollapseExpandIcon isExpanded={isExpanded} /></span>
         </div>
       </button>
       {isExpanded ? <div className="requirement-accordion-body">{children}</div> : null}

@@ -129,6 +129,9 @@ const touchSession = (session) => {
     session.last_activity_at = new Date().toISOString();
 };
 const pushRecorderAction = (session, action) => {
+    if (session.paused) {
+        return null;
+    }
     const actionType = String(action.type || "").toLowerCase();
     const actionLocator = normalizeText(action.locator);
     const actionPageId = normalizeText(action.page_id);
@@ -200,6 +203,7 @@ const serializeSession = (session, options = {}) => ({
     id: session.id,
     purpose: session.purpose,
     status: session.status,
+    paused: session.paused,
     started_at: session.started_at,
     stopped_at: session.stopped_at,
     last_activity_at: session.last_activity_at,
@@ -548,7 +552,7 @@ const attachPageCapture = (session, page, logger) => {
         })();
     });
     page.on("requestfinished", (request) => {
-        if (!isUsefulNetworkRequest(request)) {
+        if (session.paused || !isUsefulNetworkRequest(request)) {
             return;
         }
         void (async () => {
@@ -559,6 +563,9 @@ const attachPageCapture = (session, page, logger) => {
                 const contentType = headers["content-type"] || headers["Content-Type"] || null;
                 const canReadBody = typeof contentType === "string" && /(json|text|xml|html|x-www-form-urlencoded)/i.test(contentType);
                 const responseText = canReadBody ? await response?.text().catch(() => null) : null;
+                if (session.paused) {
+                    return;
+                }
                 pushBounded(session.network, {
                     index: session.network.length + 1,
                     method: request.method(),
@@ -579,11 +586,14 @@ const attachPageCapture = (session, page, logger) => {
         })();
     });
     page.on("requestfailed", (request) => {
-        if (!isUsefulNetworkRequest(request)) {
+        if (session.paused || !isUsefulNetworkRequest(request)) {
             return;
         }
         void (async () => {
             const requestPage = resolveRequestPage(request);
+            if (session.paused) {
+                return;
+            }
             pushBounded(session.network, {
                 index: session.network.length + 1,
                 method: request.method(),
@@ -1436,7 +1446,7 @@ const stopSession = async (session) => {
 const stopOrphanedSessions = async (logger) => {
     const now = Date.now();
     for (const session of sessions.values()) {
-        if (session.status !== "running") {
+        if (session.status !== "running" || session.paused) {
             continue;
         }
         const lastActivity = Date.parse(session.last_activity_at || session.started_at);
@@ -1883,7 +1893,9 @@ export const registerRecorderRoutes = async (app) => {
                     y,
                     source: "remote-control"
                 });
-                void enrichRemoteClickAction(session, page, action.index, x, y, app.log);
+                if (action) {
+                    void enrichRemoteClickAction(session, page, action.index, x, y, app.log);
+                }
                 await page.mouse.click(x, y);
             }
             else if (type === "type") {
@@ -1977,6 +1989,7 @@ export const registerRecorderRoutes = async (app) => {
         if (reusableSession) {
             reusableSession.actions.length = 0;
             reusableSession.network.length = 0;
+            reusableSession.paused = false;
             reusableSession.error = null;
             reusableSession.start_url = startUrl || reusableSession.start_url;
             for (const key of inspectResults.keys()) {
@@ -2044,6 +2057,7 @@ export const registerRecorderRoutes = async (app) => {
                 id,
                 purpose,
                 status: "running",
+                paused: false,
                 started_at: new Date().toISOString(),
                 stopped_at: null,
                 start_url: startUrl,
@@ -2097,6 +2111,7 @@ export const registerRecorderRoutes = async (app) => {
                 id,
                 purpose,
                 status: session.status,
+                paused: session.paused,
                 started_at: session.started_at,
                 last_activity_at: session.last_activity_at,
                 start_url: startUrl,
@@ -2126,6 +2141,38 @@ export const registerRecorderRoutes = async (app) => {
             return { message: "Recorder session not found" };
         }
         await stopSession(session);
+        return serializeSession(session);
+    });
+    app.post("/api/v1/recorder/sessions/:id/pause", async (request, reply) => {
+        const params = request.params;
+        const session = sessions.get(params.id);
+        if (!session) {
+            reply.code(404);
+            return { message: "Recorder session not found" };
+        }
+        if (session.status !== "running") {
+            reply.code(409);
+            return { message: "Only a running recorder session can be paused" };
+        }
+        session.paused = true;
+        touchSession(session);
+        app.log.info({ sessionId: session.id }, "Recorder capture paused");
+        return serializeSession(session);
+    });
+    app.post("/api/v1/recorder/sessions/:id/resume", async (request, reply) => {
+        const params = request.params;
+        const session = sessions.get(params.id);
+        if (!session) {
+            reply.code(404);
+            return { message: "Recorder session not found" };
+        }
+        if (session.status !== "running") {
+            reply.code(409);
+            return { message: "Only a running recorder session can be resumed" };
+        }
+        session.paused = false;
+        touchSession(session);
+        app.log.info({ sessionId: session.id }, "Recorder capture resumed");
         return serializeSession(session);
     });
 };

@@ -5,6 +5,7 @@ const emailService = require("./email.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 
 const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || 12_000);
 const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
@@ -345,7 +346,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
   const timeout = setTimeout(() => controller.abort(), AI_ANALYSIS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -366,7 +367,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
         ]
       }),
       signal: controller.signal
-    });
+    }, { timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-report.generate" });
 
     if (!response.ok) {
       const raw = await response.text();

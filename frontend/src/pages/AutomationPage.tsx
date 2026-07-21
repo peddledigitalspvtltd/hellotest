@@ -1,7 +1,7 @@
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -34,6 +34,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useRecorderSessionPolling } from "../hooks/useRecorderSessionPolling";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
@@ -1037,6 +1038,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [aiSuggestedInspectFields, setAiSuggestedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [stagedInspectFields, setStagedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const stagedInspectFieldsRef = useRef<RepositoryExtractedField[]>([]);
+  const lastProcessedInspectCaptureRef = useRef("");
   const [repositoryUsageBlock, setRepositoryUsageBlock] = useState<{
     title: string;
     usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>;
@@ -1850,37 +1852,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     });
   }, [automatedSteps]);
 
-  useEffect(() => {
-    if (!recorderSession?.status_url || recorderSession.status !== "running") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const refreshRecorderSession = async () => {
-      try {
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store" });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const next = await response.json() as Partial<RecorderSessionResponse>;
-
-        if (!cancelled) {
-          setRecorderSession((current) => current?.id === recorderSession.id ? { ...current, ...next } : current);
-        }
-      } catch {
-        // Recorder counters are non-critical; the backend finish call is authoritative.
-      }
-    };
-    const timer = window.setInterval(() => void refreshRecorderSession(), 1000);
-
-    void refreshRecorderSession();
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-	  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
+  useRecorderSessionPolling(recorderSession, setRecorderSession);
 
   useEffect(() => {
     if (!canViewAutomationCode && automationStepView === "code") {
@@ -1888,30 +1860,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
   }, [automationStepView, canViewAutomationCode]);
 
-	  useEffect(() => {
-    if (!inspectRecorderSession?.status_url || inspectRecorderSession.status !== "running") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const refreshInspectSession = async () => {
-      try {
-        const next = await readRecorderJson<Partial<RecorderSessionResponse>>(inspectRecorderSession.status_url as string);
-        if (!cancelled && next) {
-          setInspectRecorderSession((current) => current?.id === inspectRecorderSession.id ? { ...current, ...next } : current);
-        }
-      } catch {
-        // A disconnected local inspector is reported by the next explicit user action.
-      }
-    };
-    const timer = window.setInterval(() => void refreshInspectSession(), 3000);
-
-    void refreshInspectSession();
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [inspectRecorderSession?.id, inspectRecorderSession?.status, inspectRecorderSession?.status_url]);
+  useRecorderSessionPolling(inspectRecorderSession, setInspectRecorderSession, { intervalMs: 3000 });
 
   const invalidateAutomationData = () => {
     void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
@@ -2623,6 +2572,23 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}. Remove unwanted fields or save the selected set.`);
   };
 
+  const selectAllSuggestedInspectFields = () => {
+    const next = [...stagedInspectFields, ...suggestedInspectFields]
+      .filter((field, index, fields) => fields.findIndex((item) => item.locator === field.locator) === index);
+    setStagedInspectFields(next);
+    stagedInspectFieldsRef.current = next;
+    setBrowserInspectFields((current) => current.filter((field) => !next.some((selected) => selected.locator === field.locator)));
+    setInspectMessage(`${next.length} field${next.length === 1 ? "" : "s"} moved to Selected fields. Remove any unwanted fields before saving.`);
+    void syncInspectHighlights(next, []);
+  };
+
+  const clearStagedInspectFields = () => {
+    setStagedInspectFields([]);
+    stagedInspectFieldsRef.current = [];
+    setInspectMessage("Selected fields cleared. Suggestions remain available in the left panel.");
+    void syncInspectHighlights([], browserInspectFields);
+  };
+
   const clearInspectHighlights = () => {
     const baseUrl = getRecorderEngineBaseUrl(inspectRecorderSession);
     const pageId = selectedInspectTabId || inspectTabs.find((tab) => tab.active)?.id || inspectTabs[0]?.id || "";
@@ -3161,7 +3127,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       throw error;
     }
     const tabs = response?.tabs || [];
-    setInspectTabs(tabs);
+    setInspectTabs((current) => {
+      const signature = (items: RecorderTab[]) => items.map((tab) => `${tab.id}|${tab.title}|${tab.url}|${Boolean(tab.active)}`).join("::");
+      return signature(current) === signature(tabs) ? current : tabs;
+    });
     setSelectedInspectTabId((current) =>
       tabs.some((tab) => tab.id === current)
         ? current
@@ -3419,6 +3388,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     let isCancelled = false;
+    let timer: number | undefined;
     const refreshTabs = async () => {
       try {
         await loadInspectTabs();
@@ -3426,14 +3396,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         if (!isCancelled) {
           setInspectMessage(error instanceof Error ? error.message : "Unable to load browser tabs.");
         }
+      } finally {
+        if (!isCancelled) timer = window.setTimeout(() => void refreshTabs(), 3000);
       }
     };
 
     void refreshTabs();
-    const interval = window.setInterval(() => void refreshTabs(), 3000);
     return () => {
       isCancelled = true;
-      window.clearInterval(interval);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [isInspectOpen, inspectRecorderSession?.id, inspectRecorderSession?.status]);
 
@@ -3448,24 +3419,39 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return undefined;
     }
 
-    const interval = window.setInterval(() => {
-      void (async () => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let requestInFlight = false;
+
+    const refreshInspectResult = async () => {
+      if (cancelled || requestInFlight) return;
+      requestInFlight = true;
+      try {
         const query = selectedInspectTabId ? `?page_id=${encodeURIComponent(selectedInspectTabId)}` : "";
         const result = await readRecorderJson<RecorderInspectResult>(
           `${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(inspectRecorderSession.id)}/inspect/result${query}`
         ).catch((error) => {
-          setInspectMessage(error instanceof Error ? error.message : "Unable to read inspect result.");
+          if (!cancelled) setInspectMessage(error instanceof Error ? error.message : "Unable to read inspect result.");
           return null;
-          });
-  
-          if (result) {
-            await persistLiveInspectResult(result);
-          }
-      })();
-    }, 1200);
+        });
 
-    return () => window.clearInterval(interval);
-  }, [isInspectingLiveField, inspectRecorderSession, selectedInspectTabId]);
+        const captureKey = result ? `${result.page_id || ""}:${result.captured_at || ""}` : "";
+        if (result && captureKey !== lastProcessedInspectCaptureRef.current && !cancelled) {
+          lastProcessedInspectCaptureRef.current = captureKey;
+          await persistLiveInspectResult(result);
+        }
+      } finally {
+        requestInFlight = false;
+        if (!cancelled) timer = window.setTimeout(() => void refreshInspectResult(), 1200);
+      }
+    };
+
+    void refreshInspectResult();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [isInspectingLiveField, inspectRecorderSession?.id, inspectRecorderSession?.engine_base_url, inspectRecorderSession?.status_url, inspectRecorderSession?.live_view_url, selectedInspectTabId]);
 
   return (
     <div className="page-content page-content--automation">
@@ -4735,13 +4721,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         <span>{inspectRecorderSession?.status === "running" ? "Use browser" : isLaunchingInspectBrowser ? "Connecting..." : "Launch browser"}</span>
                       </button>
                       <button
-                        className="ghost-button"
+                        aria-label="Refresh browser tabs"
+                        className="ghost-button explorer-icon-button"
                         disabled={!inspectRecorderSession?.id}
                         onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
+                        title="Refresh browser tabs"
                         type="button"
                       >
-                        <LayersIcon />
-                        <span>Refresh tabs</span>
+                        <RefreshIcon />
                       </button>
                         <button
                           className="primary-button"
@@ -4785,8 +4772,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   {inspectMessage ? <div className="object-repository-inspect-message">{inspectMessage}</div> : null}
                   <section className="object-repository-selected-fields" aria-label="Fields selected for saving">
                     <div className="object-repository-inspector-section-head">
-                      <strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong>
-                      <span>Blue highlights in the browser match this selection. Remove any unwanted fields before saving.</span>
+                      <div><strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong><span>Blue highlights in the browser match this selection. Remove any unwanted fields before saving.</span></div>
+                      <button className="ghost-button compact" disabled={!stagedInspectFields.length} onClick={clearStagedInspectFields} type="button">Clear selected</button>
                     </div>
                     <div className="object-repository-selected-grid">
                       {stagedInspectFields.map((field) => (
@@ -4854,8 +4841,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   </div>
                     <div className="object-repository-inspector-preview">
                       <div className="object-repository-inspector-section-head">
-                        <strong>{suggestedInspectFields.length ? `${suggestedInspectFields.length} field suggestions` : "Suggested fields"}</strong>
-                        <span>DOM and AI suggestions are not saved until selected and committed with the screen.</span>
+                        <div><strong>{suggestedInspectFields.length ? `${suggestedInspectFields.length} field suggestions` : "Suggested fields"}</strong><span>DOM and AI suggestions are not saved until selected and committed with the screen.</span></div>
+                        <button className="ghost-button compact" disabled={!suggestedInspectFields.length} onClick={selectAllSuggestedInspectFields} type="button">Move all to selected</button>
                       </div>
                       {browserInspectFields.length ? (
                         <section className="object-repository-browser-candidates" aria-label="Fields highlighted in the browser">

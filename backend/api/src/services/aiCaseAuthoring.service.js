@@ -1,6 +1,7 @@
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 
 const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   api: "api",
@@ -160,7 +161,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
   let response;
 
   try {
-    response = await fetch(resolveChatCompletionsUrl(integration.base_url), {
+    response = await fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
       method: "POST",
       headers,
       signal: controller.signal,
@@ -179,7 +180,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
           }
         ]
       })
-    });
+    }, { timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation: "case-authoring.generate" });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error("AI authoring timed out while waiting for the LLM provider");

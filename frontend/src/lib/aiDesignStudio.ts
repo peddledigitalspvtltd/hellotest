@@ -147,15 +147,6 @@ export const parseExternalLinks = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-const readFileAsDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
-
 const loadImage = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -165,8 +156,8 @@ const loadImage = (url: string) =>
     image.src = url;
   });
 
-const compressImageDataUrl = async (dataUrl: string, maxEdge = 720, quality = 0.35) => {
-  const image = await loadImage(dataUrl);
+const compressImageUrl = async (sourceUrl: string, maxEdge = 960, quality = 0.52) => {
+  const image = await loadImage(sourceUrl);
   const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height, 1));
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
   const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
@@ -174,25 +165,99 @@ const compressImageDataUrl = async (dataUrl: string, maxEdge = 720, quality = 0.
   const context = canvas.getContext("2d");
 
   if (!context) {
-    return dataUrl;
+    throw new Error("This browser cannot compress the selected image for AI.");
   }
 
   canvas.width = width;
   canvas.height = height;
   context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL("image/jpeg", quality);
+  const webp = canvas.toDataURL("image/webp", quality);
+  return webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", quality);
+};
+
+const loadVideo = (url: string) => new Promise<HTMLVideoElement>((resolve, reject) => {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  video.onloadeddata = () => resolve(video);
+  video.onerror = () => reject(new Error("Unable to read video metadata."));
+  video.src = url;
+});
+
+const seekVideo = (video: HTMLVideoElement, time: number) => new Promise<void>((resolve, reject) => {
+  const targetTime = Math.max(0, Math.min(time, Math.max(0, video.duration - 0.05)));
+  if (Math.abs(video.currentTime - targetTime) < 0.01 && video.readyState >= 2) {
+    resolve();
+    return;
+  }
+  const timeout = window.setTimeout(() => reject(new Error("Video frame extraction timed out.")), 6000);
+  video.onseeked = () => {
+    window.clearTimeout(timeout);
+    resolve();
+  };
+  video.onerror = () => {
+    window.clearTimeout(timeout);
+    reject(new Error("Unable to extract a video frame."));
+  };
+  video.currentTime = targetTime;
+});
+
+const compressVideoFrames = async (file: File) => {
+  if (file.size > 100 * 1024 * 1024) {
+    throw new Error(`${file.name} is larger than the 100 MB local processing limit.`);
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideo(objectUrl);
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const frameTimes = duration > 1 ? [0, duration * 0.5, duration * 0.9] : [0];
+    const scale = Math.min(1, 960 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) throw new Error("This browser cannot prepare video frames for AI.");
+
+    canvas.width = Math.max(1, Math.round((video.videoWidth || 1) * scale));
+    canvas.height = Math.max(1, Math.round((video.videoHeight || 1) * scale));
+    const frames: AiDesignImageInput[] = [];
+
+    for (const [index, time] of frameTimes.entries()) {
+      await seekVideo(video, time);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const webp = canvas.toDataURL("image/webp", 0.48);
+      const url = webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", 0.48);
+      frames.push({ name: `${file.name} · frame ${index + 1}/${frameTimes.length}`, url });
+    }
+
+    return frames;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 };
 
 export const readImageFiles = async (files: FileList | null) => {
-  const collection = Array.from(files || []);
-  const images = await Promise.all(
-    collection.map(async (file) => ({
-      name: file.name,
-      url: await compressImageDataUrl(await readFileAsDataUrl(file))
-    }))
-  );
+  const collection = Array.from(files || []).slice(0, 6);
+  const prepared: AiDesignImageInput[] = [];
 
-  return images.filter((image) => image.url) as AiDesignImageInput[];
+  for (const file of collection) {
+    if (file.type.startsWith("video/")) {
+      prepared.push(...await compressVideoFrames(file));
+      continue;
+    }
+
+    if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not a supported image or video.`);
+    if (file.size > 24 * 1024 * 1024) throw new Error(`${file.name} is larger than the 24 MB local image processing limit.`);
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      prepared.push({ name: file.name, url: await compressImageUrl(objectUrl) });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  return prepared.filter((image) => image.url).slice(0, 12);
 };
 
 export const appendUniqueImages = (current: AiDesignImageInput[], incoming: AiDesignImageInput[]) => {

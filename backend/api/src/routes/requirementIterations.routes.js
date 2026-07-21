@@ -34,6 +34,10 @@ module.exports = async function (fastify) {
       project_id: { required: true, type: "string" },
       name: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      goal: { required: false, type: "string" },
+      state: { required: false, type: "string", enum: ["future", "active", "closed"] },
+      start_date: { required: false, type: "string" },
+      end_date: { required: false, type: "string" },
       requirement_ids: { required: false, type: "array", items: "string" }
     }, req.body || {});
 
@@ -56,6 +60,10 @@ module.exports = async function (fastify) {
     fastify.validate({
       name: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      goal: { required: false, type: "string" },
+      state: { required: false, type: "string", enum: ["future", "active", "closed"] },
+      start_date: { required: false, type: "string" },
+      end_date: { required: false, type: "string" },
       requirement_ids: { required: false, type: "array", items: "string" }
     }, req.body || {});
 

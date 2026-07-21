@@ -3,6 +3,7 @@ const executionResultService = require("./executionResult.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 
 const MAX_PROMPT_JSON_LENGTH = 18000;
 const MAX_AI_RESPONSE_LENGTH = 12000;
@@ -204,7 +205,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
   const timeout = setTimeout(() => controller.abort(), AI_ANALYSIS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -225,7 +226,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
         ]
       }),
       signal: controller.signal
-    });
+    }, { timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-analysis.generate" });
 
     if (!response.ok) {
       const raw = await response.text();

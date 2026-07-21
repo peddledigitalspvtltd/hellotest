@@ -48,6 +48,16 @@ const config = {
   storageProvider: enumValue(process.env.STORAGE_PROVIDER, STORAGE_PROVIDERS, "local"),
   evidenceLocalPath: process.env.EVIDENCE_LOCAL_PATH || "/tmp/qaira-evidence",
   s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || "qaira-artifacts",
+  objectStorage: {
+    endpoint: process.env.MINIO_ENDPOINT || process.env.S3_ENDPOINT || serviceHost("minio", "localhost"),
+    port: normalizeNumber(process.env.MINIO_PORT || process.env.S3_PORT, 9000),
+    useSsl: normalizeBoolean(process.env.MINIO_USE_SSL || process.env.S3_USE_SSL, false),
+    accessKey: process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || process.env.S3_ACCESS_KEY || "qaira",
+    secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || process.env.S3_SECRET_KEY || "qaira-minio-dev-secret",
+    region: process.env.MINIO_REGION || process.env.S3_REGION || "us-east-1",
+    bucket: process.env.MINIO_BUCKET || process.env.S3_BUCKET || "qaira-attachments",
+    maxAttachmentBytes: normalizeNumber(process.env.MAX_ATTACHMENT_BYTES, 100 * 1024 * 1024)
+  },
   queueProvider: enumValue(process.env.QUEUE_PROVIDER, QUEUE_PROVIDERS, "redis"),
   enableObservability: normalizeBoolean(process.env.ENABLE_OBSERVABILITY, process.env.NODE_ENV === "production"),
   enableRealtime: normalizeBoolean(process.env.ENABLE_REALTIME, true),

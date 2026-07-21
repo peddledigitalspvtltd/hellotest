@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { AddIcon, OpenIcon } from "../components/AppIcons";
+import { AddIcon, CollapseExpandIcon, OpenIcon, RefreshIcon } from "../components/AppIcons";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -104,28 +104,6 @@ function TestDataUtilityIcon() {
       <path d="M20.3 16h1.2" />
       <path d="m13.1 18.3.9-.8" />
       <path d="m20 14.5.9-.8" />
-    </svg>
-  );
-}
-
-function TableExpandIcon({ isExpanded }: { isExpanded: boolean }) {
-  return (
-    <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" width="16">
-      {isExpanded ? (
-        <>
-          <path d="M8 3v5H3" />
-          <path d="M16 3v5h5" />
-          <path d="M8 21v-5H3" />
-          <path d="M16 21v-5h5" />
-        </>
-      ) : (
-        <>
-          <path d="M8 3H3v5" />
-          <path d="M16 3h5v5" />
-          <path d="M8 21H3v-5" />
-          <path d="M16 21h5v-5" />
-        </>
-      )}
     </svg>
   );
 }
@@ -1847,8 +1825,8 @@ function DataSetForm({
             <div className="test-data-generator-preview">
               <div className="test-data-generator-preview-header">
                 <strong>Sample before run</strong>
-                <button className="ghost-button" onClick={() => setPreviewRevision((current) => current + 1)} type="button">
-                  Refresh sample
+                <button aria-label="Refresh generated sample" className="ghost-button explorer-icon-button" onClick={() => setPreviewRevision((current) => current + 1)} title="Refresh generated sample" type="button">
+                  <RefreshIcon />
                 </button>
               </div>
               <div className="test-data-generator-preview-rows">
@@ -2344,7 +2322,7 @@ function DataTableEditor({
             title={isExpanded ? "Collapse table editor" : "Expand table editor"}
             type="button"
           >
-            <TableExpandIcon isExpanded={isExpanded} />
+            <CollapseExpandIcon isExpanded={isExpanded} />
             <span>{isExpanded ? "Collapse" : "Expand"}</span>
           </button>
           <button className="ghost-button resource-table-add-button" onClick={handleAddColumn} type="button">

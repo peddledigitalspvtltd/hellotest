@@ -1,6 +1,7 @@
 const db = require("../db");
 const { v4: uuid } = require("uuid");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
+const { normalizeReferenceList } = require("../utils/externalReferences");
 
 const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
@@ -14,12 +15,16 @@ const ISSUE_DETAIL_FIELDS = [
   "build",
   "jira_bug_key",
   "linked_test_run_id",
+  "sprint",
+  "fix_version",
+  "release",
   "assignee_id",
   "root_cause"
 ];
 
 const ISSUE_SELECT_COLUMNS = `
   feedback.id,
+  feedback.project_id,
   feedback.user_id,
   feedback.title,
   feedback.message,
@@ -32,10 +37,19 @@ const ISSUE_SELECT_COLUMNS = `
   feedback.build,
   feedback.jira_bug_key,
   feedback.linked_test_run_id,
+  feedback.linked_test_case_ids,
+  feedback.linked_test_suite_ids,
+  feedback.linked_module_ids,
+  feedback.linked_requirement_ids,
+  feedback.labels,
+  feedback.sprint,
+  feedback.fix_version,
+  feedback.release,
   feedback.assignee_id,
   feedback.root_cause,
   feedback.status,
-  feedback.created_at
+  feedback.created_at,
+  feedback.updated_at
 `;
 
 const normalizeText = (value) => {
@@ -93,7 +107,31 @@ function buildDetailValues(input = {}, fallback = {}) {
   );
 }
 
-exports.createIssue = async ({ user_id, title, message, status, ...details }) => {
+const normalizeList = (value) => normalizeReferenceList(Array.isArray(value) ? value : []);
+
+const syncIssueLinks = async (issueId, { linked_test_case_ids = [], linked_requirement_ids = [] } = {}) => {
+  const testCaseIds = normalizeList(linked_test_case_ids);
+  const requirementIds = normalizeList(linked_requirement_ids);
+  const transaction = db.transaction(async () => {
+    await db.prepare("DELETE FROM test_case_defects WHERE issue_id = ? AND link_source = 'manual'").run(issueId);
+    await db.prepare("DELETE FROM requirement_defects WHERE issue_id = ? AND link_source = 'manual'").run(issueId);
+    for (const testCaseId of testCaseIds) {
+      const exists = await db.prepare("SELECT id FROM test_cases WHERE id = ?").get(testCaseId);
+      if (exists) {
+        await db.prepare(`INSERT INTO test_case_defects (test_case_id, issue_id, link_source) VALUES (?, ?, 'manual') ON CONFLICT (test_case_id, issue_id) DO UPDATE SET link_source = 'manual'`).run(testCaseId, issueId);
+      }
+    }
+    for (const requirementId of requirementIds) {
+      const exists = await db.prepare("SELECT id FROM requirements WHERE id = ?").get(requirementId);
+      if (exists) {
+        await db.prepare(`INSERT INTO requirement_defects (requirement_id, issue_id, link_source) VALUES (?, ?, 'manual') ON CONFLICT (requirement_id, issue_id) DO UPDATE SET link_source = 'manual'`).run(requirementId, issueId);
+      }
+    }
+  });
+  await transaction();
+};
+
+exports.createIssue = async ({ project_id, user_id, title, message, status, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
   if (!user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
@@ -103,9 +141,15 @@ exports.createIssue = async ({ user_id, title, message, status, ...details }) =>
 
   const id = uuid();
 
+  if (project_id) {
+    const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
+    if (!project) throw new Error("Project not found");
+  }
+
   await db.prepare(`
     INSERT INTO feedback (
       id,
+      project_id,
       user_id,
       title,
       message,
@@ -118,24 +162,41 @@ exports.createIssue = async ({ user_id, title, message, status, ...details }) =>
       build,
       jira_bug_key,
 	      linked_test_run_id,
+	      linked_test_case_ids,
+	      linked_test_suite_ids,
+	      linked_module_ids,
+	      linked_requirement_ids,
+	      labels,
+	      sprint,
+	      fix_version,
+	      release,
 	      assignee_id,
 	      root_cause,
 	      status
 	    )
-	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
+    project_id || null,
     user_id,
     title,
     message,
-    ...buildDetailValues(details),
+    ...buildDetailValues(details).slice(0, 9),
+    normalizeList(linked_test_case_ids),
+    normalizeList(linked_test_suite_ids),
+    normalizeList(linked_module_ids),
+    normalizeList(linked_requirement_ids),
+    normalizeList(labels),
+    ...buildDetailValues(details).slice(9),
     normalizeStatus(status)
   );
+
+  await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids });
 
   return { id };
 };
 
-exports.getIssues = async ({ user_id, status } = {}) => {
+exports.getIssues = async ({ project_id, user_id, status, viewer_id, viewer_is_admin = false } = {}) => {
   let query = `
 	    SELECT
 	      ${ISSUE_SELECT_COLUMNS},
@@ -149,6 +210,14 @@ exports.getIssues = async ({ user_id, status } = {}) => {
     WHERE 1 = 1
   `;
   const params = [];
+
+  if (project_id) {
+    query += ` AND feedback.project_id = ?`;
+    params.push(project_id);
+  } else if (!viewer_is_admin) {
+    query += ` AND feedback.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)`;
+    params.push(viewer_id);
+  }
 
   if (user_id) {
     query += ` AND feedback.user_id = ?`;
@@ -199,7 +268,8 @@ exports.updateIssue = async (id, data) => {
 
   await db.prepare(`
     UPDATE feedback
-    SET user_id = ?,
+    SET project_id = ?,
+        user_id = ?,
         title = ?,
         message = ?,
         steps_to_reproduce = ?,
@@ -211,18 +281,41 @@ exports.updateIssue = async (id, data) => {
         build = ?,
 	        jira_bug_key = ?,
 	        linked_test_run_id = ?,
+	        linked_test_case_ids = ?,
+	        linked_test_suite_ids = ?,
+	        linked_module_ids = ?,
+	        linked_requirement_ids = ?,
+	        labels = ?,
+	        sprint = ?,
+	        fix_version = ?,
+	        release = ?,
 	        assignee_id = ?,
 	        root_cause = ?,
-	        status = ?
+	        status = ?,
+	        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
+    data.project_id ?? existing.project_id,
     data.user_id ?? existing.user_id,
     data.title ?? existing.title,
     data.message ?? existing.message,
-    ...buildDetailValues(data, existing),
+    ...buildDetailValues(data, existing).slice(0, 9),
+    Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") ? normalizeList(data.linked_test_case_ids) : normalizeList(existing.linked_test_case_ids),
+    Object.prototype.hasOwnProperty.call(data, "linked_test_suite_ids") ? normalizeList(data.linked_test_suite_ids) : normalizeList(existing.linked_test_suite_ids),
+    Object.prototype.hasOwnProperty.call(data, "linked_module_ids") ? normalizeList(data.linked_module_ids) : normalizeList(existing.linked_module_ids),
+    Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids") ? normalizeList(data.linked_requirement_ids) : normalizeList(existing.linked_requirement_ids),
+    Object.prototype.hasOwnProperty.call(data, "labels") ? normalizeList(data.labels) : normalizeList(existing.labels),
+    ...buildDetailValues(data, existing).slice(9),
     data.status !== undefined ? normalizeStatus(data.status) : existing.status,
     id
   );
+
+  if (Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") || Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids")) {
+    await syncIssueLinks(id, {
+      linked_test_case_ids: data.linked_test_case_ids ?? existing.linked_test_case_ids,
+      linked_requirement_ids: data.linked_requirement_ids ?? existing.linked_requirement_ids
+    });
+  }
 
   return { updated: true };
 };

@@ -9,6 +9,7 @@ const testEnvironmentService = require("./testEnvironment.service");
 const testConfigurationService = require("./testConfiguration.service");
 const testDataSetService = require("./testDataSet.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const {
   normalizeApiRequest,
   normalizeRichText,
@@ -450,23 +451,7 @@ const extractJsonPayload = (content) => {
 };
 
 const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`Request timed out after ${timeoutMs}ms`);
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  return fetchLlmWithRetry(url, init, { timeoutMs, operation: "automation.generate" });
 };
 
 const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey } = {}) => {
@@ -508,6 +493,7 @@ const requestChatCompletion = async ({ integration, prompt, content }) => {
     body: JSON.stringify({
       model: integration.model,
       temperature: 0.1,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -4734,6 +4720,7 @@ exports.finishRecorderSession = async ({
   recorder_target,
   engine_base_url,
   target_step_id,
+  included_action_indices,
   created_by
 } = {}) => {
   const testCaseId = normalizeText(test_case_id);
@@ -4768,7 +4755,10 @@ exports.finishRecorderSession = async ({
   const sessionBaseUrl = target === "mobile" ? mobileBaseUrl : baseUrl;
   const sessionPath = target === "mobile" ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
   const session = await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
-  const capturedActions = normalizeCapturedActions(session.actions || []);
+  const allCapturedActions = normalizeCapturedActions(session.actions || []);
+  const capturedActions = Array.isArray(included_action_indices)
+    ? included_action_indices.map((index) => allCapturedActions.find((action) => action.index === Number(index))).filter(Boolean)
+    : allCapturedActions;
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);
 
   await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {

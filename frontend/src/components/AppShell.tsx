@@ -6,9 +6,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AppTypeInlineValue } from "./AppTypeDropdown";
+import { RefreshIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
+import { LoadingState } from "./LoadingState";
 import { UserProfileDialog } from "./UserProfileDialog";
-import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
@@ -28,6 +30,7 @@ import {
 } from "../lib/workspacePreferences";
 import {
   AUTOMATION_SECTION_ITEMS,
+  DASHBOARD_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
   TESTOPS_SECTION_ITEMS,
@@ -35,6 +38,7 @@ import {
   WORKSPACE_PAGE_LABELS,
   WORKSPACE_SECTION_LABEL_KEYS
 } from "../lib/workspaceSections";
+import type { AppType, Project } from "../types";
 
 const MOBILE_SIDEBAR_BREAKPOINT = "(max-width: 768px)";
 
@@ -42,7 +46,7 @@ const navigation = [
   {
     label: "Workspace",
     items: [
-      { id: "overview", to: "/", label: "Home", shortLabel: "Home", icon: DashboardIcon },
+      { id: "overview", to: "/", label: "Dashboard", shortLabel: "Dash", icon: DashboardIcon, matchPaths: ["/"] },
       { id: "projects", to: "/projects", label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects" }
     ]
   },
@@ -138,8 +142,82 @@ type SidebarScopeSelectorProps = {
   isLoadingProjects: boolean;
   onProjectChange: (value: string | number) => void;
   projectId: string;
-  projects: Array<{ id: string | number; display_id?: string | null; name: string; description: string | null }>;
+  projects: Project[];
 };
+
+function SidebarScopeProjectBranch({
+  appTypeId,
+  isExpanded,
+  isSelected,
+  onSelectAppType,
+  onSelectProject,
+  onToggle,
+  project
+}: {
+  appTypeId: string;
+  isExpanded: boolean;
+  isSelected: boolean;
+  onSelectAppType: (projectId: string, appTypeId: string) => void;
+  onSelectProject: (projectId: string) => void;
+  onToggle: (projectId: string) => void;
+  project: Project;
+}) {
+  const projectRef = String(project.id);
+  const appTypesQuery = useQuery({
+    queryKey: queryKeys.appTypes(projectRef),
+    queryFn: () => api.appTypes.list({ project_id: projectRef }),
+    enabled: isExpanded,
+    retry: 1,
+    staleTime: 60 * 1000
+  });
+  const appTypes = appTypesQuery.data || [];
+
+  return (
+    <div
+      aria-expanded={isExpanded}
+      aria-selected={isSelected}
+      className={isSelected ? "sidebar-scope-project-branch is-selected" : "sidebar-scope-project-branch"}
+      role="treeitem"
+    >
+      <div className="sidebar-scope-project-row">
+        <button
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.name} application spaces`}
+          className="sidebar-scope-branch-toggle"
+          onClick={() => onToggle(projectRef)}
+          type="button"
+        >
+          <span className={isExpanded ? "sidebar-scope-branch-chevron is-expanded" : "sidebar-scope-branch-chevron"} aria-hidden="true">
+            <ChevronIcon />
+          </span>
+        </button>
+        <button className="sidebar-scope-project-option" onClick={() => onSelectProject(projectRef)} type="button">
+          <strong>{project.name}</strong>
+          <span>{project.display_id || project.description || "Project workspace"}</span>
+        </button>
+      </div>
+      {isExpanded ? (
+        <div className="sidebar-scope-app-type-list" role="group" aria-label={`${project.name} application spaces`}>
+          {appTypesQuery.isPending ? <LoadingState label="Loading application spaces" /> : null}
+          {!appTypesQuery.isPending && appTypes.map((appType: AppType) => {
+            const isAppTypeSelected = isSelected && appType.id === appTypeId;
+            return (
+              <button
+                aria-pressed={isAppTypeSelected}
+                className={isAppTypeSelected ? "sidebar-scope-app-type-option is-selected" : "sidebar-scope-app-type-option"}
+                key={appType.id}
+                onClick={() => onSelectAppType(projectRef, appType.id)}
+                type="button"
+              >
+                <AppTypeInlineValue isUnified={appType.is_unified} label={appType.name} type={appType.type} />
+              </button>
+            );
+          })}
+          {!appTypesQuery.isPending && !appTypes.length ? <div className="sidebar-scope-empty">No application spaces in this project.</div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 type SidebarScopePopoverPosition = {
   left: number;
@@ -158,6 +236,8 @@ function SidebarScopeSelector({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState("");
+  const [areProjectsExpanded, setAreProjectsExpanded] = useState(true);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => projectId ? [String(projectId)] : []);
   const [popoverPosition, setPopoverPosition] = useState<SidebarScopePopoverPosition | null>(null);
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const appTypesQuery = useQuery({
@@ -219,6 +299,11 @@ function SidebarScopeSelector({
   }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
+    if (!projectId) return;
+    setExpandedProjectIds((current) => current.includes(String(projectId)) ? current : [...current, String(projectId)]);
+  }, [projectId]);
+
+  useEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -268,6 +353,24 @@ function SidebarScopeSelector({
     setIsOpen((current) => !current);
   };
 
+  const toggleProjectBranch = (targetProjectId: string) => {
+    setExpandedProjectIds((current) => current.includes(targetProjectId)
+      ? current.filter((value) => value !== targetProjectId)
+      : [...current, targetProjectId]);
+  };
+
+  const selectProject = (targetProjectId: string) => {
+    onProjectChange(targetProjectId);
+    setExpandedProjectIds((current) => current.includes(targetProjectId) ? current : [...current, targetProjectId]);
+    setProjectSearch("");
+  };
+
+  const selectAppType = (targetProjectId: string, targetAppTypeId: string) => {
+    setCurrentScope(targetProjectId, targetAppTypeId);
+    setIsOpen(false);
+    setProjectSearch("");
+  };
+
   const selectorPopover =
     isOpen && popoverPosition
       ? createPortal(
@@ -296,64 +399,37 @@ function SidebarScopeSelector({
                 value={projectSearch}
               />
             </label>
-            <div className="sidebar-scope-project-list" role="listbox" aria-label="Projects">
-              {filteredProjects.map((project) => {
-                const isSelected = String(project.id) === String(projectId);
-
-                return (
-                  <button
-                    aria-selected={isSelected}
-                    className={isSelected ? "sidebar-scope-project-option is-selected" : "sidebar-scope-project-option"}
-                    key={project.id}
-                    onClick={() => {
-                      onProjectChange(project.id);
-                      setProjectSearch("");
-                    }}
-                    role="option"
-                    type="button"
-                  >
-                    <strong>{project.name}</strong>
-                    <span>{project.display_id || project.description || "Project workspace"}</span>
-                  </button>
-                );
-              })}
-              {!filteredProjects.length ? (
-                <div className="sidebar-scope-empty">No matching projects.</div>
+            <section className="sidebar-scope-tree-section">
+              <button
+                aria-expanded={areProjectsExpanded}
+                className="sidebar-scope-tree-heading"
+                onClick={() => setAreProjectsExpanded((current) => !current)}
+                type="button"
+              >
+                <span className={areProjectsExpanded ? "sidebar-scope-branch-chevron is-expanded" : "sidebar-scope-branch-chevron"} aria-hidden="true">
+                  <ChevronIcon />
+                </span>
+                <span>Projects and application spaces</span>
+                <em>{filteredProjects.length}</em>
+              </button>
+              {areProjectsExpanded ? (
+                <div className="sidebar-scope-project-list" role="tree" aria-label="Projects and application spaces">
+                  {filteredProjects.map((project) => (
+                    <SidebarScopeProjectBranch
+                      appTypeId={appTypeId}
+                      isExpanded={expandedProjectIds.includes(String(project.id))}
+                      isSelected={String(project.id) === String(projectId)}
+                      key={project.id}
+                      onSelectAppType={selectAppType}
+                      onSelectProject={selectProject}
+                      onToggle={toggleProjectBranch}
+                      project={project}
+                    />
+                  ))}
+                  {!filteredProjects.length ? <div className="sidebar-scope-empty">No matching projects.</div> : null}
+                </div>
               ) : null}
-            </div>
-            <div className="sidebar-scope-app-types" aria-label="App types">
-              <span>App Type</span>
-              {appTypes.length ? (
-                <div className="sidebar-scope-app-type-list">
-                  {appTypes.map((appType) => {
-                    const isSelected = appType.id === appTypeId;
-
-                    return (
-                      <button
-                        aria-pressed={isSelected}
-                        className={isSelected ? "sidebar-scope-app-type-option is-selected" : "sidebar-scope-app-type-option"}
-                        key={appType.id}
-                        onClick={() => {
-                          setAppTypeId(appType.id);
-                          setIsOpen(false);
-                        }}
-                        type="button"
-                      >
-                        <AppTypeInlineValue
-                          isUnified={appType.is_unified}
-                          label={appType.name}
-                          type={appType.type}
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="sidebar-scope-empty">
-                  {projectId ? "No app types available for this project." : "Choose a project first."}
-                </div>
-              )}
-            </div>
+            </section>
           </div>,
           document.body
         )
@@ -613,6 +689,15 @@ export function AppShell() {
     return labelKey ? t(labelKey, subItem.label) : subItem.label;
   };
 
+  const resolveSidebarSubItems = (item: { id: string }) => {
+    if (item.id === "overview") return DASHBOARD_SECTION_ITEMS;
+    if (item.id === "authoring") return TEST_AUTHORING_SECTION_ITEMS;
+    if (item.id === "automation") return AUTOMATION_SECTION_ITEMS;
+    if (item.id === "testops") return TESTOPS_SECTION_ITEMS;
+    if (item.id === "environment") return TEST_ENVIRONMENT_SECTION_ITEMS;
+    return [];
+  };
+
   return (
     <div className="app-shell app-layout app-layout--workspace-wide">
       {error && (
@@ -710,13 +795,14 @@ export function AppShell() {
                       ? navCounts[item.countKey as keyof typeof navCounts]
                       : undefined;
                   const isActive = isNavigationItemActive(item, location.pathname);
+                  const subItems = resolveSidebarSubItems(item);
 
                   return (
                     <div className="nav-item-stack" key={item.to}>
                       <NavLink
                         aria-current={isActive ? "page" : undefined}
                         to={item.to}
-                        replace={isActive && location.pathname !== item.to}
+                        replace={isActive && `${location.pathname}${location.search}` !== item.to}
                         className={isActive ? "nav-link is-active" : "nav-link"}
                         end={item.to === "/"}
                         title={shouldCollapseSidebar ? resolveNavLabel(item) : undefined}
@@ -724,6 +810,10 @@ export function AppShell() {
                         onClick={(e) => {
                           if (isDisabled) {
                             e.preventDefault();
+                            return;
+                          }
+                          if (shouldCollapseSidebar && subItems.length) {
+                            setIsCollapsed(false);
                           }
                         }}
                         style={{ opacity: isDisabled ? 0.5 : 1, cursor: isDisabled ? "not-allowed" : "pointer" }}
@@ -739,6 +829,29 @@ export function AppShell() {
                           <span className={item.id === "notifications" ? "nav-link-badge is-alert" : "nav-link-badge"}>{badgeCount > 99 ? "99+" : badgeCount}</span>
                         ) : null}
                       </NavLink>
+                      {!shouldCollapseSidebar && subItems.length && isActive ? (
+                        <div className="nav-submenu" aria-label={`${resolveNavLabel(item)} sections`}>
+                          {subItems.map((subItem) => {
+                            const subPath = subItem.to.split("?")[0];
+                            const requestedView = new URLSearchParams(location.search).get("view");
+                            const isDefaultDashboardView = item.id === "overview"
+                              && subItem.to === "/?view=analytics"
+                              && location.pathname === "/"
+                              && (!requestedView || requestedView === "analytics");
+                            const isSubActive = isDefaultDashboardView || (subItem.to.includes("?")
+                              ? `${location.pathname}${location.search}` === subItem.to
+                              : location.pathname === subPath);
+                            const SubIcon = getWorkspaceSubItemIcon(subItem.icon);
+
+                            return (
+                              <NavLink className={isSubActive ? "nav-submenu-link is-active" : "nav-submenu-link"} key={subItem.to} to={subItem.to}>
+                                <span className="nav-submenu-icon" aria-hidden="true"><SubIcon /></span>
+                                {resolveSubItemLabel(subItem)}
+                              </NavLink>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -748,6 +861,16 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-footer">
+          <button
+            aria-label="Refresh current screen"
+            className="sidebar-refresh-button ghost-button explorer-icon-button"
+            onClick={() => window.location.reload()}
+            title="Refresh current screen"
+            type="button"
+          >
+            <RefreshIcon />
+          </button>
+
           {!shouldCollapseSidebar ? (
             <div className="theme-toggle">
               <div>
@@ -936,6 +1059,10 @@ function SharedStepsIcon() {
 
 function getWorkspaceSubItemIcon(icon?: string) {
   switch (icon) {
+    case "analytics":
+      return ActivityIcon;
+    case "dashboard":
+      return DashboardIcon;
     case "requirements":
       return DocumentIcon;
     case "cases":

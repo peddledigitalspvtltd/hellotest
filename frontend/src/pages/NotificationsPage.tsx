@@ -14,8 +14,12 @@ import {
 } from "../lib/notificationCenter";
 import { readNotificationPreferences } from "../lib/notificationPreferences";
 import { api } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
+import { hasPermission } from "../lib/permissions";
 
 export function NotificationsPage() {
+  const { session } = useAuth();
+  const canManageNotifications = hasPermission(session, "notification.manage");
   const [, setRevision] = useState(0);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -51,18 +55,20 @@ export function NotificationsPage() {
   }, []);
 
   const handleClearAll = () => {
+    if (!canManageNotifications) return;
     clearAllNotifications(visibleIds);
     void markAllServerNotificationsRead.mutateAsync();
     setRevision((current) => current + 1);
   };
 
   const handleOpenNotification = (id: string) => {
+    if (!canManageNotifications) return;
     markNotificationRead(id);
     setRevision((current) => current + 1);
   };
 
   const handleOpenServerNotification = (id: string, targetUrl?: string | null) => {
-    void markServerNotificationRead.mutateAsync(id);
+    if (canManageNotifications) void markServerNotificationRead.mutateAsync(id);
     if (targetUrl) {
       navigate(targetUrl);
     }
@@ -84,7 +90,7 @@ export function NotificationsPage() {
 
       <Panel
         actions={(
-          <button className="ghost-button" disabled={!visibleFeed.length && !serverNotifications.length} onClick={handleClearAll} type="button">
+          <button className="ghost-button" disabled={!canManageNotifications || (!visibleFeed.length && !serverNotifications.length)} onClick={handleClearAll} type="button">
             <ImportIcon />
             <span>Clear All</span>
           </button>
@@ -100,6 +106,7 @@ export function NotificationsPage() {
               return (
                 <button
                   className={isUnread ? "stack-item notification-list-item is-unread" : "stack-item notification-list-item"}
+                  disabled={!canManageNotifications && !item.target_url}
                   key={item.id}
                   onClick={() => handleOpenServerNotification(item.id, item.target_url)}
                   type="button"
@@ -118,6 +125,7 @@ export function NotificationsPage() {
               return (
                 <button
                   className={isUnread ? "stack-item notification-list-item is-unread" : "stack-item notification-list-item"}
+                  disabled={!canManageNotifications}
                   key={item.id}
                   onClick={() => handleOpenNotification(item.id)}
                   type="button"

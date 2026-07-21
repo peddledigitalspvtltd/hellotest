@@ -6,6 +6,7 @@ const testSuiteService = require("./testSuite.service");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const notificationService = require("./notification.service");
+const testCaseVersionService = require("./testCaseVersion.service");
 const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const {
@@ -1451,6 +1452,15 @@ exports.updateTestCase = async (id, data) => {
   }
 
   const executeUpdate = db.transaction(async () => {
+    await testCaseVersionService.assertExpectedRevision(id, data.expected_revision);
+    await testCaseVersionService.capture({
+      testCase: existing,
+      createdBy: payload.updated_by,
+      nextSnapshot: {
+        ...payload,
+        steps: payload.steps === null ? await testCaseVersionService.buildSnapshot(existing).then((snapshot) => snapshot.steps) : payload.steps
+      }
+    });
     await updateTestCaseRecord.run(
       payload.app_type_id,
       payload.suite_ids[0] || null,
