@@ -1,0 +1,256 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f6f8fb;
+}
+
+.assurance-preview-shell {
+  width: min(1180px, calc(100vw - 40px));
+  min-height: calc(100vh - 40px);
+  margin: 20px auto;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+}
+
+.assurance-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 26px 18px;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.assurance-preview-identity {
+  display: grid;
+  gap: 5px;
+}
+
+.assurance-preview-identity > span {
+  color: #44546f;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.assurance-preview-identity h1,
+.assurance-preview-identity p {
+  margin: 0;
+}
+
+.assurance-preview-identity h1 {
+  color: #101828;
+  font: 700 25px/1.25 "Hanken Grotesk", sans-serif;
+}
+
+.assurance-preview-identity p {
+  color: #52647f;
+  font-size: 12px;
+}
+
+.assurance-preview-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px;
+  background: #eef2f7;
+  border: 1px solid #d9e0ea;
+  border-radius: 7px;
+}
+
+.assurance-preview-mode a {
+  padding: 7px 10px;
+  color: #52647f;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.assurance-preview-mode a.is-active {
+  color: #fff;
+  background: #172b4d;
+}
+
+.assurance-preview-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 24px;
+  overflow-x: auto;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.assurance-preview-tabs span {
+  padding: 12px 13px 10px;
+  color: #626f86;
+  border-bottom: 2px solid transparent;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.assurance-preview-tabs span.is-active {
+  color: #172b4d;
+  border-bottom-color: #172b4d;
+}
+
+.assurance-preview-body {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.assurance-preview-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(9, 30, 66, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.assurance-preview-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(430px, 100%);
+  padding: 22px;
+  border: 1px solid #b7c7e6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(9, 30, 66, 0.26);
+}
+
+.assurance-preview-dialog > span {
+  color: #0c66e4;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.assurance-preview-dialog h2,
+.assurance-preview-dialog p {
+  margin: 0;
+}
+
+.assurance-preview-dialog h2 {
+  color: #172b4d;
+  font: 700 21px/1.25 "Hanken Grotesk", sans-serif;
+}
+
+.assurance-preview-dialog p,
+.assurance-preview-dialog div {
+  color: #52647f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.assurance-preview-dialog div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 7px;
+  background: #f1f5fb;
+}
+
+.assurance-preview-dialog button {
+  justify-self: end;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid #172b4d;
+  border-radius: 7px;
+  background: #172b4d;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.assurance-preview-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.assurance-preview-section-head div {
+  display: grid;
+  gap: 3px;
+}
+
+.assurance-preview-section-head strong {
+  color: #172b4d;
+  font: 700 16px/1.25 "Hanken Grotesk", sans-serif;
+}
+
+.assurance-preview-section-head span {
+  color: #626f86;
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .assurance-preview-shell {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    border-width: 0;
+    border-radius: 0;
+  }
+
+  .assurance-preview-head,
+  .assurance-preview-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .assurance-preview-mode {
+    align-self: flex-start;
+  }
+}
+
+:root[data-theme="dark"] body {
+  background: #07152d;
+}
+
+:root[data-theme="dark"] .assurance-preview-shell {
+  border-color: #314466;
+  background: #0b1b36;
+}
+
+:root[data-theme="dark"] .assurance-preview-head,
+:root[data-theme="dark"] .assurance-preview-tabs {
+  border-color: #314466;
+}
+
+:root[data-theme="dark"] .assurance-preview-identity h1,
+:root[data-theme="dark"] .assurance-preview-tabs span.is-active {
+  color: #f4f7fc;
+}
+
+:root[data-theme="dark"] .assurance-preview-identity > span,
+:root[data-theme="dark"] .assurance-preview-identity p,
+:root[data-theme="dark"] .assurance-preview-tabs span,
+:root[data-theme="dark"] .assurance-preview-mode a {
+  color: #9fb3d1;
+}
+
+:root[data-theme="dark"] .assurance-preview-mode {
+  border-color: #314466;
+  background: #10284e;
+}

@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { INTEGRATION_TYPE_OPTIONS, INTEGRATION_TYPE_VALUES } = require("../domain/catalog");
 
 const normalizeText = (value) => {
@@ -253,7 +253,7 @@ const testTestEngineConnection = async ({ base_url }) => {
   }
 
   if (!healthPayload || typeof healthPayload !== "object" || healthPayload.ok !== true) {
-    throw new Error("The target host responded, but it does not look like a healthy QAira Test Engine service");
+    throw new Error("The target host responded, but it does not look like a healthy HelloTest Test Engine service");
   }
 
   let capabilitiesResponse;
@@ -296,7 +296,7 @@ const testTestEngineConnection = async ({ base_url }) => {
     health_url: healthUrl,
     capabilities_url: capabilitiesUrl,
     latency_ms: Math.max(Date.now() - startedAt, 1),
-    service: normalizeText(healthPayload.service) || "QAira Test Engine",
+    service: normalizeText(healthPayload.service) || "HelloTest Test Engine",
     runner: normalizeText(capabilitiesPayload.runner) || normalizeText(healthPayload.runner) || "unknown",
     ui: normalizeText(healthPayload.ui) || normalizeText(capabilitiesPayload.control_plane) || "unknown",
     control_plane: normalizeText(capabilitiesPayload.control_plane) || "unknown",

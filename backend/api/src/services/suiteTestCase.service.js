@@ -1,4 +1,5 @@
 const db = require("../db");
+const { assertExpectedRevision } = require("../utils/revision");
 
 const getSuite = db.prepare(`
   SELECT id, app_type_id
@@ -60,57 +61,56 @@ exports.listMappings = async ({ suite_id, test_case_id }) => {
   return db.prepare(query).all(...params);
 };
 
-exports.replaceMappingsForSuite = async (suiteId, testCaseIds = []) => {
-  const suite = await getSuite.get(suiteId);
-
-  if (!suite) {
-    throw new Error("Test suite not found");
-  }
-
-  const uniqueIds = [...new Set(testCaseIds)];
-
-  for (const testCaseId of uniqueIds) {
-    const testCase = await getTestCase.get(testCaseId);
-
-    if (!testCase) {
-      throw new Error(`Test case not found: ${testCaseId}`);
-    }
-
-    const appTypes = (await getTestCaseAppTypes.all(testCaseId)).map((row) => row.app_type_id);
-
-    if (appTypes.length && appTypes.some((appTypeId) => appTypeId !== suite.app_type_id)) {
-      throw new Error("Test case suites must belong to the same app type");
-    }
-  }
-
-  const removeSuiteMappings = db.prepare(`
-    DELETE FROM suite_test_cases
-    WHERE suite_id = ?
-  `);
-
-  const addSuiteMapping = db.prepare(`
-    INSERT INTO suite_test_cases (suite_id, test_case_id, sort_order)
-    VALUES (?, ?, ?)
-  `);
-
-  const updateLegacySuite = db.prepare(`
-    UPDATE test_cases
-    SET suite_id = ?
-    WHERE id = ?
-  `);
-
+exports.replaceMappingsForSuite = async (suiteId, testCaseIds = [], { append = false, expectedRevision } = {}) => {
   const transaction = db.transaction(async () => {
+    const suite = await db.prepare(`SELECT id, app_type_id, revision FROM test_suites WHERE id = ? FOR UPDATE`).get(suiteId);
+    if (!suite) throw new Error("Test suite not found");
+    const currentRevision = assertExpectedRevision(suite.revision, expectedRevision, "Test suite");
+    const existingIds = append ? (await getMappingsForSuite.all(suiteId)).map((row) => row.test_case_id) : [];
+    const uniqueIds = [...new Set([...existingIds, ...testCaseIds])];
+
+    for (const testCaseId of uniqueIds) {
+      const testCase = await getTestCase.get(testCaseId);
+
+      if (!testCase) {
+        throw new Error(`Test case not found: ${testCaseId}`);
+      }
+
+      const appTypes = (await getTestCaseAppTypes.all(testCaseId)).map((row) => row.app_type_id);
+
+      if (appTypes.length && appTypes.some((appTypeId) => appTypeId !== suite.app_type_id)) {
+        throw new Error("Test case suites must belong to the same app type");
+      }
+    }
+
+    const removeSuiteMappings = db.prepare(`
+      DELETE FROM suite_test_cases
+      WHERE suite_id = ?
+    `);
+
+    const addSuiteMapping = db.prepare(`
+      INSERT INTO suite_test_cases (suite_id, test_case_id, sort_order)
+      VALUES (?, ?, ?)
+    `);
+
+    const updateLegacySuite = db.prepare(`
+      UPDATE test_cases
+      SET suite_id = ?
+      WHERE id = ?
+    `);
+
     await removeSuiteMappings.run(suiteId);
 
     for (const [index, testCaseId] of uniqueIds.entries()) {
       await addSuiteMapping.run(suiteId, testCaseId, index + 1);
       await updateLegacySuite.run(suiteId, testCaseId);
     }
+
+    await db.prepare(`UPDATE test_suites SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(currentRevision + 1, suiteId);
+    return { updated: true, assigned: uniqueIds.length, revision: currentRevision + 1 };
   });
 
-  await transaction();
-
-  return { updated: true, assigned: uniqueIds.length };
+  return transaction();
 };
 
 exports.syncMappingsForTestCase = async (testCaseId, suiteIds = []) => {
@@ -160,34 +160,38 @@ exports.syncMappingsForTestCase = async (testCaseId, suiteIds = []) => {
   await transaction();
 };
 
-exports.reorderMappingsForSuite = async (suiteId, testCaseIds = []) => {
-  const existingIds = (await getMappingsForSuite.all(suiteId)).map((row) => row.test_case_id);
-  const uniqueIds = [...new Set(testCaseIds)];
-
-  if (existingIds.length !== uniqueIds.length) {
-    throw new Error("test_case_ids must include every test case in the suite");
-  }
-
-  const sortedExisting = [...existingIds].sort();
-  const sortedIncoming = [...uniqueIds].sort();
-
-  if (sortedExisting.some((value, index) => value !== sortedIncoming[index])) {
-    throw new Error("test_case_ids must match the test cases currently assigned to the suite");
-  }
-
-  const updateOrder = db.prepare(`
-    UPDATE suite_test_cases
-    SET sort_order = ?
-    WHERE suite_id = ? AND test_case_id = ?
-  `);
-
+exports.reorderMappingsForSuite = async (suiteId, testCaseIds = [], { expectedRevision } = {}) => {
   const transaction = db.transaction(async () => {
+    const suite = await db.prepare(`SELECT id, revision FROM test_suites WHERE id = ? FOR UPDATE`).get(suiteId);
+    if (!suite) throw new Error("Test suite not found");
+    const currentRevision = assertExpectedRevision(suite.revision, expectedRevision, "Test suite");
+    const existingIds = (await getMappingsForSuite.all(suiteId)).map((row) => row.test_case_id);
+    const uniqueIds = [...new Set(testCaseIds)];
+
+    if (existingIds.length !== uniqueIds.length) {
+      throw new Error("test_case_ids must include every test case in the suite");
+    }
+
+    const sortedExisting = [...existingIds].sort();
+    const sortedIncoming = [...uniqueIds].sort();
+
+    if (sortedExisting.some((value, index) => value !== sortedIncoming[index])) {
+      throw new Error("test_case_ids must match the test cases currently assigned to the suite");
+    }
+
+    const updateOrder = db.prepare(`
+      UPDATE suite_test_cases
+      SET sort_order = ?
+      WHERE suite_id = ? AND test_case_id = ?
+    `);
+
     for (const [index, testCaseId] of uniqueIds.entries()) {
       await updateOrder.run(index + 1, suiteId, testCaseId);
     }
+
+    await db.prepare(`UPDATE test_suites SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(currentRevision + 1, suiteId);
+    return { reordered: true, revision: currentRevision + 1 };
   });
 
-  await transaction();
-
-  return { reordered: true };
+  return transaction();
 };

@@ -1,8 +1,9 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const suiteTestCaseService = require("./suiteTestCase.service");
 const displayIdService = require("./displayId.service");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { assertExpectedRevision } = require("../utils/revision");
 
 const normalizeParameterName = (value) => {
   const normalized = String(value || "").trim().replace(/^@+/, "").toLowerCase();
@@ -137,51 +138,58 @@ exports.getTestSuite = async (id) => {
 };
 
 exports.updateTestSuite = async (id, data) => {
-  const existing = await exports.getTestSuite(id);
+  const transaction = db.transaction(async () => {
+    const existing = await db.prepare(`SELECT * FROM test_suites WHERE id = ? FOR UPDATE`).get(id);
+    if (!existing) throw new Error("Test suite not found");
+    const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Test suite");
 
-  let parentId = data.parent_id;
+    let parentId = data.parent_id;
 
-  if (parentId === undefined) {
-    parentId = existing.parent_id;
-  }
-
-  if (parentId === id) {
-    throw new Error("A test suite cannot be its own parent");
-  }
-
-  if (parentId) {
-    const parentSuite = await db.prepare(`
-      SELECT id, app_type_id FROM test_suites WHERE id = ?
-    `).get(parentId);
-
-    if (!parentSuite) throw new Error("Parent test suite not found");
-    if (parentSuite.app_type_id !== existing.app_type_id) {
-      throw new Error("Parent suite must belong to the same app type");
+    if (parentId === undefined) {
+      parentId = existing.parent_id;
     }
-  }
 
-  await db.prepare(`
-    UPDATE test_suites
-    SET name = ?, parent_id = ?, labels = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(
-    data.name ?? existing.name,
-    parentId || null,
-    data.labels !== undefined ? normalizeReferenceList(data.labels) : normalizeStoredReferenceList(existing.labels),
-    data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
-    data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
-    data.parallel_enabled !== undefined || data.parallel_count !== undefined
-      ? normalizeParallelCount(data.parallel_count, existing.parallel_count || 1)
-      : existing.parallel_count,
-    data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
-    id
-  );
+    if (parentId === id) {
+      throw new Error("A test suite cannot be its own parent");
+    }
 
-  return { updated: true };
+    if (parentId) {
+      const parentSuite = await db.prepare(`
+        SELECT id, app_type_id FROM test_suites WHERE id = ?
+      `).get(parentId);
+
+      if (!parentSuite) throw new Error("Parent test suite not found");
+      if (parentSuite.app_type_id !== existing.app_type_id) {
+        throw new Error("Parent suite must belong to the same app type");
+      }
+    }
+
+    await db.prepare(`
+      UPDATE test_suites
+      SET name = ?, parent_id = ?, labels = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
+      WHERE id = ?
+    `).run(
+      data.name ?? existing.name,
+      parentId || null,
+      data.labels !== undefined ? normalizeReferenceList(data.labels) : normalizeStoredReferenceList(existing.labels),
+      data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
+      data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
+      data.parallel_enabled !== undefined || data.parallel_count !== undefined
+        ? normalizeParallelCount(data.parallel_count, existing.parallel_count || 1)
+        : existing.parallel_count,
+      data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
+      currentRevision + 1,
+      id
+    );
+
+    return { updated: true, revision: currentRevision + 1 };
+  });
+
+  return transaction();
 };
 
-exports.assignTestCases = async (id, testCaseIds = []) => {
-  return suiteTestCaseService.replaceMappingsForSuite(id, testCaseIds);
+exports.assignTestCases = async (id, testCaseIds = [], { append = false, expectedRevision } = {}) => {
+  return suiteTestCaseService.replaceMappingsForSuite(id, testCaseIds, { append, expectedRevision });
 };
 
 exports.deleteTestSuite = async (id) => {

@@ -1,0 +1,297 @@
+/*
+ * Report Bug is used by both the Bugs catalog and every execution workspace.
+ * Keep its geometry independent from the generic Create/Run split-button rules:
+ * those controls intentionally have different sizes and toolbar overrides.
+ */
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split {
+  --report-bug-split-height: 40px;
+  --report-bug-split-radius: 7px;
+  --report-bug-split-toggle-width: 40px;
+  --report-bug-split-font-size: 12px;
+  --report-bug-split-divider: rgba(255, 255, 255, 0.38);
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: inline-flex !important;
+  width: fit-content;
+  max-width: 100%;
+  height: var(--report-bug-split-height);
+  min-height: var(--report-bug-split-height) !important;
+  flex: 0 0 auto;
+  align-items: stretch !important;
+  gap: 0 !important;
+  margin: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(12, 102, 228, 0.46) !important;
+  border-radius: var(--report-bug-split-radius) !important;
+  background: linear-gradient(180deg, #1d7afc 0%, #0c66e4 100%) !important;
+  box-shadow: 0 4px 10px rgba(12, 102, 228, 0.2) !important;
+  vertical-align: middle;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split:hover:not(.is-disabled),
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split:focus-within,
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split.is-open {
+  border-color: #0055cc !important;
+  background: linear-gradient(180deg, #0c66e4 0%, #0055cc 100%) !important;
+  box-shadow: 0 5px 13px rgba(12, 102, 228, 0.26) !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split.is-disabled {
+  border-color: rgba(80, 103, 138, 0.28) !important;
+  background: linear-gradient(180deg, #91a8c8 0%, #7892b5 100%) !important;
+  box-shadow: none !important;
+  opacity: 0.64;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button.report-bug-split-main.issue-report-split-main,
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button.report-bug-split-toggle.issue-report-split-toggle {
+  box-sizing: border-box;
+  display: inline-flex !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  border: 0 !important;
+  appearance: none;
+  background: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  font-family: inherit !important;
+  font-size: var(--report-bug-split-font-size) !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  text-transform: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: none !important;
+  transition: background-color 130ms ease;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button.report-bug-split-main.issue-report-split-main {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  gap: 8px !important;
+  padding: 0 13px !important;
+  border-radius: calc(var(--report-bug-split-radius) - 1px) 0 0 calc(var(--report-bug-split-radius) - 1px) !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button.report-bug-split-toggle.issue-report-split-toggle {
+  width: var(--report-bug-split-toggle-width) !important;
+  min-width: var(--report-bug-split-toggle-width) !important;
+  flex: 0 0 var(--report-bug-split-toggle-width) !important;
+  padding: 0 !important;
+  border-left: 1px solid var(--report-bug-split-divider) !important;
+  border-radius: 0 calc(var(--report-bug-split-radius) - 1px) calc(var(--report-bug-split-radius) - 1px) 0 !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle):hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.11) !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle):active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle):disabled {
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle):focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #ffffff;
+  outline-offset: -3px;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle)::before {
+  content: none !important;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > button:is(.report-bug-split-main, .report-bug-split-toggle)
+  > svg {
+  display: block;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  color: currentColor;
+  stroke-width: 2;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split
+  > .report-bug-split-toggle
+  > svg {
+  transition: transform 140ms ease;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split.is-open
+  > .report-bug-split-toggle
+  > svg {
+  transform: rotate(180deg);
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split.is-single
+  > button.report-bug-split-main.issue-report-split-main {
+  border-radius: calc(var(--report-bug-split-radius) - 1px) !important;
+}
+
+/* Match the native size of each host surface without changing the joined geometry. */
+.catalog-command-toolbar .catalog-toolbar-actions
+  > [data-component="report-bug-split-action"].report-bug-split-action-button {
+  --report-bug-split-height: 36px;
+  --report-bug-split-radius: 6px;
+  --report-bug-split-toggle-width: 36px;
+  --report-bug-split-font-size: 11px;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.execution-scope-report-bug {
+  --report-bug-split-height: 36px;
+  --report-bug-split-radius: 6px;
+  --report-bug-split-toggle-width: 36px;
+  --report-bug-split-font-size: 11px;
+  box-shadow: none !important;
+}
+
+.execution-command-actions
+  [data-component="report-bug-split-action"].report-bug-split-action-button.execution-command-report-bug {
+  --report-bug-split-height: 41px;
+  --report-bug-split-radius: 4px;
+  --report-bug-split-toggle-width: 40px;
+  --report-bug-split-font-size: 12px;
+}
+
+.execution-command-scope-actions
+  [data-component="report-bug-split-action"].report-bug-split-action-button,
+.execution-command-inspector-actions
+  [data-component="report-bug-split-action"].report-bug-split-action-button {
+  --report-bug-split-height: 38px;
+  --report-bug-split-radius: 4px;
+  --report-bug-split-toggle-width: 38px;
+  --report-bug-split-font-size: 11px;
+}
+
+[data-component="report-bug-split-action"].report-bug-split-action-button.execution-case-run-report-bug {
+  --report-bug-split-height: 42px;
+  --report-bug-split-radius: 7px;
+  --report-bug-split-toggle-width: 42px;
+  --report-bug-split-font-size: 12px;
+}
+
+.report-bug-split-menu {
+  position: fixed !important;
+  z-index: 1180 !important;
+  top: auto;
+  right: auto !important;
+  bottom: auto !important;
+  box-sizing: border-box;
+  display: block;
+  width: max-content;
+  min-width: 0;
+  margin: 0;
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border, #d8dee9);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 14px 34px rgba(9, 30, 66, 0.2);
+}
+
+.report-bug-split-menu > button.issue-report-split-ai-option {
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0 13px;
+  border: 1px solid rgba(12, 102, 228, 0.46);
+  border-radius: 7px;
+  appearance: none;
+  background: linear-gradient(180deg, #1d7afc 0%, #0c66e4 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(12, 102, 228, 0.2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.report-bug-split-menu > button.issue-report-split-ai-option:is(:hover, :focus-visible) {
+  border-color: #0055cc;
+  outline: 0;
+  background: linear-gradient(180deg, #0c66e4 0%, #0055cc 100%);
+  color: #ffffff;
+  box-shadow:
+    0 5px 13px rgba(12, 102, 228, 0.26),
+    0 0 0 3px rgba(12, 102, 228, 0.16);
+}
+
+.report-bug-split-menu > button.issue-report-split-ai-option:active {
+  background: linear-gradient(180deg, #0055cc 0%, #0747a6 100%);
+}
+
+.report-bug-split-menu > button.issue-report-split-ai-option > svg {
+  display: block;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: currentColor;
+  stroke-width: 2;
+}
+
+:root[data-theme="dark"] .report-bug-split-menu,
+:root[data-color-mode="dark"] .report-bug-split-menu {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: #111d30;
+  color: #e9f1ff;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+}
+
+@media (max-width: 420px) {
+  [data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .report-bug-split-menu > button.issue-report-split-ai-option {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="report-bug-split-action"].report-bug-split-action-button
+    > .report-bug-split-toggle
+    > svg {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  [data-component="report-bug-split-action"].report-bug-split-action-button.issue-report-split,
+  .report-bug-split-menu,
+  .report-bug-split-menu > button.issue-report-split-ai-option {
+    border: 1px solid ButtonText !important;
+    forced-color-adjust: auto;
+  }
+}

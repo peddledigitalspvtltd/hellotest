@@ -1,18 +1,7 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { TEST_DATA_SET_MODE_VALUES } = require("../domain/catalog");
-
-const selectProject = db.prepare(`
-  SELECT id
-  FROM projects
-  WHERE id = ?
-`);
-
-const selectAppType = db.prepare(`
-  SELECT id, project_id
-  FROM app_types
-  WHERE id = ?
-`);
+const { validateProjectAppTypeScope } = require("./projectScope.service");
 
 const INVALID_DATA_SET_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
@@ -96,34 +85,12 @@ const hydrateDataSet = (row) => ({
   rows: parseJsonArray(row.rows)
 });
 
-const validateScope = async (projectId, appTypeId) => {
-  const project = await selectProject.get(projectId);
-
-  if (!project) {
-    throw new Error("Project not found");
-  }
-
-  if (!appTypeId) {
-    return;
-  }
-
-  const appType = await selectAppType.get(appTypeId);
-
-  if (!appType) {
-    throw new Error("App type not found");
-  }
-
-  if (appType.project_id !== projectId) {
-    throw new Error("App type must belong to the selected project");
-  }
-};
-
 exports.createTestDataSet = async ({ project_id, app_type_id, name, description, mode, columns, rows }) => {
   if (!project_id || !name) {
     throw new Error("Missing required fields");
   }
 
-  await validateScope(project_id, app_type_id);
+  await validateProjectAppTypeScope(project_id, app_type_id);
 
   const normalizedMode = normalizeMode(mode);
   const normalizedColumns = normalizeColumns(normalizedMode, columns, rows);
@@ -204,7 +171,7 @@ exports.updateTestDataSet = async (id, data) => {
   const projectId = data.project_id ?? existing.project_id;
   const appTypeId = data.app_type_id === undefined ? existing.app_type_id : data.app_type_id || null;
 
-  await validateScope(projectId, appTypeId);
+  await validateProjectAppTypeScope(projectId, appTypeId);
 
   const nextMode = normalizeMode(data.mode ?? existing.mode);
   const nextColumns = normalizeColumns(
@@ -244,11 +211,15 @@ exports.updateTestDataSet = async (id, data) => {
 };
 
 exports.deleteTestDataSet = async (id) => {
-  await exports.getTestDataSet(id);
-  await db.prepare(`
+  const deleted = await db.prepare(`
     DELETE FROM test_data_sets
     WHERE id = ?
-  `).run(id);
+    RETURNING id
+  `).get(id);
+
+  if (!deleted) {
+    throw new Error("Test data set not found");
+  }
 
   return { deleted: true };
 };

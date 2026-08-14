@@ -61,6 +61,8 @@ async function errorHandlerPlugin(fastify) {
       message: err.message || "Internal Server Error",
       requestId,
       traceId: req.traceId || req.headers["x-trace-id"] || null,
+      ...(statusCode < 500 && err.code ? { code: err.code } : {}),
+      ...(statusCode < 500 && Number.isSafeInteger(err.current_revision) ? { current_revision: err.current_revision } : {}),
       ...(isDevelopment && { stack: err.stack })
     });
   });

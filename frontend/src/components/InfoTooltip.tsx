@@ -1,8 +1,22 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode
+} from "react";
 import { createPortal } from "react-dom";
 
-const VIEWPORT_PADDING = 12;
-const TRIGGER_GAP = 8;
+type TooltipPosition = {
+  left: number;
+  top: number;
+  width: number;
+};
 
 export function InfoTooltip({
   content,
@@ -17,163 +31,145 @@ export function InfoTooltip({
   className?: string;
   trigger?: "button" | "span";
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
+  const generatedId = useId();
+  const tooltipId = `info-tooltip-${generatedId.replace(/:/g, "")}`;
   const triggerRef = useRef<HTMLButtonElement | HTMLSpanElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const popoverId = useId();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [position, setPosition] = useState<TooltipPosition>({ left: 12, top: 12, width: 300 });
+
+  const updatePosition = useCallback(() => {
+    const target = triggerRef.current;
+    if (!target || typeof window === "undefined") return;
+    const rect = target.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.min(320, Math.max(220, window.innerWidth - viewportPadding * 2));
+    const measuredHeight = popoverRef.current?.getBoundingClientRect().height || 120;
+    const preferredTop = rect.bottom + gap;
+    const top = preferredTop + measuredHeight <= window.innerHeight - viewportPadding
+      ? preferredTop
+      : Math.max(viewportPadding, rect.top - measuredHeight - gap);
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left + rect.width / 2 - width / 2),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+    );
+    setPosition({ left, top, width });
+  }, []);
 
   useLayoutEffect(() => {
-    if (!isOpen) {
-      setPopoverStyle({});
-      return;
-    }
-
-    const updatePosition = () => {
-      const triggerNode = triggerRef.current;
-      const popoverNode = popoverRef.current;
-
-      if (!triggerNode || !popoverNode) {
-        return;
-      }
-
-      const triggerRect = triggerNode.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const popoverWidth = Math.min(Math.max(popoverNode.offsetWidth || 280, 240), viewportWidth - VIEWPORT_PADDING * 2);
-      const popoverHeight = popoverNode.offsetHeight || 120;
-      const openAbove = triggerRect.bottom + TRIGGER_GAP + popoverHeight > viewportHeight - VIEWPORT_PADDING
-        && triggerRect.top > popoverHeight + TRIGGER_GAP + VIEWPORT_PADDING;
-      const left = Math.min(
-        Math.max(VIEWPORT_PADDING, triggerRect.left + triggerRect.width / 2 - popoverWidth / 2),
-        Math.max(VIEWPORT_PADDING, viewportWidth - popoverWidth - VIEWPORT_PADDING)
-      );
-      const top = openAbove
-        ? Math.max(VIEWPORT_PADDING, triggerRect.top - TRIGGER_GAP - popoverHeight)
-        : Math.min(triggerRect.bottom + TRIGGER_GAP, viewportHeight - VIEWPORT_PADDING - Math.min(popoverHeight, viewportHeight - VIEWPORT_PADDING * 2));
-
-      setPopoverStyle({
-        left,
-        maxHeight: Math.max(120, viewportHeight - VIEWPORT_PADDING * 2),
-        overflowY: "auto",
-        top,
-        width: popoverWidth
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isOpen]);
+    if (isOpen) updatePosition();
+  }, [isOpen, content, title, updatePosition]);
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
+    if (!isOpen) return;
+    const handleViewportChange = () => updatePosition();
+    const handlePointerDown = (event: PointerEvent) => {
+      const node = event.target as Node | null;
+      if (node && (triggerRef.current?.contains(node) || popoverRef.current?.contains(node))) return;
+      setIsOpen(false);
+      setIsPinned(false);
     };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setIsOpen(false);
+      setIsPinned(false);
+      triggerRef.current?.focus();
+    };
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, updatePosition]);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  if (content === undefined && title === undefined) return null;
 
-  if (!content) {
-    return null;
-  }
-
-  const commonTriggerProps = {
-    "aria-controls": popoverId,
-    "aria-expanded": isOpen,
+  const togglePinned = () => {
+    setIsPinned((current) => {
+      const next = !current;
+      setIsOpen(next);
+      return next;
+    });
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    togglePinned();
+  };
+  const sharedProps = {
+    "aria-describedby": isOpen ? tooltipId : undefined,
     "aria-label": label,
     className: ["info-tooltip-trigger", className].filter(Boolean).join(" "),
-    onBlur: () => trigger === "button" && setIsOpen(false),
-    onFocus: () => trigger === "button" && setIsOpen(true),
+    onBlur: () => {
+      if (!isPinned) setIsOpen(false);
+    },
+    onClick: (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePinned();
+    },
+    onFocus: () => setIsOpen(true),
     onMouseEnter: () => setIsOpen(true),
-    onMouseLeave: () => setIsOpen(false),
-    title: label
+    onMouseLeave: () => {
+      if (!isPinned) setIsOpen(false);
+    }
   };
-  const triggerNode = trigger === "span" ? (
-    <span
-      {...commonTriggerProps}
-      aria-hidden="true"
-      ref={(node) => {
-        triggerRef.current = node;
-      }}
-    >
-      <InfoGlyph />
-    </span>
-  ) : (
-    <button
-      {...commonTriggerProps}
-      onClick={(event) => {
-        event.stopPropagation();
-        setIsOpen((current) => !current);
-      }}
-      ref={(node) => {
-        triggerRef.current = node;
-      }}
-      type="button"
-    >
-      <InfoGlyph />
-    </button>
+  const icon = (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="7.75" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 8.5v5M10 6.25h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
   );
-  const popover = isOpen ? (
-    <div
-      className="info-tooltip-popover"
-      id={popoverId}
-      ref={popoverRef}
-      role="dialog"
-      style={popoverStyle}
-    >
-      {title ? <strong className="info-tooltip-title">{title}</strong> : null}
-      <div className="info-tooltip-content">{content}</div>
-    </div>
-  ) : null;
 
   return (
     <>
-      {triggerNode}
-      {popover && typeof document !== "undefined" && document.body ? createPortal(popover, document.body) : popover}
+      {trigger === "span" ? (
+        <span
+          {...sharedProps}
+          onKeyDown={handleKeyDown}
+          ref={(node) => { triggerRef.current = node; }}
+          role="button"
+          tabIndex={0}
+        >
+          {icon}
+        </span>
+      ) : (
+        <button
+          {...sharedProps}
+          ref={(node) => { triggerRef.current = node; }}
+          type="button"
+        >
+          {icon}
+        </button>
+      )}
+      {isOpen && typeof document !== "undefined" ? createPortal(
+        <div
+          className="info-tooltip-popover"
+          id={tooltipId}
+          ref={popoverRef}
+          role="tooltip"
+          style={{
+            left: position.left,
+            maxHeight: "min(22rem, calc(100dvh - 1.5rem))",
+            maxWidth: "calc(100vw - 1.5rem)",
+            overflowY: "auto",
+            top: position.top,
+            width: position.width
+          } as CSSProperties}
+        >
+          {title ? <strong className="info-tooltip-title">{title}</strong> : null}
+          {content !== undefined ? <div className="info-tooltip-content">{content}</div> : null}
+        </div>,
+        document.body
+      ) : null}
     </>
-  );
-}
-
-export function InfoCopy({
-  children,
-  label = "More information",
-  title,
-  className = ""
-}: {
-  children?: ReactNode;
-  label?: string;
-  title?: ReactNode;
-  className?: string;
-}) {
-  if (!children) {
-    return null;
-  }
-
-  return (
-    <span className={["info-copy", className].filter(Boolean).join(" ")}>
-      <InfoTooltip content={children} label={label} title={title} />
-    </span>
-  );
-}
-
-function InfoGlyph() {
-  return (
-    <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 16 16" width="14">
-      <path d="M8 7.1v4.4" />
-      <path d="M8 4.7h.01" />
-    </svg>
   );
 }

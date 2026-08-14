@@ -20,17 +20,39 @@ export function readWorkspaceTheme(): WorkspaceTheme {
     return "light";
   }
 
-  const stored = window.localStorage.getItem(preferenceStorageKeys.theme);
-  if (stored === "dark" || stored === "light") {
-    return stored;
+  const appliedTheme = document.documentElement.dataset.theme;
+  if (appliedTheme === "dark" || appliedTheme === "light") {
+    return appliedTheme;
+  }
+
+  const storedTheme = window.localStorage.getItem(preferenceStorageKeys.theme);
+  if (storedTheme === "dark" || storedTheme === "light") {
+    return storedTheme;
   }
 
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 export function writeWorkspaceTheme(theme: WorkspaceTheme) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
   document.documentElement.dataset.theme = theme;
   window.localStorage.setItem(preferenceStorageKeys.theme, theme);
+}
+
+export function syncWorkspaceThemeFromJira() {
+  const previousTheme = document.documentElement.dataset.theme;
+  const nextTheme = readWorkspaceTheme();
+  document.documentElement.dataset.theme = nextTheme;
+  window.localStorage.setItem(preferenceStorageKeys.theme, nextTheme);
+
+  if (previousTheme !== nextTheme) {
+    emitWorkspacePreferenceUpdate({ theme: nextTheme });
+  }
+
+  return nextTheme;
 }
 
 export function readSidebarMode(): SidebarMode {

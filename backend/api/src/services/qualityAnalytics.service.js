@@ -242,7 +242,7 @@ const evaluateGadget = async ({ projectId, gadget }) => {
       updated: item.updated_at || item.created_at || null
     })),
     drilldown_target: isIssueMetric ? "/issues" : "/test-cases",
-    methodology: "Derived from the selected QAira project using bounded relational queries and latest-result-per-case semantics."
+    methodology: "Derived from the selected HelloTest project using bounded relational queries and latest-result-per-case semantics."
   };
 };
 
@@ -312,7 +312,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     };
   }).sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || "")));
   return {
-    integration: { id: "qaira-evidence-graph", name: "QAira evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "qaira-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     generation_mode: "deterministic",
     generated_at: generatedAt,
     request_id: requestId,
@@ -332,7 +332,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     limitations: ["This is an evidence-based advisory score, not a release approval.", "Root cause and product impact require human validation."],
     provenance: {
       capability: "portfolio-quality-insights-preview",
-      provider: "QAira relational quality engine",
+      provider: "HelloTest relational quality engine",
       generation_mode: "deterministic",
       model: null,
       request_id: requestId,

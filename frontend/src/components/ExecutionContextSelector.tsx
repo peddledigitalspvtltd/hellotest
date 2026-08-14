@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
-import { RefreshIcon } from "./AppIcons";
+import { RefreshIcon, TestDataIcon } from "./AppIcons";
 import { api } from "../lib/api";
 import { countGeneratedTestDataFields, materializeTestDataRows } from "../lib/testDataGenerators";
 import type { TestConfiguration, TestDataSet, TestEnvironment } from "../types";
@@ -173,6 +173,7 @@ export function ExecutionContextSelector({
           selectedId={selectedConfigurationId}
         />
         <ExecutionContextField
+          labelIcon={<TestDataIcon size={16} />}
           items={dataSets}
           label="Test data"
           onChange={onDataSetChange}
@@ -221,19 +222,21 @@ export function ExecutionContextSelector({
 
 function ExecutionContextField<T extends TestEnvironment | TestConfiguration | TestDataSet>({
   label,
+  labelIcon,
   items,
   selectedId,
   placeholder,
   onChange
 }: {
   label: string;
+  labelIcon?: ReactNode;
   items: T[];
   selectedId: string;
   placeholder: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <FormField label={label}>
+    <FormField label={label} labelIcon={labelIcon}>
       <select value={selectedId} onChange={(event) => onChange(event.target.value)}>
         <option value="">{placeholder}</option>
         {items.map((item) => (

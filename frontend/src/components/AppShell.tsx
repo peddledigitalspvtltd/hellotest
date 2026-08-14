@@ -1,24 +1,29 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AppTypeInlineValue } from "./AppTypeDropdown";
-import { RefreshIcon } from "./AppIcons";
+import { AppErrorBoundary } from "./AppErrorBoundary";
+import { RefreshIcon, StoryIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
 import { LoadingState } from "./LoadingState";
 import { UserProfileDialog } from "./UserProfileDialog";
+import "./module-navigation.css";
 import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { getNavigationItemLabel, getNavigationItemPermissions, isNavigationItemActive } from "../lib/navigation";
 import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
+import { readNotificationPreferences } from "../lib/notificationPreferences";
 import { canAccessPath, hasAnyPermission } from "../lib/permissions";
 import { queryKeys } from "../lib/queryKeys";
+import { preloadWorkspaceRoute } from "../lib/routePrefetch";
 import {
   PREFERENCES_UPDATED_EVENT,
   readSidebarMode,
@@ -29,16 +34,19 @@ import {
   type WorkspacePreferenceUpdate
 } from "../lib/workspacePreferences";
 import {
+  AGENTIC_WORKFLOW_SECTION_ITEMS,
   AUTOMATION_SECTION_ITEMS,
   DASHBOARD_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
+  TEST_RUNS_SECTION_ITEMS,
   TESTOPS_SECTION_ITEMS,
   WORKSPACE_LIBRARY_PATHS,
   WORKSPACE_PAGE_LABELS,
   WORKSPACE_SECTION_LABEL_KEYS
 } from "../lib/workspaceSections";
 import type { AppType, Project } from "../types";
+import { WORKSPACE_ROUTES } from "../lib/workspaceRoutes";
 
 const MOBILE_SIDEBAR_BREAKPOINT = "(max-width: 768px)";
 
@@ -46,8 +54,8 @@ const navigation = [
   {
     label: "Workspace",
     items: [
-      { id: "overview", to: "/", label: "Dashboard", shortLabel: "Dash", icon: DashboardIcon, matchPaths: ["/"] },
-      { id: "projects", to: "/projects", label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects" }
+      { id: "overview", to: WORKSPACE_ROUTES.home, label: "Home", shortLabel: "Home", icon: DashboardIcon, matchPaths: [WORKSPACE_ROUTES.home], featureKeys: ["qaira.analytics.dashboards"] },
+      { id: "projects", to: WORKSPACE_ROUTES.projects, label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects", featureKeys: ["qaira.ops.projects"] }
     ]
   },
   {
@@ -55,17 +63,18 @@ const navigation = [
     items: [
       {
         id: "authoring",
-        to: "/test-cases",
+        to: WORKSPACE_ROUTES.testCases,
         label: "Library",
         shortLabel: "Library",
         icon: FlaskIcon,
         matchPaths: TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.manual.test_cases"],
+        featureKeys: ["qaira.manual.requirements", "qaira.manual.test_cases", "qaira.manual.suites"],
+        featureMatch: "any",
         disabledWhenNoProjects: true
       },
       {
         id: "automation",
-        to: "/automation",
+        to: WORKSPACE_ROUTES.automation,
         label: "Automation",
         shortLabel: "Auto",
         icon: AutomationIcon,
@@ -75,7 +84,7 @@ const navigation = [
       },
       {
         id: "agentic-workflows",
-        to: "/agentic-workflows",
+        to: WORKSPACE_ROUTES.agenticWorkflows,
         label: "Agentic Workflows",
         shortLabel: "Agents",
         icon: WorkflowIcon,
@@ -84,7 +93,7 @@ const navigation = [
       },
       {
         id: "runs",
-        to: "/executions",
+        to: WORKSPACE_ROUTES.executions,
         label: "Runs",
         shortLabel: "Runs",
         icon: PlayIcon,
@@ -92,27 +101,29 @@ const navigation = [
         featureKeys: ["qaira.manual.runs"],
         disabledWhenNoProjects: true
       },
-      { id: "issues", to: "/issues", label: "Report Issue", shortLabel: "Issue", icon: BugIcon },
+      { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Bugs", shortLabel: "Bugs", icon: BugIcon, featureKeys: ["qaira.manual.bugs"] },
       {
         id: "testops",
-        to: "/testops",
+        to: WORKSPACE_ROUTES.testOps,
         label: "TestOps",
         shortLabel: "TestOps",
         icon: ActivityIcon,
         matchPaths: TESTOPS_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.automation.batch_process"],
+        featureKeys: ["qaira.automation.batch_process", "qaira.ops.telemetry"],
+        featureMatch: "any",
         disabledWhenNoProjects: true
       },
       {
         id: "environment",
-        to: "/test-environments",
+        to: WORKSPACE_ROUTES.testEnvironments,
         label: "Environments",
         shortLabel: "Env",
         icon: ServerIcon,
         matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["qaira.manual.environments"],
         disabledWhenNoProjects: true
       },
-      { id: "knowledge", to: "/knowledge-repo", label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["qaira.ai.knowledge"] }
+      { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["qaira.ai.knowledge"] }
     ]
   },
   {
@@ -120,19 +131,19 @@ const navigation = [
     items: [
       {
         id: "admin-space",
-        to: "/admin-space",
+        to: WORKSPACE_ROUTES.adminSpace,
         label: "Admin Space",
         shortLabel: "Admin",
         icon: UsersIcon,
-        matchPaths: ["/admin-space", "/people", "/integrations", "/settings"]
+        matchPaths: [WORKSPACE_ROUTES.adminSpace, WORKSPACE_ROUTES.people, WORKSPACE_ROUTES.integrations, WORKSPACE_ROUTES.settings]
       }
     ]
   },
   {
     label: "Settings",
     items: [
-      { id: "notifications", to: "/notifications", label: "Notifications", shortLabel: "Alerts", icon: BellIcon, featureKeys: ["qaira.ops.notifications"] },
-      { id: "support", to: "/support", label: "Support", shortLabel: "Support", icon: SupportIcon }
+      { id: "notifications", to: WORKSPACE_ROUTES.notifications, label: "Notifications", shortLabel: "Alerts", icon: BellIcon, featureKeys: ["qaira.ops.notifications"] },
+      { id: "support", to: WORKSPACE_ROUTES.support, label: "Support", shortLabel: "Support", icon: SupportIcon }
     ]
   }
 ] as const;
@@ -141,8 +152,15 @@ type SidebarScopeSelectorProps = {
   isCollapsed: boolean;
   isLoadingProjects: boolean;
   onProjectChange: (value: string | number) => void;
+  onProjectNavigate: (value: string | number) => Promise<boolean>;
   projectId: string;
   projects: Project[];
+};
+
+type SidebarScopePopoverPosition = {
+  left: number;
+  top: number;
+  width: number;
 };
 
 function SidebarScopeProjectBranch({
@@ -170,7 +188,7 @@ function SidebarScopeProjectBranch({
     retry: 1,
     staleTime: 60 * 1000
   });
-  const appTypes = appTypesQuery.data || [];
+  const appTypes = asArray(appTypesQuery.data);
 
   return (
     <div
@@ -190,9 +208,13 @@ function SidebarScopeProjectBranch({
             <ChevronIcon />
           </span>
         </button>
-        <button className="sidebar-scope-project-option" onClick={() => onSelectProject(projectRef)} type="button">
+        <button
+          className="sidebar-scope-project-option"
+          onClick={() => onSelectProject(projectRef)}
+          type="button"
+        >
           <strong>{project.name}</strong>
-          <span>{project.display_id || project.description || "Project workspace"}</span>
+          <span>{project.display_id || project.description || "HelloTest project"}</span>
         </button>
       </div>
       {isExpanded ? (
@@ -212,23 +234,20 @@ function SidebarScopeProjectBranch({
               </button>
             );
           })}
-          {!appTypesQuery.isPending && !appTypes.length ? <div className="sidebar-scope-empty">No application spaces in this project.</div> : null}
+          {!appTypesQuery.isPending && !appTypes.length ? (
+            <div className="sidebar-scope-empty">No application spaces in this project.</div>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-type SidebarScopePopoverPosition = {
-  left: number;
-  top: number;
-  width: number;
-};
-
 function SidebarScopeSelector({
   isCollapsed,
   isLoadingProjects,
   onProjectChange,
+  onProjectNavigate,
   projectId,
   projects
 }: SidebarScopeSelectorProps) {
@@ -248,7 +267,7 @@ function SidebarScopeSelector({
     staleTime: 60 * 1000
   });
 
-  const appTypes = appTypesQuery.data || [];
+  const appTypes = asArray(appTypesQuery.data);
   const currentProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const currentAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const filteredProjects = useMemo(() => {
@@ -359,13 +378,15 @@ function SidebarScopeSelector({
       : [...current, targetProjectId]);
   };
 
-  const selectProject = (targetProjectId: string) => {
+  const selectProject = async (targetProjectId: string) => {
+    if (!await onProjectNavigate(targetProjectId)) return;
     onProjectChange(targetProjectId);
     setExpandedProjectIds((current) => current.includes(targetProjectId) ? current : [...current, targetProjectId]);
     setProjectSearch("");
   };
 
-  const selectAppType = (targetProjectId: string, targetAppTypeId: string) => {
+  const selectAppType = async (targetProjectId: string, targetAppTypeId: string) => {
+    if (!await onProjectNavigate(targetProjectId)) return;
     setCurrentScope(targetProjectId, targetAppTypeId);
     setIsOpen(false);
     setProjectSearch("");
@@ -470,8 +491,33 @@ function SidebarScopeSelector({
 }
 
 export function AppShell() {
+  return <ReadyAppShell />;
+}
+
+function WorkspaceLocalizationLoader() {
+  const { setWorkspaceStrings } = useLocalization();
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    void api.settings.getLocalization()
+      .then((response) => {
+        if (!isCancelled) setWorkspaceStrings(response.strings);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [setWorkspaceStrings]);
+
+  return null;
+}
+
+function ReadyAppShell() {
   const location = useLocation();
-  const { session, logout, error, clearError } = useAuth();
+  const routeNavigation = useNavigation();
+  const { session, error, clearError, logout } = useAuth();
   const { t } = useLocalization();
   const domainMetadataQuery = useDomainMetadata();
   const projectsQuery = useQuery({
@@ -481,11 +527,13 @@ export function AppShell() {
     staleTime: 60 * 1000
   });
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const serverUnreadNotificationsQuery = useQuery({
-    queryKey: ["notifications", "unread"],
-    queryFn: () => api.notifications.list({ status: "unread" }),
+  const [sidebarProjectId, setSidebarProjectId] = useCurrentProject();
+  const serverUnreadNotificationCountQuery = useQuery({
+    queryKey: ["notifications", "unread", sidebarProjectId || "workspace"],
+    queryFn: api.notifications.unreadCount,
     enabled: Boolean(session),
-    refetchInterval: 30_000
+    refetchInterval: 300_000,
+    staleTime: 240_000
   });
   const [theme, setTheme] = useState(readWorkspaceTheme);
   const [isCollapsed, setIsCollapsed] = useState(() => readSidebarMode() === "collapsed");
@@ -493,9 +541,8 @@ export function AppShell() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(() => getUnreadNotificationCount());
-  const [sidebarProjectId, setSidebarProjectId] = useCurrentProject();
 
-  const projects = projectsQuery.data || [];
+  const projects = asArray(projectsQuery.data);
   const hasNoProjects = !projectsQuery.isPending && projects.length === 0;
   const currentProjectName =
     projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
@@ -503,7 +550,16 @@ export function AppShell() {
   const navCounts = {
     projects: projects.length
   };
-  const totalNotificationUnreadCount = notificationUnreadCount + (serverUnreadNotificationsQuery.data?.length || 0);
+  const notificationPreferences = readNotificationPreferences();
+  const visibleServerUnreadCount = Object.entries(serverUnreadNotificationCountQuery.data?.by_preference || {})
+    .reduce((total, [preference, count]) => {
+      if (preference !== "unspecified" && notificationPreferences[preference as keyof typeof notificationPreferences] === false) return total;
+      return total + Number(count || 0);
+    }, 0);
+  const totalNotificationUnreadCount = notificationUnreadCount + visibleServerUnreadCount;
+
+
+
 
   useEffect(() => {
     writeWorkspaceTheme(theme);
@@ -570,7 +626,7 @@ export function AppShell() {
 
   useEffect(() => {
     setIsMobileSidebarOpen(false);
-  }, [location.pathname]);
+  }, [location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -622,15 +678,32 @@ export function AppShell() {
     }
   }, [projects, projectsQuery.isPending, setSidebarProjectId, sidebarProjectId]);
 
+  const navigateToProject = useCallback(async (nextProjectId: string | number) => {
+    const normalizedProjectId = String(nextProjectId);
+    if (!projects.some((project) => String(project.id) === normalizedProjectId)) return false;
+    setSidebarProjectId(normalizedProjectId);
+    return true;
+  }, [projects, setSidebarProjectId]);
+
   const isWorkspaceWideLibrary = WORKSPACE_LIBRARY_PATHS.has(location.pathname);
 
   const currentSection = useMemo(() => WORKSPACE_PAGE_LABELS[location.pathname] || "Workspace", [location.pathname]);
+  const nextSection = WORKSPACE_PAGE_LABELS[routeNavigation.location?.pathname || ""] || "page";
+  const isRouteTransitioning = routeNavigation.state === "loading";
   const pageAccess = domainMetadataQuery.data?.access?.pages;
   const canAccessCurrentRoute = canAccessPath(session, location.pathname, pageAccess);
+  const currentFeatureKeys = requiredFeatureFlagsForPath(location.pathname);
   const canAccessCurrentFeature = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
-    requiredFeatureFlagsForPath(location.pathname)
+    currentFeatureKeys
   );
+  const canAccessNavigationFeature = (item: { id: string; featureKeys?: readonly string[]; featureMatch?: "any" }) => {
+    const keys = item.featureKeys || [];
+    if (item.featureMatch === "any") {
+      return Boolean(featureFlagsQuery.data) && keys.some((key) => featureFlagsQuery.data?.flags[key] === true);
+    }
+    return areFeatureFlagsEnabled(featureFlagsQuery.data, keys);
+  };
 
   const shouldCollapseSidebar = !isMobileViewport && isCollapsed;
   const sidebarClassName = `${shouldCollapseSidebar ? "sidebar is-collapsed" : "sidebar"}${isMobileSidebarOpen ? " is-mobile-open" : ""}`;
@@ -690,16 +763,34 @@ export function AppShell() {
   };
 
   const resolveSidebarSubItems = (item: { id: string }) => {
-    if (item.id === "overview") return DASHBOARD_SECTION_ITEMS;
-    if (item.id === "authoring") return TEST_AUTHORING_SECTION_ITEMS;
-    if (item.id === "automation") return AUTOMATION_SECTION_ITEMS;
-    if (item.id === "testops") return TESTOPS_SECTION_ITEMS;
-    if (item.id === "environment") return TEST_ENVIRONMENT_SECTION_ITEMS;
-    return [];
+    const items = item.id === "overview"
+      ? DASHBOARD_SECTION_ITEMS
+      : item.id === "authoring"
+      ? TEST_AUTHORING_SECTION_ITEMS
+      : item.id === "automation"
+        ? AUTOMATION_SECTION_ITEMS
+        : item.id === "testops"
+          ? TESTOPS_SECTION_ITEMS
+          : item.id === "environment"
+            ? TEST_ENVIRONMENT_SECTION_ITEMS
+            : item.id === "runs"
+              ? TEST_RUNS_SECTION_ITEMS
+              : item.id === "agentic-workflows"
+                ? AGENTIC_WORKFLOW_SECTION_ITEMS
+                : [];
+    return items.filter((subItem) => areFeatureFlagsEnabled(featureFlagsQuery.data, subItem.featureKeys || []));
+  };
+
+  const refreshCurrentScreen = () => window.location.reload();
+  const prefetchNavigationTarget = (target: string, disabled = false) => {
+    if (!disabled) {
+      preloadWorkspaceRoute(target);
+    }
   };
 
   return (
     <div className="app-shell app-layout app-layout--workspace-wide">
+      <WorkspaceLocalizationLoader />
       {error && (
         <div className="global-alert" role="alert">
           <p>{error}</p>
@@ -714,7 +805,7 @@ export function AppShell() {
       )}
       {!error && hasNoProjects ? (
         <div className="global-alert" role="status">
-          <p>No default QAira project is available for your account. Create a project from the Projects page to start working.</p>
+          <p>No default HelloTest project is available for your account. Create a project from the Projects page to start working.</p>
           <NavLink className="ghost-button" to="/projects">Create project</NavLink>
         </div>
       ) : null}
@@ -752,6 +843,7 @@ export function AppShell() {
               isCollapsed={shouldCollapseSidebar}
               isLoadingProjects={projectsQuery.isPending}
               onProjectChange={setSidebarProjectId}
+              onProjectNavigate={navigateToProject}
               projectId={sidebarProjectId}
               projects={projects}
             />
@@ -783,7 +875,7 @@ export function AppShell() {
                     return null;
                   }
 
-                  if (!areFeatureFlagsEnabled(featureFlagsQuery.data, "featureKeys" in item ? item.featureKeys : [])) {
+                  if (!canAccessNavigationFeature(item)) {
                     return null;
                   }
 
@@ -796,17 +888,26 @@ export function AppShell() {
                       : undefined;
                   const isActive = isNavigationItemActive(item, location.pathname);
                   const subItems = resolveSidebarSubItems(item);
+                  const primaryFeatureEnabled = areFeatureFlagsEnabled(
+                    featureFlagsQuery.data,
+                    requiredFeatureFlagsForPath(item.to)
+                  );
+                  const navigationTarget = primaryFeatureEnabled ? item.to : subItems[0]?.to || item.to;
 
                   return (
                     <div className="nav-item-stack" key={item.to}>
                       <NavLink
+                        aria-disabled={isDisabled || undefined}
                         aria-current={isActive ? "page" : undefined}
-                        to={item.to}
-                        replace={isActive && `${location.pathname}${location.search}` !== item.to}
+                        data-nav-identity={item.id}
+                        to={navigationTarget}
+                        replace={isActive && `${location.pathname}${location.search}` !== navigationTarget}
                         className={isActive ? "nav-link is-active" : "nav-link"}
                         end={item.to === "/"}
                         title={shouldCollapseSidebar ? resolveNavLabel(item) : undefined}
                         aria-label={resolveNavLabel(item)}
+                        onFocus={() => prefetchNavigationTarget(navigationTarget, isDisabled)}
+                        onMouseEnter={() => prefetchNavigationTarget(navigationTarget, isDisabled)}
                         onClick={(e) => {
                           if (isDisabled) {
                             e.preventDefault();
@@ -833,18 +934,24 @@ export function AppShell() {
                         <div className="nav-submenu" aria-label={`${resolveNavLabel(item)} sections`}>
                           {subItems.map((subItem) => {
                             const subPath = subItem.to.split("?")[0];
-                            const requestedView = new URLSearchParams(location.search).get("view");
                             const isDefaultDashboardView = item.id === "overview"
                               && subItem.to === "/?view=analytics"
                               && location.pathname === "/"
-                              && (!requestedView || requestedView === "analytics");
+                              && (!location.search || new URLSearchParams(location.search).get("view") === "analytics");
                             const isSubActive = isDefaultDashboardView || (subItem.to.includes("?")
                               ? `${location.pathname}${location.search}` === subItem.to
                               : location.pathname === subPath);
-                            const SubIcon = getWorkspaceSubItemIcon(subItem.icon);
+                            const SubIcon = getWorkspaceSubItemIcon("icon" in subItem ? subItem.icon : undefined);
 
                             return (
-                              <NavLink className={isSubActive ? "nav-submenu-link is-active" : "nav-submenu-link"} key={subItem.to} to={subItem.to}>
+                              <NavLink
+                                className={isSubActive ? "nav-submenu-link is-active" : "nav-submenu-link"}
+                                data-nav-identity={"icon" in subItem ? subItem.icon : "default"}
+                                key={subItem.to}
+                                onFocus={() => preloadWorkspaceRoute(subItem.to)}
+                                onMouseEnter={() => preloadWorkspaceRoute(subItem.to)}
+                                to={subItem.to}
+                              >
                                 <span className="nav-submenu-icon" aria-hidden="true"><SubIcon /></span>
                                 {resolveSubItemLabel(subItem)}
                               </NavLink>
@@ -863,35 +970,34 @@ export function AppShell() {
         <div className="sidebar-footer">
           <button
             aria-label="Refresh current screen"
-            className="sidebar-refresh-button ghost-button explorer-icon-button"
-            onClick={() => window.location.reload()}
+            className={`sidebar-refresh-button ghost-button${shouldCollapseSidebar ? " explorer-icon-button" : ""}`}
+            onClick={refreshCurrentScreen}
             title="Refresh current screen"
             type="button"
           >
-            <RefreshIcon />
+            {!shouldCollapseSidebar ? <span className="sidebar-refresh-label">Refresh</span> : null}
+            <RefreshIcon size={20} />
           </button>
 
           {!shouldCollapseSidebar ? (
-            <div className="theme-toggle">
+            <button
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
+              className="theme-toggle"
+              onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
+              type="button"
+            >
               <div>
                 <strong>Theme</strong>
-                <span>{theme === "light" ? "Light mode" : "Dark mode"}</span>
+                <span>{theme === "light" ? "Light · HelloTest workspace" : "Dark · HelloTest workspace"}</span>
               </div>
-              <button
-                aria-label="Toggle theme"
-                className={theme === "dark" ? "theme-switch is-dark" : "theme-switch"}
-                onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
-                type="button"
-              >
-                <span />
-              </button>
-            </div>
+              <span aria-hidden="true" className="theme-jira-indicator">HelloTest</span>
+            </button>
           ) : (
             <button
-              aria-label="Toggle theme"
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
               className={theme === "dark" ? "sidebar-icon-button is-dark" : "sidebar-icon-button"}
               onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={`Current theme: ${theme}`}
               type="button"
             >
               {theme === "dark" ? <MoonIcon /> : <SunIcon />}
@@ -925,10 +1031,10 @@ export function AppShell() {
 
           <button 
             className="ghost-button sidebar-signout" 
-            onClick={logout} 
+            onClick={logout}
             type="button"
             aria-label="Sign out"
-            title={shouldCollapseSidebar ? "Sign out" : undefined}
+            title="Sign out of HelloTest"
           >
             <LogoutIcon />
             {shouldCollapseSidebar ? null : <span>Sign out</span>}
@@ -947,6 +1053,7 @@ export function AppShell() {
       ) : null}
 
       <main
+        aria-busy={isRouteTransitioning}
         className={`workspace-main main${isWorkspaceWideLibrary ? " main--library-fill" : ""}`}
         data-route={location.pathname}
         data-section={currentSection}
@@ -965,13 +1072,25 @@ export function AppShell() {
             </button>
           </div>
         ) : null}
-        {canAccessCurrentRoute && canAccessCurrentFeature ? (
-          <Outlet />
+        {isRouteTransitioning ? (
+          <div aria-live="polite" className="route-loading-indicator" role="status">
+            <span aria-hidden="true" className="loading-state-spinner" />
+            Loading {nextSection}…
+          </div>
+        ) : null}
+        {featureFlagsQuery.isPending && currentFeatureKeys.length ? (
+          <LoadingState label="Loading project capabilities" />
+        ) : canAccessCurrentRoute && canAccessCurrentFeature ? (
+          <AppErrorBoundary key={location.pathname}>
+            <Suspense fallback={<LoadingState label={`Loading ${currentSection}`} />}>
+              <Outlet />
+            </Suspense>
+          </AppErrorBoundary>
         ) : (
           <section className="permission-empty-state card">
             <span className="eyebrow">Access Limited</span>
             <h1>{canAccessCurrentRoute ? "This workspace feature is disabled." : "You do not have permission to view this workspace area."}</h1>
-            <p>{canAccessCurrentRoute ? "Ask an administrator to enable this feature from Admin Space settings, or choose another available menu item from the sidebar." : "Ask an administrator to update your role permissions, or choose another available menu item from the sidebar."}</p>
+            <p>{canAccessCurrentRoute ? "Ask a HelloTest administrator to enable this project capability, or choose another available sidebar item." : "Ask an administrator to update your role permissions, or choose another available menu item from the sidebar."}</p>
           </section>
         )}
       </main>
@@ -1028,10 +1147,6 @@ function FlaskIcon() {
   return <IconFrame><path d="M10 3v5l-5.5 9a2 2 0 0 0 1.73 3h11.54A2 2 0 0 0 19.5 17L14 8V3" /><path d="M8 3h8" /><path d="M8.5 14h7" /></IconFrame>;
 }
 
-function DocumentIcon() {
-  return <IconFrame><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M14 3v6h6" /><path d="M9 13h6" /><path d="M9 17h6" /></IconFrame>;
-}
-
 function OpenBookIcon() {
   return (
     <IconFrame>
@@ -1043,10 +1158,6 @@ function OpenBookIcon() {
       <path d="M15 11h2" />
     </IconFrame>
   );
-}
-
-function PencilIcon() {
-  return <IconFrame><path d="M4 20l4.5-1 9-9-3.5-3.5-9 9z" /><path d="M13.5 6.5l3.5 3.5" /></IconFrame>;
 }
 
 function LayersIcon() {
@@ -1064,9 +1175,9 @@ function getWorkspaceSubItemIcon(icon?: string) {
     case "dashboard":
       return DashboardIcon;
     case "requirements":
-      return DocumentIcon;
+      return StoryIcon;
     case "cases":
-      return PencilIcon;
+      return TestCaseIcon;
     case "shared":
       return SharedStepsIcon;
     case "suites":
@@ -1088,7 +1199,7 @@ function getWorkspaceSubItemIcon(icon?: string) {
     case "environments":
       return ServerIcon;
     case "data":
-      return DatabaseIcon;
+      return TestDataIcon;
     case "configurations":
       return SlidersIcon;
     default:
@@ -1168,10 +1279,6 @@ function BellIcon() {
 
 function CogIcon() {
   return <IconFrame><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6" /></IconFrame>;
-}
-
-function DatabaseIcon() {
-  return <IconFrame><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6" /><path d="M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6" /></IconFrame>;
 }
 
 function SlidersIcon() {

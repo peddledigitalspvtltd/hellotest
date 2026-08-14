@@ -79,11 +79,11 @@
 :root[data-theme="dark"] .virtual-card,
 :root[data-theme="dark"] .stat-card,
 :root[data-theme="dark"] .mini-card,
+:root[data-theme="dark"] .metric-ribbon-card,
 :root[data-theme="dark"] .stack-item,
 :root[data-theme="dark"] .segment,
 :root[data-theme="dark"] .detail-summary,
 :root[data-theme="dark"] .metric-card,
-:root[data-theme="dark"] .metric-strip,
 :root[data-theme="dark"] .settings-section,
 :root[data-theme="dark"] .workspace-master-detail-panel,
 :root[data-theme="dark"] .workspace-master-list,
@@ -228,8 +228,7 @@
 }
 
 :root[data-theme="dark"] .subnav-tabs,
-:root[data-theme="dark"] .section-switch-bar.subnav-tabs,
-:root[data-theme="dark"] .workspace-section-tabs-shell {
+:root[data-theme="dark"] .section-switch-bar.subnav-tabs {
   background: rgba(2, 6, 23, 0.5) !important;
   border-color: rgba(148, 163, 184, 0.2) !important;
 }
@@ -362,4 +361,335 @@
 :root[data-theme="dark"] ::selection {
   background: rgba(96, 165, 250, 0.42);
   color: #ffffff;
+}
+
+/* Page-specific parity: keep legacy authoring, analytics, repository, and
+   execution surfaces on the same Jira-derived dark palette. */
+:root[data-theme="dark"] .ai-studio-main,
+:root[data-theme="dark"] .ai-studio-sidebar,
+:root[data-theme="dark"] .ai-case-authoring-main,
+:root[data-theme="dark"] .ai-case-authoring-sidebar,
+:root[data-theme="dark"] .ai-prompt-context-panel,
+:root[data-theme="dark"] .custom-dashboard-modal-body,
+:root[data-theme="dark"] .custom-dashboard-view,
+:root[data-theme="dark"] .custom-dashboard-modal .panel,
+:root[data-theme="dark"] .step-parameter-utility-panel,
+:root[data-theme="dark"] .object-repository-screen-field,
+:root[data-theme="dark"] .object-repository-login-surface,
+:root[data-theme="dark"] .automation-request-details-body,
+:root[data-theme="dark"] .automation-response-meta,
+:root[data-theme="dark"] .automation-response-selection,
+:root[data-theme="dark"] .execution-context-summary-head,
+:root[data-theme="dark"] .execution-operation-event,
+:root[data-theme="dark"] .jira-attachment-card,
+:root[data-theme="dark"] .projects-view-toggle,
+:root[data-theme="dark"] .test-case-card-stats > span,
+:root[data-theme="dark"] .test-case-requirement-block,
+:root[data-theme="dark"] .test-case-readiness-grid,
+:root[data-theme="dark"] .quality-table-wrap {
+  background: rgba(9, 18, 32, 0.94) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .ai-smart-context-card,
+:root[data-theme="dark"] .ai-reference-image-card,
+:root[data-theme="dark"] .ai-case-authoring-panel,
+:root[data-theme="dark"] .ai-case-authoring-source-step,
+:root[data-theme="dark"] .ai-case-authoring-step-card,
+:root[data-theme="dark"] .dashboard-audience-card,
+:root[data-theme="dark"] .dashboard-design-assurance > span,
+:root[data-theme="dark"] .quality-gadget,
+:root[data-theme="dark"] .quality-gadget-shell,
+:root[data-theme="dark"] .hierarchy-metric,
+:root[data-theme="dark"] .hierarchy-record-count {
+  background-color: rgba(17, 31, 51, 0.94) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .detail-section-tabs {
+  background: rgba(8, 16, 29, 0.86) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+:root[data-theme="dark"] .detail-section-tab {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .detail-section-tab:hover {
+  background: rgba(30, 64, 110, 0.42) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .detail-section-tab.is-active {
+  background: rgba(37, 99, 235, 0.28) !important;
+  border-color: rgba(96, 165, 250, 0.42) !important;
+  color: #bfdbfe !important;
+}
+
+:root[data-theme="dark"] .sidebar,
+:root[data-theme="dark"] .sidebar-top,
+:root[data-theme="dark"] .sidebar-footer,
+:root[data-theme="dark"] .sidebar-scope-trigger,
+:root[data-theme="dark"] .nav-branch,
+:root[data-theme="dark"] .nav-branch-link,
+:root[data-theme="dark"] .nav-sublink {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .sidebar,
+:root[data-theme="dark"] .sidebar-top,
+:root[data-theme="dark"] .sidebar-footer {
+  background: #0b1524 !important;
+}
+
+:root[data-theme="dark"] .nav-branch-link:hover,
+:root[data-theme="dark"] .nav-sublink:hover,
+:root[data-theme="dark"] .nav-branch-link.is-active,
+:root[data-theme="dark"] .nav-sublink.is-active {
+  background: rgba(37, 99, 235, 0.24) !important;
+  color: #dbeafe !important;
+}
+
+:root[data-theme="dark"] .step-parameter-utility-delete,
+:root[data-theme="dark"] .test-case-catalog-card .step-card-menu-trigger,
+:root[data-theme="dark"] .project-portfolio-card .step-card-menu-trigger,
+:root[data-theme="dark"] .quality-gadget-actions button {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .quality-donut::after {
+  background: #111f33 !important;
+}
+
+:root[data-theme="dark"] .quality-line-chart svg path {
+  stroke: rgba(148, 163, 184, 0.38) !important;
+}
+
+:root[data-theme="dark"] .quality-line-chart svg polyline {
+  stroke: #60a5fa !important;
+}
+
+/* Dark parity for the screenshot-led test-case details workspace. */
+:root[data-theme="dark"] .test-case-workspace-shell.panel.card {
+  --test-case-canvas: #081425;
+  --test-case-subcanvas: #0c192b;
+  --test-case-input: #101d30;
+  --test-case-ink: #f3f7ff;
+  --test-case-primary-bg: #1d4ed8;
+  --test-case-primary-hover: #2563eb;
+  --test-case-border: rgba(148, 163, 184, 0.28);
+  --test-case-soft-border: rgba(148, 163, 184, 0.2);
+  background: #0b1728 !important;
+  border-color: var(--test-case-border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-shell > .panel-actions-inline,
+:root[data-theme="dark"] .test-case-workspace-tabs,
+:root[data-theme="dark"] .test-case-detail-footer {
+  border-color: var(--test-case-border) !important;
+  background: rgba(11, 23, 40, 0.97) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-title,
+:root[data-theme="dark"] .test-case-workspace-identity .workspace-back-button,
+:root[data-theme="dark"] .test-case-workspace-more-actions .step-card-menu-trigger {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-identity .workspace-back-button {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-identity .display-id-badge,
+:root[data-theme="dark"] .test-case-workspace-draft-badge {
+  border-color: rgba(148, 163, 184, 0.4) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-primary-actions > button,
+:root[data-theme="dark"] .test-case-workspace-primary-actions .test-case-workspace-named-action {
+  border-color: rgba(96, 165, 250, 0.32) !important;
+  background: rgba(30, 64, 110, 0.58) !important;
+  color: #dbeafe !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-primary-actions > button:hover:not(:disabled),
+:root[data-theme="dark"] .test-case-workspace-primary-actions .test-case-workspace-named-action:hover:not(:disabled),
+:root[data-theme="dark"] .test-case-workspace-identity .workspace-back-button:hover:not(:disabled),
+:root[data-theme="dark"] .test-case-workspace-more-actions .step-card-menu-trigger:hover {
+  border-color: rgba(96, 165, 250, 0.48) !important;
+  background: rgba(37, 99, 235, 0.28) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-tabs .detail-section-tab {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-tabs .detail-section-tabs {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-tabs .detail-section-tab:hover,
+:root[data-theme="dark"] .test-case-workspace-tabs .detail-section-tab.is-active {
+  border-color: #93c5fd !important;
+  background: transparent !important;
+  color: #dbeafe !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-tabs .detail-section-tab-count,
+:root[data-theme="dark"] .test-case-detail-grid .editor-accordion-toggle-count {
+  background: rgba(37, 99, 235, 0.26) !important;
+  color: #bfdbfe !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-shell .detail-stack,
+:root[data-theme="dark"] .test-case-detail-layout.detail-section-panel,
+:root[data-theme="dark"] .test-case-workspace-shell .detail-stack > .detail-section-panel:not(.test-case-detail-layout) {
+  background: var(--test-case-canvas) !important;
+}
+
+:root[data-theme="dark"] .test-case-health-card,
+:root[data-theme="dark"] .test-case-detail-grid .editor-accordion-section,
+:root[data-theme="dark"] .test-case-detail-grid .editor-accordion-section.is-expanded,
+:root[data-theme="dark"] .test-case-detail-grid .editor-accordion-head,
+:root[data-theme="dark"] .test-case-detail-grid .editor-accordion-body,
+:root[data-theme="dark"] .test-case-detail-case-region .editor-accordion-body,
+:root[data-theme="dark"] .test-case-detail-primary .step-card,
+:root[data-theme="dark"] .test-case-detail-sidebar .step-card,
+:root[data-theme="dark"] .test-case-detail-grid .step-group-block,
+:root[data-theme="dark"] .test-case-add-row {
+  border-color: var(--test-case-border) !important;
+  background: var(--panel-strong) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.26) !important;
+}
+
+:root[data-theme="dark"] .test-case-health-card:is(button) {
+  opacity: 1 !important;
+}
+
+:root[data-theme="dark"] .test-case-health-card:is(button):hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.52) !important;
+  background: rgba(30, 64, 110, 0.58) !important;
+}
+
+:root[data-theme="dark"] .test-case-detail-primary > .editor-accordion-section > .editor-accordion-body,
+:root[data-theme="dark"] .test-case-detail-sidebar > .editor-accordion-section > .editor-accordion-body {
+  background: var(--test-case-subcanvas) !important;
+}
+
+:root[data-theme="dark"] .test-case-health-icon {
+  background: rgba(148, 163, 184, 0.18) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-health-card.is-completeness .test-case-health-icon {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #6ee7b7 !important;
+}
+
+:root[data-theme="dark"] .test-case-health-card.is-pass-rate .test-case-health-icon {
+  background: rgba(59, 130, 246, 0.22) !important;
+  color: #bfdbfe !important;
+}
+
+:root[data-theme="dark"] .test-case-health-copy > span,
+:root[data-theme="dark"] .test-case-details-form .form-field-label,
+:root[data-theme="dark"] .test-case-detail-primary .step-card-body .form-field-label,
+:root[data-theme="dark"] .test-case-detail-primary .step-select-all {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .test-case-details-form input,
+:root[data-theme="dark"] .test-case-details-form select,
+:root[data-theme="dark"] .test-case-details-form textarea,
+:root[data-theme="dark"] .test-case-details-form .rich-text-editor,
+:root[data-theme="dark"] .test-case-details-form .rich-text-editor-surface,
+:root[data-theme="dark"] .test-case-detail-primary .step-card-body .rich-text-editor,
+:root[data-theme="dark"] .test-case-detail-primary .step-card-body .rich-text-editor-surface {
+  border-color: var(--test-case-border) !important;
+  background: var(--test-case-input) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-details-form .rich-text-editor-toolbar,
+:root[data-theme="dark"] .test-case-detail-primary .step-card-body .rich-text-editor-toolbar {
+  border-color: var(--test-case-border) !important;
+  background: rgba(30, 64, 110, 0.38) !important;
+}
+
+:root[data-theme="dark"] .test-case-details-form .test-case-authoring-completeness,
+:root[data-theme="dark"] .test-case-details-form .step-parameter-preview,
+:root[data-theme="dark"] .test-case-details-form .automation-link-summary,
+:root[data-theme="dark"] .test-case-details-form .test-case-review-summary {
+  border-color: var(--test-case-border) !important;
+  background: rgba(15, 31, 52, 0.9) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-details-advanced,
+:root[data-theme="dark"] .test-case-details-advanced-body {
+  border-color: var(--test-case-border) !important;
+  background: rgba(15, 31, 52, 0.9) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-details-advanced > summary,
+:root[data-theme="dark"] .test-case-details-advanced > summary strong,
+:root[data-theme="dark"] .test-case-details-advanced > summary small,
+:root[data-theme="dark"] .test-case-details-advanced > summary > span:last-of-type {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .test-case-add-row:hover {
+  border-color: #60a5fa !important;
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #bfdbfe !important;
+}
+
+:root[data-theme="dark"] .test-case-detail-delete-button {
+  color: #fda4af !important;
+}
+
+:root[data-theme="dark"] .test-case-detail-delete-button:hover:not(:disabled) {
+  border-color: rgba(251, 113, 133, 0.42) !important;
+  background: rgba(190, 24, 93, 0.14) !important;
+}
+
+:root[data-theme="dark"] .test-case-detail-cancel-button {
+  border-color: var(--test-case-border) !important;
+  background: #111f33 !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-run-action .test-case-run-split-action-button,
+:root[data-theme="dark"] .test-case-detail-save-button {
+  border-color: #3b82f6 !important;
+  background: var(--test-case-primary-bg) !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="dark"] .test-case-workspace-run-action .test-case-run-split-action-button:hover:not(:has(button:disabled)),
+:root[data-theme="dark"] .test-case-workspace-run-action .test-case-run-split-action-button:focus-within,
+:root[data-theme="dark"] .test-case-detail-save-button:hover:not(:disabled) {
+  border-color: #60a5fa !important;
+  background: var(--test-case-primary-hover) !important;
+}
+
+:root[data-theme="dark"] .test-case-detail-save-hint {
+  color: #fdba74 !important;
 }

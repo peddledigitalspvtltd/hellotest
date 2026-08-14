@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const apiRequestExecutionService = require("./apiRequestExecution.service");
 const {
@@ -256,6 +256,77 @@ exports.createTestStep = async ({
     reusable_group_id: normalizeText(reusable_group_id)
   });
   return { id };
+};
+
+exports.createTestSteps = async ({ test_case_id, insertion_index = 0, steps = [] } = {}) => {
+  await ensureTestCase(test_case_id);
+  if (!Array.isArray(steps) || !steps.length) throw new Error("Select at least one step to insert");
+  if (steps.length > 100) throw new Error("Insert at most 100 steps at a time");
+
+  const existingSteps = await listStepsForCase(test_case_id);
+  const parsedIndex = Number.parseInt(String(insertion_index), 10);
+  const boundedIndex = Math.max(0, Math.min(Number.isFinite(parsedIndex) ? parsedIndex : existingSteps.length, existingSteps.length));
+  const firstOrder = boundedIndex + 1;
+  const ids = steps.map(() => uuid());
+
+  const transaction = db.transaction(async () => {
+    await shiftStepOrdersForward.run(steps.length, test_case_id, firstOrder);
+    for (const [index, step] of steps.entries()) {
+      await insertStep.run(
+        ids[index],
+        test_case_id,
+        firstOrder + index,
+        normalizeText(step.action),
+        normalizeText(step.expected_result),
+        normalizeTestStepType(step.step_type, "web"),
+        normalizeRichText(step.automation_code),
+        normalizeApiRequest(step.api_request),
+        normalizeText(step.group_id),
+        normalizeText(step.group_name),
+        normalizeGroupKind(step.group_kind || (step.group_id ? "local" : null)),
+        normalizeText(step.reusable_group_id)
+      );
+    }
+  });
+
+  await transaction();
+  const sharedGroups = new Map();
+  steps.forEach((step) => {
+    if (step.reusable_group_id && step.group_id) sharedGroups.set(`${step.reusable_group_id}:${step.group_id}`, step);
+  });
+  for (const step of sharedGroups.values()) {
+    await syncSharedGroupFromStep({ ...step, test_case_id });
+  }
+  return { ids, created: ids.length };
+};
+
+exports.deleteTestSteps = async ({ test_case_id, step_ids = [] } = {}) => {
+  await ensureTestCase(test_case_id);
+  const ids = [...new Set((Array.isArray(step_ids) ? step_ids : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!ids.length) return { deleted: 0 };
+  if (ids.length > 200) throw new Error("Delete at most 200 steps at a time");
+  const placeholders = ids.map(() => "?").join(",");
+  const selected = await db.prepare(`SELECT * FROM test_steps WHERE id IN (${placeholders})`).all(...ids);
+  if (selected.length !== ids.length || selected.some((step) => step.test_case_id !== test_case_id)) {
+    const error = new Error("Every selected step must belong to the current test case");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const transaction = db.transaction(async () => {
+    await db.prepare(`DELETE FROM test_steps WHERE test_case_id = ? AND id IN (${placeholders})`).run(test_case_id, ...ids);
+    const remaining = await listStepsForCase(test_case_id);
+    for (const [index, step] of remaining.entries()) {
+      if (Number(step.step_order) !== index + 1) await updateOrder.run(index + 1, step.id);
+    }
+  });
+  await transaction();
+  const sharedGroups = new Map();
+  selected.forEach((step) => {
+    if (step.reusable_group_id && step.group_id) sharedGroups.set(`${step.reusable_group_id}:${step.group_id}`, step);
+  });
+  for (const step of sharedGroups.values()) await syncSharedGroupFromStep(step);
+  return { deleted: ids.length };
 };
 
 exports.getTestSteps = async ({ test_case_id }) => {

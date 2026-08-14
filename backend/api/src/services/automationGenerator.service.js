@@ -1,6 +1,6 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const aiAutomationBuilderService = require("./aiAutomationBuilder.service");
 

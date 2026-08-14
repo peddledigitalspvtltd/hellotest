@@ -1,6 +1,7 @@
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { AddIcon, CollapseExpandIcon, LayersIcon, OpenIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
@@ -8,6 +9,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
+import { EntityIdBadge } from "../components/EntityIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
@@ -30,12 +32,18 @@ import { TileCardFact, TileCardLinkIcon, TileCardRunsIcon, TileCardStepsIcon, ge
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
-import { WorkspaceSectionTabs } from "../components/WorkspaceSectionTabs";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import {
+  canEditAutomationCode as resolveCanEditAutomationCode,
+  canPreviewAutomationCode as resolveCanPreviewAutomationCode,
+  canViewAutomationCode as resolveCanViewAutomationCode
+} from "../lib/automationAccess";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
+import { asArray } from "../lib/collectionGuards";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
@@ -47,7 +55,6 @@ import {
   stepHasAutomation
 } from "../lib/stepAutomation";
 import { collectStepParameters, filterStepParameterValues, normalizeStepParameterValues, type StepParameterDefinition } from "../lib/stepParameters";
-import { TEST_AUTHORING_SECTION_ITEMS } from "../lib/workspaceSections";
 import type { ExecutionResult, SharedStepGroup, TestCase, User } from "../types";
 
 type SharedGroupDraftStep = {
@@ -118,8 +125,8 @@ const cloneSharedGroupStep = (
 const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
   name: group.name,
   description: group.description || "",
-  steps: (group.steps || []).map((step) => ({
-    id: createDraftStepId(),
+  steps: asArray(group.steps).map((step) => ({
+    id: step.id || createDraftStepId(),
     action: step.action || "",
     expected_result: step.expected_result || "",
     step_type: normalizeStepType(step.step_type),
@@ -128,17 +135,20 @@ const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
   }))
 });
 
-const normalizeGroupSteps = (steps: SharedGroupDraftStep[]) =>
+const normalizeGroupSteps = (steps: SharedGroupDraftStep[], includeAutomationFields = true) =>
   steps
     .map((step, index) => ({
+      id: step.id,
       step_order: index + 1,
       action: step.action.trim(),
       expected_result: step.expected_result.trim(),
       step_type: normalizeStepType(step.step_type),
-      automation_code: normalizeAutomationCode(step.automation_code) || undefined,
-      api_request: normalizeApiRequest(step.api_request) || undefined
+      ...(includeAutomationFields ? {
+        automation_code: normalizeAutomationCode(step.automation_code) || undefined,
+        api_request: normalizeApiRequest(step.api_request) || undefined
+      } : {})
     }))
-    .filter((step) => step.action || step.expected_result || step.automation_code || step.api_request);
+    .filter((step) => step.action || step.expected_result || ("automation_code" in step && step.automation_code) || ("api_request" in step && step.api_request));
 
 const sharedStepDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -174,6 +184,11 @@ export function SharedStepsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewSharedStepAutomation = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
+  const canEditSharedStepAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
+  const canPreviewSharedStepAutomation = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -205,41 +220,41 @@ export function SharedStepsPage() {
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
-    queryFn: api.projects.list
+    queryFn: async () => asArray(await api.projects.list())
   });
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
-    queryFn: () => api.appTypes.list({ project_id: projectId }),
+    queryFn: async () => asArray(await api.appTypes.list({ project_id: projectId })),
     enabled: Boolean(projectId)
   });
   const sharedGroupsQuery = useQuery({
     queryKey: ["shared-step-groups", appTypeId],
-    queryFn: () => api.sharedStepGroups.list({ app_type_id: appTypeId }),
+    queryFn: async () => asArray(await api.sharedStepGroups.list({ app_type_id: appTypeId })),
     enabled: Boolean(appTypeId)
   });
   const requirementsQuery = useQuery({
     queryKey: ["shared-steps-requirements", projectId],
-    queryFn: () => api.requirements.list({ project_id: projectId }),
+    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId })),
     enabled: Boolean(projectId)
   });
   const testCasesQuery = useQuery({
     queryKey: ["shared-steps-test-cases", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId }),
+    queryFn: async () => asArray(await api.testCases.list({ app_type_id: appTypeId })),
     enabled: Boolean(appTypeId)
   });
   const executionResultsQuery = useQuery({
     queryKey: ["shared-steps-execution-results", appTypeId],
-    queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
+    queryFn: async () => asArray(await api.executionResults.list({ app_type_id: appTypeId })),
     enabled: Boolean(appTypeId)
   });
   const suitesQuery = useQuery({
     queryKey: ["shared-steps-test-suites", appTypeId],
-    queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
+    queryFn: async () => asArray(await api.testSuites.list({ app_type_id: appTypeId })),
     enabled: Boolean(appTypeId)
   });
   const usersQuery = useQuery({
     queryKey: ["users"],
-    queryFn: api.users.list
+    queryFn: async () => asArray(await api.users.list())
   });
 
   const createSharedGroup = useMutation({ mutationFn: api.sharedStepGroups.create });
@@ -249,14 +264,14 @@ export function SharedStepsPage() {
   });
   const deleteSharedGroup = useMutation({ mutationFn: api.sharedStepGroups.delete });
 
-  const projects = projectsQuery.data || [];
-  const appTypes = appTypesQuery.data || [];
-  const sharedGroups = sharedGroupsQuery.data || [];
-  const requirements = requirementsQuery.data || [];
-  const testCases = testCasesQuery.data || [];
-  const executionResults = executionResultsQuery.data || [];
-  const suites = suitesQuery.data || [];
-  const users = (usersQuery.data || []) as User[];
+  const projects = asArray(projectsQuery.data);
+  const appTypes = asArray(appTypesQuery.data);
+  const sharedGroups = asArray(sharedGroupsQuery.data);
+  const requirements = asArray(requirementsQuery.data);
+  const testCases = asArray(testCasesQuery.data);
+  const executionResults = asArray(executionResultsQuery.data);
+  const suites = asArray(suitesQuery.data);
+  const users = asArray<User>(usersQuery.data);
   const userById = useMemo(
     () =>
       users.reduce<Record<string, User>>((accumulator, user) => {
@@ -334,6 +349,24 @@ export function SharedStepsPage() {
   }, [isCreating, selectedGroupId]);
 
   useEffect(() => {
+    if (!canEditSharedStepAutomation) {
+      setEditingAutomationStepId("");
+    }
+    if (!canPreviewSharedStepAutomation) {
+      setCodePreviewState(null);
+    }
+    if (!canViewSharedStepAutomation) {
+      setCodePreviewState(null);
+      setGroupDraft((current) => ({
+        ...current,
+        steps: current.steps.map((step) => ({ ...step, automation_code: "", api_request: null }))
+      }));
+      setCopiedSteps((current) => current.map((step) => ({ ...step, automation_code: "", api_request: null })));
+      setNewStepDraft((current) => ({ ...current, automation_code: "", api_request: null }));
+    }
+  }, [canEditSharedStepAutomation, canPreviewSharedStepAutomation, canViewSharedStepAutomation]);
+
+  useEffect(() => {
     setExpandedWorkspaceSections({
       details: true,
       steps: true
@@ -381,11 +414,11 @@ export function SharedStepsPage() {
           id: step.id,
           action: step.action,
           expected_result: step.expected_result,
-          automation_code: step.automation_code,
-          api_request: step.api_request
+          automation_code: canViewSharedStepAutomation ? step.automation_code : "",
+          api_request: canViewSharedStepAutomation ? step.api_request : null
         })) as Array<{ id: string; action: string; expected_result: string; automation_code: string; api_request: SharedGroupDraftStep["api_request"] }>
       ),
-    [groupDraft.steps]
+    [canViewSharedStepAutomation, groupDraft.steps]
   );
 
   useEffect(() => {
@@ -450,7 +483,7 @@ export function SharedStepsPage() {
         group.id,
         group.name,
         richTextToPlainText(group.description || ""),
-        ...(group.steps || []).map((step) => `${richTextToPlainText(step.action || "")} ${richTextToPlainText(step.expected_result || "")}`)
+        ...asArray(group.steps).map((step) => `${richTextToPlainText(step.action || "")} ${richTextToPlainText(step.expected_result || "")}`)
       ]
         .join(" ")
         .toLowerCase()
@@ -464,7 +497,7 @@ export function SharedStepsPage() {
   );
   const historyBySharedGroupId = useMemo(() => {
     const groupIdsByCaseId = sharedGroups.reduce<Record<string, string[]>>((map, group) => {
-      (group.used_test_cases || []).forEach((testCase) => {
+      asArray(group.used_test_cases).forEach((testCase) => {
         map[testCase.id] = map[testCase.id] || [];
         map[testCase.id].push(group.id);
       });
@@ -599,7 +632,7 @@ export function SharedStepsPage() {
       key: "id",
       label: "ID",
       sortValue: (group) => group.display_id || group.id,
-      render: (group) => <DisplayIdBadge value={group.display_id || group.id} />
+      render: (group) => <EntityIdBadge icon={<SharedStepsIconGraphic size={16} />} value={group.display_id || group.id} />
     },
     {
       key: "group",
@@ -668,50 +701,9 @@ export function SharedStepsPage() {
       label: "Scope",
       defaultVisible: false,
       render: () => selectedAppType?.name || "App type"
-    },
-    {
-      key: "actions",
-      label: "Actions",
-      canToggle: false,
-      render: (group) => (
-        <div onClick={(event) => event.stopPropagation()}>
-          <CatalogActionMenu
-            actions={[
-              {
-                label: "Open group",
-                description: "Open this shared step group in the workspace.",
-                icon: <OpenIcon />,
-                onClick: () => openSharedGroupWorkspace(group.id)
-              },
-              {
-                label: "View usage",
-                description: group.usage_count
-                  ? "See which test cases currently reuse this group."
-                  : "No linked test cases are using this group yet.",
-                icon: <LayersIcon />,
-                onClick: () => openSharedGroupUsage(group.id),
-                disabled: !group.usage_count
-              },
-              {
-                label: "Delete group",
-                description: "Delete this shared group and keep linked case steps as local copies.",
-                icon: <TrashIcon />,
-                onClick: () => void handleDeleteSharedGroupItem(group),
-                disabled: deleteSharedGroup.isPending,
-                tone: "danger" as const
-              }
-            ]}
-            label={`${group.name} actions`}
-          />
-        </div>
-      )
     }
   ], [
-    deleteSharedGroup.isPending,
-    handleDeleteSharedGroupItem,
     historyBySharedGroupId,
-    openSharedGroupUsage,
-    openSharedGroupWorkspace,
     selectedAppType?.name,
     selectedGroupIds,
     userById
@@ -882,6 +874,12 @@ export function SharedStepsPage() {
   };
 
   const cutDraftSteps = (stepIds: string[]) => {
+    if (!isCreating
+      && groupDraft.steps.some((step) => stepIds.includes(step.id) && stepHasAutomation(step))
+      && !canEditSharedStepAutomation) {
+      showError(new Error("Automation build and code access are required to move automated shared steps."), "Unable to cut shared steps");
+      return;
+    }
     const stepsToCut = groupDraft.steps
       .filter((step) => stepIds.includes(step.id))
       .map((step) => ({
@@ -929,6 +927,13 @@ export function SharedStepsPage() {
       return;
     }
 
+    if (!isCreating
+      && groupDraft.steps.some((step) => stepIds.includes(step.id) && stepHasAutomation(step))
+      && !canEditSharedStepAutomation) {
+      showError(new Error("Automation build and code access are required to delete automated shared steps."), "Unable to delete shared steps");
+      return;
+    }
+
     setGroupDraft((current) => ({
       ...current,
       steps: current.steps.filter((step) => !stepIds.includes(step.id))
@@ -951,6 +956,12 @@ export function SharedStepsPage() {
     stepId: string,
     input: { step_type: SharedGroupDraftStep["step_type"]; automation_code: string; api_request: SharedGroupDraftStep["api_request"] }
   ) => {
+    if (!canEditSharedStepAutomation) {
+      showError(new Error("Permission required: automation.build"), "Unable to edit shared step automation");
+      setEditingAutomationStepId("");
+      return;
+    }
+
     if (!input.step_type) {
       return;
     }
@@ -965,6 +976,11 @@ export function SharedStepsPage() {
   };
 
   const openSharedGroupAutomationPreview = () => {
+    if (!canPreviewSharedStepAutomation) {
+      showError(new Error("Permission and feature access required: automation.preview"), "Unable to open shared step automation");
+      return;
+    }
+
     setCodePreviewState({
       title: `${groupDraft.name.trim() || "Shared group"} automation`,
       subtitle: "This consolidated view is read-only. Edit automation from the individual shared steps.",
@@ -980,7 +996,7 @@ export function SharedStepsPage() {
       return;
     }
 
-    const steps = normalizeGroupSteps(groupDraft.steps);
+    const steps = normalizeGroupSteps(groupDraft.steps, canEditSharedStepAutomation);
     const parameterValues = filterStepParameterValues(normalizeStepParameterValues(sharedParameterValues), detectedSharedParameters);
     let savedGroupId = selectedGroup?.id || "";
 
@@ -1100,7 +1116,7 @@ export function SharedStepsPage() {
 
   const coverageMeta = {
     total: sharedGroups.length,
-    totalSteps: sharedGroups.reduce((count, group) => count + (group.step_count || group.steps.length || 0), 0),
+    totalSteps: sharedGroups.reduce((count, group) => count + (group.step_count || asArray(group.steps).length), 0),
     usedInCases: sharedGroups.reduce((count, group) => count + (group.usage_count || 0), 0)
   };
   const sharedStepPreview = richTextToPlainText(groupDraft.steps[0]?.action || groupDraft.steps[0]?.expected_result || "");
@@ -1111,23 +1127,6 @@ export function SharedStepsPage() {
     setIsUsageDialogOpen(false);
     setLinkedPreviewCaseId(testCaseId);
   };
-  const authoringSectionItems = useMemo(
-    () =>
-      TEST_AUTHORING_SECTION_ITEMS.map((item) => ({
-        ...item,
-        meta:
-          item.to === "/requirements"
-            ? String(requirements.length)
-            : item.to === "/test-cases"
-              ? String(testCases.length)
-              : item.to === "/shared-steps"
-                ? String(sharedGroups.length)
-                : item.to === "/design"
-                  ? String(suites.length)
-                  : undefined
-      })),
-    [requirements.length, sharedGroups.length, suites.length, testCases.length]
-  );
   const allStepsSelected = Boolean(groupDraft.steps.length) && selectedStepIds.length === groupDraft.steps.length;
   const isSharedGroupWorkspaceOpen = isCreating || Boolean(selectedGroupId);
   const sharedEditorActions: SharedGroupStepActionMenuAction[] = [
@@ -1181,7 +1180,7 @@ export function SharedStepsPage() {
       {confirmationDialog}
       {!isSharedGroupWorkspaceOpen ? (
         <PageHeader
-          eyebrow="Shared Step Groups"
+          eyebrow="Test authoring"
           title="Shared Step Groups"
           description="Curate repeatable step blocks once. Shared groups promoted from test cases and groups created here land in the same reusable library."
           meta={[
@@ -1194,50 +1193,55 @@ export function SharedStepsPage() {
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
-      <WorkspaceSectionTabs ariaLabel="Test authoring sections" items={authoringSectionItems} />
-
       <WorkspaceMasterDetail
         browseView={(
           <Panel
             title="Shared step list"
             subtitle={appTypeId ? undefined : "Choose an app type to begin."}
           >
-            <div className="design-list-toolbar test-case-catalog-toolbar">
-              <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
-              <CatalogSearchFilter
-                activeFilterCount={Number(Boolean(searchTerm.trim()))}
-                ariaLabel="Search shared step groups"
-                onChange={setSearchTerm}
-                placeholder="Search group name, description, or step text"
-                subtitle="Find shared groups by intent, summary, or step content."
-                title="Filter shared step groups"
-                value={searchTerm}
-              >
-                <div className="catalog-filter-grid">
-                  <div className="catalog-filter-actions">
-                    <button className="ghost-button" disabled={!searchTerm.trim()} onClick={() => setSearchTerm("")} type="button">
-                      Clear search
-                    </button>
+            <div className="design-list-toolbar catalog-command-toolbar test-case-catalog-toolbar">
+              <div className="catalog-toolbar-discovery" aria-label="Shared step views, search, and selection">
+                <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
+                <CatalogSearchFilter
+                  activeFilterCount={Number(Boolean(searchTerm.trim()))}
+                  ariaLabel="Search shared step groups"
+                  onChange={setSearchTerm}
+                  placeholder="Search group name, description, or step text"
+                  subtitle="Find shared groups by intent, summary, or step content."
+                  title="Filter shared step groups"
+                  value={searchTerm}
+                >
+                  <div className="catalog-filter-grid">
+                    <div className="catalog-filter-actions">
+                      <button className="ghost-button" disabled={!searchTerm.trim()} onClick={() => setSearchTerm("")} type="button">
+                        Clear search
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </CatalogSearchFilter>
-              <CatalogSelectionControls
-                allSelected={selectedVisibleGroupIds.length === visibleGroupIds.length}
-                canSelectAll={Boolean(visibleGroupIds.length)}
-                deleteAction={{
-                  disabled: deleteSharedGroup.isPending,
-                  label: deleteSharedGroup.isPending ? "Deleting selected" : "Delete selected",
-                  onClick: () => void handleDeleteSelectedGroups(),
-                  visible: Boolean(selectedVisibleGroupIds.length)
-                }}
-                onClear={() => setSelectedGroupIds([])}
-                onSelectAll={() => setSelectedGroupIds((current) => Array.from(new Set([...current, ...visibleGroupIds])))}
-                selectedCount={selectedGroupIds.length}
-              />
-              <button className="primary-button catalog-selection-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
-                <AddIcon />
-                <span>New shared group</span>
-              </button>
+                </CatalogSearchFilter>
+                <CatalogSelectionControls
+                  allSelected={selectedVisibleGroupIds.length === visibleGroupIds.length}
+                  canSelectAll={Boolean(visibleGroupIds.length)}
+                  onClear={() => setSelectedGroupIds([])}
+                  onSelectAll={() => setSelectedGroupIds((current) => Array.from(new Set([...current, ...visibleGroupIds])))}
+                  selectedCount={selectedGroupIds.length}
+                />
+              </div>
+              <div className="catalog-toolbar-actions" aria-label="Shared step actions">
+                <button className="primary-button catalog-selection-button" disabled={!appTypeId} onClick={beginCreateGroup} type="button">
+                  <AddIcon />
+                  <span>New shared group</span>
+                </button>
+                <button
+                  className="ghost-button danger catalog-selection-button"
+                  disabled={!selectedGroupIds.length || deleteSharedGroup.isPending}
+                  onClick={() => void handleDeleteSelectedGroups()}
+                  type="button"
+                >
+                  <TrashIcon />
+                  <span>{deleteSharedGroup.isPending ? "Deleting selected" : "Delete selected"}</span>
+                </button>
+              </div>
             </div>
 
             <TileBrowserPane className="test-case-library-scroll">
@@ -1276,7 +1280,7 @@ export function SharedStepsPage() {
 		                                type="checkbox"
 		                              />
 		                            </label>
-		                            <DisplayIdBadge value={group.display_id || group.id} />
+		                            <EntityIdBadge icon={<SharedStepsIconGraphic size={16} />} value={group.display_id || group.id} />
 		                          </div>
 		                          <div className="tile-card-header">
 			                            <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
@@ -1331,6 +1335,36 @@ export function SharedStepsPage() {
                   getRowClassName={(group) => (!isCreating && selectedGroupId === group.id ? "is-active-row" : "")}
                   getRowKey={(group) => group.id}
                   onRowClick={(group) => openSharedGroupWorkspace(group.id)}
+                  renderRowActions={(group) => (
+                    <CatalogActionMenu
+                      actions={[
+                        {
+                          label: "Open group",
+                          description: "Open this shared step group in the workspace.",
+                          icon: <OpenIcon />,
+                          onClick: () => openSharedGroupWorkspace(group.id)
+                        },
+                        {
+                          label: "View usage",
+                          description: group.usage_count
+                            ? "See which test cases currently reuse this group."
+                            : "No linked test cases are using this group yet.",
+                          icon: <LayersIcon />,
+                          onClick: () => openSharedGroupUsage(group.id),
+                          disabled: !group.usage_count
+                        },
+                        {
+                          label: "Delete group",
+                          description: "Delete this shared group and keep linked case steps as local copies.",
+                          icon: <TrashIcon />,
+                          onClick: () => void handleDeleteSharedGroupItem(group),
+                          disabled: deleteSharedGroup.isPending,
+                          tone: "danger" as const
+                        }
+                      ]}
+                      label={`${group.name} actions`}
+                    />
+                  )}
                   rows={filteredGroups}
                   storageKey="qaira:shared-steps:list-columns"
                 />
@@ -1382,6 +1416,7 @@ export function SharedStepsPage() {
 
                       <FormField label="Description">
                         <RichTextEditor
+                          appearance="canonical"
                           rows={3}
                           value={groupDraft.description}
                           onChange={(description) => setGroupDraft((current) => ({ ...current, description }))}
@@ -1391,12 +1426,16 @@ export function SharedStepsPage() {
                   </SharedStepAccordionSection>
 
                   <SharedStepAccordionSection
-                    actions={(
-                      <button className="ghost-button" disabled={!groupDraft.steps.length} onClick={openSharedGroupAutomationPreview} type="button">
+                    actions={canPreviewSharedStepAutomation ? (
+                      <SharedGroupStepIconButton
+                        ariaLabel="Preview shared group automation code"
+                        disabled={!groupDraft.steps.length}
+                        onClick={openSharedGroupAutomationPreview}
+                        title="Preview shared group automation code"
+                      >
                         <AutomationCodeIcon />
-                        <span>Automation code</span>
-                      </button>
-                    )}
+                      </SharedGroupStepIconButton>
+                    ) : undefined}
                     countLabel={`${groupDraft.steps.length} step${groupDraft.steps.length === 1 ? "" : "s"}`}
                     isExpanded={expandedWorkspaceSections.steps}
                     onToggle={() =>
@@ -1418,12 +1457,6 @@ export function SharedStepsPage() {
                               ? "Editing this shared group updates every linked test case while preserving execution history snapshots."
                               : "Once this group is inserted into a test case, linked case usage will appear here."}
                           </span>
-                          {selectedGroup.usage_count ? (
-                            <button className="ghost-button inline-button" onClick={() => setIsUsageDialogOpen(true)} type="button">
-                              <LinkedCasesIcon />
-                              <span>View linked cases</span>
-                            </button>
-                          ) : null}
                         </div>
                       ) : null}
 
@@ -1436,7 +1469,7 @@ export function SharedStepsPage() {
                         </div>
                       ) : null}
 
-                      <div className="action-row step-editor-toolbar">
+                      <div className="action-row step-editor-toolbar shared-step-editor-toolbar">
                         <label className="checkbox-field step-select-all">
                           <input
                             checked={allStepsSelected}
@@ -1448,25 +1481,40 @@ export function SharedStepsPage() {
                           />
                           Select all steps
                         </label>
-                        <button className="ghost-button" onClick={() => setIsParameterDialogOpen(true)} type="button">
-                          <SharedGroupParameterIcon />
-                          <span>{detectedSharedParameters.length ? `Params · ${detectedSharedParameters.length}` : "Params"}</span>
-                        </button>
-                        <SharedGroupStepActionMenu
-                          actions={sharedEditorActions}
-                          className="step-card-menu--inline step-card-menu--inline-right"
-                          label="Shared step actions"
-                          openOnHover
-                          previewActions={sharedEditorActions}
-                        />
-                        <SharedGroupStepIconButton
-                          ariaLabel="Add shared step"
-                          onClick={() => activateStepInsert(groupDraft.steps.length)}
-                          title="Add shared step"
-                          type="button"
-                        >
-                          <SharedGroupStepInsertIcon />
-                        </SharedGroupStepIconButton>
+                        <div className="shared-step-editor-toolbar-actions">
+                          <SharedGroupStepActionMenu
+                            actions={sharedEditorActions}
+                            className="step-card-menu--inline step-card-menu--inline-right"
+                            label="Shared step actions"
+                            openOnHover
+                            previewActions={sharedEditorActions}
+                          />
+                          <SharedGroupStepIconButton
+                            ariaLabel="Add shared step"
+                            onClick={() => activateStepInsert(groupDraft.steps.length)}
+                            title="Add shared step"
+                            type="button"
+                          >
+                            <SharedGroupStepInsertIcon />
+                          </SharedGroupStepIconButton>
+                          <SharedGroupStepIconButton
+                            ariaLabel={detectedSharedParameters.length ? `Edit ${detectedSharedParameters.length} shared step parameters` : "Edit shared step parameters"}
+                            onClick={() => setIsParameterDialogOpen(true)}
+                            title={detectedSharedParameters.length ? `Parameters (${detectedSharedParameters.length})` : "Parameters"}
+                          >
+                            <SharedGroupParameterIcon />
+                          </SharedGroupStepIconButton>
+                          {!isCreating && selectedGroup ? (
+                            <SharedGroupStepIconButton
+                              ariaLabel={selectedGroup.usage_count ? `Show ${selectedGroup.usage_count} test cases using this shared group` : "No test cases use this shared group yet"}
+                              disabled={!selectedGroup.usage_count}
+                              onClick={() => setIsUsageDialogOpen(true)}
+                              title={selectedGroup.usage_count ? `Used in ${selectedGroup.usage_count} test case${selectedGroup.usage_count === 1 ? "" : "s"}` : "Not used in test cases yet"}
+                            >
+                              <LinkedCasesIcon />
+                            </SharedGroupStepIconButton>
+                          ) : null}
+                        </div>
                       </div>
 
                       <div className="step-list">
@@ -1519,6 +1567,7 @@ export function SharedStepsPage() {
                               onToggleSelect={(checked) => toggleDraftStepSelected(step.id, checked)}
                               step={step}
                               stepNumber={index + 1}
+                              showAutomationTools={canEditSharedStepAutomation}
                             />
                             {index === groupDraft.steps.length - 1 ? (
                               <InlineSharedGroupStepInsertSlot
@@ -1583,7 +1632,7 @@ export function SharedStepsPage() {
         />
       ) : null}
 
-      {editingAutomationStepId ? (
+      {canEditSharedStepAutomation && editingAutomationStepId ? (
         <StepAutomationDialog
           onClose={() => setEditingAutomationStepId("")}
           onSave={(input) => handleSaveDraftStepAutomation(editingAutomationStepId, input)}
@@ -1593,7 +1642,7 @@ export function SharedStepsPage() {
         />
       ) : null}
 
-      {codePreviewState ? (
+      {canPreviewSharedStepAutomation && codePreviewState ? (
         <CodePreviewDialog
           code={codePreviewState.code}
           onClose={() => setCodePreviewState(null)}
@@ -1652,9 +1701,9 @@ function SharedStepUsageDialog({
       >
         <div className="import-modal-header">
           <div className="import-modal-title">
-            <p>Linked Cases</p>
+            <p className="dialog-context-label">Linked cases</p>
             <div className="modal-title-info-row">
-              <p className="eyebrow" id="shared-step-usage-title">{groupName}</p>
+              <h2 className="dialog-title" id="shared-step-usage-title">{groupName}</h2>
               <InfoTooltip
                 content="These test cases are currently linked to this shared group."
                 label="Linked cases information"
@@ -2126,7 +2175,8 @@ function SharedGroupDraftStepCard({
   onToggle,
   onToggleSelect,
   onChangeStepType,
-  onEditAutomation
+  onEditAutomation,
+  showAutomationTools
 }: {
   step: SharedGroupDraftStep;
   stepNumber: number;
@@ -2150,6 +2200,7 @@ function SharedGroupDraftStepCard({
   onToggleSelect: (checked: boolean) => void;
   onChangeStepType: (nextType: SharedGroupDraftStep["step_type"]) => void;
   onEditAutomation: () => void;
+  showAutomationTools: boolean;
 }) {
   const stepLabel = "Shared group step";
   const stepActions: SharedGroupStepActionMenuAction[] = [
@@ -2249,18 +2300,23 @@ function SharedGroupDraftStepCard({
         </button>
         <div className="step-inline-tools">
           <StepTypePickerButton value={step.step_type} onChange={onChangeStepType} />
-          <InlineStepToolButton
-            ariaLabel={`Edit automation for shared step ${stepNumber}`}
-            className={stepHasAutomation(step) ? "is-active" : ""}
-            onClick={onEditAutomation}
-            title="Edit step automation"
-          >
-            <AutomationCodeIcon />
-          </InlineStepToolButton>
+          {showAutomationTools ? (
+            <InlineStepToolButton
+              ariaLabel={`Edit automation for shared step ${stepNumber}`}
+              className={stepHasAutomation(step) ? "is-active" : ""}
+              onClick={onEditAutomation}
+              title="Edit step automation"
+            >
+              <AutomationCodeIcon />
+            </InlineStepToolButton>
+          ) : null}
         </div>
         <SharedGroupStepActionMenu
           actions={stepActions}
+          className="step-card-menu--floating"
           label={`Shared step ${stepNumber} actions`}
+          openOnHover
+          previewActions={stepActions}
         />
       </div>
 

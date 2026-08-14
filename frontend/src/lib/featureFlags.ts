@@ -11,7 +11,7 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/quality-gates": ["qaira.manual.quality_gates"],
   "/automation": ["qaira.automation.workspace"],
   "/automation-assets": ["qaira.automation.workspace", "qaira.automation.assets"],
-  "/object-repository": ["qaira.automation.object_repository"],
+  "/object-repository": ["qaira.automation.workspace", "qaira.automation.object_repository"],
   "/agentic-workflows": ["qaira.ai.agentic_workflows"],
   "/executions": ["qaira.manual.runs"],
   "/testops": ["qaira.automation.batch_process"],
@@ -27,7 +27,8 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/notifications": ["qaira.ops.notifications"],
   "/test-environments": ["qaira.manual.environments"],
   "/test-configurations": ["qaira.manual.environments"],
-  "/test-data": ["qaira.manual.test_data"]
+  "/test-data": ["qaira.manual.test_data"],
+  "/ai/quality-insights": ["qaira.ai.quality_insights"]
 };
 
 export function requiredFeatureFlagsForPath(pathname: string) {
@@ -39,6 +40,8 @@ export function areFeatureFlagsEnabled(snapshot: FeatureFlagSnapshot | null | un
     return true;
   }
 
+  // Protected capabilities fail closed while the snapshot is loading or
+  // unavailable. This prevents a disabled control from flashing into view.
   if (!snapshot) {
     return false;
   }

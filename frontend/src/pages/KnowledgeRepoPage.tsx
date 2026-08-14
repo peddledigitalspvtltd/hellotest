@@ -1,20 +1,33 @@
 import { useMemo, useState, FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject, useCurrentAppType } from "../hooks/useCurrentProject";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { asArray } from "../lib/collectionGuards";
+import { canViewAutomationCode as resolveCanViewAutomationCode } from "../lib/automationAccess";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { CatalogActionMenu } from "../components/CatalogActionMenu";
+import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
+import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable } from "../components/DataTable";
 import { AddIcon, TrashIcon, OpenIcon, SparkIcon } from "../components/AppIcons";
 import { ToastMessage } from "../components/ToastMessage";
 import { FormField } from "../components/FormField";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
+import { RovoProviderStatus } from "../components/RovoProviderStatus";
+import { DialogCloseButton } from "../components/DialogCloseButton";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
+import { isRovoIntegrationId } from "../lib/rovo";
+import "./KnowledgeRepoPage.rovo.css";
 
 const agentEducationTemplates = [
   {
     title: "Object repository naming rules",
-    description: "Teach QAira how your screens, fields, and business objects should be named.",
+    description: "Teach HelloTest how your screens, fields, and business objects should be named.",
     content_type: "markdown",
     content: [
       "# Object repository naming rules",
@@ -48,6 +61,9 @@ const agentEducationTemplates = [
 
 export function KnowledgeRepoPage() {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
@@ -56,6 +72,8 @@ export function KnowledgeRepoPage() {
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [knowledgeSearch, setKnowledgeSearch] = useState("");
 
   const [draft, setDraft] = useState({
     title: "",
@@ -86,7 +104,7 @@ export function KnowledgeRepoPage() {
   });
   const testCasesQuery = useQuery({
     queryKey: ["knowledge-context-test-cases", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId }),
+    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
     enabled: Boolean(appTypeId)
   });
   const objectRepositoryQuery = useQuery({
@@ -110,12 +128,33 @@ export function KnowledgeRepoPage() {
   const deleteKnowledge = useMutation({
     mutationFn: (id: string) => api.knowledgeRepo.delete(projectId, id)
   });
+  const isKnowledgeMutationPending = createKnowledge.isPending || updateKnowledge.isPending;
+  const closeKnowledgeDialog = () => {
+    if (isKnowledgeMutationPending) return;
+    setIsModalOpen(false);
+  };
+  const knowledgeDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isModalOpen,
+    closeDisabled: isKnowledgeMutationPending,
+    onClose: closeKnowledgeDialog
+  });
 
-  const items = knowledgeQuery.data || [];
-  const requirements = requirementsQuery.data || [];
-  const testCases = testCasesQuery.data || [];
-  const objectRepository = objectRepositoryQuery.data || [];
-  const llmIntegrations = integrationsQuery.data || [];
+  const items = asArray(knowledgeQuery.data);
+  const filteredItems = useMemo(() => {
+    const normalizedSearch = knowledgeSearch.trim().toLowerCase();
+    if (!normalizedSearch) return items;
+
+    return items.filter((item: any) => [
+      item.title,
+      richTextToPlainText(item.description),
+      item.content_type,
+      item.is_active ? "active" : "inactive"
+    ].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch));
+  }, [items, knowledgeSearch]);
+  const requirements = asArray(requirementsQuery.data);
+  const testCases = asArray(testCasesQuery.data);
+  const objectRepository = asArray(objectRepositoryQuery.data);
+  const llmIntegrations = (integrationsQuery.data || []).filter((integration) => !isRovoIntegrationId(integration.id));
   const manualCases = useMemo(() => testCases.filter((testCase: any) => testCase.automated !== "yes"), [testCases]);
   const automatedCases = useMemo(() => testCases.filter((testCase: any) => testCase.automated === "yes"), [testCases]);
 
@@ -190,16 +229,16 @@ export function KnowledgeRepoPage() {
       lines.push(`### ${testCase.title}`);
       lines.push(`- ID: ${testCase.display_id || testCase.id}`);
       lines.push(`- Status: ${testCase.status || "unknown"}`);
-      lines.push(`- Automated: ${testCase.automated || "no"}`);
+      lines.push(`- Automated: ${testCase.automated === "yes" ? "yes" : "no"}`);
       if (testCase.description) {
         lines.push(`- Description: ${testCase.description}`);
       }
       steps.slice(0, 30).forEach((step) => {
         lines.push(`- Step ${step.step_order}: ${step.action || ""} => ${step.expected_result || ""}`);
-        if (step.automation_code) {
+        if (canViewAutomationCode && step.automation_code) {
           lines.push(`  - Keyword automation: ${step.automation_code}`);
         }
-        if (step.api_request) {
+        if (canViewAutomationCode && step.api_request) {
           lines.push(`  - API request: ${JSON.stringify(step.api_request)}`);
         }
       });
@@ -219,12 +258,12 @@ export function KnowledgeRepoPage() {
 
     try {
       const sections = [
-        "# QAira Application Context Pack",
+        "# HelloTest Application Context Pack",
         "",
-        "Use this as retrieval context for local LLM/manual case generation, requirement maturation, automation generation, and locator repair.",
+        "Use this as retrieval context for direct LLM/manual case generation, story maturation, automation generation, and locator repair.",
         "",
         "## RAG Agent Operating Model",
-        "- Requirements define product intent and acceptance criteria.",
+        "- Stories define product intent and acceptance criteria.",
         "- Manual cases describe business workflows and expected outcomes.",
         "- Automated cases provide executable keyword steps, variables, APIs, and locator usage.",
         "- Object repository records are execution-time locator truth; prefer target locator first, DOM/accessibility structure second, screenshot fallback last.",
@@ -233,7 +272,7 @@ export function KnowledgeRepoPage() {
       ];
 
       if (contextSources.requirements) {
-        sections.push("## Requirements");
+        sections.push("## Stories");
         requirements.slice(0, 120).forEach((requirement: any) => {
           sections.push(`### ${requirement.title}`);
           sections.push(`- ID: ${requirement.display_id || requirement.id}`);
@@ -275,13 +314,13 @@ export function KnowledgeRepoPage() {
 
       if (contextSources.documents) {
         sections.push("## Document Context");
-        sections.push("Add PDF/manual/setup documents as separate knowledge items. For local LLM quality, paste extracted text or structured summaries when PDF parsing is unavailable.");
+        sections.push("Add PDF/manual/setup documents as separate knowledge items. For direct LLM quality, paste extracted text or structured summaries when PDF parsing is unavailable.");
         sections.push("");
       }
 
       const response = await createKnowledge.mutateAsync({
         title: `Application context pack ${new Date().toLocaleDateString()}`,
-        description: "Auto-built RAG context from requirements, cases, automation, object repository, APIs, and documents.",
+        description: "Auto-built RAG context from stories, cases, automation, object repository, APIs, and documents.",
         content_type: "markdown",
         content: sections.join("\n"),
         metadata: {
@@ -318,6 +357,21 @@ export function KnowledgeRepoPage() {
       }
     }
   };
+  const getKnowledgeActions = (item: any) => [
+    {
+      label: "Edit knowledge",
+      description: "Open this knowledge item for editing.",
+      icon: <OpenIcon />,
+      onClick: () => handleOpenEditModal(item)
+    },
+    {
+      label: "Delete knowledge",
+      description: "Remove this knowledge item from AI retrieval context.",
+      icon: <TrashIcon />,
+      onClick: () => void handleDelete(item.id),
+      tone: "danger" as const
+    }
+  ];
 
   return (
     <div className="workspace-layout">
@@ -328,7 +382,7 @@ export function KnowledgeRepoPage() {
         <PageHeader
           eyebrow="Administration"
           title="Knowledge Repo"
-          description="Educate QAira's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal."
+          description="Educate HelloTest's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal."
         />
 
         <div className="workspace-content page-content--knowledge">
@@ -336,16 +390,16 @@ export function KnowledgeRepoPage() {
             <div>
               <span className="eyebrow">Local agent education</span>
               <h2>Give auto-heal the context it cannot infer from code alone</h2>
-              <p>Active knowledge is packed with object repository entries, test cases, recorder screenshots, and external documents when QAira builds or repairs automation.</p>
+              <p>Active knowledge is packed with object repository entries, test cases, recorder screenshots, and external documents when HelloTest builds or repairs automation.</p>
             </div>
             <div className="agent-context-cockpit">
               <div>
                 <h2>Build an application-aware RAG pack</h2>
-                <p>Package selected requirements, manual cases, automated keyword steps, object repository fields, API notes, and document guidance into one active knowledge item. Local LLM integrations can then use the same context to mature requirements, design manual cases, generate automation, and repair locators.</p>
-                <div className="agent-context-metrics">
+                <p>Package selected stories, manual cases, automated keyword steps, object repository fields, API notes, and document guidance into one active knowledge item. Direct LLM integrations can then use the same context to mature stories, design manual cases, generate automation, and repair locators; Rovo remains a separate Jira conversation.</p>
+                <div className="agent-context-metrics metric-strip page-metric-strip" aria-label="Available application context" role="group">
                   <div className="mini-card">
                     <strong>{requirements.length}</strong>
-                    <span>Requirements</span>
+                    <span>Stories</span>
                   </div>
                   <div className="mini-card">
                     <strong>{manualCases.length}</strong>
@@ -361,13 +415,24 @@ export function KnowledgeRepoPage() {
                   </div>
                   <div className="mini-card">
                     <strong>{llmIntegrations.length ? "Ready" : "Setup"}</strong>
-                    <span>Local LLM</span>
+                    <span>Direct LLM</span>
                   </div>
                 </div>
+                <RovoProviderStatus
+                  className="knowledge-rovo-provider"
+                  compact
+                  prompt={[
+                    "Open a Jira-native HelloTest QA Agent conversation. This is a Rovo knowledge-design review, not a direct model invocation and must not create or update knowledge items.",
+                    `Review the knowledge context for Jira project ${projectId || "not selected"} and app type ${appTypeId || "not selected"}.`,
+                    `Available evidence counts: ${requirements.length} Stories, ${manualCases.length} manual cases, ${automatedCases.length} automated cases, and ${objectRepository.length} object-repository records.`,
+                    `Selected context families: ${Object.entries(contextSources).filter(([, enabled]) => enabled).map(([key]) => key).join(", ") || "none"}.`,
+                    "Identify missing product knowledge, safe retrieval boundaries, stale-source risks, and the smallest useful additions. Clearly separate observed counts from recommendations."
+                  ].join("\n").slice(0, 3_800)}
+                />
               </div>
               <div className="agent-context-source-grid">
                 {([
-                  ["requirements", "Requirements"],
+                  ["requirements", "Stories"],
                   ["manualCases", "Manual cases and steps"],
                   ["automatedCases", "Automated keyword steps"],
                   ["objectRepository", "Object repository and locators"],
@@ -405,16 +470,81 @@ export function KnowledgeRepoPage() {
             </div>
           </section>
 
-          <div className="design-list-toolbar resource-catalog-toolbar knowledge-repo-toolbar">
-            <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId} type="button">
-              <AddIcon />
-              <span>Add Knowledge</span>
-            </button>
-          </div>
+          <Panel title="Knowledge items" subtitle="Active entries are retrieved by AI generation, story completion, automation build, and locator repair flows.">
+            <div className="design-list-toolbar catalog-command-toolbar resource-catalog-toolbar knowledge-repo-toolbar">
+              <div className="catalog-toolbar-discovery" aria-label="Knowledge views and search">
+                <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
+                <CatalogSearchFilter
+                  activeFilterCount={knowledgeSearch.trim() ? 1 : 0}
+                  ariaLabel="Search knowledge items"
+                  onChange={setKnowledgeSearch}
+                  placeholder="Search title, description, type, or status"
+                  subtitle="Search the active project knowledge catalog."
+                  title="Knowledge search"
+                  type="search"
+                  value={knowledgeSearch}
+                >
+                  <div className="catalog-filter-actions">
+                    <button className="ghost-button" disabled={!knowledgeSearch.trim()} onClick={() => setKnowledgeSearch("")} type="button">
+                      Clear search
+                    </button>
+                  </div>
+                </CatalogSearchFilter>
+              </div>
+              <div className="catalog-toolbar-actions" aria-label="Knowledge actions">
+                <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId} type="button">
+                  <AddIcon />
+                  <span>Add Knowledge</span>
+                </button>
+              </div>
+            </div>
 
-          <Panel title="Knowledge items" subtitle="Active entries are retrieved by AI generation, requirement completion, automation build, and locator repair flows.">
-            <DataTable
-              rows={items}
+            {filteredItems.length && catalogViewMode === "tile" ? (
+              <div className="tile-browser-grid">
+                {filteredItems.map((item: any) => (
+                  <article
+                    aria-label={`Open knowledge item ${item.title}`}
+                    className="record-card tile-card knowledge-catalog-card"
+                    key={item.id}
+                    onClick={() => handleOpenEditModal(item)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleOpenEditModal(item);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="tile-card-main">
+                      <div className="tile-card-select-row">
+                        <span className="badge badge-neutral">{item.content_type || "text"}</span>
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <CatalogActionMenu actions={getKnowledgeActions(item)} label={`${item.title} actions`} />
+                        </div>
+                      </div>
+                      <div className="tile-card-header">
+                        <div className="tile-card-title-group">
+                          <strong>{item.title}</strong>
+                        </div>
+                      </div>
+                      <p className="tile-card-description">
+                        {richTextToPlainText(item.description) || "No description captured for this knowledge item."}
+                      </p>
+                      <div className="tile-card-footer">
+                        <span className={`badge ${item.is_active ? "badge-success" : "badge-neutral"}`}>
+                          {item.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+
+            {filteredItems.length && catalogViewMode === "list" ? <DataTable
+              rows={filteredItems}
               columns={[
                 {
                   key: "title",
@@ -439,50 +569,56 @@ export function KnowledgeRepoPage() {
                       {item.is_active ? "Active" : "Inactive"}
                     </span>
                   )
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (item: any) => (
-                    <div className="action-row compact">
-                      <button className="ghost-button compact" onClick={() => handleOpenEditModal(item)} title="Edit" type="button">
-                        <OpenIcon />
-                      </button>
-                      <button className="ghost-button compact danger" onClick={() => handleDelete(item.id)} title="Delete" type="button">
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  )
                 }
               ]}
+              enableColumnResize
+              enableHeaderColumnReorder
               emptyMessage="No AI knowledge items found."
-            />
+              renderRowActions={(item: any) => (
+                <CatalogActionMenu
+                  actions={getKnowledgeActions(item)}
+                  label={`${item.title} actions`}
+                />
+              )}
+              storageKey="qaira:knowledge:list-columns:v2"
+            /> : null}
+            {!knowledgeQuery.isPending && !filteredItems.length ? (
+              <div className="empty-state compact">
+                {items.length ? "No knowledge items match the current search." : "No AI knowledge items found."}
+              </div>
+            ) : null}
           </Panel>
         </div>
       </div>
 
       {isModalOpen && (
-        <div className="modal-backdrop modal-backdrop--scroll" onClick={() => setIsModalOpen(false)} role="presentation">
+        <div className="modal-backdrop modal-backdrop--scroll" onClick={closeKnowledgeDialog} role="presentation">
           <div
+            aria-labelledby="knowledge-item-dialog-title"
             aria-modal="true"
             className="modal-card requirement-create-modal knowledge-item-modal"
             onClick={(e) => e.stopPropagation()}
+            ref={knowledgeDialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="requirement-create-header">
               <div className="requirement-create-title">
-                <p className="eyebrow">AI Knowledge</p>
-                <p className="eyebrow">{editingId ? "Edit knowledge" : "Add knowledge"}</p>
-                <p>Store durable app context for local LLM retrieval, generation, and locator repair.</p>
+                <p className="dialog-context-label">AI knowledge</p>
+                <h2 className="dialog-title" id="knowledge-item-dialog-title">{editingId ? "Edit knowledge" : "Add knowledge"}</h2>
+                <p>Store durable app context for direct LLM retrieval, generation, and locator repair.</p>
               </div>
-              <button className="ghost-button" onClick={() => setIsModalOpen(false)} type="button">
-                Close
-              </button>
+              <DialogCloseButton
+                disabled={isKnowledgeMutationPending}
+                label={`Close ${editingId ? "edit" : "add"} knowledge dialog`}
+                onClick={closeKnowledgeDialog}
+              />
             </div>
             <form onSubmit={handleSubmit}>
               <div className="requirement-create-modal-body">
                 <FormField label="Title" required>
                   <input
+                    data-autofocus="true"
                     type="text"
                     value={draft.title}
                     onChange={(e) => setDraft({ ...draft, title: e.target.value })}
@@ -493,6 +629,7 @@ export function KnowledgeRepoPage() {
 
                 <FormField label="Description">
                   <RichTextEditor
+                    appearance="canonical"
                     rows={3}
                     value={draft.description}
                     onChange={(description) => setDraft({ ...draft, description })}
@@ -535,10 +672,10 @@ export function KnowledgeRepoPage() {
                 </FormField>
               </div>
               <div className="action-row requirement-create-modal-actions">
-                <button type="button" className="ghost-button" onClick={() => setIsModalOpen(false)}>
+                <button type="button" className="ghost-button" disabled={isKnowledgeMutationPending} onClick={closeKnowledgeDialog}>
                   Cancel
                 </button>
-                <button type="submit" className="primary-button" disabled={createKnowledge.isPending || updateKnowledge.isPending}>
+                <button type="submit" className="primary-button" disabled={isKnowledgeMutationPending}>
                   {editingId ? "Save changes" : "Create"}
                 </button>
               </div>

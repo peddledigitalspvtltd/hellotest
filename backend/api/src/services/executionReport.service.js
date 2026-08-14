@@ -636,7 +636,7 @@ const renderReportHtml = (report, { mode = "email" } = {}) => {
   <body style="margin:0;background:#eef3f8;color:#111827;font-family:Arial,Helvetica,sans-serif;">
     <div style="max-width:1040px;margin:0 auto;padding:28px;">
       <div style="background:#122033;border-radius:8px;padding:24px;border:1px solid #122033;">
-        <p style="margin:0 0 8px;color:#9fb5cf;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">QAira Run Report</p>
+        <p style="margin:0 0 8px;color:#9fb5cf;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">HelloTest Run Report</p>
         <h1 style="margin:0 0 8px;font-size:28px;line-height:1.15;color:#ffffff;">${escapeHtml(title)}</h1>
         <p style="margin:0;color:#d7e2ef;font-size:13px;">Generated ${escapeHtml(formatDate(report.generated_at))} · Started ${escapeHtml(formatDate(execution.started_at))} · Ended ${escapeHtml(formatDate(execution.ended_at))}</p>
       </div>
@@ -744,7 +744,7 @@ const buildAiAnalysisLines = (analysis) => {
 
 const buildReportLines = (report, { detailed = false } = {}) => {
   const lines = [
-    `QAira Run Report: ${report.execution.name || report.execution.id}`,
+    `HelloTest Run Report: ${report.execution.name || report.execution.id}`,
     `Generated: ${formatDate(report.generated_at)}`,
     `Status: ${report.execution.status || "queued"}`,
     `Cases: ${report.summary.total} total, ${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.blocked} blocked`,
@@ -906,7 +906,7 @@ const renderReportPdf = (report) => {
 
     if (continued) {
       ops.push(`${pdfColor("#edf3f8")} 0 ${pdfNumber(pageHeight - 28)} ${pageWidth} 28 re f`);
-      ops.push(`BT ${pdfColor("#5b6472")} /F2 9 Tf ${margin} ${pdfNumber(pageHeight - 18)} Td (${pdfEscape(report.execution.name || "QAira Run Report")}) Tj ET`);
+      ops.push(`BT ${pdfColor("#5b6472")} /F2 9 Tf ${margin} ${pdfNumber(pageHeight - 18)} Td (${pdfEscape(report.execution.name || "HelloTest Run Report")}) Tj ET`);
       cursorY = 52;
     }
   };
@@ -989,7 +989,7 @@ const renderReportPdf = (report) => {
   addPage(false);
 
   rect(margin, cursorY, usableWidth, 92, "#122033", "#122033");
-  text("QAira Run Report", margin + 18, cursorY + 25, 11, { bold: true, color: "#9fb5cf" });
+  text("HelloTest Run Report", margin + 18, cursorY + 25, 11, { bold: true, color: "#9fb5cf" });
   wrappedText(report.execution.name || "Execution run report", margin + 18, cursorY + 48, usableWidth - 36, 20, {
     bold: true,
     color: "#ffffff",
@@ -1262,6 +1262,54 @@ exports.renderReportHtml = async (executionId, { user_id } = {}) => renderReport
 
 exports.renderReportPdf = async (executionId, { user_id } = {}) => renderReportPdf(await buildReportWithAiAnalysis(executionId, { userId: user_id }));
 
+const scopeReportToCase = (report, testCaseId) => {
+  const testCase = report.cases.find((item) => String(item.id) === String(testCaseId));
+  if (!testCase) {
+    const error = new Error("The selected test case is not part of this run snapshot");
+    error.statusCode = 404;
+    throw error;
+  }
+  const summary = {
+    total: 1,
+    passed: testCase.status === "passed" ? 1 : 0,
+    failed: testCase.status === "failed" ? 1 : 0,
+    blocked: testCase.status === "blocked" ? 1 : 0,
+    running: ["passed", "failed", "blocked"].includes(testCase.status) ? 0 : 1,
+    pass_rate: testCase.status === "passed" ? 100 : 0,
+    duration_ms: Number(testCase.duration_ms || 0)
+  };
+  return {
+    ...report,
+    execution: { ...report.execution, name: `${report.execution.name || "HelloTest run"} · ${testCase.title}` },
+    summary,
+    cases: [testCase],
+    suites: [{ id: testCase.suite_id || null, name: testCase.suite_name || "Direct run", ...summary, step_count: testCase.steps.length, cases: [testCase] }],
+    ai_analysis: createUnavailableAiAnalysis("AI summary is omitted from a single-case evidence export; review the recorded case and step evidence directly.")
+  };
+};
+
+exports.renderCaseReportPdf = async (executionId, testCaseId) => renderReportPdf(scopeReportToCase(await buildReportModel(executionId), testCaseId));
+
+exports.emailCaseReport = async ({ execution_id, test_case_id, recipients, requested_by } = {}) => {
+  const normalizedRecipients = normalizeRecipients(recipients);
+  if (!normalizedRecipients.length) throw new Error("At least one report recipient is required");
+  const report = scopeReportToCase(await buildReportModel(execution_id), test_case_id);
+  const testCase = report.cases[0];
+  await emailService.sendMail({
+    to: normalizedRecipients,
+    subject: `HelloTest case report: ${testCase.title}`,
+    text: buildReportLines(report).join("\n"),
+    html: renderReportHtml(report)
+  });
+  try {
+    const transaction = await workspaceTransactionService.createTransaction({ project_id: report.execution.project_id, app_type_id: report.execution.app_type_id || null, category: "reporting", action: "case_report_share", status: "completed", title: `Shared case report for ${testCase.title}`, description: `Sent case report to ${normalizedRecipients.length} recipient${normalizedRecipients.length === 1 ? "" : "s"}.`, metadata: { channel: "email", recipient_count: normalizedRecipients.length, execution_id, test_case_id }, related_kind: "execution", related_id: execution_id, created_by: requested_by || null, started_at: new Date().toISOString(), completed_at: new Date().toISOString() });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, { level: "success", phase: "report.email.sent", message: "Case report email sent.", details: { execution_id, test_case_id, recipient_count: normalizedRecipients.length } });
+  } catch {
+    // Audit failure must not reverse a successfully delivered email.
+  }
+  return { sent: true, recipients: normalizedRecipients.length };
+};
+
 exports.emailReport = async ({ execution_id, recipients, requested_by } = {}) => {
   const normalizedRecipients = normalizeRecipients(recipients);
 
@@ -1270,13 +1318,13 @@ exports.emailReport = async ({ execution_id, recipients, requested_by } = {}) =>
   }
 
   const report = await buildReportWithAiAnalysis(execution_id, { userId: requested_by });
-  const title = report.execution.name || "QAira execution run";
+  const title = report.execution.name || "HelloTest execution run";
   const html = renderReportHtml(report);
   const text = buildReportLines(report).join("\n");
 
   await emailService.sendMail({
     to: normalizedRecipients,
-    subject: `QAira run report: ${title}`,
+    subject: `HelloTest run report: ${title}`,
     text,
     html
   });

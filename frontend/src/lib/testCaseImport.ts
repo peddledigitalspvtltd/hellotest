@@ -26,6 +26,10 @@ export type ImportedTestCaseRow = {
   requirement?: string;
   suites?: string;
   suite?: string;
+  modules?: string;
+  module?: string;
+  test_data_references?: string;
+  shared_groups?: Array<Record<string, unknown>>;
   description?: string;
   external_references?: string[];
   automated?: string;
@@ -48,10 +52,14 @@ const HEADER_ALIASES: Record<keyof ImportedTestCaseRow, string[]> = {
   title: ["title", "testcasetitle", "testcase", "testcasename", "name"],
   action: ["action", "actions", "step", "steps", "teststep", "teststeps"],
   expected_result: ["expectedresult", "expectedresults", "expected", "result", "outcome"],
-  requirements: ["requirements", "requirementtitles", "linkedrequirements"],
-  requirement: ["requirement", "requirementtitle", "linkedrequirement"],
+  requirements: ["stories", "storytitles", "linkedstories", "requirements", "requirementtitles", "linkedrequirements"],
+  requirement: ["story", "storytitle", "linkedstory", "requirement", "requirementtitle", "linkedrequirement"],
   suites: ["suites", "suitenames", "linkedsuites"],
   suite: ["suite", "suitename", "linkedsuite"],
+  modules: ["modules", "modulenames", "linkedmodules"],
+  module: ["module", "modulename", "linkedmodule"],
+  test_data_references: ["testdatareferences", "testdatasetids", "testdatasets", "linkeddatasets"],
+  shared_groups: ["sharedgroups", "sharedstepgroups", "reusablegroups"],
   description: ["description", "details", "notes", "scenario"],
   external_references: ["externalreferences", "externalreference", "references", "reference", "externallinks", "externaltickets", "ticketlinks", "tickets", "jira", "issue", "issues"],
   automated: ["automated", "automation", "isautomated", "automatedcase", "autocoverage"],
@@ -61,7 +69,7 @@ const HEADER_ALIASES: Record<keyof ImportedTestCaseRow, string[]> = {
   step_group_kind: ["stepgroupkind", "groupkind", "sharedgroupkind", "grouptype", "grouprole"],
   shared_group_id: ["sharedgroupid", "reusablegroupid", "stepgroupsourceid", "sharedgroupref"],
   parameter_values: ["testdata", "test_data", "testdatavalues", "parametervalues", "parameters", "data", "variables"],
-  steps: []
+  steps: ["steps", "stepdetails", "teststepsjson"]
 };
 
 const normalizeHeader = (header: string) => header.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -98,6 +106,14 @@ const parseParameterValuesText = (value: string) =>
       next[key] = separatorIndex >= 0 ? entry.slice(separatorIndex + 1).trim() : "";
       return next;
     }, {});
+
+const parseJsonValue = (value: string) => {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+};
 
 const normalizeExplicitImportedSteps = (steps: ImportedTestCaseRow["steps"]) =>
   Array.isArray(steps)
@@ -152,7 +168,24 @@ export function parseTestCaseCsv(text: string): ParsedCsv {
         }
 
         if (key === "parameter_values") {
-          accumulator.parameter_values = parseParameterValuesText(value);
+          const parsed = parseJsonValue(value);
+          accumulator.parameter_values = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([name, item]) => [name, String(item ?? "")]))
+            : parseParameterValuesText(value);
+          return accumulator;
+        }
+
+        if (key === "steps") {
+          const parsed = parseJsonValue(value);
+          accumulator.steps = Array.isArray(parsed) ? parsed as ImportedTestCaseStep[] : undefined;
+          return accumulator;
+        }
+
+        if (key === "shared_groups") {
+          const parsed = parseJsonValue(value);
+          accumulator.shared_groups = Array.isArray(parsed)
+            ? parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+            : undefined;
           return accumulator;
         }
 

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { InfoTooltip } from "./InfoTooltip";
 
 type DeleteConfirmationState = {
@@ -33,20 +34,27 @@ export function useDeleteConfirmation() {
     }), []);
   const confirmDelete = useCallback(({ message, confirmLabel = "Confirm delete", title = "Warning, can't revert" }: DeleteConfirmationOptions) =>
     confirmAction({ message, confirmLabel, title, tone: "danger" }), [confirmAction]);
+  const dialogRef = useDialogFocus<HTMLDivElement>({
+    active: Boolean(state),
+    onClose: () => close(false)
+  });
 
   const confirmationDialog = state && typeof document !== "undefined"
     ? createPortal(
       <div className="modal-backdrop delete-confirmation-backdrop" onClick={() => close(false)} role="presentation">
         <div
+          aria-labelledby="delete-confirmation-title"
           aria-modal="true"
           className="modal-card delete-confirmation-modal"
           onClick={(event) => event.stopPropagation()}
+          ref={dialogRef}
           role="dialog"
+          tabIndex={-1}
         >
           <div className="resource-modal-header">
             <div className="resource-modal-title">
               <div className="modal-title-info-row">
-                <p className="eyebrow">{state.title}</p>
+                <h2 className="dialog-title" id="delete-confirmation-title">{state.title}</h2>
                 <InfoTooltip content={state.message} label="Confirmation details" />
               </div>
             </div>

@@ -100,6 +100,18 @@ const validateInput = (schema, data = {}) => {
       throw createValidationError(`Field '${field}' must be at least ${rules.minLength} characters`);
     }
 
+    if (rules.maxLength && typeof value === "string" && value.length > rules.maxLength) {
+      throw createValidationError(`Field '${field}' must be at most ${rules.maxLength} characters`);
+    }
+
+    if (rules.minItems && Array.isArray(value) && value.length < rules.minItems) {
+      throw createValidationError(`Field '${field}' must contain at least ${rules.minItems} items`);
+    }
+
+    if (rules.maxItems && Array.isArray(value) && value.length > rules.maxItems) {
+      throw createValidationError(`Field '${field}' must contain at most ${rules.maxItems} items`);
+    }
+
     if (rules.enum && !rules.enum.includes(value)) {
       throw createValidationError(`Field '${field}' must be one of: ${rules.enum.join(", ")}`);
     }
@@ -112,6 +124,9 @@ async function validatorPlugin(fastify) {
   return fastify;
 }
 
-module.exports = fp(validatorPlugin, {
+const plugin = fp(validatorPlugin, {
   name: "qaira-validator"
 });
+
+plugin.validateInput = validateInput;
+module.exports = plugin;

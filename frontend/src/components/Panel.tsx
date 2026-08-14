@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 
 export function Panel({
+  title: _title,
+  titleVariant: _titleVariant = "heading",
+  subtitle: _subtitle,
   actions,
   className = "",
   children
@@ -14,11 +17,7 @@ export function Panel({
 }) {
   return (
     <section className={`panel card ${className}`.trim()}>
-      {actions ? (
-        <div className="panel-head">
-          <div className="panel-head-actions">{actions}</div>
-        </div>
-      ) : null}
+      {actions ? <div className="panel-actions-inline">{actions}</div> : null}
       {children}
     </section>
   );

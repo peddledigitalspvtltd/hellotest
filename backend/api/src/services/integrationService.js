@@ -10,7 +10,7 @@
  * @returns {string} YAML content for the GitHub Action
  */
 function generateGitHubAction(projectId, suiteId) {
-  return `name: QAira E2E Tests
+  return `name: HelloTest E2E Tests
 on:
   push:
     branches: [ "main" ]
@@ -22,7 +22,7 @@ jobs:
   qaira-tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger QAira Execution
+      - name: Trigger HelloTest Execution
         run: |
           curl -X POST "https://api.qaira.io/v1/executions/trigger" \\
                -H "Authorization: Bearer \${{ secrets.QAIRA_API_KEY }}" \\

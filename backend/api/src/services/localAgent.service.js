@@ -88,7 +88,7 @@ const launchHostRecorder = () => {
     return {
       started: false,
       launch_supported: false,
-      message: "One-click local agent launch is disabled. Set QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true on the API process to allow QAira to run the fixed local runner script."
+      message: "One-click local agent launch is disabled. Set QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true on the API process to allow HelloTest to run the fixed local runner script."
     };
   }
 
@@ -100,7 +100,7 @@ const launchHostRecorder = () => {
     return {
       started: false,
       launch_supported: false,
-      message: `QAira local runner script was not found at ${script}. Install local-run or use the packaged desktop agent.`
+      message: `HelloTest local runner script was not found at ${script}. Install local-run or use the packaged desktop agent.`
     };
   }
 
@@ -123,7 +123,7 @@ const launchHostRecorder = () => {
     launch_supported: true,
     pid: child.pid,
     script,
-    message: "QAira local runner launch requested. It will use the packaged recorder when present, otherwise it installs npm/Playwright packages and starts the local Playwright service."
+    message: "HelloTest local runner launch requested. It will use the packaged recorder when present, otherwise it installs npm/Playwright packages and starts the local Playwright service."
   };
 };
 
@@ -166,7 +166,7 @@ exports.start = async ({ target } = {}) => {
       launch_supported: true,
       already_running: true,
       base_url: existing.base_url,
-      message: "QAira local Playwright runner is already running."
+      message: "HelloTest local Playwright runner is already running."
     };
   }
 

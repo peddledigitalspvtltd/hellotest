@@ -7,6 +7,8 @@ const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const featureFlagService = require("../services/featureFlag.service");
 const { EXECUTION_FINAL_STATUS_VALUES } = require("../domain/catalog");
+const db = require("../db");
+const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const createAccessError = (message, statusCode = 403) => {
   const error = new Error(message);
@@ -36,6 +38,33 @@ const requireFeaturePermission = async (fastify, req, permissionCode) => {
 };
 
 module.exports = async function (fastify) {
+
+  fastify.get("/executions/history", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, app_type_id: { required: false, type: "string" }, requirement_id: { required: false, type: "string" }, test_case_id: { required: false, type: "string" }, page_size: { required: false, type: "string" } }, req.query || {});
+    await projectService.getProject(req.query.project_id, req.user.id);
+    const conditions = ["executions.project_id = ?"];
+    const params = [req.query.project_id];
+    if (req.query.app_type_id) { conditions.push("execution_results.app_type_id = ?"); params.push(req.query.app_type_id); }
+    if (req.query.test_case_id) { conditions.push("execution_results.test_case_id = ?"); params.push(req.query.test_case_id); }
+    if (req.query.requirement_id) { conditions.push("EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = ? AND requirement_test_cases.test_case_id = execution_results.test_case_id)"); params.push(req.query.requirement_id); }
+    const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.page_size || 50), 10) || 50));
+    const rows = await db.prepare(`
+      SELECT execution_results.id, executions.id AS execution_id, executions.display_id AS execution_display_id,
+             executions.name AS execution_name, executions.status AS execution_status, executions.trigger,
+             executions.suite_ids, execution_results.test_case_id,
+             COALESCE(execution_results.test_case_title, test_cases.title) AS test_case_title,
+             execution_results.status AS result_status, execution_results.defects, execution_results.created_at AS result_created_at,
+             executions.started_at, executions.ended_at, executions.release, executions.sprint, executions.build
+      FROM execution_results
+      JOIN executions ON executions.id = execution_results.execution_id
+      LEFT JOIN test_cases ON test_cases.id = execution_results.test_case_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY execution_results.created_at DESC, execution_results.id DESC
+      LIMIT ?
+    `).all(...params, limit);
+    return rows.map((row) => ({ ...row, defects: normalizeStoredReferenceList(row.defects), suite_ids: normalizeStoredReferenceList(row.suite_ids) }));
+  });
 
   fastify.post("/executions/smart-plan-preview", async (req) => {
     await fastify.authenticate(req);
@@ -220,7 +249,8 @@ module.exports = async function (fastify) {
       assigned_to_ids: { required: false, type: "array", items: "string" },
       release: { required: false, type: "string" },
       sprint: { required: false, type: "string" },
-      build: { required: false, type: "string" }
+      build: { required: false, type: "string" },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     const execution = await service.getExecution(req.params.id);
@@ -234,7 +264,8 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       assigned_to: { required: false, type: "string" },
-      assigned_to_ids: { required: false, type: "array", items: "string" }
+      assigned_to_ids: { required: false, type: "array", items: "string" },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     const execution = await service.getExecution(req.params.id);
@@ -248,7 +279,8 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       assigned_to: { required: false, type: "string" },
-      assigned_to_ids: { required: false, type: "array", items: "string" }
+      assigned_to_ids: { required: false, type: "array", items: "string" },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     if (!["suites", "modules", "cases"].includes(req.params.level)) {
@@ -292,7 +324,8 @@ module.exports = async function (fastify) {
     return service.startExecution(req.params.id, {
       initiated_by: req.user.id,
       execution_mode: req.body?.execution_mode,
-      engine_base_url: req.body?.engine_base_url
+      engine_base_url: req.body?.engine_base_url,
+      expected_revision: req.body?.expected_revision
     });
   });
 
@@ -310,13 +343,20 @@ module.exports = async function (fastify) {
   fastify.post("/executions/:id/cases/:testCaseId/ai-analysis", async (req) => {
     await fastify.authenticate(req);
 
+    fastify.validate({
+      instruction: { required: false, type: "string" },
+      interaction_mode: { required: false, type: "string" }
+    }, req.body || {});
+
     const execution = await service.getExecution(req.params.id);
     await projectService.getProject(execution.project_id, req.user.id);
 
     return executionAiAnalysisService.analyzeExecutionCase({
       execution,
       testCaseId: req.params.testCaseId,
-      requestedBy: req.user.id
+      requestedBy: req.user.id,
+      instruction: req.body?.instruction,
+      interactionMode: req.body?.interaction_mode
     });
   });
 
@@ -380,8 +420,18 @@ module.exports = async function (fastify) {
     reply
       .header("Content-Type", "application/pdf")
       .header("Content-Disposition", `attachment; filename="${safeName}.pdf"`)
-      .header("X-QAira-Transaction-Id", transaction.id)
-      .header("X-QAira-Artifact-Id", artifact.id);
+      .header("X-HelloTest-Transaction-Id", transaction.id)
+      .header("X-HelloTest-Artifact-Id", artifact.id);
+    return reply.send(pdf);
+  });
+
+  fastify.get("/executions/:id/cases/:testCaseId/report.pdf", async (req, reply) => {
+    await fastify.authenticate(req);
+    const execution = await service.getExecution(req.params.id);
+    await projectService.getProject(execution.project_id, req.user.id);
+    const pdf = await executionReportService.renderCaseReportPdf(req.params.id, req.params.testCaseId);
+    const safeName = `${String(execution.name || execution.id).replace(/[^A-Za-z0-9._-]+/g, "-")}-${String(req.params.testCaseId).replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+    reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${safeName}.pdf"`);
     return reply.send(pdf);
   });
 
@@ -413,20 +463,31 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/executions/:id/cases/:testCaseId/share-report", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
+    const execution = await service.getExecution(req.params.id);
+    await projectService.getProject(execution.project_id, req.user.id);
+    return executionReportService.emailCaseReport({ execution_id: req.params.id, test_case_id: req.params.testCaseId, recipients: req.body.recipients, requested_by: req.user.id });
+  });
+
 
   // COMPLETE EXECUTION
   fastify.post("/executions/:id/complete", async (req) => {
     await fastify.authenticate(req);
 
     fastify.validate({
-      status: { required: true, enum: EXECUTION_FINAL_STATUS_VALUES }
+      status: { required: true, enum: EXECUTION_FINAL_STATUS_VALUES },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     const execution = await service.getExecution(req.params.id);
     // Verify user is member of the execution's project
     await projectService.getProject(execution.project_id, req.user.id);
 
-    return service.completeExecution(req.params.id, req.body.status);
+    return service.completeExecution(req.params.id, req.body.status, {
+      expected_revision: req.body.expected_revision
+    });
   });
 
 

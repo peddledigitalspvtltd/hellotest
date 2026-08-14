@@ -108,34 +108,36 @@ exports.syncAutomaticDefectsForTestCase = async (testCaseId, defectRefs = []) =>
     return { linked: 0 };
   }
 
-  let issueIds = normalizeReferenceList(defectRefs);
+  // Always reconcile from persisted result evidence so unlinking the last
+  // occurrence removes stale automatic traceability while manual links remain.
+  const evidence = await db.prepare(`
+    SELECT DISTINCT feedback.id
+    FROM execution_results
+    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(execution_results.defects, '[]'::jsonb)) AS defect_ref(value)
+    JOIN feedback ON feedback.id = defect_ref.value
+    WHERE execution_results.test_case_id = ?
+    ORDER BY feedback.id
+  `).all(testCaseId);
+  const issueIds = evidence.map((row) => row.id);
 
-  if (!issueIds.length) {
-    const rows = await db.prepare(`
-      SELECT defects
-      FROM execution_results
-      WHERE test_case_id = ?
-    `).all(testCaseId);
-
-    issueIds = normalizeReferenceList(rows.flatMap((row) => normalizeReferenceList(row.defects)));
-  }
-
-  if (!issueIds.length) {
-    return { linked: 0 };
-  }
-
-  let linked = 0;
-
-  for (const issueId of issueIds) {
-    const issue = await selectIssue.get(issueId);
-
-    if (!issue) {
-      continue;
+  const transaction = db.transaction(async () => {
+    if (issueIds.length) {
+      await db.prepare(`
+        DELETE FROM test_case_defects
+        WHERE test_case_id = ? AND link_source = 'automatic'
+          AND issue_id NOT IN (${issueIds.map(() => "?").join(",")})
+      `).run(testCaseId, ...issueIds);
+    } else {
+      await db.prepare(`DELETE FROM test_case_defects WHERE test_case_id = ? AND link_source = 'automatic'`).run(testCaseId);
     }
 
-    const result = await insertAutomaticMapping.run(testCaseId, issue.id);
-    linked += result.changes || 0;
-  }
+    let linked = 0;
+    for (const issueId of issueIds) {
+      const result = await insertAutomaticMapping.run(testCaseId, issueId);
+      linked += result.changes || 0;
+    }
+    return { linked, retained: issueIds.length };
+  });
 
-  return { linked };
+  return transaction();
 };

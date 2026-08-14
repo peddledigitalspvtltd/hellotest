@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: QAIra API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     OpenAPI specification for the current QAIra Fastify + PostgreSQL backend.
     This spec documents the implemented CRUD resources, request payloads,
@@ -691,16 +691,47 @@ paths:
       parameters:
         - $ref: "#/components/parameters/SuiteIdQuery"
         - $ref: "#/components/parameters/RequirementIdQuery"
+        - $ref: "#/components/parameters/AppTypeIdQuery"
         - $ref: "#/components/parameters/StatusQuery"
+        - name: module_id
+          in: query
+          schema: { type: string }
+        - name: unassigned_module
+          in: query
+          schema: { type: boolean }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: include_page
+          in: query
+          description: Return the paged envelope used by hierarchy and infinite-list screens.
+          schema: { type: boolean }
+        - name: projection
+          in: query
+          schema: { type: string, enum: [summary, detail] }
       responses:
         "200":
           description: List of test cases
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TestCase"
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/TestCase"
+                  - type: object
+                    required: [items, total, next_cursor, is_last]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TestCase"
+                      total: { type: integer, minimum: 0 }
+                      next_cursor: { type: string, nullable: true }
+                      is_last: { type: boolean }
     post:
       tags: [Test Cases]
       summary: Create test case
@@ -1258,7 +1289,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/IdResponse"
+                $ref: "#/components/schemas/RevisionCreatedResponse"
   /execution-results/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1287,7 +1318,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdatedResponse"
+                $ref: "#/components/schemas/RevisionUpdatedResponse"
     delete:
       tags: [Execution Results]
       summary: Delete execution result
@@ -1688,6 +1719,302 @@ paths:
       summary: Produce a review-only stakeholder dashboard design
       responses:
         "200": { description: Unsaved dashboard preview with provenance }
+  /admin/health:
+    get:
+      tags: [Operations]
+      summary: Verify database, schema, storage, attachment, and permission readiness
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Live readiness checks with remediation guidance and measured evidence }
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Count unread notifications for the authenticated user
+      responses:
+        "200": { description: Total unread count grouped by preference category }
+  /notifications/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    delete:
+      tags: [Notifications]
+      summary: Delete one notification owned by the authenticated user
+      responses:
+        "200": { description: Notification deletion confirmation }
+  /notifications:
+    delete:
+      tags: [Notifications]
+      summary: Delete all notifications owned by the authenticated user
+      responses:
+        "200": { description: Number of notifications deleted }
+  /requirements/create-metadata:
+    get:
+      tags: [Requirements]
+      summary: Read the native Story create-field and workflow contract
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Project-scoped field and status metadata }
+  /requirements/{id}/edit-metadata:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Requirements]
+      summary: Read the native Story edit-field and workflow contract
+      responses:
+        "200": { description: Current values plus project-scoped field and status metadata }
+  /requirements/{id}/ai-groom-preview:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Requirements]
+      summary: Create an evidence-grounded, human-reviewed Story grooming preview
+      responses:
+        "200": { description: Grooming summary, risks, questions, evidence, provenance, and review requirement }
+  /requirements/ai-description-rephrase:
+    post:
+      tags: [Requirements]
+      summary: Rephrase Story description content through the governed rich-text AI service
+      responses:
+        "200": { description: Sanitized semantic HTML with AI provenance }
+  /requirements/export:
+    post:
+      tags: [Requirements]
+      summary: Export authoritative project-scoped Story records with an audit transaction
+      responses:
+        "200": { description: Exported Story records, skipped selections, and transaction ID }
+  /requirements/ai-gherkin-preview:
+    post:
+      tags: [Requirements]
+      summary: Generate a deterministic review-only Gherkin preview from supplied Story evidence
+      responses:
+        "200": { description: Reviewable scenarios with source provenance }
+  /requirements/ai-create-jobs:
+    get:
+      tags: [Requirements]
+      summary: List persistent project-scoped Story generation jobs
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Generation job records }
+    post:
+      tags: [Requirements]
+      summary: Create and persist a bounded Story generation job
+      responses:
+        "200": { description: Completed or failed job record with reviewable drafts }
+  /requirements/ai-create-jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Requirements]
+      summary: Read one project-scoped Story generation job
+      responses:
+        "200": { description: Generation job status, drafts, provenance, and failure details }
+  /requirement-iterations/health:
+    get:
+      tags: [Requirements]
+      summary: Calculate bounded Sprint health from Stories, traceability, results, and Bugs
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Sprint metrics, completeness disclosure, methodology, and scan limits }
+  /requirement-iterations/{id}/requirements:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Requirements]
+      summary: List Stories assigned to a Sprint using cursor pagination
+      responses:
+        "200": { description: Paginated Story assignment records }
+    put:
+      tags: [Requirements]
+      summary: Replace or append project-scoped Story assignments for a Sprint
+      responses:
+        "200": { description: Assignment result }
+    post:
+      tags: [Requirements]
+      summary: Append project-scoped Stories to a Sprint
+      responses:
+        "200": { description: Assignment result }
+    delete:
+      tags: [Requirements]
+      summary: Remove selected Stories from a Sprint without deleting them
+      responses:
+        "200": { description: Unassignment result }
+  /issues/create-metadata:
+    get:
+      tags: [Issues]
+      summary: Read the native Bug create-field and workflow contract
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Project-scoped Bug field and status metadata }
+  /issues/{id}/edit-metadata:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Issues]
+      summary: Read the native Bug edit-field and workflow contract
+      responses:
+        "200": { description: Current values plus project-scoped Bug metadata }
+  /issues/ai-triage-preview:
+    post:
+      tags: [Issues]
+      summary: Classify and prioritize a bounded set of Bugs without mutating records
+      responses:
+        "200": { description: Evidence-based triage recommendations with human-review provenance }
+  /issues/export:
+    post:
+      tags: [Issues]
+      summary: Export authoritative project-scoped Bug records
+      responses:
+        "200": { description: Exported Bug records and count }
+  /issues/bulk-delete:
+    delete:
+      tags: [Issues]
+      summary: Atomically delete selected Bugs inside one project
+      responses:
+        "200": { description: Deleted Bug IDs and count }
+  /test-steps/bulk:
+    post:
+      tags: [Test Steps]
+      summary: Insert up to 100 ordered test steps atomically
+      responses:
+        "200": { description: Created steps and resulting order }
+  /test-steps/bulk-delete:
+    post:
+      tags: [Test Steps]
+      summary: Delete up to 200 scoped test steps atomically and normalize order
+      responses:
+        "200": { description: Deleted step IDs and resulting order }
+  /test-suites/{id}/assign-test-cases:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    put:
+      tags: [Test Suites]
+      summary: Replace or append Test Cases with optimistic revision protection
+      responses:
+        "200": { description: Assignment count and next suite revision }
+    post:
+      tags: [Test Suites]
+      summary: Compatibility endpoint for governed Test Case assignment
+      responses:
+        "200": { description: Assignment count and next suite revision }
+  /test-case-modules/{id}/test-cases:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Test Cases]
+      summary: List module Test Cases using cursor pagination
+      responses:
+        "200": { description: Paginated Test Case records }
+    put:
+      tags: [Test Cases]
+      summary: Replace Test Case assignment for a module
+      responses:
+        "200": { description: Assignment result }
+  /test-data-sets/ai-generate-preview:
+    post:
+      tags: [Test Data]
+      summary: Generate bounded fictional synthetic rows for human review
+      responses:
+        "200": { description: Synthetic columns and rows with safety and provenance disclosure }
+  /executions/history:
+    get:
+      tags: [Executions]
+      summary: Read project-scoped run history and traceability using cursor pagination
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Paginated execution history records }
+  /executions/{id}/cases/{testCaseId}/report.pdf:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - name: testCaseId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Executions]
+      summary: Download a single-case execution evidence report
+      responses:
+        "200":
+          description: PDF report
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+  /executions/{id}/cases/{testCaseId}/share-report:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - name: testCaseId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Executions]
+      summary: Email a single-case execution report and create an audit record
+      responses:
+        "200": { description: Delivery and audit transaction result }
+  /execution-results/release-readiness:
+    get:
+      tags: [Execution Results]
+      summary: Calculate project release-readiness evidence from current persisted results
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200": { description: Metrics with completeness, methodology, and human-decision disclosure }
+  /execution-results/{id}/defect-links:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    put:
+      tags: [Execution Results]
+      summary: Link project-scoped Bugs to result steps with optimistic revision protection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecutionResultDefectLinksRequest"
+      responses:
+        "200":
+          description: Updated result revision and normalized defect links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResultDefectLinksResponse"
+        "409": { description: Result revision is stale or a Bug/step is outside the run scope }
+  /quality-dashboards/{id}/report.pdf:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Quality Analytics]
+      summary: Download a current dashboard report PDF
+      responses:
+        "200":
+          description: PDF report
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+    post:
+      tags: [Quality Analytics]
+      summary: Generate and download a dashboard report PDF using supplied scope
+      responses:
+        "200":
+          description: PDF report
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+  /quality-dashboards/{id}/share-report:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Quality Analytics]
+      summary: Email a live dashboard report and create an audit transaction
+      responses:
+        "200": { description: Delivery result and transaction ID }
 components:
   parameters:
     IdParam:
@@ -1808,6 +2135,20 @@ components:
           type: boolean
           example: true
       required: [updated]
+    RevisionCreatedResponse:
+      type: object
+      properties:
+        id: { type: string }
+        revision: { type: integer, minimum: 1 }
+      required: [id, revision]
+    RevisionUpdatedResponse:
+      type: object
+      properties:
+        updated:
+          type: boolean
+          example: true
+        revision: { type: integer, minimum: 1 }
+      required: [updated, revision]
     DeletedResponse:
       type: object
       properties:
@@ -2110,6 +2451,12 @@ components:
         suite_id: { type: string }
         title: { type: string }
         description: { type: string, nullable: true }
+        automated: { type: string, enum: [yes, no] }
+        automation_status: { type: string, enum: [not_automated, ready, incomplete] }
+        manual_test_case_id: { type: string, nullable: true, description: Primary manual test case linked to this independent automation case. }
+        manual_test_case_ids: { type: array, items: { type: string }, description: All manual test cases linked to this automation case. }
+        authoring_mode: { type: string, enum: [structured, gherkin] }
+        gherkin_document: { type: string, nullable: true }
         priority: { type: integer, nullable: true }
         status: { type: string, nullable: true }
         requirement_id: { type: string, nullable: true }
@@ -2121,6 +2468,12 @@ components:
         suite_id: { type: string }
         title: { type: string }
         description: { type: string }
+        automated: { type: string, enum: [yes, no] }
+        automation_status: { type: string, enum: [not_automated, ready, incomplete] }
+        manual_test_case_id: { type: string, nullable: true }
+        manual_test_case_ids: { type: array, items: { type: string } }
+        authoring_mode: { type: string, enum: [structured, gherkin] }
+        gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }
         requirement_id: { type: string }
@@ -2130,6 +2483,12 @@ components:
         suite_id: { type: string }
         title: { type: string }
         description: { type: string }
+        automated: { type: string, enum: [yes, no] }
+        automation_status: { type: string, enum: [not_automated, ready, incomplete] }
+        manual_test_case_id: { type: string, nullable: true }
+        manual_test_case_ids: { type: array, items: { type: string } }
+        authoring_mode: { type: string, enum: [structured, gherkin] }
+        gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }
         requirement_id: { type: string }
@@ -2832,6 +3191,21 @@ components:
         duration_ms: { type: number, nullable: true }
         error: { type: string, nullable: true }
         logs: { type: string, nullable: true }
+        external_references:
+          type: array
+          items: { type: string }
+        defects:
+          type: array
+          items: { type: string }
+        case_defects:
+          type: array
+          items: { type: string }
+        step_defects:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        revision: { type: integer, minimum: 1 }
         executed_by: { type: string, nullable: true }
         created_at: { type: string, format: date-time, nullable: true }
     CreateExecutionResultRequest:
@@ -2847,6 +3221,12 @@ components:
         duration_ms: { type: number }
         error: { type: string }
         logs: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        defects:
+          type: array
+          items: { type: string }
         executed_by: { type: string }
     UpdateExecutionResultRequest:
       type: object
@@ -2857,6 +3237,38 @@ components:
         duration_ms: { type: number }
         error: { type: string }
         logs: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        defects:
+          type: array
+          items: { type: string }
+        expected_revision: { type: integer, minimum: 1 }
+    ExecutionResultDefectLinksRequest:
+      type: object
+      required: [step_id, defect_ids]
+      properties:
+        step_id: { type: string }
+        defect_ids:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items: { type: string }
+        expected_revision: { type: integer, minimum: 1 }
+    ExecutionResultDefectLinksResponse:
+      allOf:
+        - $ref: "#/components/schemas/RevisionUpdatedResponse"
+        - type: object
+          properties:
+            defects:
+              type: array
+              items: { type: string }
+            step_defects:
+              type: object
+              additionalProperties:
+                type: array
+                items: { type: string }
+          required: [defects, step_defects]
     TestEngineInlineEvidence:
       type: object
       properties:

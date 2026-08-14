@@ -1,12 +1,14 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { AddIcon, ExportIcon, ImportIcon, UsersIcon } from "../components/AppIcons";
+import { AddIcon, CollapseExpandIcon, ExportIcon, TrashIcon } from "../components/AppIcons";
 import { api } from "../lib/api";
+import { asArray } from "../lib/collectionGuards";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DialogCloseButton } from "../components/DialogCloseButton";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { PageHeader } from "../components/PageHeader";
@@ -18,9 +20,9 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { hasPermission } from "../lib/permissions";
-import { parseUserCsv, type ImportedUserRow } from "../lib/userImport";
 import { resolveVisibleEmail } from "../lib/userDisplay";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type { Permission, PermissionGroup, Role, User } from "../types";
@@ -28,14 +30,33 @@ import type { Permission, PermissionGroup, Role, User } from "../types";
 type PeopleView = "users" | "roles";
 type FeedbackTone = "success" | "error";
 
-const createEmptyUserDraft = (roleId = "") => ({ name: "", email: "", password_hash: "", role_id: roleId });
 const EMPTY_ROLE_DRAFT = { name: "" };
+const displayUserRoleName = (user: User) => user.role_name || (user.role === "admin" ? "HelloTest administrator" : "Viewer");
+const JIRA_DERIVED_PERMISSION_CODES = new Set([
+  "settings.manage",
+  "feature_flag.manage",
+  "project.manage",
+  "project.delete",
+  "role.manage",
+  "project_member.manage",
+  "integration.manage",
+  "ops.manage"
+]);
 const formatPermissionLabel = (code: string) =>
   code
     .split(".")
     .map((part) => part.replace(/_/g, " "))
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" / ");
+
+const formatPermissionAvailability = (permission: Permission) => {
+  const enabled = (permission.features || []).filter((feature) => feature.enabled !== false);
+  const disabled = (permission.features || []).filter((feature) => feature.enabled === false);
+  return [
+    enabled.length ? `Available in: ${enabled.map((feature) => feature.label).join(", ")}` : "",
+    disabled.length ? `Paused in: ${disabled.map((feature) => feature.label).join(", ")}` : ""
+  ].filter(Boolean).join(" · ");
+};
 
 export function PeoplePage({
   forcedView,
@@ -48,7 +69,17 @@ export function PeoplePage({
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const { users, roles } = useWorkspaceData();
+  const { users, roles } = useWorkspaceData({
+    projects: false,
+    projectMembers: false,
+    appTypes: false,
+    requirements: false,
+    issues: false,
+    testSuites: false,
+    testCases: false,
+    executions: false,
+    executionResults: false
+  });
   const permissions = useQuery({
     queryKey: ["permissions"],
     queryFn: api.roles.permissions,
@@ -58,37 +89,28 @@ export function PeoplePage({
   const [view, setView] = useState<PeopleView>(forcedView || (searchParams.get("view") === "roles" ? "roles" : "users"));
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
-  const [userDraft, setUserDraft] = useState(createEmptyUserDraft());
   const [roleDraft, setRoleDraft] = useState(EMPTY_ROLE_DRAFT);
   const [rolePermissionDraft, setRolePermissionDraft] = useState<string[]>([]);
   const [createRolePermissionDraft, setCreateRolePermissionDraft] = useState<string[]>([]);
-  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
   const [isCreateRolePermissionExpanded, setIsCreateRolePermissionExpanded] = useState(false);
   const [activeCreateRolePermissionGroup, setActiveCreateRolePermissionGroup] = useState("");
   const [activeEditRolePermissionGroup, setActiveEditRolePermissionGroup] = useState("");
-  const [isImportUsersModalOpen, setIsImportUsersModalOpen] = useState(false);
   const [userCatalogViewMode, setUserCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [roleCatalogViewMode, setRoleCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
-  const [selectedActionUserIds, setSelectedActionUserIds] = useState<string[]>([]);
   const [selectedActionRoleIds, setSelectedActionRoleIds] = useState<string[]>([]);
   const [isExportingRoles, setIsExportingRoles] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [roleSearch, setRoleSearch] = useState("");
-  const [createUserDraft, setCreateUserDraft] = useState(createEmptyUserDraft());
   const [createRoleDraft, setCreateRoleDraft] = useState(EMPTY_ROLE_DRAFT);
-  const [importUsersDefaultRoleId, setImportUsersDefaultRoleId] = useState("");
-  const [importUsersFileName, setImportUsersFileName] = useState("");
-  const [importUserRows, setImportUserRows] = useState<ImportedUserRow[]>([]);
-  const [importUserWarnings, setImportUserWarnings] = useState<string[]>([]);
   const selectedRolePermissions = useQuery({
     queryKey: ["roles", selectedRoleId, "permissions"],
     queryFn: () => api.roles.rolePermissions(selectedRoleId),
     enabled: Boolean(session && selectedRoleId)
   });
 
-  const userItems = users.data || [];
-  const roleItems = roles.data || [];
+  const userItems = asArray(users.data);
+  const roleItems = asArray(roles.data);
   const isUserCatalogLoading = users.isPending;
   const isRoleCatalogLoading = roles.isPending || users.isPending;
   const selectedUser = useMemo(
@@ -100,9 +122,10 @@ export function PeoplePage({
     [selectedRoleId, roleItems]
   );
   const isAdmin = session?.user.role === "admin";
-  const canManageUsers = hasPermission(session, "user.manage");
-  const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
-  const permissionGroups = permissions.data || [];
+  const canManageRoles = isAdmin && hasPermission(session, "role.manage");
+  const canViewUsers = hasPermission(session, "user.view");
+  const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canViewUsers);
+  const permissionGroups = asArray(permissions.data);
   const allPermissionCodes = useMemo(
     () => permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
     [permissionGroups]
@@ -114,7 +137,7 @@ export function PeoplePage({
       "workspace_preferences.manage",
       "api_key.manage",
       "localization.manage",
-      "ai_prompt.manage",
+      "prompt_template.manage",
       "feature_flag.manage",
       "user.manage",
       "user.import",
@@ -132,14 +155,10 @@ export function PeoplePage({
     ].includes(code)),
     [allPermissionCodes]
   );
-  const defaultMemberRoleId = useMemo(
-    () => roleItems.find((item) => item.name === "member")?.id || roleItems[0]?.id || "",
-    [roleItems]
-  );
   const userCountByRoleName = useMemo(
     () =>
       userItems.reduce<Record<string, number>>((counts, user) => {
-        const roleName = user.role || "member";
+        const roleName = displayUserRoleName(user);
         counts[roleName] = (counts[roleName] || 0) + 1;
         return counts;
       }, {}),
@@ -153,7 +172,7 @@ export function PeoplePage({
     }
 
     return userItems.filter((user) =>
-      [user.id, user.name, visibleUserEmail(user.email), user.role]
+      [user.id, user.name, visibleUserEmail(user.email), user.role_name, user.role_id, user.role]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -175,9 +194,7 @@ export function PeoplePage({
         .includes(normalizedSearch)
     );
   }, [roleItems, roleSearch, userCountByRoleName]);
-  const visibleUserIds = useMemo(() => filteredUserItems.map((user) => user.id), [filteredUserItems]);
   const visibleRoleIds = useMemo(() => filteredRoleItems.map((role) => role.id), [filteredRoleItems]);
-  const areAllFilteredUsersSelected = visibleUserIds.length > 0 && visibleUserIds.every((id) => selectedActionUserIds.includes(id));
   const areAllFilteredRolesSelected = visibleRoleIds.length > 0 && visibleRoleIds.every((id) => selectedActionRoleIds.includes(id));
   const userListColumns = useMemo<Array<DataTableColumn<User>>>(() => [
     {
@@ -199,8 +216,8 @@ export function PeoplePage({
       label: "Role",
       width: 140,
       minWidth: 110,
-      sortValue: (user) => user.role || "member",
-      render: (user) => user.role === "admin" ? "Org Admin" : "Member"
+      sortValue: displayUserRoleName,
+      render: displayUserRoleName
     },
     {
       key: "email",
@@ -230,30 +247,6 @@ export function PeoplePage({
       render: (role) => userCountByRoleName[role.name] || 0
     }
   ], [userCountByRoleName]);
-  const importUsersPasswordCount = useMemo(
-    () => importUserRows.filter((row) => row.password || row.password_hash).length,
-    [importUserRows]
-  );
-  const importUsersExplicitRoleCount = useMemo(
-    () => importUserRows.filter((row) => row.role || row.role_id).length,
-    [importUserRows]
-  );
-
-  useEffect(() => {
-    if (selectedUser) {
-      const matchedRole = roleItems.find((item) => item.name === selectedUser.role);
-      setUserDraft({
-        name: selectedUser.name || "",
-        email: selectedUser.email,
-        password_hash: "",
-        role_id: matchedRole?.id || defaultMemberRoleId
-      });
-      return;
-    }
-
-    setUserDraft(createEmptyUserDraft(defaultMemberRoleId));
-  }, [defaultMemberRoleId, roleItems, selectedUser]);
-
   useEffect(() => {
     if (selectedRole) {
       setRoleDraft({ name: selectedRole.name });
@@ -396,20 +389,6 @@ export function PeoplePage({
     syncPeopleSearchParams("roles", null, selectedRoleId || null);
   };
 
-  const openCreateUserModal = () => {
-    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
-    setIsCreateUserModalOpen(true);
-  };
-
-  const closeCreateUserModal = () => {
-    if (createUser.isPending) {
-      return;
-    }
-
-    setIsCreateUserModalOpen(false);
-    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
-  };
-
   const openCreateRoleModal = () => {
     setCreateRoleDraft(EMPTY_ROLE_DRAFT);
     setCreateRolePermissionDraft(memberDefaultPermissionCodes);
@@ -429,73 +408,6 @@ export function PeoplePage({
     setCreateRoleDraft(EMPTY_ROLE_DRAFT);
     setCreateRolePermissionDraft(memberDefaultPermissionCodes);
   };
-
-  const openImportUsersModal = () => {
-    setImportUsersDefaultRoleId(defaultMemberRoleId);
-    setImportUsersFileName("");
-    setImportUserRows([]);
-    setImportUserWarnings([]);
-    setIsImportUsersModalOpen(true);
-  };
-
-  const closeImportUsersModal = (force = false) => {
-    if (importUsers.isPending && !force) {
-      return;
-    }
-
-    setIsImportUsersModalOpen(false);
-    setImportUsersDefaultRoleId(defaultMemberRoleId);
-    setImportUsersFileName("");
-    setImportUserRows([]);
-    setImportUserWarnings([]);
-  };
-
-  const createUser = useMutation({
-    mutationFn: api.users.create,
-    onSuccess: async (response) => {
-      showFeedback("User created.", "success");
-      openUserWorkspace(response.id);
-      setIsCreateUserModalOpen(false);
-      setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
-      await invalidate();
-    },
-    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to create user", "error")
-  });
-
-  const updateUser = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ email: string; password: string; name: string; role_id: string }> }) =>
-      api.users.update(id, input),
-    onSuccess: async () => {
-      showFeedback("User updated.", "success");
-      await invalidate();
-    },
-    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update user", "error")
-  });
-
-  const importUsers = useMutation({
-    mutationFn: api.users.bulkImport,
-    onSuccess: async (response) => {
-      showFeedback(
-        `User import queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`,
-        "success"
-      );
-      closeImportUsersModal(true);
-      await invalidate();
-    },
-    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to import users", "error")
-  });
-
-  const deleteUser = useMutation({
-    mutationFn: api.users.delete,
-    onSuccess: async () => {
-      showFeedback("User removed.", "success");
-      setSelectedUserId("");
-      syncPeopleSearchParams("users", null, null);
-      await invalidate();
-    },
-    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete user", "error")
-  });
-
   const createRole = useMutation({
     mutationFn: api.roles.create,
     onSuccess: async (response) => {
@@ -508,6 +420,11 @@ export function PeoplePage({
       await invalidate();
     },
     onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to create role", "error")
+  });
+  const createRoleDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isCreateRoleModalOpen,
+    closeDisabled: createRole.isPending,
+    onClose: closeCreateRoleModal
   });
 
   const updateRole = useMutation({
@@ -540,16 +457,6 @@ export function PeoplePage({
     onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update role permissions", "error")
   });
 
-  const handleUserCreate = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    createUser.mutate({
-      email: createUserDraft.email,
-      password: createUserDraft.password_hash,
-      name: createUserDraft.name,
-      role_id: createUserDraft.role_id || defaultMemberRoleId
-    });
-  };
-
   const handleRoleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     createRole.mutate({ name: createRoleDraft.name, permission_codes: createRolePermissionDraft });
@@ -578,13 +485,20 @@ export function PeoplePage({
   };
 
   const renderPermissionMatrix = (selectedCodes: string[], target: "create" | "edit") => {
+    const isJiraAdministratorProfile = target === "edit" && selectedRole?.id === "jira-admin";
+    const matrixPermissionGroups = permissionGroups.map((group) => ({
+      ...group,
+      permissions: isJiraAdministratorProfile
+        ? group.permissions
+        : group.permissions.filter((permission) => !JIRA_DERIVED_PERMISSION_CODES.has(permission.code))
+    })).filter((group) => group.permissions.length);
     const selectedSet = new Set(selectedCodes);
-    const selectedPermissions = permissionGroups.flatMap((group) =>
+    const selectedPermissions = matrixPermissionGroups.flatMap((group) =>
       group.permissions
         .filter((permission) => selectedSet.has(permission.code))
         .map((permission) => ({ ...permission, groupLabel: group.label }))
     );
-    const availablePermissions = permissionGroups.flatMap((group) =>
+    const availablePermissions = matrixPermissionGroups.flatMap((group) =>
       group.permissions
         .filter((permission) => !selectedSet.has(permission.code))
         .map((permission) => ({ ...permission, groupLabel: group.label }))
@@ -592,10 +506,11 @@ export function PeoplePage({
 
     const setAllPermissions = (checked: boolean) => {
       const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
-      setter(checked ? allPermissionCodes : []);
+      const assignableCodes = matrixPermissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code));
+      setter(checked ? assignableCodes : []);
     };
 
-    const totalPermissionCount = permissionGroups.reduce((total, group) => total + group.permissions.length, 0);
+    const totalPermissionCount = matrixPermissionGroups.reduce((total, group) => total + group.permissions.length, 0);
     const selectedPercent = totalPermissionCount ? Math.round((selectedPermissions.length / totalPermissionCount) * 100) : 0;
     const activeGroupKey = target === "create"
       ? activeCreateRolePermissionGroup
@@ -627,10 +542,10 @@ export function PeoplePage({
             <span>{availablePermissions.length} available to add</span>
           </div>
           <div className="permission-designer-actions">
-            <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
+            <button className="ghost-button compact-button" disabled={isJiraAdministratorProfile} onClick={() => setAllPermissions(true)} type="button">
               Add All
             </button>
-            <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
+            <button className="ghost-button compact-button danger" disabled={isJiraAdministratorProfile} onClick={() => setAllPermissions(false)} type="button">
               Clear
             </button>
           </div>
@@ -640,8 +555,15 @@ export function PeoplePage({
           <span aria-hidden="true"><i style={{ width: `${selectedPercent}%` }} /></span>
         </div>
 
+        {!isJiraAdministratorProfile ? (
+          <div className="jira-authority-note" role="note">
+            <strong>Jira administration stays Jira-derived</strong>
+            <span>Project, role, integration, feature, and operations administration cannot be granted through a HelloTest membership role.</span>
+          </div>
+        ) : null}
+
         <div className="permission-group-strip permission-group-strip--accordion">
-          {permissionGroups.map((group) => {
+          {matrixPermissionGroups.map((group) => {
             const groupCodes = group.permissions.map((permission) => permission.code);
             const selectedCount = groupCodes.filter((code) => selectedCodes.includes(code)).length;
             const isAllSelected = selectedCount === groupCodes.length && groupCodes.length > 0;
@@ -656,7 +578,7 @@ export function PeoplePage({
                     onClick={() => setActiveGroupKey((current) => current === group.key ? "" : group.key)}
                     type="button"
                   >
-                    <span aria-hidden="true" className="permission-group-chevron">{isExpanded ? "-" : "+"}</span>
+                    <span aria-hidden="true" className="permission-group-chevron"><CollapseExpandIcon isExpanded={isExpanded} /></span>
                     <span className="permission-group-copy">
                       <strong>{group.label}</strong>
                       <span>{selectedCount} of {groupCodes.length} selected</span>
@@ -665,6 +587,7 @@ export function PeoplePage({
                   <label className="permission-toggle-all">
                     <input
                       checked={isAllSelected}
+                      disabled={isJiraAdministratorProfile}
                       onChange={(event) => setPermissionGroup(group, event.target.checked, target)}
                       type="checkbox"
                     />
@@ -677,6 +600,7 @@ export function PeoplePage({
                       <label className="permission-option" key={permission.code}>
                         <input
                           checked={selectedCodes.includes(permission.code)}
+                          disabled={isJiraAdministratorProfile}
                           onChange={() => togglePermission(permission.code, target)}
                           type="checkbox"
                         />
@@ -684,6 +608,11 @@ export function PeoplePage({
                           <strong className="permission-option-title">{formatPermissionLabel(permission.code)}</strong>
                           <code className="permission-option-code">{permission.code}</code>
                           {permission.description ? <small className="permission-option-description">{permission.description}</small> : null}
+                          {permission.features?.length ? (
+                            <small className="permission-option-availability">
+                              {formatPermissionAvailability(permission)}
+                            </small>
+                          ) : null}
                         </span>
                       </label>
                     ))}
@@ -697,19 +626,6 @@ export function PeoplePage({
     );
   };
 
-  const confirmDeleteUser = async (user: User) => {
-    const warning =
-      user.id === session?.user.id
-        ? "This will remove your own workspace access."
-        : "This removes the user from the workspace directory.";
-
-    if (!(await confirmDelete({ message: `Delete user "${user.name || user.email}"? ${warning}` }))) {
-      return;
-    }
-
-    deleteUser.mutate(user.id);
-  };
-
   const confirmDeleteRole = async (role: Role) => {
     if (!(await confirmDelete({ message: `Delete role "${role.name}"? Users currently assigned to this role may need reassignment first.` }))) {
       return;
@@ -718,54 +634,8 @@ export function PeoplePage({
     deleteRole.mutate(role.id);
   };
 
-  useEffect(() => {
-    if (!isCreateUserModalOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !createUser.isPending) {
-        closeCreateUserModal();
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [createUser.isPending, isCreateUserModalOpen]);
-
-  useEffect(() => {
-    if (!isCreateRoleModalOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !createRole.isPending) {
-        closeCreateRoleModal();
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [createRole.isPending, isCreateRoleModalOpen]);
-
-  useEffect(() => {
-    if (!isImportUsersModalOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !importUsers.isPending) {
-        closeImportUsersModal();
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [importUsers.isPending, isImportUsersModalOpen]);
-
   const closeUserWorkspace = () => {
     setSelectedUserId("");
-    setUserDraft(createEmptyUserDraft(defaultMemberRoleId));
     syncPeopleSearchParams("users", null, null);
   };
 
@@ -774,40 +644,10 @@ export function PeoplePage({
     setRoleDraft(EMPTY_ROLE_DRAFT);
     syncPeopleSearchParams("roles", null, null);
   };
-
-  const handleImportUsersFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    try {
-      const parsed = parseUserCsv(await file.text());
-      setImportUsersFileName(file.name);
-      setImportUserRows(parsed.rows);
-      setImportUserWarnings(parsed.warnings);
-    } catch (error) {
-      showFeedback(error instanceof Error ? error.message : "Unable to read the CSV file", "error");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  const handleBulkImportUsers = async () => {
-    if (!importUserRows.length) {
-      return;
-    }
-
-    try {
-      await importUsers.mutateAsync({
-        rows: importUserRows,
-        default_role_id: importUsersDefaultRoleId || undefined
-      });
-    } catch {
-      // handled in mutation callbacks
-    }
-  };
+  const roleDrawerRef = useDialogFocus<HTMLElement>({
+    active: Boolean(selectedRole),
+    onClose: closeRoleWorkspace
+  });
 
   const downloadJsonFile = (filename: string, value: unknown) => {
     const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
@@ -830,7 +670,9 @@ export function PeoplePage({
         name: user.name,
         email: user.email,
         visible_email: visibleUserEmail(user.email),
-        role: user.role
+        jira_access: user.role,
+        qaira_role_id: user.role_id,
+        qaira_role_name: displayUserRoleName(user)
       }))
     });
   };
@@ -914,27 +756,6 @@ export function PeoplePage({
     }
   };
 
-  const handleDeleteSelectedUsers = async () => {
-    const selectedIds = selectedActionUserIds.filter((id) => userItems.some((user) => user.id === id));
-
-    if (!selectedIds.length || !(await confirmDelete({ message: `Delete ${selectedIds.length} selected user${selectedIds.length === 1 ? "" : "s"}?` }))) {
-      return;
-    }
-
-    try {
-      await Promise.all(selectedIds.map((id) => api.users.delete(id)));
-      setSelectedActionUserIds([]);
-      if (selectedIds.includes(selectedUserId)) {
-        setSelectedUserId("");
-        syncPeopleSearchParams("users", null, null);
-      }
-      showFeedback(`${selectedIds.length} user${selectedIds.length === 1 ? "" : "s"} removed.`, "success");
-      await invalidate();
-    } catch (error) {
-      showFeedback(error instanceof Error ? error.message : "Unable to delete selected users", "error");
-    }
-  };
-
   const handleDeleteSelectedRoles = async () => {
     const selectedIds = selectedActionRoleIds.filter((id) => roleItems.some((role) => role.id === id));
 
@@ -956,21 +777,15 @@ export function PeoplePage({
     }
   };
 
-  const accessActions = canManageUsers ? (
-    view === "users" ? (
-      <>
-        <button className="ghost-button" disabled={!userItems.length} onClick={handleExportUsers} type="button"><ExportIcon />Export users</button>
-        <button className="ghost-button" onClick={openImportUsersModal} type="button"><ImportIcon />Bulk Import users</button>
-        <button className="primary-button" onClick={openCreateUserModal} type="button"><UsersIcon />Create user</button>
-      </>
-    ) : (
+  const accessActions = view === "users" ? (
+    <button className="ghost-button" disabled={!userItems.length} onClick={handleExportUsers} type="button"><ExportIcon />Export user directory</button>
+  ) : canManageRoles ? (
       <>
         <button className="ghost-button" disabled={!roleItems.length || isExportingRoles} onClick={() => void handleExportRoles()} type="button">
           <ExportIcon />{isExportingRoles ? "Exporting roles..." : "Export roles"}
         </button>
         <button className="primary-button" onClick={openCreateRoleModal} type="button"><AddIcon />Create role</button>
       </>
-    )
   ) : null;
 
   return (
@@ -980,11 +795,11 @@ export function PeoplePage({
         <PageHeader
           eyebrow="People & Access"
           title={forcedView === "roles" ? "Roles" : forcedView === "users" ? "Users" : "User Management"}
-          description={forcedView === "roles" ? "Review role definitions, selected permissions, and reusable access labels." : "Review workspace users, refine role assignments, and keep access governance easy to audit."}
+          description={forcedView === "roles" ? "Review role definitions, selected permissions, and reusable access labels." : "Review the active HelloTest directory and the workspace role assigned to each account."}
           meta={[
             { label: "Users", value: userItems.length },
             { label: "Roles", value: roleItems.length },
-            { label: "Your access", value: canManageUsers ? "User manager" : isAdmin ? "Admin" : "Member" }
+            { label: "Your access", value: canManageRoles ? "Role manager" : isAdmin ? "Admin" : "Member" }
           ]}
         />
       ) : null}
@@ -1011,39 +826,30 @@ export function PeoplePage({
             <Panel
               title="Users"
               titleVariant="eyebrow"
-              subtitle="Scan the directory in card form first, then open one person into a focused access editor."
+              subtitle="HelloTest provides the workspace identity directory and applies project-scoped roles and permissions."
             >
-              <div className="design-list-toolbar people-catalog-toolbar">
-                <CatalogSearchFilter
-                  activeFilterCount={userSearch.trim() ? 1 : 0}
-                  ariaLabel="Search users"
-                  onChange={setUserSearch}
-                  placeholder="Search users"
-                  subtitle="Search by name, email, or role."
-                  title="User search"
-                  type="search"
-                  value={userSearch}
-                >
-                  <div className="catalog-filter-grid">
-                    <div className="catalog-filter-actions">
-                      <button className="ghost-button" disabled={!userSearch.trim()} onClick={() => setUserSearch("")} type="button">
-                        Clear search
-                      </button>
+              <div className="design-list-toolbar catalog-command-toolbar people-catalog-toolbar">
+                <div className="catalog-toolbar-discovery" aria-label="User views and search">
+                  <CatalogViewToggle onChange={setUserCatalogViewMode} value={userCatalogViewMode} />
+                  <CatalogSearchFilter
+                    activeFilterCount={userSearch.trim() ? 1 : 0}
+                    ariaLabel="Search users"
+                    onChange={setUserSearch}
+                    placeholder="Search users"
+                    subtitle="Search by name, email, or role."
+                    title="User search"
+                    type="search"
+                    value={userSearch}
+                  >
+                    <div className="catalog-filter-grid">
+                      <div className="catalog-filter-actions">
+                        <button className="ghost-button" disabled={!userSearch.trim()} onClick={() => setUserSearch("")} type="button">
+                          Clear search
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </CatalogSearchFilter>
-                <CatalogSelectionControls
-                  allSelected={areAllFilteredUsersSelected}
-                  canSelectAll={Boolean(visibleUserIds.length)}
-                  deleteAction={{
-                    label: "Delete users",
-                    onClick: () => void handleDeleteSelectedUsers()
-                  }}
-                  onClear={() => setSelectedActionUserIds([])}
-                  onSelectAll={() => setSelectedActionUserIds((current) => Array.from(new Set([...current, ...visibleUserIds])))}
-                  selectedCount={selectedActionUserIds.length}
-                />
-                <CatalogViewToggle onChange={setUserCatalogViewMode} value={userCatalogViewMode} />
+                  </CatalogSearchFilter>
+                </div>
                 {accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
               </div>
               {isUserCatalogLoading ? <TileCardSkeletonGrid /> : null}
@@ -1057,21 +863,6 @@ export function PeoplePage({
                       type="button"
                     >
                       <div className="tile-card-main">
-                        <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
-                          <label className="checkbox-field">
-                            <input
-                              aria-label={`Select ${user.name || visibleUserEmail(user.email)}`}
-                              checked={selectedActionUserIds.includes(user.id)}
-                              onChange={() =>
-                                setSelectedActionUserIds((current) =>
-                                  current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id]
-                                )
-                              }
-                              type="checkbox"
-                            />
-                            <span className="sr-only">Select user</span>
-                          </label>
-                        </div>
                         <div className="tile-card-header">
                           <TileCardIconFrame tone={user.role === "admin" ? "info" : "success"}>
                             <TileCardUsersIcon />
@@ -1080,11 +871,11 @@ export function PeoplePage({
                             <strong>{user.name || "Unnamed user"}</strong>
                             <span className="tile-card-kicker">{visibleUserEmail(user.email)}</span>
                           </div>
-                          <TileCardStatusIndicator title={user.role === "admin" ? "Admin access" : "Member access"} tone={user.role === "admin" ? "info" : "success"} />
+                          <TileCardStatusIndicator title={`${displayUserRoleName(user)} access`} tone={user.role === "admin" ? "info" : "success"} />
                         </div>
-                        <p className="tile-card-description">{user.role === "admin" ? "Workspace administrator with directory controls." : "Active workspace member with assigned project access."}</p>
+                        <p className="tile-card-description">{user.role === "admin" ? "Workspace administration is granted by the HelloTest role catalog." : "HelloTest access is scoped to assigned projects."}</p>
                         <div className="people-card-footer">
-                          <span className="count-pill">{user.role === "admin" ? "Org Admin" : "Member"}</span>
+                          <span className="count-pill">{displayUserRoleName(user)}</span>
                         </div>
                       </div>
                     </button>
@@ -1113,80 +904,19 @@ export function PeoplePage({
             <Panel
               actions={<WorkspaceBackButton label="Back to user tiles" onClick={closeUserWorkspace} />}
               title="Selected user"
-              subtitle={selectedUser ? "Refine the record without leaving the list." : "Create your first user to begin."}
+              subtitle={selectedUser ? "Identity details and project roles are governed by the HelloTest workspace." : "Select a user to review project access."}
             >
               {selectedUser ? (
                 <div className="detail-stack">
                   <div className="detail-summary">
                     <strong>{selectedUser.name || "Unnamed user"}</strong>
                     <span>{visibleUserEmail(selectedUser.email)}</span>
-                    <span>{selectedUser.role === "admin" ? "Admin access" : "Member access"}</span>
+                    <span>{displayUserRoleName(selectedUser)} · {selectedUser.role_id || "viewer"}</span>
                   </div>
-                  {canManageUsers ? (
-                    <form
-                      className="form-grid"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        updateUser.mutate({
-                          id: selectedUser.id,
-                          input: {
-                            name: userDraft.name,
-                            email: userDraft.email,
-                            role_id: userDraft.role_id,
-                            ...(userDraft.password_hash ? { password: userDraft.password_hash } : {})
-                          }
-                        });
-                      }}
-                    >
-                      <FormField label="Name">
-                        <input
-                          name="name"
-                          value={userDraft.name}
-                          onChange={(event) => setUserDraft((current) => ({ ...current, name: event.target.value }))}
-                        />
-                      </FormField>
-                      <FormField label="Email">
-                        <input
-                          name="email"
-                          type="email"
-                          value={userDraft.email}
-                          onChange={(event) => setUserDraft((current) => ({ ...current, email: event.target.value }))}
-                        />
-                      </FormField>
-                      <FormField label="Role">
-                        <select
-                          name="role_id"
-                          value={userDraft.role_id}
-                          onChange={(event) => setUserDraft((current) => ({ ...current, role_id: event.target.value }))}
-                        >
-                          {roleItems.map((role) => (
-                            <option key={role.id} value={role.id}>
-                              {role.name === "admin" ? "Admin" : role.name === "member" ? "Member" : role.name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="New password">
-                        <input
-                          name="password"
-                          placeholder="Leave blank to keep current password"
-                          type="password"
-                          value={userDraft.password_hash}
-                          onChange={(event) => setUserDraft((current) => ({ ...current, password_hash: event.target.value }))}
-                        />
-                      </FormField>
-                      <div className="action-row">
-                        <button className="primary-button" disabled={updateUser.isPending} type="submit">
-                          {updateUser.isPending ? "Saving…" : "Save user"}
-                        </button>
-                        <button className="ghost-button danger" disabled={deleteUser.isPending || updateUser.isPending} onClick={() => void confirmDeleteUser(selectedUser)} type="button">
-                          Delete user
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="empty-state compact">Read-only access. Ask an admin to update this record.</div>
-                  )}
+                  <div className="jira-authority-note" role="note">
+                    <strong>Managed by HelloTest</strong>
+                    <span>Workspace administrators govern account access, project membership, roles, permissions, and credential recovery through HelloTest.</span>
+                  </div>
                 </div>
               ) : (
                 <div className="empty-state compact">No user selected.</div>
@@ -1196,46 +926,54 @@ export function PeoplePage({
           isDetailOpen={Boolean(selectedUser)}
         />
       ) : (
-        <WorkspaceMasterDetail
-          className="people-roles-workspace"
-          browseView={(
+        <>
+          <div aria-hidden={selectedRole ? "true" : undefined} className="people-role-catalog">
             <Panel
               title="Roles"
               titleVariant="eyebrow"
               subtitle="Keep role definitions scannable, then open one label into a focused editor when needed."
             >
-              <div className="design-list-toolbar people-catalog-toolbar">
-                <CatalogSearchFilter
-                  activeFilterCount={roleSearch.trim() ? 1 : 0}
-                  ariaLabel="Search roles"
-                  onChange={setRoleSearch}
-                  placeholder="Search roles"
-                  subtitle="Search by role name or assigned-user count."
-                  title="Role search"
-                  type="search"
-                  value={roleSearch}
-                >
-                  <div className="catalog-filter-grid">
-                    <div className="catalog-filter-actions">
-                      <button className="ghost-button" disabled={!roleSearch.trim()} onClick={() => setRoleSearch("")} type="button">
-                        Clear search
-                      </button>
+              <div className="design-list-toolbar catalog-command-toolbar people-catalog-toolbar">
+                <div className="catalog-toolbar-discovery" aria-label="Role views, search, and selection">
+                  <CatalogViewToggle onChange={setRoleCatalogViewMode} value={roleCatalogViewMode} />
+                  <CatalogSearchFilter
+                    activeFilterCount={roleSearch.trim() ? 1 : 0}
+                    ariaLabel="Search roles"
+                    onChange={setRoleSearch}
+                    placeholder="Search roles"
+                    subtitle="Search by role name or assigned-user count."
+                    title="Role search"
+                    type="search"
+                    value={roleSearch}
+                  >
+                    <div className="catalog-filter-grid">
+                      <div className="catalog-filter-actions">
+                        <button className="ghost-button" disabled={!roleSearch.trim()} onClick={() => setRoleSearch("")} type="button">
+                          Clear search
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </CatalogSearchFilter>
-                <CatalogSelectionControls
-                  allSelected={areAllFilteredRolesSelected}
-                  canSelectAll={Boolean(visibleRoleIds.length)}
-                  deleteAction={{
-                    label: "Delete roles",
-                    onClick: () => void handleDeleteSelectedRoles()
-                  }}
-                  onClear={() => setSelectedActionRoleIds([])}
-                  onSelectAll={() => setSelectedActionRoleIds((current) => Array.from(new Set([...current, ...visibleRoleIds])))}
-                  selectedCount={selectedActionRoleIds.length}
-                />
-                <CatalogViewToggle onChange={setRoleCatalogViewMode} value={roleCatalogViewMode} />
-                {accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
+                  </CatalogSearchFilter>
+                  <CatalogSelectionControls
+                    allSelected={areAllFilteredRolesSelected}
+                    canSelectAll={Boolean(visibleRoleIds.length)}
+                    onClear={() => setSelectedActionRoleIds([])}
+                    onSelectAll={() => setSelectedActionRoleIds((current) => Array.from(new Set([...current, ...visibleRoleIds])))}
+                    selectedCount={selectedActionRoleIds.length}
+                  />
+                </div>
+                <div className="catalog-toolbar-actions" aria-label="Role actions">
+                  {accessActions}
+                  <button
+                    className="ghost-button danger catalog-selection-button"
+                    disabled={!canManageRoles || !selectedActionRoleIds.length}
+                    onClick={() => void handleDeleteSelectedRoles()}
+                    type="button"
+                  >
+                    <TrashIcon />
+                    <span>Delete roles</span>
+                  </button>
+                </div>
               </div>
               {isRoleCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isRoleCatalogLoading && filteredRoleItems.length && roleCatalogViewMode === "tile" ? (
@@ -1301,293 +1039,115 @@ export function PeoplePage({
               {!isRoleCatalogLoading && !roleItems.length ? <div className="empty-state compact">No roles defined yet.</div> : null}
               {!isRoleCatalogLoading && roleItems.length > 0 && !filteredRoleItems.length ? <div className="empty-state compact">No roles match the current search.</div> : null}
             </Panel>
-          )}
-          detailView={(
-            <Panel
-              actions={<WorkspaceBackButton label="Back to role tiles" onClick={closeRoleWorkspace} />}
-              title="Selected role"
-              subtitle={selectedRole ? "Adjust the role name in place." : "Create a role to start reusing it in memberships."}
-            >
-              {selectedRole ? (
-                <div className="detail-stack">
-                  <div className="detail-summary">
-                    <strong>{selectedRole.name}</strong>
-                    <span>{rolePermissionDraft.length} permissions selected</span>
-                  </div>
-                  {isAdmin ? (
-                    <>
-                      <form
-                        className="form-grid"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name, permission_codes: rolePermissionDraft } });
-                        }}
-                      >
-                        <FormField label="Role name">
-                          <input
-                            name="name"
-                            value={roleDraft.name}
-                            onChange={(event) => setRoleDraft({ name: event.target.value })}
-                          />
-                        </FormField>
-                        <div className="action-row">
-                          <button className="primary-button" disabled={updateRole.isPending} type="submit">
-                            {updateRole.isPending ? "Saving…" : "Save role"}
-                          </button>
-                          <button className="ghost-button danger" disabled={deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
-                            Delete role
-                          </button>
-                        </div>
-                      </form>
+          </div>
 
-                      <div className="role-permission-editor role-permission-editor--edit people-role-existing-permissions">
+          {selectedRole ? (
+            <div className="people-role-drawer-backdrop" onClick={closeRoleWorkspace} role="presentation">
+              <aside
+                aria-describedby="role-details-description"
+                aria-labelledby="role-details-title"
+                aria-modal="true"
+                className="people-role-drawer"
+                onClick={(event) => event.stopPropagation()}
+                ref={roleDrawerRef}
+                role="dialog"
+                tabIndex={-1}
+              >
+                <header className="people-role-drawer-header">
+                  <div className="people-role-drawer-heading">
+                    <p className="dialog-context-label">Role details</p>
+                    <h2 className="dialog-title" id="role-details-title">{selectedRole.name}</h2>
+                    <p id="role-details-description">Review assignments, rename the role, and tune its project permissions.</p>
+                  </div>
+                  <DialogCloseButton label={`Close ${selectedRole.name} role details`} onClick={closeRoleWorkspace} />
+                </header>
+
+                <div className="people-role-drawer-body">
+                  <div className="people-role-drawer-summary" aria-label="Role summary">
+                    <div>
+                      <span>Assigned users</span>
+                      <strong>{userCountByRoleName[selectedRole.name] || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Permissions</span>
+                      <strong>{selectedRolePermissions.isLoading ? "…" : rolePermissionDraft.length}</strong>
+                    </div>
+                    <div>
+                      <span>Management</span>
+                      <strong>{selectedRole.system ? "System" : canManageRoles ? "Editable" : "Read only"}</strong>
+                    </div>
+                  </div>
+
+                  {canManageRoles ? (
+                    <div className="detail-stack people-role-drawer-content">
+                      <section className="people-role-drawer-section" aria-labelledby="role-identity-title">
                         <div className="detail-summary">
-                          <strong>Permissions</strong>
-                          <span>Bind feature access and CRUD actions to this role. Changes apply anywhere this role is assigned.</span>
+                          <strong id="role-identity-title">Role identity</strong>
+                          <span>Use a concise name that is meaningful wherever project access is assigned.</span>
                         </div>
-                        {permissions.isLoading || selectedRolePermissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(rolePermissionDraft, "edit")}
-                        <div className="action-row">
-                          <button
-                            className="primary-button"
-                            disabled={replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
-                            onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
-                            type="button"
-                          >
-                            {replaceRolePermissions.isPending ? "Saving permissions…" : "Save permissions"}
-                          </button>
-                          <button
-                            className="ghost-button"
-                            disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
-                            onClick={() => setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code))}
-                            type="button"
-                          >
-                            Reset
-                          </button>
+                        <form
+                          className="form-grid"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name, permission_codes: rolePermissionDraft } });
+                          }}
+                        >
+                          <FormField label="Role name">
+                            <input
+                              disabled={selectedRole.id === "jira-admin"}
+                              name="name"
+                              value={roleDraft.name}
+                              onChange={(event) => setRoleDraft({ name: event.target.value })}
+                            />
+                          </FormField>
+                          <div className="action-row">
+                            <button className="primary-button" disabled={updateRole.isPending || selectedRole.id === "jira-admin"} type="submit">
+                              {updateRole.isPending ? "Saving…" : "Save role"}
+                            </button>
+                            <button className="ghost-button danger" disabled={Boolean(selectedRole.system) || deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
+                              Delete role
+                            </button>
+                          </div>
+                        </form>
+                      </section>
+
+                      <section className="people-role-drawer-section people-role-drawer-permissions" aria-labelledby="role-permissions-title">
+                        <div className="role-permission-editor role-permission-editor--edit people-role-existing-permissions">
+                          <div className="detail-summary">
+                            <strong id="role-permissions-title">Permissions</strong>
+                            <span>Bind feature access and CRUD actions to this role. Changes apply anywhere this role is assigned.</span>
+                          </div>
+                          {permissions.isLoading || selectedRolePermissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(rolePermissionDraft, "edit")}
+                          <div className="action-row people-role-drawer-save-row">
+                            <button
+                              className="primary-button"
+                              disabled={selectedRole.id === "jira-admin" || replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
+                              onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
+                              type="button"
+                            >
+                              {replaceRolePermissions.isPending ? "Saving permissions…" : "Save permissions"}
+                            </button>
+                            <button
+                              className="ghost-button"
+                              disabled={selectedRole.id === "jira-admin" || replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                              onClick={() => setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code))}
+                              type="button"
+                            >
+                              Reset
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </>
+                      </section>
+                    </div>
                   ) : (
                     <div className="empty-state compact">Read-only access. Ask an admin to change role definitions.</div>
                   )}
                 </div>
-              ) : (
-                <div className="empty-state compact">No role selected.</div>
-              )}
-            </Panel>
-          )}
-          isDetailOpen={Boolean(selectedRole)}
-          variant="split"
-        />
+              </aside>
+            </div>
+          ) : null}
+        </>
       )}
-
-      {isCreateUserModalOpen ? (
-        <div className="modal-backdrop" onClick={closeCreateUserModal} role="presentation">
-          <div
-            aria-labelledby="create-user-title"
-            aria-modal="true"
-            className="modal-card people-modal-card people-create-user-card"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="people-modal-header">
-              <div className="people-modal-title">
-                <div className="modal-title-info-row">
-                  <p className="eyebrow" id="create-user-title">Create user</p>
-                  <InfoTooltip content="Add a workspace user without leaving the directory view." label="Create user information" />
-                </div>
-              </div>
-              <button
-                aria-label="Close create user dialog"
-                className="ghost-button"
-                onClick={closeCreateUserModal}
-                type="button"
-              >
-                Close
-              </button>
-            </div>
-
-            <form className="people-modal-form" onSubmit={handleUserCreate}>
-              <div className="people-modal-body">
-                <div className="record-grid">
-                  <FormField label="Name">
-                    <input
-                      autoFocus
-                      name="name"
-                      placeholder="Quality lead"
-                      value={createUserDraft.name}
-                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, name: event.target.value }))}
-                    />
-                  </FormField>
-                  <FormField label="Email" required>
-                    <input
-                      name="email"
-                      type="email"
-                      value={createUserDraft.email}
-                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, email: event.target.value }))}
-                    />
-                  </FormField>
-                  <FormField label="Role" required>
-                    <select
-                      name="role_id"
-                      value={createUserDraft.role_id}
-                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, role_id: event.target.value }))}
-                    >
-                      <option value="">Select a role</option>
-                      {roleItems.map((role) => (
-                        <option key={role.id} value={role.id}>
-                          {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                  <FormField label="Temporary password" required>
-                    <input
-                      name="password"
-                      placeholder="At least 6 characters"
-                      type="password"
-                      value={createUserDraft.password_hash}
-                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, password_hash: event.target.value }))}
-                    />
-                  </FormField>
-                </div>
-              </div>
-
-              <div className="action-row people-modal-actions">
-                <button className="primary-button" disabled={createUser.isPending} type="submit">
-                  {createUser.isPending ? "Creating…" : "Create user"}
-                </button>
-                <button className="ghost-button" disabled={createUser.isPending} onClick={closeCreateUserModal} type="button">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {isImportUsersModalOpen ? (
-        <div className="modal-backdrop" onClick={() => closeImportUsersModal()} role="presentation">
-          <div
-            aria-labelledby="import-users-title"
-            aria-modal="true"
-            className="modal-card people-modal-card import-modal-card"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="people-modal-header">
-              <div className="people-modal-title">
-                <p>People & Access</p>
-                <div className="modal-title-info-row">
-                  <p className="eyebrow" id="import-users-title">Import users from CSV</p>
-                  <InfoTooltip
-                    content="Upload a CSV with `Email`, optional `Name`, `Password` or `Password Hash`, and optional `Role` or `Role ID`. Plain passwords are hashed before users are stored."
-                    label="User import information"
-                  />
-                </div>
-              </div>
-              <button
-                aria-label="Close user import dialog"
-                className="ghost-button"
-                disabled={importUsers.isPending}
-                onClick={() => closeImportUsersModal()}
-                type="button"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="people-modal-body">
-              <div className="record-grid">
-                <FormField label="CSV file">
-                  <input accept=".csv,text/csv" onChange={(event) => void handleImportUsersFile(event)} type="file" />
-                </FormField>
-
-                <FormField label="Default role">
-                  <select value={importUsersDefaultRoleId} onChange={(event) => setImportUsersDefaultRoleId(event.target.value)}>
-                    <option value="">Require role per row</option>
-                    {roleItems.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-
-              <div className="metric-strip compact">
-                <div className="mini-card">
-                  <strong>{importUserRows.length}</strong>
-                  <span>Rows ready</span>
-                </div>
-                <div className="mini-card">
-                  <strong>{importUsersPasswordCount}</strong>
-                  <span>Password values</span>
-                </div>
-                <div className="mini-card">
-                  <strong>{importUsersExplicitRoleCount}</strong>
-                  <span>Rows with roles</span>
-                </div>
-              </div>
-
-              <div className="detail-summary">
-                <strong>{importUsersFileName || "No CSV loaded yet"}</strong>
-                <span>Accepted columns: `Email`, `Name`, `Password`, `Password Hash`, `Role`, and `Role ID`. Any row without a role uses the selected default role when one is provided.</span>
-              </div>
-
-              {importUserWarnings.length ? (
-                <div className="empty-state compact">
-                  {importUserWarnings.slice(0, 4).map((warning) => (
-                    <div key={warning}>{warning}</div>
-                  ))}
-                </div>
-              ) : null}
-
-              {importUserRows.length ? (
-                <div className="table-wrap import-preview-table">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Email</th>
-                        <th>Name</th>
-                        <th>Role</th>
-                        <th>Password source</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importUserRows.slice(0, 5).map((row, index) => (
-                        <tr key={`${row.email}-${index}`}>
-                          <td>{visibleUserEmail(row.email)}</td>
-                          <td>{row.name || "—"}</td>
-                          <td>{row.role || row.role_id || "Default role"}</td>
-                          <td>{row.password_hash ? "Password hash" : row.password ? "Plain password" : "Missing"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="action-row people-modal-actions">
-              <button className="primary-button" disabled={!importUserRows.length || importUsers.isPending} onClick={() => void handleBulkImportUsers()} type="button">
-                {importUsers.isPending ? "Queuing…" : `Queue ${importUserRows.length || ""} Users`}
-              </button>
-              <button
-                className="ghost-button"
-                disabled={!importUserRows.length || importUsers.isPending}
-                onClick={() => {
-                  setImportUsersFileName("");
-                  setImportUserRows([]);
-                  setImportUserWarnings([]);
-                }}
-                type="button"
-              >
-                Clear preview
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {isCreateRoleModalOpen ? (
         <div className="modal-backdrop" onClick={closeCreateRoleModal} role="presentation">
@@ -1596,24 +1156,23 @@ export function PeoplePage({
             aria-modal="true"
             className={`modal-card people-modal-card people-role-modal-card people-role-create-card${isCreateRolePermissionExpanded ? " is-permission-expanded" : ""}`}
             onClick={(event) => event.stopPropagation()}
+            ref={createRoleDialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="people-modal-header">
               <div className="people-modal-title">
-                <p>People & Access</p>
+                <p className="dialog-context-label">People &amp; access</p>
                 <div className="modal-title-info-row">
-                  <p className="eyebrow" id="create-role-title">Create role</p>
+                  <h2 className="dialog-title" id="create-role-title">Create role</h2>
                   <InfoTooltip content="Keep the role library concise and reusable across assignments." label="Create role information" />
                 </div>
               </div>
-              <button
-                aria-label="Close create role dialog"
-                className="ghost-button"
+              <DialogCloseButton
+                disabled={createRole.isPending}
+                label="Close create role dialog"
                 onClick={closeCreateRoleModal}
-                type="button"
-              >
-                Close
-              </button>
+              />
             </div>
 
             <form className="people-modal-form" onSubmit={handleRoleCreate}>

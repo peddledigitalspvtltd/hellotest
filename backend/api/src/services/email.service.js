@@ -39,7 +39,7 @@ exports.getEmailSenderProfile = async () => {
     return {
       enabled: true,
       senderEmail: config.sender_email || "support@qualipal.in",
-      senderName: config.sender_name || "QAira Support"
+      senderName: config.sender_name || "HelloTest Support"
     };
   } catch (error) {
     if (error.statusCode === 503) {
@@ -70,7 +70,7 @@ exports.sendMail = async ({ to, subject, text, html }) => {
   await transporter.sendMail({
     from: {
       address: config.sender_email || "support@qualipal.in",
-      name: config.sender_name || "QAira Support"
+      name: config.sender_name || "HelloTest Support"
     },
     replyTo: config.sender_email || "support@qualipal.in",
     to,

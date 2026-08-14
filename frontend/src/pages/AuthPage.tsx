@@ -97,7 +97,7 @@ const authFeatureSlides = [
   {
     eyebrow: "AI test case generation",
     title: "Convert requirements into test coverage your teams can trust.",
-    description: "QAira turns business rules and acceptance criteria into review-ready test cases, reducing missed scenarios before sprint work reaches execution.",
+    description: "HelloTest turns business rules and acceptance criteria into review-ready test cases, reducing missed scenarios before sprint work reaches execution.",
     badge: "Coverage Design",
     score: 88,
     status: "Coverage gaps found early",
@@ -137,7 +137,7 @@ const authFeatureSlides = [
   {
     eyebrow: "AI run analysis",
     title: "Turn every failed run into a release decision, not a mystery.",
-    description: "QAira groups failures, explains likely causes, and highlights release risk so teams know what to fix, defer, or rerun with confidence.",
+    description: "HelloTest groups failures, explains likely causes, and highlights release risk so teams know what to fix, defer, or rerun with confidence.",
     badge: "Run Intelligence",
     score: 90,
     status: "Root cause signals ready",
@@ -305,7 +305,7 @@ function getCurrentCopy(
   if (mode === "signup") {
     return {
       eyebrow: "Create account",
-      title: "Set up your QAira access",
+      title: "Set up your HelloTest access",
       description: emailReady
         ? `Create an account for secure access to the workspace. We'll send a 6-digit verification code from ${senderEmail} before the account goes live.`
         : "Create an account for secure access to the workspace. An admin needs to finish the Email Sender integration before signup can be completed.",
@@ -350,7 +350,7 @@ function getCurrentCopy(
     eyebrow: "Secure login",
     title: "Welcome back",
     description: "Sign in to continue managing test design, runs, and traceability in one place.",
-    submitLabel: "Sign in to QAira",
+    submitLabel: "Sign in to HelloTest",
     loadingLabel: "Signing in…"
   };
 }
@@ -765,7 +765,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
       <ToastMessage message={infoMessage} onDismiss={() => setInfoMessage("")} tone="info" />
 
       <div className="container auth-shell">
-        <section className="left auth-aside" aria-label="QAira product overview">
+        <section className="left auth-aside" aria-label="HelloTest product overview">
           <div className="auth-command-hero">
             <div className="auth-feature-carousel" key={activeFeature.eyebrow}>
               <div className="auth-product-copy">
@@ -774,7 +774,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
               </div>
             </div>
 
-            <div className="auth-hero-metrics" aria-label="QAira quality metrics">
+            <div className="auth-hero-metrics" aria-label="HelloTest quality metrics">
               {activeFeature.metrics.map((metric) => (
                 <article key={`${activeFeature.eyebrow}-${metric.label}`}>
                   <strong>{metric.value}</strong>
@@ -808,7 +808,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
 
         <main className="right auth-main">
           <div className="login-card" aria-live="polite">
-            <BrandWordmark className="auth-card-brand" subtitle="Secure workspace access" />
+            <BrandWordmark className="auth-card-brand" subtitle="AI Agentic Test Platform" />
 
             {isSuccessMode ? null : (
               <>

@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { ClearSelectionIcon, SelectAllIcon, TrashIcon } from "./AppIcons";
+import { ClearSelectionIcon, SelectAllIcon } from "./AppIcons";
 
 type CatalogSelectionControlsProps = {
   allSelected: boolean;
@@ -9,56 +8,41 @@ type CatalogSelectionControlsProps = {
   onSelectAll: () => void;
   clearLabel?: string;
   selectAllLabel?: string;
-  deleteAction?: {
-    disabled?: boolean;
-    icon?: ReactNode;
-    label: ReactNode;
-    onClick: () => void;
-    visible?: boolean;
-  };
 };
 
 export function CatalogSelectionControls({
   allSelected,
   canSelectAll,
   clearLabel = "Clear",
-  deleteAction,
   onClear,
   onSelectAll,
   selectAllLabel = "Select all",
   selectedCount
 }: CatalogSelectionControlsProps) {
   const hasSelection = selectedCount > 0;
-  const shouldShowDelete = Boolean(deleteAction && (deleteAction.visible ?? hasSelection));
 
   return (
-    <>
+    <div className="catalog-selection-controls" role="group" aria-label="Catalog selection">
       <button
         className="ghost-button catalog-selection-button"
         disabled={!canSelectAll || allSelected}
         onClick={onSelectAll}
+        title={!canSelectAll ? "No visible records to select" : allSelected ? "All visible records are selected" : selectAllLabel}
         type="button"
       >
         <SelectAllIcon />
         <span>{selectAllLabel}</span>
       </button>
-      {hasSelection ? (
-        <button className="ghost-button catalog-selection-button" onClick={onClear} type="button">
-          <ClearSelectionIcon />
-          <span>{clearLabel}</span>
-        </button>
-      ) : null}
-      {shouldShowDelete && deleteAction ? (
-        <button
-          className="ghost-button danger catalog-selection-button"
-          disabled={deleteAction.disabled}
-          onClick={deleteAction.onClick}
-          type="button"
-        >
-          {deleteAction.icon || <TrashIcon />}
-          <span>{deleteAction.label}</span>
-        </button>
-      ) : null}
-    </>
+      <button
+        className="ghost-button catalog-selection-button"
+        disabled={!hasSelection}
+        onClick={onClear}
+        title={hasSelection ? clearLabel : "No selected records to clear"}
+        type="button"
+      >
+        <ClearSelectionIcon />
+        <span>{clearLabel}</span>
+      </button>
+    </div>
   );
 }

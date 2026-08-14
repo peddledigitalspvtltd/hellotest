@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "./AppIcons";
+import { DialogCloseButton } from "./DialogCloseButton";
 import { InfoTooltip } from "./InfoTooltip";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 
 export type RecorderStartMode = "local" | "remote";
@@ -55,6 +57,7 @@ export function RecorderStartControls({
   localLabel = "Local Playwright",
   remoteLabel = "Remote browser",
   mobileRemoteEnabled = false,
+  mobileAppiumEnabled = false,
   primaryAction,
   moreActions
 }: {
@@ -65,6 +68,7 @@ export function RecorderStartControls({
   localLabel?: string;
   remoteLabel?: string;
   mobileRemoteEnabled?: boolean;
+  mobileAppiumEnabled?: boolean;
   primaryAction?: ReactNode;
   moreActions?: ReactNode;
 }) {
@@ -79,6 +83,10 @@ export function RecorderStartControls({
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  const setupDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isSetupOpen,
+    onClose: () => setIsSetupOpen(false)
+  });
   const normalizedBrowserUrl = localBrowserUrl.replace(/\/+$/, "");
   const setupModalRoot = typeof document === "undefined" ? null : document.body;
   const overlayRoot = typeof document === "undefined" ? null : document.body;
@@ -112,7 +120,7 @@ export function RecorderStartControls({
       const capabilities = await readJson(`${normalizedBrowserUrl}/api/v1/capabilities`);
 
       if (health?.ok !== true || !capabilities?.runner) {
-        throw new Error("The local service responded, but it does not look like a QAira Test Engine.");
+        throw new Error("The local service responded, but it does not look like a HelloTest Test Engine.");
       }
 
       setCheckState("ready");
@@ -144,7 +152,7 @@ export function RecorderStartControls({
 
   const handleLaunchLocalAgent = async () => {
     setIsLaunchingAgent(true);
-    setCheckMessage("Requesting QAira local runner launch...");
+    setCheckMessage("Requesting HelloTest local runner launch...");
 
     try {
       const result = await api.localAgent.start({ target: "playwright" });
@@ -235,7 +243,7 @@ export function RecorderStartControls({
           <button
             aria-expanded={isMoreOpen}
             aria-haspopup="menu"
-            aria-label="More recorder options"
+            aria-label="Choose recorder start mode"
             className="recorder-more-trigger"
             onClick={() => setIsMoreOpen((current) => !current)}
             ref={moreButtonRef}
@@ -276,20 +284,22 @@ export function RecorderStartControls({
                 </button>
               </>
             ) : null}
-            <button
-              className="ghost-button"
-              disabled={disabled || isStarting || hasSession}
-              onClick={() => {
-                setIsMoreOpen(false);
-                onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" });
-              }}
-              role="menuitem"
-              type="button"
-            >
-              <MousePointerIcon size={16} />
-              <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
-            </button>
-            {mobileRemoteEnabled ? (
+            {mobileAppiumEnabled ? (
+              <button
+                className="ghost-button"
+                disabled={disabled || isStarting || hasSession}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <MousePointerIcon size={16} />
+                <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
+              </button>
+            ) : null}
+            {mobileAppiumEnabled && mobileRemoteEnabled ? (
               <button
                 className="ghost-button"
                 disabled={disabled || isStarting || hasSession}
@@ -313,24 +323,25 @@ export function RecorderStartControls({
       {isSetupOpen && setupModalRoot ? createPortal(
         <div className="modal-backdrop" onClick={() => setIsSetupOpen(false)} role="presentation">
           <div
+            aria-labelledby="local-recorder-setup-title"
             aria-modal="true"
             className="modal-card recorder-setup-modal"
             onClick={(event) => event.stopPropagation()}
+            ref={setupDialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="resource-modal-header">
               <div className="resource-modal-title">
                 <div className="modal-title-info-row">
-                  <p className="eyebrow">Local recorder setup</p>
+                  <h2 className="dialog-title" id="local-recorder-setup-title">Local recorder setup</h2>
                   <InfoTooltip
-                    content="Run QAira local-run or a local Test Engine before recording on this computer."
+                    content="Run HelloTest local-run or a local Test Engine before recording on this computer."
                     label="Local recorder setup information"
                   />
                 </div>
               </div>
-              <button className="ghost-button" onClick={() => setIsSetupOpen(false)} type="button">
-                Close
-              </button>
+              <DialogCloseButton label="Close local recorder setup" onClick={() => setIsSetupOpen(false)} />
             </div>
 
             <div className="detail-stack">
@@ -338,7 +349,7 @@ export function RecorderStartControls({
                 <span className="recorder-setup-copy-title-row">
                   <strong>Local setup</strong>
                   <InfoTooltip
-                    content="Use Start local runner when QAira API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed QAira script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
+                    content="Use Start local runner when HelloTest API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed HelloTest script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
                     label="Local setup information"
                   />
                 </span>
@@ -354,7 +365,7 @@ export function RecorderStartControls({
               </div>
               <label className="form-field">
                 <span>Browser recorder URL</span>
-                <input value={localBrowserUrl} onChange={(event) => setLocalBrowserUrl(event.target.value)} />
+                <input data-autofocus="true" value={localBrowserUrl} onChange={(event) => setLocalBrowserUrl(event.target.value)} />
               </label>
               <label className="form-field">
                 <span>API/container engine URL</span>

@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const path = require("path");
 const { Transform } = require("stream");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 const { config } = require("../config");
 const objectStorage = require("./objectStorage.service");

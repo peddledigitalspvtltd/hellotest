@@ -108,36 +108,6 @@ exports.syncAutomaticDefectsForTestCase = async (testCaseId, defectRefs = []) =>
     return { linked: 0 };
   }
 
-  let issueIds = normalizeReferenceList(defectRefs);
-
-  if (!issueIds.length) {
-    const rows = await db.prepare(`
-      SELECT defects
-      FROM execution_results
-      WHERE test_case_id = ?
-    `).all(testCaseId);
-
-    issueIds = normalizeReferenceList(rows.flatMap((row) => normalizeReferenceList(row.defects)));
-  }
-
-  if (!issueIds.length) {
-    return { linked: 0 };
-  }
-
-  const existingIssues = new Set();
-
-  for (const issueId of issueIds) {
-    const issue = await selectIssue.get(issueId);
-
-    if (issue) {
-      existingIssues.add(issue.id);
-    }
-  }
-
-  if (!existingIssues.size) {
-    return { linked: 0 };
-  }
-
   const requirementRows = await db.prepare(`
     SELECT requirement_id
     FROM requirement_test_cases
@@ -151,10 +121,8 @@ exports.syncAutomaticDefectsForTestCase = async (testCaseId, defectRefs = []) =>
   let linked = 0;
 
   for (const requirementId of requirementIds) {
-    for (const issueId of existingIssues) {
-      const result = await insertAutomaticMapping.run(requirementId, issueId);
-      linked += result.changes || 0;
-    }
+    const result = await exports.syncAutomaticDefectsForRequirement(requirementId);
+    linked += result.linked || 0;
   }
 
   return { linked };
@@ -165,9 +133,8 @@ exports.syncAutomaticDefectsForRequirement = async (requirementId) => {
     return { linked: 0 };
   }
 
-  const result = await db.prepare(`
-    INSERT INTO requirement_defects (requirement_id, issue_id, link_source)
-    SELECT DISTINCT derived.requirement_id, derived.issue_id, 'automatic'
+  const evidence = await db.prepare(`
+    SELECT DISTINCT derived.issue_id
     FROM (
       SELECT requirement_test_cases.requirement_id, feedback.id AS issue_id
       FROM requirement_test_cases
@@ -183,8 +150,28 @@ exports.syncAutomaticDefectsForRequirement = async (requirementId) => {
       JOIN feedback ON feedback.id = defect_ref.value
       WHERE test_cases.requirement_id = ?
     ) AS derived
-    ON CONFLICT (requirement_id, issue_id) DO NOTHING
-  `).run(requirementId, requirementId);
+    ORDER BY derived.issue_id
+  `).all(requirementId, requirementId);
+  const issueIds = evidence.map((row) => row.issue_id);
 
-  return { linked: result.changes || 0 };
+  const transaction = db.transaction(async () => {
+    if (issueIds.length) {
+      await db.prepare(`
+        DELETE FROM requirement_defects
+        WHERE requirement_id = ? AND link_source = 'automatic'
+          AND issue_id NOT IN (${issueIds.map(() => "?").join(",")})
+      `).run(requirementId, ...issueIds);
+    } else {
+      await db.prepare(`DELETE FROM requirement_defects WHERE requirement_id = ? AND link_source = 'automatic'`).run(requirementId);
+    }
+
+    let linked = 0;
+    for (const issueId of issueIds) {
+      const result = await insertAutomaticMapping.run(requirementId, issueId);
+      linked += result.changes || 0;
+    }
+    return { linked, retained: issueIds.length };
+  });
+
+  return transaction();
 };

@@ -1,18 +1,7 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { buildVariablesForStorage, sanitizeVariablesForRead } = require("../utils/contextVariables");
-
-const selectProject = db.prepare(`
-  SELECT id
-  FROM projects
-  WHERE id = ?
-`);
-
-const selectAppType = db.prepare(`
-  SELECT id, project_id
-  FROM app_types
-  WHERE id = ?
-`);
+const { validateProjectAppTypeScope } = require("./projectScope.service");
 
 const hydrateConfiguration = (row) => ({
   ...row,
@@ -22,34 +11,12 @@ const hydrateConfiguration = (row) => ({
   platform_version: row.platform_version || null
 });
 
-const validateScope = async (projectId, appTypeId) => {
-  const project = await selectProject.get(projectId);
-
-  if (!project) {
-    throw new Error("Project not found");
-  }
-
-  if (!appTypeId) {
-    return;
-  }
-
-  const appType = await selectAppType.get(appTypeId);
-
-  if (!appType) {
-    throw new Error("App type not found");
-  }
-
-  if (appType.project_id !== projectId) {
-    throw new Error("App type must belong to the selected project");
-  }
-};
-
 exports.createTestConfiguration = async ({ project_id, app_type_id, name, description, browser, mobile_os, platform_version, variables }) => {
   if (!project_id || !name) {
     throw new Error("Missing required fields");
   }
 
-  await validateScope(project_id, app_type_id);
+  await validateProjectAppTypeScope(project_id, app_type_id);
 
   const id = uuid();
 
@@ -138,7 +105,7 @@ exports.updateTestConfiguration = async (id, data) => {
   const projectId = data.project_id ?? existing.project_id;
   const appTypeId = data.app_type_id === undefined ? existing.app_type_id : data.app_type_id || null;
 
-  await validateScope(projectId, appTypeId);
+  await validateProjectAppTypeScope(projectId, appTypeId);
 
   await db.prepare(`
     UPDATE test_configurations
@@ -168,11 +135,15 @@ exports.updateTestConfiguration = async (id, data) => {
 };
 
 exports.deleteTestConfiguration = async (id) => {
-  await exports.getTestConfiguration(id);
-  await db.prepare(`
+  const deleted = await db.prepare(`
     DELETE FROM test_configurations
     WHERE id = ?
-  `).run(id);
+    RETURNING id
+  `).get(id);
+
+  if (!deleted) {
+    throw new Error("Test configuration not found");
+  }
 
   return { deleted: true };
 };

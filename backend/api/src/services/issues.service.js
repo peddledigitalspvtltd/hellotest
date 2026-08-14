@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 const { normalizeReferenceList } = require("../utils/externalReferences");
 

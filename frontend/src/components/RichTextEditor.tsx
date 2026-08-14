@@ -1,10 +1,12 @@
 import { type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconPhoto } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
+import { AgenticProcessRail } from "./AgenticExperience";
 
 type RichTextEditorProps = {
   id?: string;
@@ -16,12 +18,18 @@ type RichTextEditorProps = {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  appearance?: "standard" | "canonical";
+  toolbarPreset?: "default" | "sprint-goal";
   onAiRephrase?: (html: string, plainText: string) => Promise<string | void> | string | void;
   aiRephraseTitle?: string;
   aiRephraseContext?: {
     entityType?: string;
+    entityId?: string;
     entityTitle?: string;
     fieldLabel?: string;
+    appTypeId?: string;
+    requirementId?: string;
+    moduleId?: string;
   };
   "aria-label"?: string;
 };
@@ -325,6 +333,8 @@ export function RichTextEditor({
   required,
   disabled,
   className = "",
+  appearance = "standard",
+  toolbarPreset = "default",
   onAiRephrase,
   aiRephraseTitle = "Rephrase description with AI",
   aiRephraseContext,
@@ -336,6 +346,7 @@ export function RichTextEditor({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const lastHtmlRef = useRef("");
   const [isRephrasing, setIsRephrasing] = useState(false);
+  const [aiProposal, setAiProposal] = useState<string | null>(null);
   const isEmpty = !richTextToPlainText(value);
   const canUseDefaultAiRephrase = Boolean(projectId)
     && hasPermission(session, "content.ai")
@@ -469,27 +480,40 @@ export function RichTextEditor({
             content: plainText,
             content_html: currentHtml,
             entity_type: aiRephraseContext?.entityType || "rich-text authoring field",
+            entity_id: aiRephraseContext?.entityId,
             entity_title: aiRephraseContext?.entityTitle,
             field_label: aiRephraseContext?.fieldLabel || aiRephraseTitle.replace(/^Rephrase\s+/i, "").replace(/\s+with AI$/i, ""),
+            app_type_id: aiRephraseContext?.appTypeId,
+            requirement_id: aiRephraseContext?.requirementId,
+            module_id: aiRephraseContext?.moduleId,
             aria_label: ariaLabel
           })).content;
       const nextValue = typeof aiValue === "string" ? aiValue : "";
       if (nextValue) {
         const nextHtml = sanitizeRichTextHtml(nextValue);
-        lastHtmlRef.current = nextHtml;
-        onChange(nextHtml);
-        if (editor) {
-          editor.innerHTML = nextHtml;
-        }
+        setAiProposal(richTextToPlainText(nextHtml));
       }
     } catch (error) {
       console.warn("Rich text AI rephrase failed; the original content was preserved.", error);
     } finally {
       setIsRephrasing(false);
     }
-  }, [aiRephraseContext?.entityTitle, aiRephraseContext?.entityType, aiRephraseContext?.fieldLabel, aiRephraseTitle, ariaLabel, disabled, isRephrasing, onAiRephrase, onChange, projectId, value]);
+  }, [aiRephraseContext?.appTypeId, aiRephraseContext?.entityId, aiRephraseContext?.entityTitle, aiRephraseContext?.entityType, aiRephraseContext?.fieldLabel, aiRephraseContext?.moduleId, aiRephraseContext?.requirementId, aiRephraseTitle, ariaLabel, disabled, isRephrasing, onAiRephrase, onChange, projectId, value]);
 
-  const controls: Array<{ group: "format" | "insert" | "list" | "ai"; label: ReactNode; title: string; action: () => void; disabled?: boolean }> = [
+  const acceptAiProposal = useCallback(() => {
+    if (!aiProposal?.trim()) return;
+    const nextHtml = sanitizeRichTextHtml(aiProposal
+      .trim()
+      .split(/\n{2,}/)
+      .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+      .join(""));
+    lastHtmlRef.current = nextHtml;
+    onChange(nextHtml);
+    if (editorRef.current) editorRef.current.innerHTML = nextHtml;
+    setAiProposal(null);
+  }, [aiProposal, onChange]);
+
+  const defaultControls: Array<{ group: "format" | "insert" | "list" | "ai"; label: ReactNode; title: string; action: () => void; disabled?: boolean }> = [
     { group: "format", label: <strong className="rich-text-tool-glyph">B</strong>, title: "Bold", action: () => runCommand("bold") },
     { group: "format", label: <em className="rich-text-tool-glyph">I</em>, title: "Italic", action: () => runCommand("italic") },
     { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--strike">S</span>, title: "Strikethrough", action: () => runCommand("strikeThrough") },
@@ -501,13 +525,28 @@ export function RichTextEditor({
     { group: "list", label: <RichTextIndentIcon />, title: "Indent list item", action: () => runCommand("indent") },
     { group: "ai", label: <RichTextAiRephraseIcon />, title: aiRephraseTitle, action: handleAiRephrase, disabled: isEmpty || isRephrasing || (!onAiRephrase && !canUseDefaultAiRephrase) }
   ];
+  const sprintGoalControls: typeof defaultControls = [
+    { group: "format", label: <strong className="rich-text-tool-glyph">B</strong>, title: "Bold", action: () => runCommand("bold") },
+    { group: "format", label: <em className="rich-text-tool-glyph">I</em>, title: "Italic", action: () => runCommand("italic") },
+    { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--underline">U</span>, title: "Underline", action: () => runCommand("underline") },
+    { group: "list", label: <RichTextBulletedListIcon />, title: "Bulleted list", action: () => runCommand("insertUnorderedList") },
+    { group: "list", label: <RichTextNumberedListIcon />, title: "Numbered list", action: () => runCommand("insertOrderedList") },
+    { group: "insert", label: <RichTextLinkIcon />, title: "Link", action: createLink },
+    { group: "insert", label: <IconPhoto aria-hidden="true" size={18} stroke={1.8} />, title: "Image", action: () => undefined, disabled: true }
+  ];
+  const controls = toolbarPreset === "sprint-goal" ? sprintGoalControls : defaultControls;
 
   const editorStyle = {
     "--rich-text-editor-min-height": `${Math.max(3.4, rows * 1.45 + 0.95)}rem`
   } as CSSProperties;
 
   return (
-    <div className={["rich-text-editor", className].filter(Boolean).join(" ")}>
+    <div className={[
+      "rich-text-editor",
+      appearance === "canonical" ? "canonical-rich-text-editor" : "",
+      `rich-text-editor--${toolbarPreset}`,
+      className
+    ].filter(Boolean).join(" ")}>
       <div className="rich-text-editor-toolbar" aria-label="Rich text tools">
         {controls.map((control, index) => (
           <span className="rich-text-tool-slot" key={control.title}>
@@ -542,6 +581,24 @@ export function RichTextEditor({
         style={editorStyle}
         suppressContentEditableWarning
       />
+      {isRephrasing || aiProposal !== null ? (
+        <section aria-label="AI rephrase proposal" className="rich-text-ai-review">
+          <AgenticProcessRail agentName="Content Improvement Agent" compact status={isRephrasing ? "running" : "completed"} />
+          {isRephrasing ? (
+            <div className="rich-text-ai-review__loading" role="status">Building an editable proposal. Your current text is preserved.</div>
+          ) : (
+            <>
+              <header><div><span>Editable AI proposal</span><strong>Review before replacing the current text</strong></div></header>
+              <textarea aria-label="Edit AI rephrase proposal" onChange={(event) => setAiProposal(event.target.value)} rows={Math.max(4, rows)} value={aiProposal || ""} />
+              <footer>
+                <span>Nothing changes until you accept.</span>
+                <button className="ghost-button" onClick={() => setAiProposal(null)} type="button">Discard</button>
+                <button className="primary-button" disabled={!aiProposal?.trim()} onClick={acceptAiProposal} type="button">Accept replacement</button>
+              </footer>
+            </>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

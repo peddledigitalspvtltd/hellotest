@@ -1,0 +1,1 @@
+.testops-rovo-provider{grid-template-columns:auto minmax(0,1fr)}.testops-rovo-provider>.count-pill,.testops-rovo-provider>button{grid-column:2;justify-self:start}

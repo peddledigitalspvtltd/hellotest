@@ -1,4 +1,4 @@
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 
 const selectProject = db.prepare(`
@@ -490,7 +490,7 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
       {
         at: snappedAt,
         level: "info",
-        message: "Node is isolated to the agentic run failure domain; adapter outages do not block core QAira services.",
+        message: "Node is isolated to the agentic run failure domain; adapter outages do not block core HelloTest services.",
         node_id: node.id
       }
     ];

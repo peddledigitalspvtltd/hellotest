@@ -1,7 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
-const requirementTestCaseService = require("./requirementTestCase.service");
-const requirementDefectService = require("./requirementDefect.service");
+const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const integrationService = require("./integration.service");
@@ -10,6 +8,8 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { assertExpectedRevision } = require("../utils/revision");
+const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
 
 const selectLinkedTestCases = db.prepare(`
   SELECT test_cases.id, test_cases.title, test_cases.description, test_cases.automated, test_cases.priority, test_cases.status
@@ -547,19 +547,53 @@ const normalizeRequirementCreationCandidate = (candidate, index, defaults) => ({
   quality_score: clampNumber(candidate?.quality_score, 0, 1, 0.65)
 });
 
-const hydrateTestCaseIds = async (requirement) => {
-  if (!requirement) {
-    return requirement;
+const hydrateRequirements = async (requirements) => {
+  const ids = uniqueIds(requirements);
+  if (!ids.length) {
+    return requirements;
   }
 
-  return {
-    ...requirement,
-    external_references: normalizeStoredReferenceList(requirement.external_references),
-    labels: normalizeStoredReferenceList(requirement.labels),
-    test_case_ids: await requirementTestCaseService.getTestCaseIdsForRequirement(requirement.id),
-    defect_ids: await requirementDefectService.getDefectIdsForRequirement(requirement.id),
-    defects: await requirementDefectService.getDefectsForRequirement(requirement.id)
-  };
+  const placeholders = placeholdersFor(ids);
+  const [testCaseRows, defectRows] = await Promise.all([
+    db.prepare(`
+      SELECT requirement_id, test_case_id
+      FROM requirement_test_cases
+      WHERE requirement_id IN (${placeholders})
+      ORDER BY requirement_id ASC, test_case_id ASC
+    `).all(...ids),
+    db.prepare(`
+      SELECT
+        requirement_defects.requirement_id,
+        feedback.id,
+        feedback.title,
+        feedback.status,
+        feedback.created_at,
+        requirement_defects.link_source
+      FROM requirement_defects
+      JOIN feedback ON feedback.id = requirement_defects.issue_id
+      WHERE requirement_defects.requirement_id IN (${placeholders})
+      ORDER BY requirement_defects.requirement_id ASC, feedback.created_at DESC, feedback.title ASC
+    `).all(...ids)
+  ]);
+  const testCasesByRequirement = groupRows(testCaseRows, "requirement_id");
+  const defectsByRequirement = groupRows(defectRows, "requirement_id");
+
+  return requirements.map((requirement) => {
+    const defects = defectsByRequirement.get(requirement.id) || [];
+    return {
+      ...requirement,
+      external_references: normalizeStoredReferenceList(requirement.external_references),
+      labels: normalizeStoredReferenceList(requirement.labels),
+      test_case_ids: (testCasesByRequirement.get(requirement.id) || []).map((row) => row.test_case_id),
+      defect_ids: defects.map((defect) => defect.id),
+      defects: defects.map(({ requirement_id, ...defect }) => defect)
+    };
+  });
+};
+
+const hydrateTestCaseIds = async (requirement) => {
+  if (!requirement) return requirement;
+  return (await hydrateRequirements([requirement]))[0];
 };
 
 exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, transaction_id } = {}) => {
@@ -1044,7 +1078,7 @@ exports.createRequirement = async ({ project_id, title, description, external_re
   return { id };
 };
 
-exports.getRequirements = async ({ project_id, status, priority }) => {
+exports.getRequirements = async ({ project_id, status, priority, ids, limit }) => {
   let query = `SELECT * FROM requirements WHERE 1=1`;
   const params = [];
 
@@ -1063,10 +1097,22 @@ exports.getRequirements = async ({ project_id, status, priority }) => {
     params.push(priority);
   }
 
+  const normalizedIds = normalizeReferenceList(ids);
+  if (normalizedIds.length) {
+    query += ` AND id IN (${normalizedIds.map(() => "?").join(",")})`;
+    params.push(...normalizedIds);
+  }
+
   query += ` ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC`;
 
+  if (limit !== undefined) {
+    const boundedLimit = Math.max(1, Math.min(10_000, Number.parseInt(String(limit), 10) || 1));
+    query += ` LIMIT ?`;
+    params.push(boundedLimit);
+  }
+
   const rows = await db.prepare(query).all(...params);
-  return Promise.all(rows.map(hydrateTestCaseIds));
+  return hydrateRequirements(rows);
 };
 
 exports.getRequirement = async (id) => {
@@ -1080,42 +1126,46 @@ exports.getRequirement = async (id) => {
 };
 
 exports.updateRequirement = async (id, data) => {
-  const existing = await exports.getRequirement(id);
+  const transaction = db.transaction(async () => {
+    const existing = await db.prepare(`SELECT * FROM requirements WHERE id = ? FOR UPDATE`).get(id);
+    if (!existing) throw new Error("Requirement not found");
+    const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Story");
 
-  if (data.project_id) {
-    const project = await db.prepare(`
-      SELECT id FROM projects WHERE id = ?
-    `).get(data.project_id);
+    if (data.project_id) {
+      const project = await db.prepare(`SELECT id FROM projects WHERE id = ?`).get(data.project_id);
+      if (!project) throw new Error("Project not found");
+    }
+    await ensureIterationBelongsToProject(data.iteration_id, data.project_id ?? existing.project_id);
 
-    if (!project) throw new Error("Project not found");
-  }
-  await ensureIterationBelongsToProject(data.iteration_id, data.project_id ?? existing.project_id);
+    await db.prepare(`
+      UPDATE requirements
+      SET project_id = ?, title = ?, description = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, iteration_id = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
+      WHERE id = ?
+    `).run(
+      data.project_id ?? existing.project_id,
+      data.title ?? existing.title,
+      data.description ?? existing.description,
+      data.external_references !== undefined
+        ? normalizeReferenceList(data.external_references)
+        : normalizeStoredReferenceList(existing.external_references),
+      data.labels !== undefined
+        ? normalizeReferenceList(data.labels)
+        : normalizeStoredReferenceList(existing.labels),
+      data.sprint !== undefined ? normalizeText(data.sprint) : existing.sprint,
+      data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
+      data.release !== undefined ? normalizeText(data.release) : existing.release,
+      data.iteration_id !== undefined ? normalizeText(data.iteration_id) : existing.iteration_id,
+      data.priority ?? existing.priority,
+      data.status ?? existing.status,
+      data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
+      currentRevision + 1,
+      id
+    );
 
-  await db.prepare(`
-    UPDATE requirements
-    SET project_id = ?, title = ?, description = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, iteration_id = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(
-    data.project_id ?? existing.project_id,
-    data.title ?? existing.title,
-    data.description ?? existing.description,
-    data.external_references !== undefined
-      ? normalizeReferenceList(data.external_references)
-      : normalizeStoredReferenceList(existing.external_references),
-    data.labels !== undefined
-      ? normalizeReferenceList(data.labels)
-      : normalizeStoredReferenceList(existing.labels),
-    data.sprint !== undefined ? normalizeText(data.sprint) : existing.sprint,
-    data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
-    data.release !== undefined ? normalizeText(data.release) : existing.release,
-    data.iteration_id !== undefined ? normalizeText(data.iteration_id) : existing.iteration_id,
-    data.priority ?? existing.priority,
-    data.status ?? existing.status,
-    data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,
-    id
-  );
+    return { updated: true, revision: currentRevision + 1 };
+  });
 
-  return { updated: true };
+  return transaction();
 };
 
 exports.previewRequirementOptimization = async ({ id, integration_id, user_id, additional_context } = {}) => {
@@ -1231,11 +1281,11 @@ exports.previewRequirementCreation = async ({
       if (!rawCandidates.length) throw new Error("LLM response did not contain requirement drafts");
     } catch {
       fallbackUsed = true;
-      fallbackReason = "The configured AI provider could not return a valid draft set; QAira used a conservative local preview.";
+      fallbackReason = "The configured AI provider could not return a valid draft set; HelloTest used a conservative local preview.";
     }
   } else {
     fallbackUsed = true;
-    fallbackReason = "No active LLM integration is configured; QAira used a conservative local preview.";
+    fallbackReason = "No active LLM integration is configured; HelloTest used a conservative local preview.";
   }
 
   if (!rawCandidates?.length) {

@@ -1,7 +1,10 @@
+import { WORKSPACE_ROUTES } from "./workspaceRoutes";
+
 export type WorkspaceSectionItem = {
   to: string;
   label: string;
   shortLabel?: string;
+  featureKeys?: string[];
   icon?:
     | "analytics"
     | "dashboard"
@@ -28,33 +31,45 @@ export const DASHBOARD_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/requirements", label: "Requirements", shortLabel: "Reqs", icon: "requirements" },
-  { to: "/test-cases", label: "Cases", shortLabel: "Cases", icon: "cases" },
-  { to: "/shared-steps", label: "Shared Steps", shortLabel: "Shared", icon: "shared" },
-  { to: "/design", label: "Suites", shortLabel: "Suites", icon: "suites" }
+  { to: WORKSPACE_ROUTES.requirements, label: "Stories", shortLabel: "Stories", icon: "requirements", featureKeys: ["qaira.manual.requirements"] },
+  { to: WORKSPACE_ROUTES.testCases, label: "Cases", shortLabel: "Cases", icon: "cases", featureKeys: ["qaira.manual.test_cases"] },
+  { to: WORKSPACE_ROUTES.sharedSteps, label: "Shared Steps", shortLabel: "Shared", icon: "shared", featureKeys: ["qaira.manual.suites"] },
+  { to: WORKSPACE_ROUTES.design, label: "Suites", shortLabel: "Suites", icon: "suites", featureKeys: ["qaira.manual.suites"] }
 ];
 
 export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/test-environments", label: "Environments", shortLabel: "Env", icon: "environments" },
-  { to: "/test-data", label: "Test Data", shortLabel: "Data", icon: "data" },
-  { to: "/test-configurations", label: "Configurations", shortLabel: "Config", icon: "configurations" }
+  { to: WORKSPACE_ROUTES.testEnvironments, label: "Environments", shortLabel: "Env", icon: "environments", featureKeys: ["qaira.manual.environments"] },
+  { to: WORKSPACE_ROUTES.testData, label: "Test Data", shortLabel: "Data", icon: "data", featureKeys: ["qaira.manual.test_data"] },
+  { to: WORKSPACE_ROUTES.testConfigurations, label: "Configurations", shortLabel: "Config", icon: "configurations", featureKeys: ["qaira.manual.environments"] }
 ];
 
 export const AUTOMATION_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/automation", label: "Automation", shortLabel: "Auto", icon: "automation" },
-  { to: "/object-repository", label: "Objects", shortLabel: "Objects", icon: "repository" }
+  { to: WORKSPACE_ROUTES.automation, label: "Automation", shortLabel: "Auto", icon: "automation", featureKeys: ["qaira.automation.workspace"] },
+  { to: WORKSPACE_ROUTES.objectRepository, label: "Objects", shortLabel: "Objects", icon: "repository", featureKeys: ["qaira.automation.workspace", "qaira.automation.object_repository"] }
 ];
 
 export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/testops", label: "Jobs", shortLabel: "Jobs", icon: "ops" },
-  { to: "/ops-telemetry", label: "Telemetry", shortLabel: "Telemetry", icon: "telemetry" },
-  { to: "/traces", label: "Traces", shortLabel: "Traces", icon: "traces" }
+  { to: WORKSPACE_ROUTES.testOps, label: "Jobs", shortLabel: "Jobs", icon: "ops", featureKeys: ["qaira.automation.batch_process"] },
+  { to: WORKSPACE_ROUTES.opsTelemetry, label: "Telemetry", shortLabel: "Telemetry", icon: "telemetry", featureKeys: ["qaira.ops.telemetry"] },
+  { to: WORKSPACE_ROUTES.traces, label: "Traces", shortLabel: "Traces", icon: "traces", featureKeys: ["qaira.ops.telemetry"] }
+];
+
+export const AGENTIC_WORKFLOW_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=workflows`, label: "Workflows", shortLabel: "Flows", icon: "traces", featureKeys: ["qaira.ai.agentic_workflows"] },
+  { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=runs`, label: "Workflow Runs", shortLabel: "Runs", icon: "executions", featureKeys: ["qaira.ai.agentic_workflows"] }
+];
+
+export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: `${WORKSPACE_ROUTES.executions}?view=test-case-runs`, label: "Test Case Runs", shortLabel: "Cases", icon: "cases", featureKeys: ["qaira.manual.runs"] },
+  { to: `${WORKSPACE_ROUTES.executions}?view=suite-runs`, label: "Suite Runs", shortLabel: "Suites", icon: "suites", featureKeys: ["qaira.manual.runs"] },
+  { to: `${WORKSPACE_ROUTES.executions}?view=local-runs`, label: "Local Runs", shortLabel: "Local", icon: "playwright", featureKeys: ["qaira.manual.runs", "qaira.automation.workspace", "qaira.automation.local_execution"] },
+  { to: `${WORKSPACE_ROUTES.executions}?view=scheduled-runs`, label: "Scheduled Runs", shortLabel: "Scheduled", icon: "executions", featureKeys: ["qaira.manual.runs"] }
 ];
 
 export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/": "Home",
   "/projects": "Projects",
-  "/requirements": "Requirements",
+  "/requirements": "Stories",
   "/test-cases": "Cases",
   "/shared-steps": "Shared Step Groups",
   "/design": "Suites",
@@ -73,8 +88,8 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/support": "Support",
   "/notifications": "Notifications",
   "/settings": "Settings",
-  "/issues": "Report Issue",
-  "/feedback": "Report Issue"
+  "/issues": "Bugs",
+  "/feedback": "Bugs"
 };
 
 export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {

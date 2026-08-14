@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { IconChevronDown, IconChevronUp, IconSearch } from "@tabler/icons-react";
+import { TestCaseIcon } from "./AppIcons";
 import { richTextToPlainText } from "./RichTextEditor";
 import type { TestCase, TestSuite } from "../types";
 
@@ -6,6 +8,7 @@ type SuiteCasePickerProps = {
   cases: TestCase[];
   selectedCaseIds: string[];
   onChange: (nextIds: string[]) => void;
+  disabled?: boolean;
   heading: string;
   description: string;
   emptyMessage: string;
@@ -23,6 +26,7 @@ type SuiteScopePickerProps = {
 
 type OrderedSelectionPickerItem = {
   id: string;
+  displayId?: string;
   title: string;
   description: string;
   meta?: string;
@@ -41,6 +45,8 @@ type OrderedSelectionPickerProps = {
   selectedHint: string;
   emptyHint: string;
   showCaseFilters?: boolean;
+  showSelectionSummary?: boolean;
+  disabled?: boolean;
 };
 
 const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
@@ -58,6 +64,7 @@ export function SuiteCasePicker({
   cases,
   selectedCaseIds,
   onChange,
+  disabled = false,
   heading,
   description,
   emptyMessage,
@@ -67,6 +74,7 @@ export function SuiteCasePicker({
     () =>
       cases.map((testCase) => ({
         id: testCase.id,
+        displayId: testCase.display_id || testCase.id,
         title: testCase.title,
         description: richTextToPlainText(testCase.description) || "No description yet for this test case.",
         labels: testCase.labels || [],
@@ -78,15 +86,17 @@ export function SuiteCasePicker({
   return (
     <OrderedSelectionPicker
       description={description}
-      emptyHint="Select cases to assign them into this suite."
+      disabled={disabled}
+      emptyHint=""
       emptyMessage={emptyMessage}
       heading={heading}
       itemLabel="test case"
       items={items}
       onChange={onChange}
-      selectedHint="Checked cases stay pinned to the top and will be saved in this order."
+      selectedHint=""
       selectedIds={selectedCaseIds}
       showCaseFilters
+      showSelectionSummary={false}
     />
   );
 }
@@ -135,7 +145,9 @@ function OrderedSelectionPicker({
   itemLabel,
   selectedHint,
   emptyHint,
-  showCaseFilters = false
+  showCaseFilters = false,
+  showSelectionSummary = true,
+  disabled = false
 }: OrderedSelectionPickerProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -146,6 +158,8 @@ function OrderedSelectionPicker({
       const itemLabels = item.labels || [];
       const itemModule = String(item.moduleLabel || "");
       const searchHaystack = [
+        item.displayId || "",
+        item.id,
         item.title,
         item.description,
         item.meta || "",
@@ -178,6 +192,8 @@ function OrderedSelectionPicker({
   const visibleSelectedCount = allVisibleItemIds.filter((itemId) => selectedIdSet.has(itemId)).length;
 
   const toggleItem = (itemId: string) => {
+    if (disabled) return;
+
     if (selectedIdSet.has(itemId)) {
       onChange(selectedIds.filter((id) => id !== itemId));
       return;
@@ -187,6 +203,8 @@ function OrderedSelectionPicker({
   };
 
   const moveSelectedItem = (itemId: string, direction: "up" | "down") => {
+    if (disabled) return;
+
     const currentIndex = selectedIds.indexOf(itemId);
 
     if (currentIndex === -1) {
@@ -198,19 +216,125 @@ function OrderedSelectionPicker({
   };
 
   const selectVisibleItems = () => {
+    if (disabled) return;
     onChange(Array.from(new Set([...selectedIds, ...allVisibleItemIds])));
   };
+
+  if (showCaseFilters) {
+    return (
+      <div className="modal-case-picker suite-reference-case-picker">
+        <div className="suite-reference-picker-heading">
+          <div>
+            <strong>{heading}</strong>
+            {description ? <span>{description}</span> : null}
+          </div>
+        </div>
+
+        <div className="suite-reference-picker-toolbar">
+          <label className="suite-reference-picker-search">
+            <IconSearch aria-hidden="true" size={16} stroke={1.8} />
+            <span className="sr-only">Search test cases</span>
+            <input
+              aria-label="Search test cases"
+              disabled={disabled}
+              placeholder="Search test cases by ID, name, or description..."
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </label>
+          <div className="suite-reference-picker-selection-actions" aria-label="Reusable test case selection actions">
+            <button
+              className="ghost-button"
+              disabled={disabled || !allVisibleItemIds.length || areAllVisibleItemsSelected}
+              onClick={selectVisibleItems}
+              type="button"
+            >
+              Select all
+            </button>
+            <span aria-hidden="true" className="suite-reference-picker-action-divider" />
+            <button className="ghost-button" disabled={disabled || !selectedIds.length} onClick={() => onChange([])} type="button">
+              Clear
+            </button>
+          </div>
+        </div>
+
+        {!items.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
+        {items.length && !orderedItems.length ? <div className="empty-state compact">No test cases match the current search.</div> : null}
+
+        {orderedItems.length ? (
+          <div className="suite-reference-case-table" role="table" aria-label="Reusable test cases">
+            <div className="suite-reference-case-table-header" role="row">
+              <span aria-hidden="true" />
+              <span role="columnheader">Test case details</span>
+              <span role="columnheader">Order</span>
+            </div>
+            <div className="suite-reference-case-table-body" role="rowgroup">
+              {orderedItems.map((item) => {
+                const selectedIndex = selectedIds.indexOf(item.id);
+                const isSelected = selectedIndex >= 0;
+
+                return (
+                  <div
+                    className={isSelected ? "suite-reference-case-row is-selected" : "suite-reference-case-row"}
+                    key={item.id}
+                    role="row"
+                  >
+                    <label className="suite-reference-case-checkbox" title={`${isSelected ? "Remove" : "Select"} ${item.title}`}>
+                      <input checked={isSelected} disabled={disabled} onChange={() => toggleItem(item.id)} type="checkbox" />
+                      <span className="sr-only">{isSelected ? "Remove" : "Select"} {item.title}</span>
+                    </label>
+                    <div className="suite-reference-case-copy" role="cell">
+                      <div className="suite-reference-case-title">
+                        <span className="suite-reference-case-id">
+                          <TestCaseIcon size={15} strokeWidth={1.8} />
+                          <span>{item.displayId || item.id}</span>
+                        </span>
+                        <strong>{item.title}</strong>
+                      </div>
+                      <span>{item.description}</span>
+                      {item.labels?.length ? <small>Labels: {item.labels.join(", ")}</small> : null}
+                      {item.moduleLabel ? <small>Module: {item.moduleLabel}</small> : null}
+                    </div>
+                    <div className="suite-reference-case-order" role="cell" aria-label={`${item.title} ordering controls`}>
+                      <button
+                        aria-label={`Move ${item.title} up`}
+                        className="ghost-button"
+                        disabled={disabled || !isSelected || selectedIndex === 0}
+                        onClick={() => moveSelectedItem(item.id, "up")}
+                        type="button"
+                      >
+                        <IconChevronUp aria-hidden="true" size={16} stroke={1.8} />
+                      </button>
+                      <button
+                        aria-label={`Move ${item.title} down`}
+                        className="ghost-button"
+                        disabled={disabled || !isSelected || selectedIndex === selectedItems.length - 1}
+                        onClick={() => moveSelectedItem(item.id, "down")}
+                        type="button"
+                      >
+                        <IconChevronDown aria-hidden="true" size={16} stroke={1.8} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="modal-case-picker">
       <div className="suite-case-picker-toolbar">
         <div>
           <strong>{heading}</strong>
-          <span>{description}</span>
+          {description ? <span>{description}</span> : null}
         </div>
         <div className="suite-case-picker-actions">
           <button className="ghost-button" disabled={!allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
-            Select visible
+            Select all
           </button>
           <button className="ghost-button" disabled={!selectedIds.length} onClick={() => onChange([])} type="button">
             Clear
@@ -218,27 +342,18 @@ function OrderedSelectionPicker({
         </div>
       </div>
 
-      {showCaseFilters ? (
-        <div className="suite-case-picker-filters">
-          <input
-            aria-label={`Search ${itemLabel}s`}
-            placeholder={itemLabel === "test case" ? "Search test cases by title, label, or module" : `Search ${itemLabel}s`}
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-          />
+      {showSelectionSummary ? (
+        <div className="detail-summary suite-case-picker-summary">
+          <strong>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</strong>
+          <span>
+            {hasActiveFilters
+              ? `${visibleSelectedCount} selected in the current filtered list.`
+              : selectedItems.length
+                ? selectedHint
+                : emptyHint}
+          </span>
         </div>
       ) : null}
-
-      <div className="detail-summary suite-case-picker-summary">
-        <strong>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</strong>
-        <span>
-          {hasActiveFilters
-            ? `${visibleSelectedCount} selected in the current filtered list.`
-            : selectedItems.length
-              ? selectedHint
-              : emptyHint}
-        </span>
-      </div>
 
       {!items.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
       {items.length && !orderedItems.length ? <div className="empty-state compact">No {itemLabel}s match the current filters.</div> : null}
@@ -301,9 +416,7 @@ function OrderedSelectionPicker({
 }
 
 function SuiteCasePickerArrowIcon({ direction }: { direction: "up" | "down" }) {
-  return (
-    <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="16">
-      {direction === "up" ? <path d="m7 14 5-5 5 5" /> : <path d="m7 10 5 5 5-5" />}
-    </svg>
-  );
+  return direction === "up"
+    ? <IconChevronUp aria-hidden="true" size={16} stroke={1.8} />
+    : <IconChevronDown aria-hidden="true" size={16} stroke={1.8} />;
 }

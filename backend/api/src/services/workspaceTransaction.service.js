@@ -1,7 +1,8 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const notificationService = require("./notification.service");
+const { placeholdersFor } = require("../utils/batchHydration");
 
 const WORKSPACE_TRANSACTION_STATUSES = new Set(["queued", "running", "completed", "failed"]);
 const WORKSPACE_TRANSACTION_EVENT_LEVELS = new Set(["info", "success", "warning", "error"]);
@@ -214,37 +215,45 @@ const parseJsonValue = (value, fallback) => {
   return value;
 };
 
+const hydrateTransactions = async (transactions) => {
+  const userIds = [...new Set(transactions
+    .filter((transaction) => transaction?.created_by && !transaction.created_user_email)
+    .map((transaction) => transaction.created_by))];
+  const userRows = userIds.length
+    ? await db.prepare(`
+        SELECT id, email, name, avatar_data_url
+        FROM users
+        WHERE id IN (${placeholdersFor(userIds)})
+      `).all(...userIds)
+    : [];
+  const usersById = new Map(userRows.map((user) => [user.id, user]));
+
+  return transactions.map((transaction) => {
+    if (!transaction) return null;
+    const createdUser = usersById.get(transaction.created_by);
+    const createdUserEmail = transaction.created_user_email || createdUser?.email;
+    const createdUserName = transaction.created_user_name || createdUser?.name || null;
+    const createdUserAvatar = transaction.created_user_avatar_data_url || createdUser?.avatar_data_url || null;
+
+    return {
+      ...transaction,
+      metadata: parseJsonValue(transaction.metadata, {}),
+      event_count: Number(transaction.event_count) || 0,
+      created_user: transaction.created_by
+        ? {
+            id: transaction.created_by,
+            email: createdUserEmail,
+            name: createdUserName,
+            avatar_data_url: createdUserAvatar
+          }
+        : null
+    };
+  });
+};
+
 const hydrateTransaction = async (transaction) => {
-  if (!transaction) {
-    return null;
-  }
-  
-  if (transaction.created_by && !transaction.created_user_email) {
-    const user = await db.prepare('SELECT email, name, avatar_data_url FROM users WHERE id = ?').get(transaction.created_by);
-    if (user) {
-      transaction.created_user_email = user.email;
-      transaction.created_user_name = user.name;
-      transaction.created_user_avatar_data_url = user.avatar_data_url;
-    }
-  }
-
-  if (!transaction) {
-    return null;
-  }
-
-  return {
-    ...transaction,
-    metadata: parseJsonValue(transaction.metadata, {}),
-    event_count: Number(transaction.event_count) || 0,
-    created_user: transaction.created_by
-      ? {
-          id: transaction.created_by,
-          email: transaction.created_user_email,
-          name: transaction.created_user_name || null,
-          avatar_data_url: transaction.created_user_avatar_data_url || null
-        }
-      : null
-  };
+  if (!transaction) return null;
+  return (await hydrateTransactions([transaction]))[0];
 };
 
 const hydrateTransactionEvent = (event) => {
@@ -469,5 +478,5 @@ exports.listTransactions = async ({
   params.push(Math.max(1, Math.min(500, Number(limit) || 20)));
 
   const rows = await obsDb.prepare(query).all(...params);
-  return Promise.all(rows.map(hydrateTransaction));
+  return hydrateTransactions(rows);
 };

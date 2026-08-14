@@ -1,0 +1,1 @@
+.knowledge-rovo-provider{margin-top:.75rem}@media (max-width: 760px){.knowledge-rovo-provider{grid-template-columns:auto minmax(0,1fr)}.knowledge-rovo-provider>.count-pill,.knowledge-rovo-provider>button{grid-column:2;justify-self:start}}

@@ -1,7 +1,29 @@
 const service = require("../services/testStep.service");
 const { TEST_STEP_GROUP_KIND_VALUES, TEST_STEP_TYPE_VALUES } = require("../domain/catalog");
+const { requireEntityPermission } = require("../services/entityScope.service");
 
 module.exports = async function (fastify) {
+  fastify.post("/test-steps/bulk", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      test_case_id: { required: true, type: "string" },
+      insertion_index: { required: true, type: "number" },
+      steps: { required: true, type: "array" }
+    }, req.body || {});
+    await requireEntityPermission({ user: req.user, permissionCode: "testcase.update", entityType: "test_case", entityId: req.body.test_case_id });
+    return service.createTestSteps(req.body);
+  });
+
+  fastify.post("/test-steps/bulk-delete", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      test_case_id: { required: true, type: "string" },
+      step_ids: { required: true, type: "array", items: "string" }
+    }, req.body || {});
+    await requireEntityPermission({ user: req.user, permissionCode: "testcase.update", entityType: "test_case", entityId: req.body.test_case_id });
+    return service.deleteTestSteps(req.body);
+  });
+
   fastify.post("/test-steps", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({

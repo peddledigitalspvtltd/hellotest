@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readCurrentProjectId, writeCurrentProjectId as persistCurrentProjectId } from "../lib/currentScope";
 
 const CURRENT_PROJECT_STORAGE_KEY = "qaira.current_project_id";
 const LEGACY_CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
@@ -25,14 +26,6 @@ const dispatchScopedEvent = (eventName: string, detail: Record<string, string>) 
   }
 
   window.dispatchEvent(new CustomEvent(eventName, { detail }));
-};
-
-const readCurrentProjectId = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY) || window.localStorage.getItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY) || "";
 };
 
 const migrateScopeState = () => {
@@ -69,13 +62,7 @@ const writeCurrentProjectId = (projectId: string | number) => {
 
   const normalizedId = projectId != null ? String(projectId) : "";
 
-  if (normalizedId) {
-    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, normalizedId);
-  } else {
-    window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
-  }
-
-  window.localStorage.removeItem(LEGACY_CURRENT_PROJECT_STORAGE_KEY);
+  persistCurrentProjectId(normalizedId);
   window.dispatchEvent(new CustomEvent(CURRENT_PROJECT_EVENT, { detail: { projectId: normalizedId } }));
 };
 
@@ -154,17 +141,14 @@ const writeCurrentAppTypeId = (projectId: string, appTypeId: string) => {
 
 export const setCurrentScope = (projectId: string | number, appTypeId = "") => {
   const normalizedProjectId = projectId == null ? "" : String(projectId);
-
   if (!normalizedProjectId) {
     writeCurrentProjectId("");
     return;
   }
 
-  // Store the child first so project listeners always observe a coherent
-  // project/application-space pair on their first render.
-  if (appTypeId) {
-    writeCurrentAppTypeId(normalizedProjectId, appTypeId);
-  }
+  // Persist the child scope first so every project-change listener observes a
+  // coherent project/app-space pair on its first render.
+  if (appTypeId) writeCurrentAppTypeId(normalizedProjectId, appTypeId);
   writeCurrentProjectId(normalizedProjectId);
 };
 

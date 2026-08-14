@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import type { TestCase, TestSuite } from "../types";
+import { DialogCloseButton } from "./DialogCloseButton";
 
 export type RunHookType = "BEFORE_ALL" | "AFTER_ALL" | "BEFORE_SUITE" | "AFTER_SUITE" | "BEFORE_TEST" | "AFTER_TEST";
 export type RunHookItemType = "suite" | "test";
@@ -115,6 +117,15 @@ export function RunHooksBuilder({
     setPickerSearch("");
     setPickerSelectedIds([]);
   };
+  const closeSuggestions = () => setShowSuggestions(false);
+  const suggestionsDialogRef = useDialogFocus<HTMLDivElement>({
+    active: showSuggestions,
+    onClose: closeSuggestions
+  });
+  const pickerDialogRef = useDialogFocus<HTMLDivElement>({
+    active: Boolean(pickerHookType),
+    onClose: closePicker
+  });
 
   const selectedIdsForPickerType = new Set(
     value
@@ -176,20 +187,22 @@ export function RunHooksBuilder({
   };
 
   const suggestionsModal = showSuggestions ? (
-    <div className="hook-picker-backdrop" role="presentation" onClick={() => setShowSuggestions(false)}>
+    <div className="hook-picker-backdrop" role="presentation" onClick={closeSuggestions}>
       <div
         aria-label={`Suggested hooks`}
         aria-modal="true"
         className="hook-picker-dialog"
         onClick={(event) => event.stopPropagation()}
+        ref={suggestionsDialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="hook-picker-header">
           <div>
             <strong>Suggested hooks</strong>
             <span>AI-driven suggestions based on your suites and test cases.</span>
           </div>
-          <button className="ghost-button" onClick={() => setShowSuggestions(false)} type="button">Close</button>
+          <DialogCloseButton label="Close suggested hooks" onClick={closeSuggestions} />
         </div>
         <div className="hook-picker-list">
           <section>
@@ -239,18 +252,21 @@ export function RunHooksBuilder({
         aria-modal="true"
         className="hook-picker-dialog"
         onClick={(event) => event.stopPropagation()}
+        ref={pickerDialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="hook-picker-header">
           <div>
             <strong>Add hooks to {hookTypeLabel(pickerHookType)}</strong>
             <span>Select suites or test cases. Suites appear first.</span>
           </div>
-          <button className="ghost-button" onClick={closePicker} type="button">Close</button>
+          <DialogCloseButton label={`Close ${hookTypeLabel(pickerHookType)} hook picker`} onClick={closePicker} />
         </div>
         <input
           autoFocus
           className="hook-picker-search"
+          data-autofocus="true"
           onChange={(event) => setPickerSearch(event.target.value)}
           placeholder="Search suites or test cases..."
           value={pickerSearch}

@@ -18,9 +18,9 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "nav.support": "Support",
   "nav.notifications": "Notifications",
   "nav.settings": "Settings",
-  "nav.reportIssue": "Report Issue",
-  "nav.feedback": "Report Issue",
-  "workspace.requirements": "Requirements",
+  "nav.reportIssue": "Bugs",
+  "nav.feedback": "Bugs",
+  "workspace.requirements": "Stories",
   "workspace.testCases": "Test Cases",
   "workspace.sharedSteps": "Shared Steps",
   "workspace.testSuites": "Test Suites",
@@ -36,7 +36,7 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "page.overview": "Overview",
   "page.projects": "Projects",
   "page.adminSpace": "Admin Space",
-  "page.requirements": "Requirements",
+  "page.requirements": "Stories",
   "page.testCases": "Test Cases",
   "page.sharedSteps": "Shared Step Groups",
   "page.design": "Test Suites",
@@ -51,8 +51,8 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "page.support": "Support",
   "page.notifications": "Notifications",
   "page.settings": "Settings",
-  "page.issues": "Report Issue",
-  "page.feedback": "Report Issue",
+  "page.issues": "Bugs",
+  "page.feedback": "Bugs",
   "settings.localization.title": "Localization",
   "settings.localization.subtitle": "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.",
   "settings.localization.download": "Download current strings",
@@ -82,7 +82,18 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
 
 export const LOCALIZATION_STORAGE_KEY = "qaira.localization";
 
+const migrateLegacyStoryLabels = (overrides?: LocalizationStrings | null): LocalizationStrings => {
+  const migrated = { ...(overrides || {}) };
+
+  (["workspace.requirements", "page.requirements"] as const).forEach((key) => {
+    if (migrated[key] === "Requirement") migrated[key] = "Story";
+    if (migrated[key] === "Requirements") migrated[key] = "Stories";
+  });
+
+  return migrated;
+};
+
 export const mergeLocalizationStrings = (overrides?: LocalizationStrings | null): LocalizationStrings => ({
   ...DEFAULT_LOCALIZATION_STRINGS,
-  ...(overrides || {})
+  ...migrateLegacyStoryLabels(overrides)
 });

@@ -123,15 +123,15 @@ const renderMetrics = (engineMetrics = {}) => {
   }
 
   if (engineMetrics) {
-    lines.push("# HELP qaira_runs_total Total Qaira execution runs.");
+    lines.push("# HELP qaira_runs_total Total HelloTest execution runs.");
     lines.push("# TYPE qaira_runs_total gauge");
     lines.push(`qaira_runs_total ${engineMetrics.total || 0}`);
 
-    lines.push("# HELP qaira_runs_running Number of Qaira execution runs currently running.");
+    lines.push("# HELP qaira_runs_running Number of HelloTest execution runs currently running.");
     lines.push("# TYPE qaira_runs_running gauge");
     lines.push(`qaira_runs_running ${engineMetrics.running || 0}`);
 
-    lines.push("# HELP qaira_runs_queued Number of queued Qaira execution runs.");
+    lines.push("# HELP qaira_runs_queued Number of queued HelloTest execution runs.");
     lines.push("# TYPE qaira_runs_queued gauge");
     lines.push(`qaira_runs_queued ${engineMetrics.queued || 0}`);
 

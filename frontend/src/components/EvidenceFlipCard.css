@@ -1,0 +1,13 @@
+.evidence-flip-card-front-accessory {
+  position: absolute;
+  z-index: 4;
+  top: 0.95rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.evidence-flip-card-front-accessory .metric-methodology-info {
+  color: var(--ds-text-subtle, var(--muted)) !important;
+}

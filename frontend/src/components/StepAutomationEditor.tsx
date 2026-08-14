@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PlayIcon, SparkIcon } from "./AppIcons";
+import { useAuth } from "../auth/AuthContext";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
 import { SharedStepsIcon as SharedStepsIconGraphic } from "./SharedStepsIcon";
 import { api } from "../lib/api";
+import {
+  canEditAutomationCode as resolveCanEditAutomationCode,
+  canPreviewAutomationCode as resolveCanPreviewAutomationCode,
+  canViewAutomationCode as resolveCanViewAutomationCode
+} from "../lib/automationAccess";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { hasPermission } from "../lib/permissions";
 import { parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
 import {
   buildAutomationKeywordMappings,
@@ -17,6 +27,7 @@ import {
   STEP_TYPE_OPTIONS
 } from "../lib/stepAutomation";
 import type { ApiRequestPreview, AutomationLearningCacheEntry, StepApiRequest, StepApiValidation, TestStepType } from "../types";
+import { DialogCloseButton } from "./DialogCloseButton";
 
 type StepAutomationInput = {
   id?: string;
@@ -916,10 +927,15 @@ export function StepTypePickerButton({
   onChange: (next: TestStepType) => void;
   disabled?: boolean;
 }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const stepType = normalizeStepType(value);
+  const requestedStepType = normalizeStepType(value);
+  const stepType = !canUseMobileAppium && ["android", "ios"].includes(requestedStepType) ? "web" : requestedStepType;
   const meta = getStepTypeMeta(stepType);
 
   useEffect(() => {
@@ -965,7 +981,7 @@ export function StepTypePickerButton({
       </button>
       {isOpen ? (
         <div className="step-type-menu" ref={menuRef} role="menu">
-          {STEP_TYPE_OPTIONS.map((option) => (
+          {STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !["android", "ios"].includes(option.value)).map((option) => (
             <button
               className={option.value === stepType ? "step-type-menu-item is-active" : "step-type-menu-item"}
               key={option.value}
@@ -989,10 +1005,16 @@ export function StepTypePickerButton({
 
 function ApiHeaderRowsEditor({
   headers,
-  onChange
+  onChange,
+  keyPlaceholder = "Header name",
+  valuePlaceholder = "Header value",
+  addLabel = "Add header"
 }: {
   headers: Array<{ key: string; value: string }>;
   onChange: (headers: Array<{ key: string; value: string }>) => void;
+  keyPlaceholder?: string;
+  valuePlaceholder?: string;
+  addLabel?: string;
 }) {
   const nextHeaders = headers.length ? headers : [{ key: "", value: "" }];
 
@@ -1001,7 +1023,7 @@ function ApiHeaderRowsEditor({
       {nextHeaders.map((header, index) => (
         <div className="automation-inline-grid" key={`header-${index}`}>
           <input
-            placeholder="Header name"
+            placeholder={keyPlaceholder}
             value={header.key}
             onChange={(event) => {
               const updated = nextHeaders.map((item, itemIndex) =>
@@ -1011,7 +1033,7 @@ function ApiHeaderRowsEditor({
             }}
           />
           <input
-            placeholder="Header value"
+            placeholder={valuePlaceholder}
             value={header.value}
             onChange={(event) => {
               const updated = nextHeaders.map((item, itemIndex) =>
@@ -1034,7 +1056,7 @@ function ApiHeaderRowsEditor({
         onClick={() => onChange([...nextHeaders, { key: "", value: "" }])}
         type="button"
       >
-        Add header
+        {addLabel}
       </button>
     </div>
   );
@@ -1051,7 +1073,7 @@ function ApiValidationRowsEditor({
   results?: ApiValidationResultPreview[];
   parameterValues?: Record<string, string>;
 }) {
-  const nextValidations = validations.length ? validations : [{ kind: "status", target: "", expected: "200" }];
+  const nextValidations: StepApiValidation[] = validations.length ? validations : [{ kind: "status", operator: "eq", target: "", expected: "200" }];
 
   return (
     <div className="automation-grid-stack">
@@ -1085,8 +1107,27 @@ function ApiValidationRowsEditor({
               >
                 <option value="status">Status code</option>
                 <option value="header">Header equals</option>
+                <option value="header_present">Header exists</option>
                 <option value="body_contains">Body contains</option>
+                <option value="body_not_contains">Body excludes</option>
                 <option value="json_path">JSON path equals</option>
+                <option value="json_schema">JSON schema</option>
+                <option value="response_time">Response time</option>
+              </select>
+              <select
+                aria-label="Validation operator"
+                onChange={(event) => onChange(nextValidations.map((item, itemIndex) => itemIndex === index ? { ...item, operator: event.target.value as StepApiValidation["operator"] } : item))}
+                value={validation.operator || "eq"}
+              >
+                <option value="eq">Equals</option>
+                <option value="ne">Not equal</option>
+                <option value="contains">Contains</option>
+                <option value="matches">Matches regex</option>
+                <option value="exists">Exists</option>
+                <option value="lt">Less than</option>
+                <option value="lte">At most</option>
+                <option value="gt">Greater than</option>
+                <option value="gte">At least</option>
               </select>
               <input
                 placeholder={validation.kind === "status" ? "Status code" : validation.kind === "json_path" ? "JSON path" : validation.kind === "header" ? "Header name" : "Search text"}
@@ -1140,7 +1181,7 @@ function ApiValidationRowsEditor({
       })}
       <button
         className="ghost-button inline-button"
-        onClick={() => onChange([...nextValidations, { kind: "status" as const, target: "", expected: "200" }] as StepApiValidation[])}
+        onClick={() => onChange([...nextValidations, { kind: "status" as const, operator: "eq" as const, target: "", expected: "200" }] as StepApiValidation[])}
         type="button"
       >
         Add validation
@@ -1162,6 +1203,14 @@ function resolveApiRequestParameters(request: StepApiRequest | null, values: Rec
       key: resolveStepParameterText(header.key, values),
       value: resolveStepParameterText(header.value, values)
     })),
+    query_params: (request.query_params || []).map((entry) => ({
+      key: resolveStepParameterText(entry.key, values),
+      value: resolveStepParameterText(entry.value, values)
+    })),
+    cookies: (request.cookies || []).map((entry) => ({
+      key: resolveStepParameterText(entry.key, values),
+      value: resolveStepParameterText(entry.value, values)
+    })),
     validations: (request.validations || []).map((validation) => ({
       ...validation,
       target: resolveStepParameterText(validation.target, values),
@@ -1179,6 +1228,9 @@ export function ApiRequestInfoDetails({
   resolvedRequest?: StepApiRequest | null;
   title?: string;
 }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const displayRequest = request || resolvedRequest;
   const method = displayRequest?.method || "GET";
   const url = displayRequest?.url || "";
@@ -1195,6 +1247,8 @@ export function ApiRequestInfoDetails({
       || JSON.stringify(resolvedHeaders) !== JSON.stringify(headers)
     )
   );
+
+  if (!canViewAutomationCode) return null;
 
   return (
     <details className="automation-request-details">
@@ -1588,11 +1642,36 @@ function createValidationLabel(validation: StepApiValidation, index: number) {
     return `Assertion ${index + 1}: header ${target || "content-type"}`;
   }
 
+  if (kind === "header_present") return `Assertion ${index + 1}: header ${target || "content-type"} exists`;
+
   if (kind === "body_contains") {
     return `Assertion ${index + 1}: body contains`;
   }
 
+  if (kind === "body_not_contains") return `Assertion ${index + 1}: body excludes`;
+  if (kind === "response_time") return `Assertion ${index + 1}: response time`;
+  if (kind === "json_schema") return `Assertion ${index + 1}: JSON schema`;
+
   return `Assertion ${index + 1}: JPath ${target || "$"}`;
+}
+
+function compareApiValidationValues(actual: unknown, expected: unknown, operator: StepApiValidation["operator"] = "eq") {
+  if (operator === "exists") return actual !== undefined && actual !== null && actual !== "";
+  if (operator === "contains") return String(actual ?? "").includes(String(expected ?? ""));
+  if (operator === "matches") {
+    try { return new RegExp(String(expected || "")).test(String(actual ?? "")); } catch { return false; }
+  }
+  if (["lt", "lte", "gt", "gte"].includes(operator)) {
+    const left = Number(actual);
+    const right = Number(expected);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+    if (operator === "lt") return left < right;
+    if (operator === "lte") return left <= right;
+    if (operator === "gt") return left > right;
+    return left >= right;
+  }
+  const equal = areAssertionValuesEqual(actual, expected) || String(actual ?? "") === String(expected ?? "");
+  return operator === "ne" ? !equal : equal;
 }
 
 function evaluateValidationResult(
@@ -1610,10 +1689,11 @@ function evaluateValidationResult(
   const kind = validation.kind || "status";
   const target = String(resolvedValidation.target || "").trim();
   const expected = String(resolvedValidation.expected || "").trim();
+  const operator = resolvedValidation.operator || "eq";
 
   if (kind === "status") {
     const expectedStatus = Number(expected) || 200;
-    const passed = preview.response.status === expectedStatus;
+    const passed = compareApiValidationValues(preview.response.status, expectedStatus, operator);
     return {
       id: `validation-${index}`,
       label,
@@ -1627,7 +1707,7 @@ function evaluateValidationResult(
   if (kind === "header") {
     const headerName = (target || "content-type").toLowerCase();
     const actual = preview.response.headers[headerName] || "";
-    const passed = actual === expected;
+    const passed = compareApiValidationValues(actual, expected, operator);
     return {
       id: `validation-${index}`,
       label,
@@ -1638,8 +1718,14 @@ function evaluateValidationResult(
     };
   }
 
+  if (kind === "header_present") {
+    const headerName = (target || "content-type").toLowerCase();
+    const passed = Boolean(preview.response.headers[headerName]);
+    return { id: `validation-${index}`, label, passed, summary: passed ? `Header ${headerName} is present.` : `Header ${headerName} is missing.` };
+  }
+
   if (kind === "body_contains") {
-    const passed = String(preview.response.body_text || "").includes(expected);
+    const passed = compareApiValidationValues(preview.response.body_text || "", expected, operator === "eq" ? "contains" : operator);
     return {
       id: `validation-${index}`,
       label,
@@ -1648,6 +1734,29 @@ function evaluateValidationResult(
         ? "Expected text was found in the response body."
         : `Could not find "${expected}" in the response body.`
     };
+  }
+
+  if (kind === "body_not_contains") {
+    const passed = !String(preview.response.body_text || "").includes(expected);
+    return { id: `validation-${index}`, label, passed, summary: passed ? "Excluded text was not present." : `Unexpectedly found "${expected}" in the response.` };
+  }
+
+  if (kind === "response_time") {
+    const expectedMs = Number(expected || target) || 2000;
+    const passed = compareApiValidationValues(preview.response.duration_ms, expectedMs, operator === "eq" ? "lte" : operator);
+    return { id: `validation-${index}`, label, passed, summary: `${preview.response.duration_ms} ms received; threshold ${expectedMs} ms.` };
+  }
+
+  if (kind === "json_schema") {
+    if (preview.response.body_json === null || preview.response.body_json === undefined) return { id: `validation-${index}`, label, passed: false, summary: "Response is not JSON." };
+    try {
+      const schema = JSON.parse(expected || target || "{}");
+      const required = Array.isArray(schema.required) ? schema.required : [];
+      const passed = typeof preview.response.body_json === "object" && preview.response.body_json !== null && required.every((key: string) => key in (preview.response.body_json as object));
+      return { id: `validation-${index}`, label, passed, summary: passed ? "Required JSON schema fields are present." : "One or more required JSON schema fields are missing." };
+    } catch {
+      return { id: `validation-${index}`, label, passed: false, summary: "Expected value is not a valid JSON schema." };
+    }
   }
 
   if (preview.response.body_json === null || preview.response.body_json === undefined) {
@@ -1671,7 +1780,7 @@ function evaluateValidationResult(
   }
 
   const expectedValue = parseAssertionExpectedValue(expected);
-  const passed = areAssertionValuesEqual(resolved.value, expectedValue);
+  const passed = compareApiValidationValues(resolved.value, expectedValue, operator);
   return {
     id: `validation-${index}`,
     label,
@@ -1774,26 +1883,37 @@ export function CodePreviewDialog({
   objectRepository?: AutomationLearningCacheEntry[];
   onClose: () => void;
 }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const keywordMappings = buildAutomationKeywordMappings(code, objectRepository);
+
+  useEffect(() => {
+    if (!canPreviewAutomationCode) onClose();
+  }, [canPreviewAutomationCode, onClose]);
+
+  if (!canPreviewAutomationCode) return null;
 
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
+        aria-labelledby="automation-code-preview-title"
         aria-modal="true"
         className="modal-card resource-modal-card automation-code-modal"
         onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <div className="modal-title-info-row">
-              <p className="eyebrow">{title}</p>
+              <h2 className="dialog-title" id="automation-code-preview-title">{title}</h2>
               <InfoTooltip content={subtitle} label={`${title} information`} />
             </div>
           </div>
-          <button aria-label="Close code preview" className="ghost-button" onClick={onClose} type="button">
-            Close
-          </button>
+          <DialogCloseButton label="Close code preview" onClick={onClose} />
         </div>
         <div className="resource-form">
           <div className="resource-form-body">
@@ -1863,6 +1983,12 @@ export function StepAutomationDialog({
   onClose: () => void;
   onSave: (input: { step_type: TestStepType; automation_code: string; api_request: StepApiRequest | null }) => void;
 }) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
+  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const stepRevisionKey = JSON.stringify({
     id: step.id || "",
     step_order: step.step_order || 1,
@@ -1894,7 +2020,15 @@ export function StepAutomationDialog({
   const [androidKeywordMessage, setAndroidKeywordMessage] = useState("");
   const [curlImportText, setCurlImportText] = useState("");
   const [curlImportMessage, setCurlImportMessage] = useState("");
-  const apiWorkbenchPrefix = `api-workbench-${String(step.id || step.step_order || "draft").replace(/[^A-Za-z0-9_-]/g, "-")}`;
+  const closeRepositoryPicker = () => setIsRepositoryPickerOpen(false);
+  const repositoryPickerRef = useDialogFocus<HTMLDivElement>({
+    active: isRepositoryPickerOpen,
+    onClose: closeRepositoryPicker
+  });
+
+  useEffect(() => {
+    if (!canEditAutomationCode) onClose();
+  }, [canEditAutomationCode, onClose]);
 
   useEffect(() => {
     setStepType(normalizeStepType(step.step_type));
@@ -2069,7 +2203,7 @@ export function StepAutomationDialog({
   const handleRunApiRequest = async () => {
     if (!resolvedApiRequest?.url) {
       setApiPreview(null);
-      setApiPreviewError("Enter a valid absolute request URL before running this API step.");
+      setApiPreviewError("Enter a valid absolute request URL before validating this API step.");
       setApiPreviewMessage("");
       return;
     }
@@ -2090,7 +2224,9 @@ export function StepAutomationDialog({
       setSelectedJsonPath(null);
       setApiPreviewMessage(
         [
-          `Captured response ${result.response.status} in ${result.response.duration_ms} ms.`,
+          result.response.status > 0
+            ? `Captured response ${result.response.status} in ${result.response.duration_ms} ms.`
+            : "Request contract validated for an approved CI or remote runner; no external request was sent from Forge.",
           suggestionSummary
             ? `${suggestionSummary} Review ${suggestionAssertionCount} assertion suggestion${suggestionAssertionCount === 1 ? "" : "s"} and ${suggestionCaptureCount} parser suggestion${suggestionCaptureCount === 1 ? "" : "s"} before applying.`
             : ""
@@ -2099,7 +2235,7 @@ export function StepAutomationDialog({
     } catch (error) {
       setApiPreview(null);
       setSelectedJsonPath(null);
-      setApiPreviewError(error instanceof Error ? error.message : "Unable to run the API request.");
+      setApiPreviewError(error instanceof Error ? error.message : "Unable to validate the API request contract.");
       setApiPreviewMessage("");
     } finally {
       setIsRunningApiRequest(false);
@@ -2108,7 +2244,7 @@ export function StepAutomationDialog({
 
   const handleApplyApiSuggestions = () => {
     if (!apiPreview?.ai_suggestions) {
-      setApiPreviewError("Run the request before asking QAira to suggest assertions and parsers.");
+      setApiPreviewError("Run the request before asking HelloTest to suggest assertions and parsers.");
       setApiPreviewMessage("");
       return;
     }
@@ -2368,30 +2504,33 @@ export function StepAutomationDialog({
     setApiPreviewError("");
   };
 
+  if (!canEditAutomationCode) return null;
+
   return (
     <>
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
+        aria-labelledby="step-automation-editor-title"
         aria-modal="true"
         className="modal-card resource-modal-card automation-editor-modal"
         onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="resource-modal-header">
           <div className="resource-modal-title">
             <div className="modal-title-info-row">
-              <p className="eyebrow">{title}</p>
+              <h2 className="dialog-title" id="step-automation-editor-title">{title}</h2>
               <InfoTooltip content={subtitle} label={`${title} information`} />
             </div>
           </div>
-          <button aria-label="Close step automation editor" className="ghost-button" onClick={onClose} type="button">
-            Close
-          </button>
+          <DialogCloseButton label="Close step automation editor" onClick={onClose} />
         </div>
         <div className="resource-form">
           <div className="resource-form-body automation-editor-body">
             <div className="automation-step-type-row">
-              {STEP_TYPE_OPTIONS.map((option) => (
+              {STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !["android", "ios"].includes(option.value)).map((option) => (
                 <button
                   className={option.value === stepType ? "automation-type-pill is-active" : "automation-type-pill"}
                   key={option.value}
@@ -2406,18 +2545,6 @@ export function StepAutomationDialog({
 
             {stepType === "api" ? (
               <div className="automation-api-editor">
-                <nav aria-label="API automation workbench sections" className="automation-api-workbench-nav">
-                  <a href={`#${apiWorkbenchPrefix}-request`}>Request</a>
-                  <a href={`#${apiWorkbenchPrefix}-data`}>Variables & data</a>
-                  <a href={`#${apiWorkbenchPrefix}-response`}>Response</a>
-                  <a href={`#${apiWorkbenchPrefix}-assertions`}>Assertions</a>
-                  <a href={`#${apiWorkbenchPrefix}-trace`}>Execution trace</a>
-                </nav>
-
-                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-request`}>
-                  <span>01</span>
-                  <div><strong>Request</strong><small>Compose directly or parse an executable cURL request.</small></div>
-                </div>
                 <div className="automation-inline-grid">
                   <FormField label="HTTP method">
                     <select
@@ -2461,6 +2588,87 @@ export function StepAutomationDialog({
                     onChange={(headers) => setApiRequest((current) => ({ ...current, headers }))}
                   />
                 </FormField>
+
+                <details className="automation-request-details" open>
+                  <summary>
+                    <span>Request policy and data</span>
+                    <strong>{(apiRequest.query_params || []).length + (apiRequest.cookies || []).length}</strong>
+                  </summary>
+                  <div className="automation-request-details-body automation-grid-stack">
+                    <div className="automation-inline-grid">
+                      <FormField label="Authentication">
+                        <select
+                          onChange={(event) => setApiRequest((current) => ({
+                            ...current,
+                            auth: { ...(current.auth || { credential_reference: "", key_name: "Authorization", location: "header" }), type: event.target.value as NonNullable<StepApiRequest["auth"]>["type"] }
+                          }))}
+                          value={apiRequest.auth?.type || "none"}
+                        >
+                          <option value="none">None</option>
+                          <option value="bearer">Bearer reference</option>
+                          <option value="api_key">API key reference</option>
+                          <option value="basic">Basic credential reference</option>
+                          <option value="oauth2_ref">OAuth 2 reference</option>
+                        </select>
+                      </FormField>
+                      <FormField label="Credential reference" hint="Store only the approved runner or environment secret name.">
+                        <input
+                          disabled={(apiRequest.auth?.type || "none") === "none"}
+                          onChange={(event) => setApiRequest((current) => ({ ...current, auth: { ...(current.auth || { type: "none" }), credential_reference: event.target.value } }))}
+                          placeholder="QAIRA_API_CREDENTIAL"
+                          value={apiRequest.auth?.credential_reference || ""}
+                        />
+                      </FormField>
+                      <FormField label="Timeout (ms)">
+                        <input max="120000" min="1000" onChange={(event) => setApiRequest((current) => ({ ...current, timeout_ms: Number(event.target.value) || 30000 }))} type="number" value={apiRequest.timeout_ms || 30000} />
+                      </FormField>
+                      <FormField label="Redirects">
+                        <select onChange={(event) => setApiRequest((current) => ({ ...current, follow_redirects: event.target.value === "follow" }))} value={apiRequest.follow_redirects === false ? "manual" : "follow"}>
+                          <option value="follow">Follow redirects</option>
+                          <option value="manual">Do not follow</option>
+                        </select>
+                      </FormField>
+                    </div>
+                    {apiRequest.auth?.type === "api_key" ? (
+                      <div className="automation-inline-grid">
+                        <FormField label="API key name">
+                          <input
+                            onChange={(event) => setApiRequest((current) => ({ ...current, auth: { ...(current.auth || { type: "api_key" }), key_name: event.target.value } }))}
+                            placeholder="x-api-key"
+                            value={apiRequest.auth.key_name || "x-api-key"}
+                          />
+                        </FormField>
+                        <FormField label="API key location">
+                          <select
+                            onChange={(event) => setApiRequest((current) => ({ ...current, auth: { ...(current.auth || { type: "api_key" }), location: event.target.value as "header" | "query" } }))}
+                            value={apiRequest.auth.location || "header"}
+                          >
+                            <option value="header">Header</option>
+                            <option value="query">Query parameter</option>
+                          </select>
+                        </FormField>
+                      </div>
+                    ) : null}
+                    <FormField label="Query parameters">
+                      <ApiHeaderRowsEditor
+                        addLabel="Add query parameter"
+                        headers={apiRequest.query_params || []}
+                        keyPlaceholder="Parameter name"
+                        onChange={(query_params) => setApiRequest((current) => ({ ...current, query_params }))}
+                        valuePlaceholder="Parameter value"
+                      />
+                    </FormField>
+                    <FormField label="Cookies">
+                      <ApiHeaderRowsEditor
+                        addLabel="Add cookie"
+                        headers={apiRequest.cookies || []}
+                        keyPlaceholder="Cookie name"
+                        onChange={(cookies) => setApiRequest((current) => ({ ...current, cookies }))}
+                        valuePlaceholder="Cookie value"
+                      />
+                    </FormField>
+                  </div>
+                </details>
 
                 <div className="automation-inline-grid">
                   <FormField label="Body mode">
@@ -2507,7 +2715,7 @@ export function StepAutomationDialog({
                   <div className="automation-request-details-body">
                     <FormField label="cURL request">
                       <textarea
-                        placeholder={"curl -X POST https://api.example.com/orders -H 'Content-Type: application/json' --data '{\"name\":\"QAira\"}'"}
+                        placeholder={"curl -X POST https://api.example.com/orders -H 'Content-Type: application/json' --data '{\"name\":\"HelloTest\"}'"}
                         rows={5}
                         value={curlImportText}
                         onChange={(event) => setCurlImportText(event.target.value)}
@@ -2523,38 +2731,12 @@ export function StepAutomationDialog({
                   </div>
                 </details>
 
-                <details className="automation-request-details automation-api-data-panel" id={`${apiWorkbenchPrefix}-data`}>
-                  <summary>
-                    <span>Variables & test data</span>
-                    <strong>{availableParameters.length}</strong>
-                  </summary>
-                  <div className="automation-request-details-body">
-                    {groupedAvailableParameters.length ? groupedAvailableParameters.map((group) => (
-                      <div className="automation-api-data-group" key={group.label}>
-                        <strong>{group.label}</strong>
-                        <div>
-                          {group.items.map((parameter) => (
-                            <span className="automation-response-header-chip" key={parameter.name}>
-                              <strong>{parameter.token}</strong>
-                              <span>{parameterValues[parameter.name] || "Unresolved"}</span>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )) : <span>No scoped case, suite, or run variables are referenced yet.</span>}
-                  </div>
-                </details>
-
-                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-response`}>
-                  <span>02</span>
-                  <div><strong>Response</strong><small>Execute, inspect headers and body, then select structured values.</small></div>
-                </div>
                 <div className="automation-response-shell">
                   <div className="automation-response-header">
                     <div className="automation-response-title-row">
                       <strong>API response capture</strong>
                       <InfoTooltip
-                        content="Run the current request with active test data values, inspect the response hierarchy, and lift a JSON path into assertions or response captures."
+                        content="Validate the resolved request contract in Forge. Live responses are supplied by an approved CI or remote runner and can then be inspected for assertions and response captures."
                         label="API response capture information"
                       />
                     </div>
@@ -2566,7 +2748,7 @@ export function StepAutomationDialog({
                         type="button"
                       >
                         <PlayIcon />
-                        <span>{isRunningApiRequest ? "Running..." : "Run Request"}</span>
+                        <span>{isRunningApiRequest ? "Validating..." : "Validate Request"}</span>
                       </button>
                       <button
                         className="ghost-button inline-button automation-ai-suggest-button"
@@ -2576,8 +2758,8 @@ export function StepAutomationDialog({
                       >
                         <SparkIcon />
                         <span>
-                          <strong>AI suggest</strong>
-                          <small>Build assertions & parsers</small>
+                          <strong>Suggest</strong>
+                          <small>Assertions and Parsers</small>
                         </span>
                       </button>
                     </div>
@@ -2597,38 +2779,7 @@ export function StepAutomationDialog({
                         <span className="automation-response-pill">
                           {apiPreview.response.content_type || "Unknown content type"}
                         </span>
-                        <span className="automation-response-pill">{apiPreview.response.size_bytes || 0} bytes</span>
                       </div>
-
-                      {apiPreview.trace ? (
-                        <details className="automation-request-details automation-api-trace" id={`${apiWorkbenchPrefix}-trace`} open>
-                          <summary>
-                            <span>Executable request trace</span>
-                            <strong>{apiPreview.trace.attempts.length} attempt{apiPreview.trace.attempts.length === 1 ? "" : "s"}</strong>
-                          </summary>
-                          <div className="automation-request-details-body">
-                            <div className="automation-api-trace-summary">
-                              <span><strong>{apiPreview.trace.total_duration_ms} ms</strong> total</span>
-                              <span><strong>{apiPreview.trace.request_size_bytes} B</strong> request</span>
-                              <span><strong>{apiPreview.trace.response_size_bytes} B</strong> response</span>
-                              <span><strong>{apiPreview.trace.response_truncated ? "Capped" : "Complete"}</strong> payload</span>
-                            </div>
-                            <ol className="automation-api-trace-attempts">
-                              {apiPreview.trace.attempts.map((attempt) => (
-                                <li key={attempt.attempt}>
-                                  <span>Attempt {attempt.attempt}</span>
-                                  <strong>{attempt.status || attempt.outcome}</strong>
-                                  <span>{attempt.duration_ms} ms</span>
-                                  {attempt.error ? <small>{attempt.error}</small> : null}
-                                </li>
-                              ))}
-                            </ol>
-                            {apiPreview.trace.response_truncated ? (
-                              <div className="inline-message warning-message">Response preview was capped at 2 MB to protect the browser and API process. Assertions run against the captured preview only.</div>
-                            ) : null}
-                          </div>
-                        </details>
-                      ) : null}
 
                       {apiPreview.ai_suggestions ? (
                         <div className="automation-response-meta">
@@ -2756,12 +2907,8 @@ export function StepAutomationDialog({
                   ) : null}
                 </div>
 
-                <div className="automation-api-section-heading" id={`${apiWorkbenchPrefix}-assertions`}>
-                  <span>03</span>
-                  <div><strong>Assertions & validations</strong><small>Validate status, headers, body text, or exact JSON paths.</small></div>
-                </div>
                 <FormField
-                  label="Assertions and response validations"
+                  label="Response validations"
                   hint="Add the checks that should run after the response returns."
                 >
                   <ApiValidationRowsEditor
@@ -2773,7 +2920,7 @@ export function StepAutomationDialog({
                 </FormField>
 
                 <FormField
-                  label="Response variables and parsers"
+                  label="Response parsers"
                   hint="Persist JSON paths that define scoped params from this API response. These captured tokens are treated as part of the case parameter set."
                 >
                   <div className="automation-grid-stack">
@@ -2901,7 +3048,7 @@ export function StepAutomationDialog({
                     {webKeywordMessage ? <div className="inline-message success-message">{webKeywordMessage}</div> : null}
                   </div>
                 ) : null}
-                {stepType === "android" || stepType === "ios" ? (
+                {canUseMobileAppium && (stepType === "android" || stepType === "ios") ? (
                   <div className="automation-response-shell">
                     <div className="automation-response-header">
                       <div>
@@ -2944,7 +3091,7 @@ export function StepAutomationDialog({
                     <strong>{savedKeywordMappings.length ? "Mapped keyword automation" : "Coded JavaScript automation"}</strong>
                     {savedKeywordMappings.length ? (
                       <>
-                        <span>Saved QAira keyword calls mapped on this manual step.</span>
+                        <span>Saved HelloTest keyword calls mapped on this manual step.</span>
                         <div className="automation-step-saved-keywords">
                           {savedKeywordMappings.map((mapping) => (
                             <div key={mapping.id}>
@@ -2964,7 +3111,7 @@ export function StepAutomationDialog({
                   hint="Use the same scoped tokens from the manual step text whenever automation needs case, suite, or run data."
                 >
                   <textarea
-                    placeholder="// Add QAira keyword code or CodedJS for this step."
+                    placeholder="// Add HelloTest keyword code or CodedJS for this step."
                     rows={12}
                     value={automationCode}
                     onChange={(event) => setAutomationCode(event.target.value)}
@@ -3019,25 +3166,27 @@ export function StepAutomationDialog({
       </div>
     </div>
     {isRepositoryPickerOpen ? (
-      <div className="modal-backdrop automation-repository-picker-backdrop" onClick={() => setIsRepositoryPickerOpen(false)} role="presentation">
+      <div className="modal-backdrop automation-repository-picker-backdrop" onClick={closeRepositoryPicker} role="presentation">
         <div
-          aria-label="Object repository field picker"
+          aria-labelledby="automation-repository-picker-title"
           aria-modal="true"
           className="modal-card resource-modal-card automation-repository-picker-modal"
           onClick={(event) => event.stopPropagation()}
+          ref={repositoryPickerRef}
           role="dialog"
+          tabIndex={-1}
         >
           <div className="resource-modal-header">
             <div className="resource-modal-title">
               <div className="modal-title-info-row">
-                <p className="eyebrow">Use object repository field</p>
+                <h2 className="dialog-title" id="automation-repository-picker-title">Use object repository field</h2>
                 <InfoTooltip
                   content="Select a screen, then map its saved field into this step locator."
                   label="Object repository picker information"
                 />
               </div>
             </div>
-            <button className="ghost-button" onClick={() => setIsRepositoryPickerOpen(false)} type="button">Close</button>
+            <DialogCloseButton label="Close object repository field picker" onClick={closeRepositoryPicker} />
           </div>
           <div className="automation-repository-picker-body">
             <label className="automation-repository-picker-search">

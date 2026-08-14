@@ -1,6 +1,7 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const executionService = require("./execution.service");
+const { placeholdersFor } = require("../utils/batchHydration");
 
 const selectProject = db.prepare(`
   SELECT id
@@ -174,38 +175,48 @@ function addCadence(dateValue, cadence) {
   return null;
 }
 
+async function hydrateSchedules(schedules) {
+  const userIds = [...new Set(schedules.flatMap((schedule) => {
+    const legacyAssignedTo = normalizeText(schedule.assigned_to);
+    const assignedToIds = normalizeTextList(parseJsonValue(schedule.assigned_to_ids, []));
+    return assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+  }))];
+  const userRows = userIds.length
+    ? await db.prepare(`
+        SELECT id, email, name, avatar_data_url
+        FROM users
+        WHERE id IN (${placeholdersFor(userIds)})
+      `).all(...userIds)
+    : [];
+  const usersById = new Map(userRows.map((user) => [user.id, {
+    id: user.id,
+    email: user.email,
+    name: user.name || null,
+    avatar_data_url: user.avatar_data_url || null
+  }]));
+
+  return schedules.map((schedule) => {
+    const legacyAssignedTo = normalizeText(schedule.assigned_to);
+    const assignedToIds = normalizeTextList(parseJsonValue(schedule.assigned_to_ids, []));
+    const resolvedAssignedToIds = assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+    const assignedUsers = resolvedAssignedToIds.map((id) => usersById.get(id)).filter(Boolean);
+
+    return {
+      ...schedule,
+      suite_ids: parseJsonValue(schedule.suite_ids, []),
+      test_case_ids: parseJsonValue(schedule.test_case_ids, []),
+      is_active: Boolean(schedule.is_active),
+      assigned_to: resolvedAssignedToIds[0] || null,
+      assigned_to_ids: resolvedAssignedToIds,
+      assigned_users: assignedUsers,
+      assigned_user: assignedUsers[0] || null
+    };
+  });
+}
+
 async function hydrateSchedule(schedule) {
-  if (!schedule) {
-    return schedule;
-  }
-
-  const legacyAssignedTo = normalizeText(schedule.assigned_to);
-  const assignedToIds = normalizeTextList(parseJsonValue(schedule.assigned_to_ids, []));
-  const resolvedAssignedToIds = assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
-  const assignedUsers = (await Promise.all(resolvedAssignedToIds.map((userId) => selectUser.get(userId)))).filter(Boolean);
-
-  return {
-    ...schedule,
-    suite_ids: parseJsonValue(schedule.suite_ids, []),
-    test_case_ids: parseJsonValue(schedule.test_case_ids, []),
-    is_active: Boolean(schedule.is_active),
-    assigned_to: resolvedAssignedToIds[0] || null,
-    assigned_to_ids: resolvedAssignedToIds,
-    assigned_users: assignedUsers.map((assignedUser) => ({
-      id: assignedUser.id,
-      email: assignedUser.email,
-      name: assignedUser.name || null,
-      avatar_data_url: assignedUser.avatar_data_url || null
-    })),
-    assigned_user: assignedUsers[0]
-      ? {
-          id: assignedUsers[0].id,
-          email: assignedUsers[0].email,
-          name: assignedUsers[0].name || null,
-          avatar_data_url: assignedUsers[0].avatar_data_url || null
-        }
-      : null
-  };
+  if (!schedule) return schedule;
+  return (await hydrateSchedules([schedule]))[0];
 }
 
 async function validateSchedulePayload({
@@ -393,7 +404,7 @@ exports.getExecutionSchedules = async ({ project_id, app_type_id, is_active } = 
   query += ` ORDER BY next_run_at ASC NULLS LAST, created_at DESC`;
 
   const rows = await db.prepare(query).all(...params);
-  return Promise.all(rows.map(hydrateSchedule));
+  return hydrateSchedules(rows);
 };
 
 exports.getExecutionSchedule = async (id) => {

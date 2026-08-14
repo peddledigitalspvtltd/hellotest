@@ -1,9 +1,14 @@
-const fastify = require("fastify")({ 
+const Fastify = require("fastify");
+const { LogController } = Fastify;
+
+const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || "info"
   },
-  requestIdLogLabel: "reqId",
-  disableRequestLogging: false,
+  logController: new LogController({
+    requestIdLogLabel: "reqId",
+    disableRequestLogging: false
+  }),
   requestTimeout: 120000,
   bodyLimit: 128 * 1024 * 1024
 });

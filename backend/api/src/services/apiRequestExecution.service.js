@@ -205,7 +205,7 @@ const readLimitedResponseBody = async (response, maxBytes = API_PREVIEW_MAX_RESP
 
       if (remaining <= 0) {
         truncated = true;
-        await reader.cancel("QAira API preview response limit reached");
+        await reader.cancel("HelloTest API preview response limit reached");
         break;
       }
 
@@ -215,7 +215,7 @@ const readLimitedResponseBody = async (response, maxBytes = API_PREVIEW_MAX_RESP
 
       if (accepted.byteLength < value.byteLength) {
         truncated = true;
-        await reader.cancel("QAira API preview response limit reached");
+        await reader.cancel("HelloTest API preview response limit reached");
         break;
       }
     }

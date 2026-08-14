@@ -193,8 +193,8 @@ const clearPendingVerification = async ({ email, purpose }) => {
 };
 
 const createVerificationEmail = ({ code, purpose, senderName, expiresInMinutes }) => {
-  const actionLabel = purpose === "signup" ? "finish creating your QAira account" : "reset your QAira password";
-  const subject = purpose === "signup" ? "Your QAira signup verification code" : "Your QAira password reset code";
+  const actionLabel = purpose === "signup" ? "finish creating your HelloTest account" : "reset your HelloTest password";
+  const subject = purpose === "signup" ? "Your HelloTest signup verification code" : "Your HelloTest password reset code";
   const text = [
     `Use this verification code to ${actionLabel}: ${code}`,
     "",
@@ -251,7 +251,7 @@ const sendVerificationCode = async ({ email, purpose, payload }) => {
   const emailContent = createVerificationEmail({
     code,
     purpose,
-    senderName: senderProfile.senderName || "QAira Support",
+    senderName: senderProfile.senderName || "HelloTest Support",
     expiresInMinutes: VERIFICATION_CODE_TTL_MINUTES
   });
 

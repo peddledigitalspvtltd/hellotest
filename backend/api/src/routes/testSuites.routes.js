@@ -13,7 +13,8 @@ module.exports = async function (fastify) {
       labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
       parallel_enabled: { required: false, type: "boolean" },
-      parallel_count: { required: false, type: "number" }
+      parallel_count: { required: false, type: "number" },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     // Verify user has access to the app type's project
@@ -73,14 +74,35 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     
     fastify.validate({
-      test_case_ids: { required: true, type: "array", items: "string" }
+      test_case_ids: { required: true, type: "array", items: "string" },
+      expected_revision: { required: false, type: "number" },
+      append: { required: false, type: "boolean" }
     }, req.body);
 
     const testSuite = await service.getTestSuite(req.params.id);
     const appType = await appTypeService.getAppType(testSuite.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
 
-    return service.assignTestCases(req.params.id, req.body.test_case_ids);
+    return service.assignTestCases(req.params.id, req.body.test_case_ids, {
+      append: req.body.append !== false,
+      expectedRevision: req.body.expected_revision
+    });
+  });
+
+  fastify.put("/test-suites/:id/assign-test-cases", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      test_case_ids: { required: true, type: "array", items: "string" },
+      expected_revision: { required: false, type: "number" },
+      append: { required: false, type: "boolean" }
+    }, req.body || {});
+    const testSuite = await service.getTestSuite(req.params.id);
+    const appType = await appTypeService.getAppType(testSuite.app_type_id);
+    await projectService.getProject(appType.project_id, req.user.id);
+    return service.assignTestCases(req.params.id, req.body.test_case_ids, {
+      append: req.body.append !== false,
+      expectedRevision: req.body.expected_revision
+    });
   });
 
   fastify.delete("/test-suites/:id", async (req) => {

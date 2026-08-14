@@ -1,6 +1,5 @@
 import { Children, cloneElement, isValidElement, useId } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { InfoTooltip } from "./InfoTooltip";
 
 function mergeAriaDescribedBy(...values: Array<string | undefined>) {
   return values.filter(Boolean).join(" ") || undefined;
@@ -8,14 +7,20 @@ function mergeAriaDescribedBy(...values: Array<string | undefined>) {
 
 export function FormField({
   label,
+  labelIcon,
   children,
+  composite = false,
+  className = "",
   error,
   hint,
   inputId,
   required
 }: {
   label: string;
+  labelIcon?: ReactNode;
   children: ReactNode;
+  composite?: boolean;
+  className?: string;
   error?: string;
   hint?: string;
   inputId?: string;
@@ -28,7 +33,7 @@ export function FormField({
   const describedBy = mergeAriaDescribedBy(error ? errorId : undefined, hint ? hintId : undefined);
 
   const fieldControl =
-    Children.count(children) === 1 && isValidElement(children)
+    !composite && Children.count(children) === 1 && isValidElement(children)
       ? cloneElement(children as ReactElement<Record<string, unknown>>, {
           id: (children as ReactElement<Record<string, unknown>>).props.id || id,
           "aria-describedby": mergeAriaDescribedBy(
@@ -43,11 +48,11 @@ export function FormField({
       : children;
 
   return (
-    <div className="form-field">
+    <div className={["form-field", className].filter(Boolean).join(" ")}>
       <label className="form-field-label" htmlFor={id}>
+        {labelIcon ? <span aria-hidden="true" className="form-field-label-icon">{labelIcon}</span> : null}
         <span>{label}</span>
-        {required ? <span aria-hidden="true"> *</span> : null}
-        {hint ? <InfoTooltip className="form-field-info" content={hint} label={`${label} help`} /> : null}
+        {required ? <span aria-hidden="true" className="form-field-required-marker"> *</span> : null}
       </label>
       {fieldControl}
       {hint ? <p className="form-field-hint sr-only" id={hintId}>{hint}</p> : null}

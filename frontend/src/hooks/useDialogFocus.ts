@@ -18,7 +18,10 @@ type DialogFocusOptions = {
 const openDialogStack: HTMLElement[] = [];
 let previousBodyOverflow = "";
 
-/** Gives dialogs initial focus, containment, Escape-to-close, scroll lock, and focus return. */
+/**
+ * Gives Custom UI dialogs the keyboard behavior Jira users expect: initial focus,
+ * focus containment, Escape-to-close, background scroll locking, and focus return.
+ */
 export function useDialogFocus<T extends HTMLElement>({
   active = true,
   closeDisabled = false,
@@ -58,7 +61,9 @@ export function useDialogFocus<T extends HTMLElement>({
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (openDialogStack[openDialogStack.length - 1] !== dialog) return;
+      if (openDialogStack[openDialogStack.length - 1] !== dialog) {
+        return;
+      }
 
       if (event.key === "Escape" && onCloseRef.current && !closeDisabledRef.current) {
         event.preventDefault();
@@ -67,9 +72,13 @@ export function useDialogFocus<T extends HTMLElement>({
         return;
       }
 
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab") {
+        return;
+      }
+
       const focusableTargets = Array.from(dialog.querySelectorAll<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR))
         .filter((target) => target.getAttribute("aria-hidden") !== "true" && target.offsetParent !== null);
+
       if (!focusableTargets.length) {
         event.preventDefault();
         dialog.focus();
@@ -78,6 +87,7 @@ export function useDialogFocus<T extends HTMLElement>({
 
       const firstTarget = focusableTargets[0];
       const lastTarget = focusableTargets[focusableTargets.length - 1];
+
       if (event.shiftKey && (document.activeElement === firstTarget || document.activeElement === dialog)) {
         event.preventDefault();
         lastTarget.focus();
@@ -94,8 +104,12 @@ export function useDialogFocus<T extends HTMLElement>({
       document.removeEventListener("keydown", handleKeyDown, true);
 
       const stackIndex = openDialogStack.lastIndexOf(dialog);
-      if (stackIndex >= 0) openDialogStack.splice(stackIndex, 1);
-      if (openDialogStack.length === 0) document.body.style.overflow = previousBodyOverflow;
+      if (stackIndex >= 0) {
+        openDialogStack.splice(stackIndex, 1);
+      }
+      if (openDialogStack.length === 0) {
+        document.body.style.overflow = previousBodyOverflow;
+      }
 
       const previouslyFocused = previouslyFocusedRef.current;
       if (previouslyFocused && document.contains(previouslyFocused)) {

@@ -2,8 +2,54 @@ const service = require("../services/issues.service");
 const aiBugDraftService = require("../services/aiBugDraft.service");
 const featureFlagService = require("../services/featureFlag.service");
 const { ISSUE_STATUS_VALUES } = require("../domain/catalog");
+const projectService = require("../services/project.service");
+const workspace = require("../services/issueWorkspace.service");
+const { issueMetadata } = require("../utils/nativeIssueMetadata");
+const { paginate, shouldPaginate } = require("../utils/pagination");
 
 function registerFeedbackRoutes(fastify, basePath) {
+  fastify.get(`${basePath}/create-metadata`, async (req) => {
+    await fastify.authenticate(req);
+    const project = await projectService.getProject(req.query.project_id, req.user.id);
+    return issueMetadata({ project });
+  });
+
+  fastify.get(`${basePath}/:id/edit-metadata`, async (req) => {
+    await fastify.authenticate(req);
+    const item = await service.getIssueItem(req.params.id);
+    const project = await projectService.getProject(item.project_id, req.user.id);
+    return issueMetadata({ project, mode: "edit", currentValues: item });
+  });
+
+  fastify.post(`${basePath}/ai-triage-preview`, async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});
+    const project = await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.manage", { projectId: project.id })(req);
+    return workspace.previewTriage({ project, issueIds: req.body.issue_ids });
+  });
+
+  fastify.post(`${basePath}/export`, async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    const issues = [];
+    for (const id of [...new Set(req.body.issue_ids)]) {
+      const item = await service.getIssueItem(id);
+      if (item.project_id !== req.body.project_id) throw Object.assign(new Error("Every exported bug must belong to the current project"), { statusCode: 403 });
+      issues.push(item);
+    }
+    return { bugs: issues, exported: issues.length };
+  });
+
+  fastify.delete(`${basePath}/bulk-delete`, async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+    return workspace.bulkDelete({ projectId: req.body.project_id, issueIds: req.body.issue_ids });
+  });
+
   fastify.post(`${basePath}/ai-draft-preview`, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({
@@ -53,19 +99,22 @@ function registerFeedbackRoutes(fastify, basePath) {
 	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
+    if (req.body.project_id) await projectService.getProject(req.body.project_id, req.user.id);
     return service.createIssue({ ...req.body, user_id: req.user.id });
   });
 
   fastify.get(basePath, async (req) => {
     await fastify.authenticate(req);
     const { project_id, user_id, status } = req.query;
-    return service.getIssues({
+    const items = await service.getIssues({
       project_id,
       user_id,
       status,
       viewer_id: req.user.id,
       viewer_is_admin: req.user.role === "admin" || req.user.is_workspace_admin
     });
+    const searched = req.query.q ? items.filter((item) => `${item.title || ""} ${item.message || ""} ${item.jira_bug_key || ""}`.toLowerCase().includes(String(req.query.q).toLowerCase())) : items;
+    return shouldPaginate(req.query) ? paginate(searched, req.query) : searched;
   });
 
   fastify.get(`${basePath}/:id`, async (req) => {

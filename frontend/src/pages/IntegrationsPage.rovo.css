@@ -1,0 +1,21 @@
+.integration-type-section-header-stack {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.integration-type-section-header-stack > .rovo-provider-status {
+  margin: 0 0.15rem;
+}
+
+@media (max-width: 760px) {
+  .integration-type-section-header-stack > .rovo-provider-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .integration-type-section-header-stack > .rovo-provider-status > .count-pill,
+  .integration-type-section-header-stack > .rovo-provider-status > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

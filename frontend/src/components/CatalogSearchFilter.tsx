@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { SearchIcon } from "./AppIcons";
 import { InfoTooltip } from "./InfoTooltip";
 
 const POPOVER_VIEWPORT_PADDING = 12;
@@ -162,6 +163,9 @@ export function CatalogSearchFilter({
   return (
     <div className="catalog-search-filter" ref={containerRef}>
       <div className="catalog-search-field">
+        <span aria-hidden="true" className="catalog-search-leading-icon">
+          <SearchIcon size={16} />
+        </span>
         <input
           aria-label={ariaLabel || placeholder}
           id={inputId}

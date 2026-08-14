@@ -11,6 +11,7 @@ const batchProcessService = require("../services/batchProcess.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const testCaseVersionService = require("../services/testCaseVersion.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
+const { paginate, shouldPaginate } = require("../utils/pagination");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
@@ -57,6 +58,10 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      manual_test_case_id: { required: false, type: "string" },
+      manual_test_case_ids: { required: false, type: "array", items: "string" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
+      gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
       requirement_id: { required: false, type: "string" },
@@ -243,8 +248,8 @@ module.exports = async function (fastify) {
 
     reply
       .header("Content-Disposition", "attachment; filename=\"object-repository.csv\"")
-      .header("X-QAira-Transaction-Id", transaction.id)
-      .header("X-QAira-Artifact-Id", artifact.id);
+      .header("X-HelloTest-Transaction-Id", transaction.id)
+      .header("X-HelloTest-Artifact-Id", artifact.id);
     return reply.type("text/csv; charset=utf-8").send(csv);
   });
 
@@ -668,7 +673,7 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-cases", async (req) => {
     await fastify.authenticate(req);
-    const { suite_id, requirement_id, status, app_type_id } = req.query;
+    const { suite_id, requirement_id, module_id, unassigned_module, status, app_type_id } = req.query;
     
     // If filtering by app_type, verify access
     if (app_type_id) {
@@ -676,7 +681,15 @@ module.exports = async function (fastify) {
       await projectService.getProject(appType.project_id, req.user.id);
     }
     
-    return service.getTestCases({ suite_id, requirement_id, status, app_type_id });
+    const items = await service.getTestCases({
+      suite_id,
+      requirement_id,
+      module_id,
+      unassigned_module: unassigned_module === true || unassigned_module === "true",
+      status,
+      app_type_id
+    });
+    return shouldPaginate(req.query) ? paginate(items, req.query) : items;
   });
 
   fastify.get("/test-cases/:id/versions", async (req) => {
@@ -1041,6 +1054,10 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      manual_test_case_id: { required: false, type: "string" },
+      manual_test_case_ids: { required: false, type: "array", items: "string" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
+      gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
       requirement_id: { required: false, type: "string" },

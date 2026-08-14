@@ -175,7 +175,7 @@ export function EntityAttachmentPanel({
             </button>
             <div className="entity-attachment-copy">
               <strong title={attachment.filename}>{attachment.filename}</strong>
-              <span>{formatBytes(attachment.size)} · {attachment.author?.displayName || "QAira user"}</span>
+              <span>{formatBytes(attachment.size)} · {attachment.author?.displayName || "HelloTest user"}</span>
             </div>
             <div className="entity-attachment-actions">
               <button className="ghost-button compact" disabled={download.isPending} onClick={() => download.mutate(attachment)} type="button">Download</button>

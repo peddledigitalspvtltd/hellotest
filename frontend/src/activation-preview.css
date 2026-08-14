@@ -1,0 +1,52 @@
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+}
+
+.activation-preview-toast {
+  position: fixed;
+  z-index: 20;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  width: min(25rem, calc(100vw - 2rem));
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ds-border-success, #7ee2b8);
+  border-radius: 8px;
+  background: var(--ds-background-success, #dffcf0);
+  color: var(--ds-text-success, #216e4e);
+  box-shadow: var(--ds-shadow-overlay, 0 8px 24px rgba(9, 30, 66, 0.2));
+}
+
+.activation-preview-toast svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.activation-preview-toast div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.activation-preview-toast strong {
+  font-size: 0.82rem;
+}
+
+.activation-preview-toast span {
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activation-preview-toast {
+    scroll-behavior: auto;
+  }
+}

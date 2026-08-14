@@ -3,11 +3,13 @@ import {
   RouterProvider,
   createBrowserRouter,
   useLocation,
-  useNavigate
+  useNavigate,
+  useRouteError
 } from "react-router-dom";
 import { Suspense, lazy, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AppErrorState } from "./components/AppErrorBoundary";
 import { AppShell } from "./components/AppShell";
 import { LocalizationProvider, useLocalization } from "./context/LocalizationContext";
 import {
@@ -19,32 +21,23 @@ import {
   rememberCurrentWorkspaceRoute
 } from "./lib/routeHistory";
 import { readWorkspaceTheme, writeWorkspaceTheme } from "./lib/workspacePreferences";
+import { WORKSPACE_ROUTES, workspaceChildPath } from "./lib/workspaceRoutes";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 30_000
+    }
+  }
+});
 
-const AdminSpacePage = lazy(() => import("./pages/AdminSpacePage").then((module) => ({ default: module.AdminSpacePage })));
-const AgenticWorkflowsPage = lazy(() => import("./pages/AgenticWorkflowsPage").then((module) => ({ default: module.AgenticWorkflowsPage })));
 const AuthPage = lazy(() => import("./pages/AuthPage").then((module) => ({ default: module.AuthPage })));
-const AutomationPage = lazy(() => import("./pages/AutomationPage").then((module) => ({ default: module.AutomationPage })));
-const DesignPage = lazy(() => import("./pages/DesignPage").then((module) => ({ default: module.DesignPage })));
-const ExecutionsPage = lazy(() => import("./pages/ExecutionsPage").then((module) => ({ default: module.ExecutionsPage })));
-const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
-const IssuesPage = lazy(() => import("./pages/IssuesPage").then((module) => ({ default: module.IssuesPage })));
-const KnowledgeRepoPage = lazy(() => import("./pages/KnowledgeRepoPage").then((module) => ({ default: module.KnowledgeRepoPage })));
-const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((module) => ({ default: module.NotificationsPage })));
-const OverviewPage = lazy(() => import("./pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
-const PeoplePage = lazy(() => import("./pages/PeoplePage").then((module) => ({ default: module.PeoplePage })));
-const ProjectsPage = lazy(() => import("./pages/ProjectsPage").then((module) => ({ default: module.ProjectsPage })));
-const RequirementsPage = lazy(() => import("./pages/RequirementsPage").then((module) => ({ default: module.RequirementsPage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
-const SharedStepsPage = lazy(() => import("./pages/SharedStepsPage").then((module) => ({ default: module.SharedStepsPage })));
-const SupportPage = lazy(() => import("./pages/SupportPage").then((module) => ({ default: module.SupportPage })));
-const TestCasesPage = lazy(() => import("./pages/TestCasesPage").then((module) => ({ default: module.TestCasesPage })));
-const TestEnvironmentPage = lazy(() => import("./pages/TestEnvironmentPage").then((module) => ({ default: module.TestEnvironmentPage })));
-const TestOpsPage = lazy(() => import("./pages/TestOpsPage").then((module) => ({ default: module.TestOpsPage })));
 
 const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
-  "/": { key: "page.overview", fallback: "Overview" },
+  [WORKSPACE_ROUTES.home]: { key: "page.overview", fallback: "Overview" },
   "/people": { key: "page.people", fallback: "People" },
   "/admin-space": { key: "page.adminSpace", fallback: "Admin Space" },
   "/projects": { key: "page.projects", fallback: "Projects" },
@@ -87,7 +80,7 @@ function PageTitleUpdater() {
 
   useEffect(() => {
     const meta = PAGE_TITLES[location.pathname];
-    document.title = meta ? `${meta.key ? t(meta.key, meta.fallback) : meta.fallback} · QAira` : "QAira";
+    document.title = meta ? `${meta.key ? t(meta.key, meta.fallback) : meta.fallback} · HelloTest` : "HelloTest";
   }, [location.pathname, t]);
 
   return null;
@@ -162,6 +155,21 @@ function AuthRoute({ initialMode = "login" }: { initialMode?: "login" | "signup"
   );
 }
 
+function WorkspaceRouteError() {
+  const error = useRouteError();
+
+  return (
+    <div className="splash-screen">
+      <AppErrorState
+        error={error}
+        fallbackMessage="HelloTest could not finish loading this page. Reload to request a fresh application bundle and try again."
+        onRetry={() => window.location.reload()}
+        title="The page could not be loaded"
+      />
+    </div>
+  );
+}
+
 const router = createBrowserRouter([
   {
     path: "/auth",
@@ -174,33 +182,36 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <ProtectedLayout />,
+    errorElement: <WorkspaceRouteError />,
+    hydrateFallbackElement: <div className="splash-screen">Loading workspace…</div>,
     children: [
-      { index: true, element: <OverviewPage /> },
-      { path: "admin-space", element: <AdminSpacePage /> },
-      { path: "people", element: <PeoplePage /> },
-      { path: "projects", element: <ProjectsPage /> },
-      { path: "integrations", element: <IntegrationsPage /> },
-      { path: "design", element: <DesignPage /> },
-      { path: "requirements", element: <RequirementsPage /> },
-      { path: "issues", element: <IssuesPage /> },
-      { path: "feedback", element: <Navigate to="/issues" replace /> },
-      { path: "support", element: <SupportPage /> },
-      { path: "notifications", element: <NotificationsPage /> },
-      { path: "settings", element: <SettingsPage /> },
-      { path: "test-cases", element: <TestCasesPage /> },
-      { path: "shared-steps", element: <SharedStepsPage /> },
-      { path: "executions", element: <ExecutionsPage /> },
-      { path: "automation", element: <AutomationPage initialView="cases" /> },
-      { path: "object-repository", element: <AutomationPage initialView="repository" /> },
-      { path: "agentic-workflows", element: <AgenticWorkflowsPage /> },
-      { path: "local-playwright", element: <Navigate to="/automation" replace /> },
-      { path: "testops", element: <TestOpsPage initialView="batch-process" /> },
-      { path: "ops-telemetry", element: <TestOpsPage initialView="ops-telemetry" /> },
-      { path: "traces", element: <TestOpsPage initialView="traces" /> },
-      { path: "test-environments", element: <TestEnvironmentPage view="environments" /> },
-      { path: "test-data", element: <TestEnvironmentPage view="data" /> },
-      { path: "test-configurations", element: <TestEnvironmentPage view="configurations" /> },
-      { path: "knowledge-repo", element: <KnowledgeRepoPage /> }
+      { index: true, lazy: () => import("./pages/OverviewPage").then(({ OverviewPage }) => ({ Component: OverviewPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.adminSpace), lazy: () => import("./pages/AdminSpacePage").then(({ AdminSpacePage }) => ({ Component: AdminSpacePage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.people), lazy: () => import("./pages/PeoplePage").then(({ PeoplePage }) => ({ Component: PeoplePage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.projects), lazy: () => import("./pages/ProjectsPage").then(({ ProjectsPage }) => ({ Component: ProjectsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.integrations), lazy: () => import("./pages/IntegrationsPage").then(({ IntegrationsPage }) => ({ Component: IntegrationsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.design), lazy: () => import("./pages/DesignPage").then(({ DesignPage }) => ({ Component: DesignPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.requirements), lazy: () => import("./pages/RequirementsPage").then(({ RequirementsPage }) => ({ Component: RequirementsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.issues), lazy: () => import("./pages/IssuesPage").then(({ IssuesPage }) => ({ Component: IssuesPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.feedback), element: <Navigate to={WORKSPACE_ROUTES.issues} replace /> },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.support), lazy: () => import("./pages/SupportPage").then(({ SupportPage }) => ({ Component: SupportPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.notifications), lazy: () => import("./pages/NotificationsPage").then(({ NotificationsPage }) => ({ Component: NotificationsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.settings), lazy: () => import("./pages/SettingsPage").then(({ SettingsPage }) => ({ Component: SettingsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.testCases), lazy: () => import("./pages/TestCasesPage").then(({ TestCasesPage }) => ({ Component: TestCasesPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.sharedSteps), lazy: () => import("./pages/SharedStepsPage").then(({ SharedStepsPage }) => ({ Component: SharedStepsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.executions), lazy: () => import("./pages/ExecutionsPage").then(({ ExecutionsPage }) => ({ Component: ExecutionsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.automation), lazy: () => import("./pages/AutomationPage").then(({ AutomationPage }) => ({ Component: () => <AutomationPage initialView="cases" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.objectRepository), lazy: () => import("./pages/AutomationPage").then(({ AutomationPage }) => ({ Component: () => <AutomationPage initialView="repository" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.agenticWorkflows), lazy: () => import("./pages/AgenticWorkflowsPage").then(({ AgenticWorkflowsPage }) => ({ Component: AgenticWorkflowsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.localPlaywright), element: <Navigate to={WORKSPACE_ROUTES.automation} replace /> },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.testOps), lazy: () => import("./pages/TestOpsPage").then(({ TestOpsPage }) => ({ Component: () => <TestOpsPage initialView="batch-process" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.opsTelemetry), lazy: () => import("./pages/TestOpsPage").then(({ TestOpsPage }) => ({ Component: () => <TestOpsPage initialView="ops-telemetry" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.traces), lazy: () => import("./pages/TestOpsPage").then(({ TestOpsPage }) => ({ Component: () => <TestOpsPage initialView="traces" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.testEnvironments), lazy: () => import("./pages/TestEnvironmentPage").then(({ TestEnvironmentPage }) => ({ Component: () => <TestEnvironmentPage view="environments" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.testData), lazy: () => import("./pages/TestEnvironmentPage").then(({ TestEnvironmentPage }) => ({ Component: () => <TestEnvironmentPage view="data" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.testConfigurations), lazy: () => import("./pages/TestEnvironmentPage").then(({ TestEnvironmentPage }) => ({ Component: () => <TestEnvironmentPage view="configurations" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.knowledgeRepo), lazy: () => import("./pages/KnowledgeRepoPage").then(({ KnowledgeRepoPage }) => ({ Component: KnowledgeRepoPage })) },
+      { path: "*", element: <Navigate to={WORKSPACE_ROUTES.home} replace /> }
     ]
   }
 ]);

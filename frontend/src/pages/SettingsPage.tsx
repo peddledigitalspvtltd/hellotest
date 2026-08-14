@@ -1,23 +1,28 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useLocalization } from "../context/LocalizationContext";
-import { AddIcon, CopyIcon, SaveIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CollapseExpandIcon, CopyIcon, SaveIcon, TrashIcon } from "../components/AppIcons";
+import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ToastMessage } from "../components/ToastMessage";
-import { FeatureAvailabilitySection } from "../features/featureFlags/FeatureAvailabilitySection";
-import { useFeatureAvailability } from "../features/featureFlags/useFeatureAvailability";
+import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { api } from "../lib/api";
 import {
+  AI_METRIC_CRITERIA_OVERRIDES_KEY,
+  AI_METRIC_CRITERIA_REGISTRY,
   AI_PROMPT_LLM_OVERRIDES_KEY,
   AI_PROMPT_OVERRIDES_KEY,
   AI_PROMPT_REGISTRY,
+  normalizeAiMetricCriteriaOverrides,
   normalizeAiPromptLlmOverrides,
   normalizeAiPromptOverrides,
   resolveAiPromptRegistryValue
 } from "../lib/aiPromptRegistry";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -28,13 +33,14 @@ import {
 import { queryKeys } from "../lib/queryKeys";
 import type { ApiKeyScope, ApiKeyScopeOption, Integration, UserApiKey } from "../types";
 import { readDefaultCatalogViewMode, writeDefaultCatalogViewMode, type CatalogViewModePreference } from "../lib/viewPreferences";
+import { isRovoIntegrationId } from "../lib/rovo";
 import {
+  PREFERENCES_UPDATED_EVENT,
   emitWorkspacePreferenceUpdate,
   preferenceStorageKeys,
   readSidebarMode,
   readWorkspaceTheme,
   writeSidebarMode,
-  writeWorkspaceTheme,
   type SidebarMode,
   type WorkspaceTheme
 } from "../lib/workspacePreferences";
@@ -42,9 +48,9 @@ import {
 const DEFAULT_API_KEY_SCOPE_OPTIONS: ApiKeyScopeOption[] = [
   { value: "user", label: "User access", description: "Default. Uses your current user permissions." },
   { value: "read", label: "Read only", description: "GET and HEAD requests only." },
-  { value: "design", label: "Design", description: "Requirements, test cases, suites, steps, and data." },
+  { value: "design", label: "Design", description: "Stories, test cases, suites, steps, and data." },
   { value: "automation", label: "Automation", description: "Automation build, object repository, recorder, and workflows." },
-  { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and issues." },
+  { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and bugs." },
   { value: "environment", label: "Environment", description: "Environments, configurations, app types, and data sets." },
   { value: "integrations", label: "Integrations", description: "Integrations, AI knowledge, and prompt templates." },
   { value: "admin", label: "Admin", description: "Full API access, limited by your user permissions." }
@@ -73,7 +79,6 @@ const DEFAULT_PROJECT_AUTOMATION_SETTINGS: ProjectAutomationSettings = {
 type SettingsSectionId =
   | "general"
   | "apiKeys"
-  | "features"
   | "automationDefaults"
   | "aiPromptMapping"
   | "exportRetention"
@@ -83,7 +88,6 @@ type SettingsSectionId =
 const DEFAULT_EXPANDED_SETTINGS_SECTIONS: Record<SettingsSectionId, boolean> = {
   general: true,
   apiKeys: false,
-  features: false,
   automationDefaults: false,
   aiPromptMapping: false,
   exportRetention: false,
@@ -94,14 +98,17 @@ const DEFAULT_EXPANDED_SETTINGS_SECTIONS: Record<SettingsSectionId, boolean> = {
 function readProjectAutomationSettings(): ProjectAutomationSettings {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(preferenceStorageKeys.projectAutomationSettings) || "{}") as Partial<ProjectAutomationSettings>;
-    return { ...DEFAULT_PROJECT_AUTOMATION_SETTINGS, ...parsed };
+    const settings = { ...DEFAULT_PROJECT_AUTOMATION_SETTINGS, ...parsed };
+    return {
+      ...settings,
+      defaultLlmIntegrationId: isRovoIntegrationId(settings.defaultLlmIntegrationId) ? "" : settings.defaultLlmIntegrationId
+    };
   } catch {
     return DEFAULT_PROJECT_AUTOMATION_SETTINGS;
   }
 }
 
 export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
-  const queryClient = useQueryClient();
   const { session } = useAuth();
   const { strings, setWorkspaceStrings, t } = useLocalization();
   const [theme, setTheme] = useState<WorkspaceTheme>("light");
@@ -114,6 +121,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     Object.fromEntries(AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, prompt.value]))
   );
   const [promptLlmDrafts, setPromptLlmDrafts] = useState<Record<string, string>>({});
+  const [metricCriteriaDrafts, setMetricCriteriaDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metric.criteria]))
+  );
   const [apiKeyName, setApiKeyName] = useState("");
   const [apiKeyScope, setApiKeyScope] = useState<ApiKeyScope>("user");
   const [createdApiKey, setCreatedApiKey] = useState("");
@@ -130,10 +140,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const isAdmin = session?.user.role === "admin";
   const canViewAdminSettings = isAdmin;
   const canManageApiKeys = isAdmin && hasPermission(session, "api_key.manage");
-  const canManageAiPrompts = isAdmin && hasPermission(session, "ai_prompt.manage");
-  const canManageFeatureFlags = isAdmin && hasPermission(session, "feature_flag.manage");
+  const canManageAiPrompts = isAdmin
+    && hasPermission(session, "settings.manage")
+    && hasPermission(session, "prompt_template.manage");
   const canManageLocalization = isAdmin && hasPermission(session, "localization.manage");
-  const featureAvailability = useFeatureAvailability(Boolean(session && canViewAdminSettings));
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
   const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewAdminSettings) });
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
@@ -146,12 +158,21 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     enabled: Boolean(session && canManageApiKeys)
   });
   const llmIntegrations = useMemo(
-    () => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active),
+    () => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active && !isRovoIntegrationId(integration.id)),
     [integrationsQuery.data]
   );
   const apiKeyScopeOptions = useMemo(
-    () => apiKeysQuery.data?.scopes?.length ? apiKeysQuery.data.scopes : DEFAULT_API_KEY_SCOPE_OPTIONS,
-    [apiKeysQuery.data]
+    () => (apiKeysQuery.data?.scopes?.length ? apiKeysQuery.data.scopes : DEFAULT_API_KEY_SCOPE_OPTIONS)
+      .filter((scope) => canUseAutomationWorkspace || scope.value !== "automation"),
+    [apiKeysQuery.data, canUseAutomationWorkspace]
+  );
+  const visibleAiPromptRegistry = useMemo(
+    () => AI_PROMPT_REGISTRY.filter((prompt) => canUseAutomationWorkspace || !prompt.key.startsWith("ai.automation.")),
+    [canUseAutomationWorkspace]
+  );
+  const visibleAiMetricCriteriaRegistry = useMemo(
+    () => AI_METRIC_CRITERIA_REGISTRY.filter((metric) => canUseAutomationWorkspace || metric.key !== "metric.automation.coverage"),
+    [canUseAutomationWorkspace]
   );
   const apiKeyScopeLabels = useMemo(
     () => Object.fromEntries(apiKeyScopeOptions.map((scope) => [scope.value, scope.label])) as Record<ApiKeyScope, string>,
@@ -168,8 +189,15 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   }, []);
 
   useEffect(() => {
+    const syncJiraTheme = () => setTheme(readWorkspaceTheme());
+    window.addEventListener(PREFERENCES_UPDATED_EVENT, syncJiraTheme);
+    return () => window.removeEventListener(PREFERENCES_UPDATED_EVENT, syncJiraTheme);
+  }, []);
+
+  useEffect(() => {
     const overrides = normalizeAiPromptOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_OVERRIDES_KEY]);
     const llmOverrides = normalizeAiPromptLlmOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY]);
+    const metricCriteriaOverrides = normalizeAiMetricCriteriaOverrides(workspacePreferencesQuery.data?.preferences?.[AI_METRIC_CRITERIA_OVERRIDES_KEY]);
     setPromptDrafts(
       Object.fromEntries(
         AI_PROMPT_REGISTRY.map((prompt) => [
@@ -180,23 +208,31 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     );
     setPromptLlmDrafts(
       Object.fromEntries(
-        AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, llmOverrides[prompt.key] || ""])
+        AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, isRovoIntegrationId(llmOverrides[prompt.key]) ? "" : llmOverrides[prompt.key] || ""])
       )
     );
+    setMetricCriteriaDrafts(Object.fromEntries(
+      AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaOverrides[metric.key] || metric.criteria])
+    ));
   }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
     setIsSavingSettings(true);
 
     try {
-      writeWorkspaceTheme(theme);
       writeSidebarMode(sidebarMode);
       window.localStorage.setItem(preferenceStorageKeys.autoExport, String(autoExport));
-      window.localStorage.setItem(preferenceStorageKeys.projectAutomationSettings, JSON.stringify(projectAutomationSettings));
+      window.localStorage.setItem(preferenceStorageKeys.projectAutomationSettings, JSON.stringify({
+        ...projectAutomationSettings,
+        defaultLlmIntegrationId: isRovoIntegrationId(projectAutomationSettings.defaultLlmIntegrationId)
+          ? ""
+          : projectAutomationSettings.defaultLlmIntegrationId
+      }));
       writeDefaultCatalogViewMode(defaultCatalogViewMode);
       writeNotificationPreferences(notificationPreferences);
       const preferencesToSave = canManageAiPrompts
         ? {
+          ...(workspacePreferencesQuery.data?.preferences || {}),
           [AI_PROMPT_OVERRIDES_KEY]: Object.fromEntries(
             AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, promptDrafts[prompt.key] ?? prompt.value])
           ),
@@ -204,20 +240,16 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             AI_PROMPT_REGISTRY
               .map((prompt) => [prompt.key, promptLlmDrafts[prompt.key] || ""])
               .filter(([, integrationId]) => Boolean(integrationId))
+          ),
+          [AI_METRIC_CRITERIA_OVERRIDES_KEY]: Object.fromEntries(
+            AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaDrafts[metric.key] || metric.criteria])
           )
         }
-        : {};
+        : (workspacePreferencesQuery.data?.preferences || {});
 
       await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
-      if (canManageFeatureFlags && !featureAvailability.isLoading) {
-        await featureAvailability.save();
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["permissions"] }),
-          queryClient.invalidateQueries({ queryKey: ["domain-metadata"] })
-        ]);
-      }
       await workspacePreferencesQuery.refetch();
-      emitWorkspacePreferenceUpdate({ sidebarMode, theme });
+      emitWorkspacePreferenceUpdate({ sidebarMode });
       setMessageTone("success");
       setMessage("Settings changes saved.");
     } catch (error) {
@@ -423,12 +455,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const settingsActions = (
     <button
       className="primary-button"
-      disabled={isSavingSettings || featureAvailability.isSaving || (canManageFeatureFlags && featureAvailability.isLoading) || isSavingLocalization}
+      disabled={isSavingSettings || isSavingLocalization}
       onClick={() => void saveSettings()}
       type="button"
     >
       <SaveIcon />
-      {isSavingSettings || featureAvailability.isSaving ? "Saving..." : "Save changes"}
+      {isSavingSettings ? "Saving..." : "Save changes"}
     </button>
   );
 
@@ -458,7 +490,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               <span className="eyebrow">{eyebrow}</span>
               <strong>{title}</strong>
             </span>
-            <span aria-hidden="true" className="settings-section-toggle-icon">{isExpanded ? "-" : "+"}</span>
+            <span aria-hidden="true" className="settings-section-toggle-icon"><CollapseExpandIcon isExpanded={isExpanded} /></span>
           </button>
           {options.actions ? <div className="settings-section-actions">{options.actions}</div> : null}
         </div>
@@ -499,16 +531,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
 	      <div className="settings-section-stack">
         {renderSettingsSection("general", "General", "Appearance and navigation", (
           <div className="two-column-grid">
-            <Panel title="Appearance" subtitle="Keep the interface comfortable for long QA sessions.">
+            <Panel title="Appearance" subtitle="HelloTest keeps your workspace appearance preference on this device.">
               <div className="detail-stack">
-                <label className="checkbox-field">
-                  <input checked={theme === "light"} name="theme-preference" onChange={() => setTheme("light")} type="radio" />
-                  <span>{t("settings.general.themeLight", "Light theme")}</span>
-                </label>
-                <label className="checkbox-field">
-                  <input checked={theme === "dark"} name="theme-preference" onChange={() => setTheme("dark")} type="radio" />
-                  <span>{t("settings.general.themeDark", "Dark theme")}</span>
-                </label>
+                <div className="settings-native-preference">
+                  <strong>{theme === "dark" ? t("settings.general.themeDark", "Dark theme") : t("settings.general.themeLight", "Light theme")}</strong>
+                  <span>Use the header theme control to switch appearance; your choice is restored automatically.</span>
+                </div>
                 <label className="checkbox-field">
                   <input checked={sidebarMode === "expanded"} name="sidebar-preference" onChange={() => setSidebarMode("expanded")} type="radio" />
                   <span>{t("settings.general.sidebarExpanded", "Expanded sidebar by default")}</span>
@@ -594,7 +622,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             </div>
 
             <div className="settings-api-key-list" aria-label="Created API keys">
-              {apiKeysQuery.isLoading ? <div className="empty-state compact">Loading API keys...</div> : null}
+              {apiKeysQuery.isLoading ? <LoadingState label="Loading API keys" /> : null}
               {!apiKeysQuery.isLoading && !(apiKeysQuery.data?.api_keys || []).length ? (
                 <div className="empty-state compact">No API keys created yet.</div>
               ) : null}
@@ -636,20 +664,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           </Panel>
         ), { adminOnly: true })}
 
-	        {canViewAdminSettings ? (
-	          <FeatureAvailabilitySection
-	            canManageFeatureFlags={canManageFeatureFlags}
-	            drafts={featureAvailability.drafts}
-	            featureFlags={featureAvailability.featureFlags}
-	            isExpanded={expandedSettingsSections.features}
-	            isLoading={featureAvailability.isLoading}
-	            isSaving={featureAvailability.isSaving || isSavingSettings}
-	            onFeatureChange={featureAvailability.setFeatureEnabled}
-	            onToggle={() => toggleSettingsSection("features")}
-	          />
-	        ) : null}
-
-        {renderSettingsSection("automationDefaults", "Project settings", "Automation defaults", (
+        {canUseAutomationWorkspace ? renderSettingsSection("automationDefaults", "Project settings", "Automation defaults", (
           <Panel title="Project automation settings" subtitle="Default behavior for generated automation, local runs, remote grid runs, and evidence capture.">
             <div className="settings-project-grid">
               <label className="settings-input-field">
@@ -700,7 +715,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 <small>Default screenshot policy for automation runs.</small>
               </label>
               <label className="settings-input-field">
-                <span>Default LLM</span>
+                <span>Default direct LLM</span>
                 <select
                   onChange={(event) => updateProjectAutomationSetting("defaultLlmIntegrationId", event.target.value)}
                   value={projectAutomationSettings.defaultLlmIntegrationId}
@@ -710,7 +725,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <option key={integration.id} value={integration.id}>{integration.name}</option>
                   ))}
                 </select>
-                <small>Used by automation build, healing, and review flows when a project does not override it.</small>
+                <small>Used for direct automation model calls when a project does not override it. Rovo conversations are separate.</small>
               </label>
               <label className="settings-input-field">
                 <span>Local engine URL</span>
@@ -735,13 +750,25 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 <small>Preferred cloud execution provider for remote runs.</small>
               </label>
             </div>
+            <RovoProviderStatus
+              compact
+              prompt="Help me review this Jira project's HelloTest automation defaults, healing boundaries, evidence capture, and retry policy. This is a Rovo conversation, not a direct automation model invocation. Do not change Jira records."
+            />
           </Panel>
-	        ), { adminOnly: true })}
+	        ), { adminOnly: true }) : null}
 
         {renderSettingsSection("aiPromptMapping", "AI", "Prompt key mapping", (
-          <Panel title="AI prompt registry" subtitle="Central keys for AI prompt surfaces used by requirement, test design, automation, execution, and test data flows.">
+          <Panel
+            title="AI prompt registry"
+            subtitle={!canManageAiPrompts
+              ? "Read-only. Editing requires settings.manage and prompt_template.manage."
+              : canUseAutomationWorkspace
+                ? "Central keys for AI prompt surfaces used by story, test design, automation, execution, and test data flows."
+                : "Central keys for enabled AI story, test design, execution, and test data surfaces."}
+          >
+            <RovoProviderStatus prompt="Help me review HelloTest AI prompt governance and metric criteria for this Jira project." />
             <div className="settings-prompt-grid">
-              {AI_PROMPT_REGISTRY.map((prompt) => (
+              {visibleAiPromptRegistry.map((prompt) => (
                 <article className="settings-prompt-card" key={prompt.key}>
                   <div>
                     <strong>{prompt.label}</strong>
@@ -752,6 +779,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <span>LLM for this prompt</span>
                     <select
                       aria-label={`${prompt.label} LLM integration`}
+                      disabled={!canManageAiPrompts}
                       onChange={(event) => setPromptLlmDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
                       value={promptLlmDrafts[prompt.key] || ""}
                     >
@@ -766,17 +794,59 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                   </label>
                   <textarea
                     aria-label={`${prompt.label} prompt text`}
+                    disabled={!canManageAiPrompts}
                     onChange={(event) => setPromptDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
                     rows={5}
                     value={promptDrafts[prompt.key] ?? prompt.value}
                   />
                   <button
                     className="ghost-button compact"
-                    disabled={(promptDrafts[prompt.key] ?? prompt.value) === prompt.value}
+                    disabled={!canManageAiPrompts || (promptDrafts[prompt.key] ?? prompt.value) === prompt.value}
                     onClick={() => setPromptDrafts((current) => ({ ...current, [prompt.key]: prompt.value }))}
                     type="button"
                   >
                     Reset default
+                  </button>
+                </article>
+              ))}
+            </div>
+            <div className="settings-governance-heading">
+              <div>
+                <strong>Metric criteria registry</strong>
+                <span>Formulae stay deterministic; these review criteria shape AI explanations, ranking rationale, and recommendations.</span>
+              </div>
+              <span className="count-pill">{visibleAiMetricCriteriaRegistry.length} governed metrics</span>
+            </div>
+            <div className="settings-prompt-grid settings-metric-criteria-grid">
+              {visibleAiMetricCriteriaRegistry.map((metric) => (
+                <article className="settings-prompt-card settings-metric-criteria-card" key={metric.key}>
+                  <div>
+                    <strong>{metric.label}</strong>
+                    <span>{metric.surface}</span>
+                  </div>
+                  <code>{metric.key}</code>
+                  <div className="settings-metric-methodology">
+                    <strong>Deterministic formula</strong>
+                    <p>{metric.formula}</p>
+                  </div>
+                  <label className="settings-input-field">
+                    <span>Organization review criteria</span>
+                    <textarea
+                      aria-label={`${metric.label} organization criteria`}
+                      disabled={!canManageAiPrompts}
+                      onChange={(event) => setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: event.target.value }))}
+                      rows={5}
+                      value={metricCriteriaDrafts[metric.key] ?? metric.criteria}
+                    />
+                    <small>Used as bounded policy context. It cannot override evidence, project scope, denominators, or locked numeric scores.</small>
+                  </label>
+                  <button
+                    className="ghost-button compact"
+                    disabled={!canManageAiPrompts || (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria}
+                    onClick={() => setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }))}
+                    type="button"
+                  >
+                    Reset criteria
                   </button>
                 </article>
               ))}
@@ -808,11 +878,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ["executionFailures", "Execution failures and blocked runs"],
                 ["executionCompletions", "Execution completions and run finalization"],
                 ["runAssignments", "Run and case assignment changes"],
-                ["issueReports", "Reported issues and feedback updates"],
+                ["issueReports", "Reported bugs and feedback updates"],
                 ["aiDesign", "AI design previews and accepted generated cases"],
                 ["aiAutomation", "AI automation build and recorder events"],
                 ["importExport", "Import, export, backup, and sync jobs"],
-                ["requirementChanges", "Requirement creation, completion, and coverage changes"],
+                ["requirementChanges", "Story creation, completion, and coverage changes"],
                 ["testCaseChanges", "Test case, suite, and shared step changes"],
                 ["integrationChanges", "Integration activation, import, and credential changes"],
                 ["userRoleChanges", "User, role, and permission changes"],
@@ -820,7 +890,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ["scheduledRuns", "Scheduled run creation, execution, and failures"],
                 ["inApp", "Show enabled events as in-app notifications"],
                 ["digest", "Include enabled events in the daily digest"]
-              ].map(([key, label]) => (
+              ].filter(([key]) => canUseAutomationWorkspace || key !== "aiAutomation").map(([key, label]) => (
                 <label className="checkbox-field" key={key}>
                   <input
                     checked={notificationPreferences[key as keyof NotificationPreferences]}

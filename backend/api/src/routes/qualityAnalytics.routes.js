@@ -1,6 +1,7 @@
 const projectService = require("../services/project.service");
 const analytics = require("../services/qualityAnalytics.service");
 const dashboards = require("../services/qualityDashboard.service");
+const reports = require("../services/qualityDashboardReport.service");
 
 const requireProject = async (req, projectId) => {
   if (!projectId) {
@@ -43,6 +44,26 @@ module.exports = async function (fastify) {
     const dashboard = await dashboards.get(req.params.id);
     await requireProject(req, dashboard.project_id);
     return dashboards.remove(req.params.id);
+  });
+
+  const downloadDashboardReport = async (req, reply) => {
+    await fastify.authenticate(req);
+    const dashboard = await dashboards.get(req.params.id);
+    await requireProject(req, dashboard.project_id);
+    const { pdf } = await reports.renderPdf(dashboard);
+    const fileName = `${String(dashboard.name || "qaira-quality-report").replace(/[^A-Za-z0-9._-]+/g, "-") || "qaira-quality-report"}.pdf`;
+    reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${fileName}"`);
+    return reply.send(pdf);
+  };
+  fastify.get("/quality-dashboards/:id/report.pdf", downloadDashboardReport);
+  fastify.post("/quality-dashboards/:id/report.pdf", downloadDashboardReport);
+
+  fastify.post("/quality-dashboards/:id/share-report", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
+    const dashboard = await dashboards.get(req.params.id);
+    await requireProject(req, dashboard.project_id);
+    return reports.share({ dashboard, recipients: req.body.recipients, requestedBy: req.user.id });
   });
 
   const evaluateOne = async (req) => {

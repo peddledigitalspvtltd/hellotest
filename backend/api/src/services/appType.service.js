@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { APP_TYPE_VALUES } = require("../domain/catalog");
 
 // Create

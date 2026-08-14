@@ -1,4 +1,4 @@
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 
@@ -23,6 +23,10 @@ const SNAPSHOT_FIELDS = [
   "parameter_values",
   "automated",
   "automation_status",
+  "manual_test_case_id",
+  "manual_test_case_ids",
+  "authoring_mode",
+  "gherkin_document",
   "priority",
   "status",
   "requirement_ids",

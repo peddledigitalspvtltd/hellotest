@@ -1,9 +1,18 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { EXECUTION_RESULT_STATUS_VALUES } = require("../domain/catalog");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { assertExpectedRevision } = require("../utils/revision");
 const requirementDefectService = require("./requirementDefect.service");
 const testCaseDefectService = require("./testCaseDefect.service");
+
+const normalizeObject = (value) => {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return {}; }
+  }
+  return typeof value === "object" && !Array.isArray(value) ? value : {};
+};
 
 const getPrimarySuiteForTestCase = db.prepare(`
   SELECT test_suites.id, test_suites.name
@@ -105,8 +114,8 @@ exports.createExecutionResult = async (data) => {
 
   await db.prepare(`
     INSERT INTO execution_results
-    (id, execution_id, test_case_id, test_case_title, suite_id, suite_name, app_type_id, status, duration_ms, error, logs, external_references, defects, executed_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, execution_id, test_case_id, test_case_title, suite_id, suite_name, app_type_id, status, duration_ms, error, logs, external_references, case_defects, defects, executed_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     execution_id,
@@ -121,13 +130,14 @@ exports.createExecutionResult = async (data) => {
     logs || null,
     normalizeReferenceList(external_references),
     normalizedDefects,
+    normalizedDefects,
     executed_by || null
   );
 
   await requirementDefectService.syncAutomaticDefectsForTestCase(test_case_id, normalizedDefects);
   await testCaseDefectService.syncAutomaticDefectsForTestCase(test_case_id, normalizedDefects);
 
-  return { id };
+  return { id, revision: 1 };
 };
 
 
@@ -158,7 +168,10 @@ exports.getExecutionResults = async ({ execution_id, test_case_id, app_type_id }
   return rows.map((row) => ({
     ...row,
     external_references: normalizeStoredReferenceList(row.external_references),
-    defects: normalizeStoredReferenceList(row.defects)
+    defects: normalizeStoredReferenceList(row.defects),
+    case_defects: normalizeStoredReferenceList(row.case_defects),
+    step_defects: normalizeObject(row.step_defects),
+    revision: Number(row.revision || 1)
   }));
 };
 
@@ -175,7 +188,10 @@ exports.getExecutionResult = async (id) => {
   return {
     ...result,
     external_references: normalizeStoredReferenceList(result.external_references),
-    defects: normalizeStoredReferenceList(result.defects)
+    defects: normalizeStoredReferenceList(result.defects),
+    case_defects: normalizeStoredReferenceList(result.case_defects),
+    step_defects: normalizeObject(result.step_defects),
+    revision: Number(result.revision || 1)
   };
 };
 
@@ -190,42 +206,108 @@ exports.findLatestExecutionResult = async ({ execution_id, test_case_id }) => {
 
 // Update Result (only limited fields)
 exports.updateExecutionResult = async (id, data) => {
+  const transaction = db.transaction(async () => {
+    const existing = await db.prepare(`SELECT * FROM execution_results WHERE id = ? FOR UPDATE`).get(id);
+    if (!existing) throw new Error("Execution result not found");
 
-  const existing = await exports.getExecutionResult(id);
+    const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Execution result");
+    const status = data.status || existing.status;
 
-  const status = data.status || existing.status;
+    if (!EXECUTION_RESULT_STATUS_VALUES.includes(status)) {
+      throw new Error("Invalid status");
+    }
 
-  if (!EXECUTION_RESULT_STATUS_VALUES.includes(status)) {
-    throw new Error("Invalid status");
+    const persistedStepDefects = Object.values(normalizeObject(existing.step_defects))
+      .flatMap((value) => normalizeStoredReferenceList(value));
+    const caseDefects = data.defects !== undefined
+      ? normalizeReferenceList(data.defects)
+      : normalizeStoredReferenceList(existing.case_defects);
+    const normalizedDefects = [...new Set([...caseDefects, ...persistedStepDefects])];
+    const revision = currentRevision + 1;
+
+    await db.prepare(`
+      UPDATE execution_results
+      SET status = ?, duration_ms = ?, error = ?, logs = ?, external_references = ?, case_defects = ?, defects = ?, executed_by = ?, revision = ?
+      WHERE id = ?
+    `).run(
+      status,
+      data.duration_ms ?? existing.duration_ms,
+      data.error ?? existing.error,
+      data.logs ?? existing.logs,
+      data.external_references !== undefined
+        ? normalizeReferenceList(data.external_references)
+        : normalizeStoredReferenceList(existing.external_references),
+      caseDefects,
+      normalizedDefects,
+      data.executed_by ?? existing.executed_by,
+      revision,
+      id
+    );
+
+    return {
+      updated: true,
+      revision,
+      test_case_id: existing.test_case_id,
+      case_defects: caseDefects,
+      defects: normalizedDefects,
+      defects_changed: data.defects !== undefined
+    };
+  });
+
+  const result = await transaction();
+  if (result.defects_changed) {
+    await requirementDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);
+    await testCaseDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);
   }
 
-  const normalizedDefects = data.defects !== undefined
-    ? normalizeReferenceList(data.defects)
-    : normalizeStoredReferenceList(existing.defects);
+  return { updated: true, revision: result.revision, case_defects: result.case_defects, defects: result.defects };
+};
 
-  await db.prepare(`
-    UPDATE execution_results
-    SET status = ?, duration_ms = ?, error = ?, logs = ?, external_references = ?, defects = ?, executed_by = ?
-    WHERE id = ?
-  `).run(
-    status,
-    data.duration_ms ?? existing.duration_ms,
-    data.error ?? existing.error,
-    data.logs ?? existing.logs,
-    data.external_references !== undefined
-      ? normalizeReferenceList(data.external_references)
-      : normalizeStoredReferenceList(existing.external_references),
-    normalizedDefects,
-    data.executed_by ?? existing.executed_by,
-    id
-  );
+exports.linkStepDefects = async (id, { step_id, defect_ids = [], expected_revision } = {}) => {
+  const transaction = db.transaction(async () => {
+    const existing = await db.prepare(`SELECT * FROM execution_results WHERE id = ? FOR UPDATE`).get(id);
+    if (!existing) throw new Error("Execution result not found");
+    const currentRevision = assertExpectedRevision(existing.revision, expected_revision, "Execution result");
 
-  if (data.defects !== undefined) {
-    await requirementDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id, normalizedDefects);
-    await testCaseDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id, normalizedDefects);
-  }
+    const step = await db.prepare(`
+      SELECT snapshot_step_id
+      FROM execution_step_snapshots
+      WHERE execution_id = ? AND test_case_id = ? AND snapshot_step_id = ?
+    `).get(existing.execution_id, existing.test_case_id, step_id);
+    if (!step) throw Object.assign(new Error("The selected step is not part of this execution result"), { statusCode: 409 });
 
-  return { updated: true };
+    const execution = await db.prepare(`SELECT project_id FROM executions WHERE id = ?`).get(existing.execution_id);
+    const ids = [...new Set((Array.isArray(defect_ids) ? defect_ids : []).map((value) => String(value || "").trim()).filter(Boolean))];
+    if (ids.length > 50) throw Object.assign(new Error("A result step can link at most 50 Bugs"), { statusCode: 413 });
+    if (ids.length) {
+      const placeholders = ids.map(() => "?").join(",");
+      const defects = await db.prepare(`SELECT id FROM feedback WHERE project_id = ? AND id IN (${placeholders})`).all(execution.project_id, ...ids);
+      if (defects.length !== ids.length) throw Object.assign(new Error("Every linked defect must belong to this run's project"), { statusCode: 409 });
+    }
+
+    const previousStepDefects = normalizeObject(existing.step_defects);
+    const caseDefects = normalizeStoredReferenceList(existing.case_defects);
+    const stepDefects = { ...previousStepDefects, [step_id]: ids };
+    if (!ids.length) delete stepDefects[step_id];
+    const allDefects = [...new Set([
+      ...caseDefects,
+      ...Object.values(stepDefects).flatMap((value) => normalizeStoredReferenceList(value))
+    ])];
+    const revision = currentRevision + 1;
+    await db.prepare(`UPDATE execution_results SET step_defects = ?, defects = ?, revision = ? WHERE id = ?`).run(stepDefects, allDefects, revision, id);
+
+    return {
+      revision,
+      test_case_id: existing.test_case_id,
+      defects: allDefects,
+      step_defects: stepDefects
+    };
+  });
+
+  const result = await transaction();
+  await requirementDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);
+  await testCaseDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);
+  return { updated: true, revision: result.revision, defects: result.defects, step_defects: result.step_defects };
 };
 
 exports.upsertExecutionResult = async (data) => {
@@ -256,11 +338,14 @@ exports.upsertExecutionResult = async (data) => {
 // Delete Result
 exports.deleteExecutionResult = async (id) => {
 
-  await exports.getExecutionResult(id);
+  const existing = await exports.getExecutionResult(id);
 
   await db.prepare(`
     DELETE FROM execution_results WHERE id = ?
   `).run(id);
+
+  await requirementDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id);
+  await testCaseDefectService.syncAutomaticDefectsForTestCase(existing.test_case_id);
 
   return { deleted: true };
 };

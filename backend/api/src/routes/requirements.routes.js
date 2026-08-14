@@ -3,8 +3,81 @@ const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const requirementDesignService = require("../services/requirementDesign.service");
 const batchProcessService = require("../services/batchProcess.service");
+const requirementWorkspaceService = require("../services/requirementWorkspace.service");
+const richTextAiService = require("../services/richTextAi.service");
+const { requirementMetadata } = require("../utils/nativeIssueMetadata");
+const { paginate, shouldPaginate } = require("../utils/pagination");
 
 module.exports = async function (fastify) {
+  fastify.get("/requirements/create-metadata", async (req) => {
+    await fastify.authenticate(req);
+    const project = await projectService.getProject(req.query.project_id, req.user.id);
+    return requirementMetadata({ project });
+  });
+
+  fastify.get("/requirements/:id/edit-metadata", async (req) => {
+    await fastify.authenticate(req);
+    const requirement = await service.getRequirement(req.params.id);
+    const project = await projectService.getProject(requirement.project_id, req.user.id);
+    return requirementMetadata({ project, mode: "edit", currentValues: requirement });
+  });
+
+  fastify.post("/requirements/:id/ai-groom-preview", async (req) => {
+    await fastify.authenticate(req);
+    const requirement = await service.getRequirement(req.params.id);
+    const project = await projectService.getProject(requirement.project_id, req.user.id);
+    if (req.body?.project_id && req.body.project_id !== project.id) throw Object.assign(new Error("Story does not belong to the selected project"), { statusCode: 403 });
+    await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
+    return requirementWorkspaceService.previewGrooming({ requirement, project });
+  });
+
+  fastify.post("/requirements/ai-description-rephrase", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, description: { required: false, type: "string" }, description_html: { required: false, type: "string" }, requirement: { required: false, type: "object" } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
+    const content = String(req.body.description || req.body.description_html || "").trim();
+    if (!content) throw Object.assign(new Error("A Story description is required for AI rephrase"), { statusCode: 400 });
+    const result = await richTextAiService.rephrase({ user: req.user, projectId: req.body.project_id, content: req.body.description || content, contentHtml: req.body.description_html, entityType: "requirement", entityTitle: req.body.requirement?.title, fieldLabel: "Description" });
+    return { integration: result.integration, requirement: { id: req.body.requirement?.id || null, display_id: req.body.requirement?.display_id || null, title: req.body.requirement?.title || null }, description: result.content, provenance: result.provenance };
+  });
+
+  fastify.post("/requirements/export", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, requirement_ids: { required: false, type: "array", items: "string" }, format: { required: false, type: "string", enum: ["csv", "json"] } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.export", { projectId: req.body.project_id })(req);
+    return requirementWorkspaceService.exportRequirements({ projectId: req.body.project_id, requirementIds: req.body.requirement_ids || [], userId: req.user.id, format: req.body.format || "csv" });
+  });
+
+  fastify.post("/requirements/ai-gherkin-preview", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, requirements: { required: true, type: "array" } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
+    return requirementWorkspaceService.previewGherkin(req.body);
+  });
+
+  fastify.post("/requirements/ai-create-jobs", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" } }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
+    return requirementWorkspaceService.createGenerationJob({ input: req.body, userId: req.user.id });
+  });
+
+  fastify.get("/requirements/ai-create-jobs/:jobId", async (req) => {
+    await fastify.authenticate(req);
+    const project = await projectService.getProject(req.query.project_id, req.user.id);
+    return requirementWorkspaceService.getGenerationJob(req.params.jobId, project.id);
+  });
+
+  fastify.get("/requirements/ai-create-jobs", async (req) => {
+    await fastify.authenticate(req);
+    const project = await projectService.getProject(req.query.project_id, req.user.id);
+    return requirementWorkspaceService.listGenerationJobs(project.id, req.query.status, req.query.limit);
+  });
+
   fastify.post("/requirements", async (req) => {
     await fastify.authenticate(req);
     
@@ -125,18 +198,24 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirements", async (req) => {
     await fastify.authenticate(req);
-    const { project_id, status, priority } = req.query;
+    const { project_id, status, priority, sprint_id, unassigned } = req.query;
     
     // If filtering by project, verify access
     if (project_id) {
       await projectService.getProject(project_id, req.user.id);
     }
     
-    return service.getRequirements({
+    const items = await service.getRequirements({
       project_id,
       status,
       priority: priority !== undefined ? Number(priority) : undefined
     });
+    const scoped = sprint_id
+      ? items.filter((item) => String(item.iteration_id || "") === String(sprint_id))
+      : unassigned === "true"
+        ? items.filter((item) => !item.iteration_id)
+        : items;
+    return shouldPaginate(req.query) ? paginate(scoped, req.query) : scoped;
   });
 
   fastify.get("/requirements/:id", async (req) => {
@@ -161,7 +240,8 @@ module.exports = async function (fastify) {
       release: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
       priority: { required: false, type: "number" },
-      status: { required: false, type: "string" }
+      status: { required: false, type: "string" },
+      expected_revision: { required: false, type: "number" }
     }, req.body);
 
     const requirement = await service.getRequirement(req.params.id);

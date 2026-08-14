@@ -54,7 +54,7 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
             <div className="execution-context-summary-title-row">
               <strong>Captured steps</strong>
               <InfoTooltip
-                content="Latest browser actions with the locator QAira will reuse for playback."
+                content="Latest browser actions with the locator HelloTest will reuse for playback."
                 label="Captured steps information"
               />
             </div>

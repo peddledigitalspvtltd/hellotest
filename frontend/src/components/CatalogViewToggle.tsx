@@ -66,6 +66,7 @@ export function CatalogViewToggle({
     <div aria-label="Catalog view mode" className="catalog-view-toggle" data-mobile-grid-only={isMobileGridOnly ? "true" : undefined} role="group">
       <button
         aria-label={t("catalog.view.tile", "Tile view")}
+        aria-pressed={value === "tile"}
         className={value === "tile" ? "catalog-view-button is-active" : "catalog-view-button"}
         onClick={() => onChange("tile")}
         title={t("catalog.view.tile", "Tile view")}
@@ -75,6 +76,7 @@ export function CatalogViewToggle({
       </button>
       <button
         aria-label={t("catalog.view.list", "List view")}
+        aria-pressed={value === "list"}
         className={value === "list" ? "catalog-view-button is-active" : "catalog-view-button"}
         onClick={() => onChange("list")}
         title={t("catalog.view.list", "List view")}

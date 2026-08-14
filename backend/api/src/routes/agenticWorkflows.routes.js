@@ -1,7 +1,34 @@
 const agenticWorkflowService = require("../services/agenticWorkflow.service");
+const agenticAssistantService = require("../services/agenticAssistant.service");
+const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 
 module.exports = async function (fastify) {
+  fastify.post("/agentic-assistant/sessions", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      app_type_id: { required: false, type: "string" },
+      mode: { required: false, type: "string" },
+      agent_id: { required: false, type: "string" },
+      prompt: { required: true, type: "string" },
+      context_scopes: { required: false, type: "array" },
+      integration_id: { required: false, type: "string" },
+      history: { required: false, type: "array" }
+    }, req.body || {});
+
+    await projectService.getProject(req.body.project_id, req.user.id);
+
+    if (req.body.app_type_id) {
+      const appType = await appTypeService.getAppType(req.body.app_type_id);
+      if (appType.project_id !== req.body.project_id) {
+        throw new Error("Selected app type must belong to the current project");
+      }
+    }
+
+    return agenticAssistantService.respond({ ...req.body, user: req.user });
+  });
+
   fastify.get("/agentic-workflows", async (req) => {
     await fastify.authenticate(req);
 

@@ -30,7 +30,9 @@ module.exports = async function (fastify) {
   });
 
   fastify.delete("/projects/:id", async (req) => {
-    await service.getProject(req.params.id);
+    await fastify.authenticate(req);
+    await service.getProject(req.params.id, req.user.id);
+    await fastify.requirePermission("project.delete", { projectId: req.params.id })(req);
     return service.deleteProject(req.params.id);
   });
 

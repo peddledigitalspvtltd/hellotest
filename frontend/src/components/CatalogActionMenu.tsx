@@ -22,11 +22,13 @@ export type CatalogActionMenuItem = {
 export function CatalogActionMenu({
   label,
   actions,
-  className = ""
+  className = "",
+  disabled = false
 }: {
   label: string;
   actions: CatalogActionMenuItem[];
   className?: string;
+  disabled?: boolean;
 }) {
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
@@ -34,6 +36,12 @@ export function CatalogActionMenu({
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (disabled) {
+      setIsOpen(false);
+    }
+  }, [disabled]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -179,6 +187,7 @@ export function CatalogActionMenu({
         aria-haspopup="menu"
         aria-label={label}
         className="step-card-menu-trigger"
+        disabled={disabled}
         onClick={(event) => {
           event.stopPropagation();
           setIsOpen((current) => !current);

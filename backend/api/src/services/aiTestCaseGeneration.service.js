@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const requirementDesignService = require("./requirementDesign.service");
 const testCaseService = require("./testCase.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -290,8 +290,8 @@ async function requeueAiJobAfterCapacityError({ job, jobId, linkedTransaction, e
       level: "warning",
       phase: isAiCapacityError(error) ? "ai-capacity-wait" : "retry-wait",
       message: isAiCapacityError(error)
-        ? `AI token or rate capacity is exhausted. QAira will retry around ${nextRunAt}.`
-        : `Temporary AI generation failure. QAira will retry around ${nextRunAt}.`,
+        ? `AI token or rate capacity is exhausted. HelloTest will retry around ${nextRunAt}.`
+        : `Temporary AI generation failure. HelloTest will retry around ${nextRunAt}.`,
       details: {
         job_id: jobId,
         error: message,

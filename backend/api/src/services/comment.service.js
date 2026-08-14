@@ -1,4 +1,4 @@
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 const { requireEntityPermission } = require("./entityScope.service");
 
@@ -9,7 +9,7 @@ const serialize = (row) => ({
   updated: row.updated_at || null,
   author: {
     id: row.created_by || null,
-    displayName: row.author_name || row.author_email || "QAira user",
+    displayName: row.author_name || row.author_email || "HelloTest user",
     avatarUrls: row.avatar_data_url ? { "32x32": row.avatar_data_url } : {}
   }
 });

@@ -3,8 +3,9 @@ import type { SessionPayload } from "../types";
 const ADMIN_ROLE = "admin";
 export type PageAccessMap = Record<string, string[]>;
 
-// Sessions normally contain the backend-computed permission list. Incomplete
-// legacy payloads fail closed instead of recreating a second role catalog here.
+// A session normally includes the backend-computed permission list. Older or
+// incomplete payloads fail closed to workspace access instead of recreating a
+// second, drift-prone role catalog in the browser.
 const MEMBER_DEFAULT_PERMISSIONS = new Set(["workspace.view"]);
 
 const PATH_PERMISSIONS: PageAccessMap = {
@@ -31,6 +32,7 @@ const PATH_PERMISSIONS: PageAccessMap = {
   "/test-configurations": ["configuration.view"],
   "/test-data": ["data.view"],
   "/knowledge-repo": ["knowledge.view"],
+  "/ai/quality-insights": ["quality_insight.view"],
   "/issues": ["feedback.view"],
   "/feedback": ["feedback.view"],
   "/settings": ["settings.view", "workspace.view"],
@@ -43,7 +45,7 @@ export function hasPermission(session: SessionPayload | null, permission: string
     return false;
   }
 
-  if (session.user.role === ADMIN_ROLE) {
+  if (session.user.role === ADMIN_ROLE || session.user.role_id === "jira-admin") {
     return true;
   }
 

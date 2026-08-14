@@ -7,7 +7,12 @@ export type DetailSectionTab<T extends string> = {
   count?: number;
 };
 
-export function DetailSectionTabs<T extends string>({ activeTab, ariaLabel, items, onChange }: {
+export function DetailSectionTabs<T extends string>({
+  activeTab,
+  ariaLabel,
+  items,
+  onChange
+}: {
   activeTab: T;
   ariaLabel: string;
   items: Array<DetailSectionTab<T>>;

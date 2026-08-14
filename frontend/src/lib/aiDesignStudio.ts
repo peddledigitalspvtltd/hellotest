@@ -5,7 +5,14 @@ export const AI_CONTEXT_PACK_LIMIT = 18_000;
 const REQUIREMENT_CONTEXT_LIMIT = 7_000;
 const KNOWLEDGE_CONTEXT_LIMIT = 6_000;
 const FILE_CONTEXT_LIMIT = 4_000;
-const FILE_CONTEXT_PER_FILE_LIMIT = 1_600;
+const FILE_CONTEXT_PER_FILE_LIMIT = 1_250;
+const FILE_CONTEXT_MAX_FILES = 5;
+const FILE_CONTEXT_MAX_FILE_BYTES = 1_500_000;
+const FILE_CONTEXT_MAX_TOTAL_BYTES = 3_500_000;
+const FILE_CONTEXT_READ_LIMIT = 180_000;
+const REFERENCE_IMAGE_MAX_COUNT = 6;
+const REFERENCE_IMAGE_MAX_TOTAL_CHARS = 950_000;
+const REFERENCE_IMAGE_MAX_FILE_BYTES = 8_000_000;
 const TEXT_CONTEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml", "feature", "log"]);
 
 const trimToBudget = (value: string, limit: number) => {
@@ -13,16 +20,41 @@ const trimToBudget = (value: string, limit: number) => {
     return value;
   }
 
-  return `${value.slice(0, Math.max(0, limit - 120)).trimEnd()}\n[Truncated to keep the AI prompt within QAira context limits.]`;
+  return `${value.slice(0, Math.max(0, limit - 120)).trimEnd()}\n[Truncated to keep the AI prompt within HelloTest context limits.]`;
 };
 
 const compactText = (value: unknown) =>
   String(value ?? "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
+    .replace(/data:[^,\s]+;base64,[A-Za-z0-9+/=]+/g, "[base64 attachment omitted]")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+const compressFileTextForPrompt = (value: string, limit: number) => {
+  const text = compactText(value).slice(0, FILE_CONTEXT_READ_LIMIT);
+
+  if (text.length <= limit) {
+    return text;
+  }
+
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const importantLines = lines
+    .filter((line) => /(shall|must|should|acceptance|criteria|requirement|risk|error|fail|security|permission|role|admin|audit|api|workflow|boundary|edge|constraint|metric|evidence)/i.test(line))
+    .slice(0, 18);
+  const sampled = [
+    text.slice(0, Math.floor(limit * 0.36)),
+    importantLines.length ? `Key story-like lines:\n${importantLines.join("\n")}` : "",
+    text.slice(Math.max(0, text.length - Math.floor(limit * 0.28)))
+  ].filter(Boolean).join("\n...\n");
+
+  return trimToBudget(sampled, limit);
+};
 
 export const buildRequirementContextSection = (requirements: Requirement[]) => {
   if (!requirements.length) {
@@ -31,7 +63,7 @@ export const buildRequirementContextSection = (requirements: Requirement[]) => {
 
   const useDescriptions = requirements.length <= 12;
   const lines = requirements.map((requirement, index) => {
-    const label = requirement.display_id || requirement.id || `REQ-${index + 1}`;
+    const label = requirement.display_id || requirement.id || `STORY-${index + 1}`;
     const title = compactText(requirement.title);
 
     if (!useDescriptions) {
@@ -46,7 +78,7 @@ export const buildRequirementContextSection = (requirements: Requirement[]) => {
   });
 
   return trimToBudget([
-    `Selected requirements (${requirements.length}; ${useDescriptions ? "titles and descriptions" : "titles only to stay within context limits"}):`,
+    `Selected stories (${requirements.length}; ${useDescriptions ? "titles and descriptions" : "titles only to stay within context limits"}):`,
     ...lines
   ].join("\n"), REQUIREMENT_CONTEXT_LIMIT);
 };
@@ -89,15 +121,28 @@ const readFileAsText = (file: File) =>
     reader.readAsText(file);
   });
 
-export const buildFileContextSection = async (files: FileList | null) => {
-  const selectedFiles = Array.from(files || []).slice(0, 5);
+export const buildFileContextSection = async (files: FileList | File[] | null) => {
+  const allFiles = Array.from(files || []);
+  const selectedFiles = allFiles.slice(0, FILE_CONTEXT_MAX_FILES);
 
   if (!selectedFiles.length) {
-    return { section: "", skipped: [] as string[] };
+    return { section: "", skipped: [] as string[], blocked: [] as string[], overLimit: false, included: 0, totalOriginalChars: 0, totalPackedChars: 0 };
   }
 
   const snippets: string[] = [];
   const skipped: string[] = [];
+  const blocked: string[] = [];
+  let totalOriginalChars = 0;
+  let totalPackedChars = 0;
+
+  if (allFiles.length > FILE_CONTEXT_MAX_FILES) {
+    blocked.push(`Select at most ${FILE_CONTEXT_MAX_FILES} context files. Remove ${allFiles.length - FILE_CONTEXT_MAX_FILES} file${allFiles.length - FILE_CONTEXT_MAX_FILES === 1 ? "" : "s"}.`);
+  }
+
+  const selectedBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  if (selectedBytes > FILE_CONTEXT_MAX_TOTAL_BYTES) {
+    blocked.push(`Selected files are ${(selectedBytes / 1_000_000).toFixed(1)} MB before compression; keep the set under ${(FILE_CONTEXT_MAX_TOTAL_BYTES / 1_000_000).toFixed(1)} MB.`);
+  }
 
   for (const file of selectedFiles) {
     const extension = file.name.split(".").pop()?.toLowerCase() || "";
@@ -110,15 +155,33 @@ export const buildFileContextSection = async (files: FileList | null) => {
       continue;
     }
 
-    if (file.size > 1_500_000) {
-      skipped.push(`${file.name} (larger than 1.5 MB)`);
+    if (file.size > FILE_CONTEXT_MAX_FILE_BYTES) {
+      blocked.push(`${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB; remove or split files larger than ${(FILE_CONTEXT_MAX_FILE_BYTES / 1_000_000).toFixed(1)} MB.`);
+      continue;
+    }
+  }
+
+  if (blocked.length) {
+    return { section: "", skipped, blocked, overLimit: true, included: 0, totalOriginalChars, totalPackedChars };
+  }
+
+  for (const file of selectedFiles) {
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    const isTextLike = file.type.startsWith("text/")
+      || ["application/json", "application/xml", "application/x-yaml"].includes(file.type)
+      || TEXT_CONTEXT_EXTENSIONS.has(extension);
+
+    if (!isTextLike) {
       continue;
     }
 
     try {
-      const text = trimToBudget(compactText(await readFileAsText(file)), FILE_CONTEXT_PER_FILE_LIMIT);
+      const originalText = await readFileAsText(file);
+      totalOriginalChars += originalText.length;
+      const text = compressFileTextForPrompt(originalText, FILE_CONTEXT_PER_FILE_LIMIT);
+      totalPackedChars += text.length;
       if (text) {
-        snippets.push(`File: ${file.name}\n${text}`);
+        snippets.push(`File: ${file.name} (${file.size.toLocaleString()} bytes compressed for prompt)\n${text}`);
       }
     } catch {
       skipped.push(`${file.name} (could not be read)`);
@@ -127,7 +190,12 @@ export const buildFileContextSection = async (files: FileList | null) => {
 
   return {
     section: snippets.length ? trimToBudget(["Attached file context:", ...snippets].join("\n\n"), FILE_CONTEXT_LIMIT) : "",
-    skipped
+    skipped,
+    blocked,
+    overLimit: false,
+    included: snippets.length,
+    totalOriginalChars,
+    totalPackedChars
   };
 };
 
@@ -147,6 +215,15 @@ export const parseExternalLinks = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+
 const loadImage = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -156,8 +233,8 @@ const loadImage = (url: string) =>
     image.src = url;
   });
 
-const compressImageUrl = async (sourceUrl: string, maxEdge = 960, quality = 0.52) => {
-  const image = await loadImage(sourceUrl);
+const compressImageDataUrl = async (dataUrl: string, maxEdge = 520, quality = 0.28) => {
+  const image = await loadImage(dataUrl);
   const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height, 1));
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
   const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
@@ -165,99 +242,29 @@ const compressImageUrl = async (sourceUrl: string, maxEdge = 960, quality = 0.52
   const context = canvas.getContext("2d");
 
   if (!context) {
-    throw new Error("This browser cannot compress the selected image for AI.");
+    return dataUrl;
   }
 
   canvas.width = width;
   canvas.height = height;
   context.drawImage(image, 0, 0, width, height);
-  const webp = canvas.toDataURL("image/webp", quality);
-  return webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", quality);
-};
-
-const loadVideo = (url: string) => new Promise<HTMLVideoElement>((resolve, reject) => {
-  const video = document.createElement("video");
-  video.muted = true;
-  video.preload = "auto";
-  video.onloadeddata = () => resolve(video);
-  video.onerror = () => reject(new Error("Unable to read video metadata."));
-  video.src = url;
-});
-
-const seekVideo = (video: HTMLVideoElement, time: number) => new Promise<void>((resolve, reject) => {
-  const targetTime = Math.max(0, Math.min(time, Math.max(0, video.duration - 0.05)));
-  if (Math.abs(video.currentTime - targetTime) < 0.01 && video.readyState >= 2) {
-    resolve();
-    return;
-  }
-  const timeout = window.setTimeout(() => reject(new Error("Video frame extraction timed out.")), 6000);
-  video.onseeked = () => {
-    window.clearTimeout(timeout);
-    resolve();
-  };
-  video.onerror = () => {
-    window.clearTimeout(timeout);
-    reject(new Error("Unable to extract a video frame."));
-  };
-  video.currentTime = targetTime;
-});
-
-const compressVideoFrames = async (file: File) => {
-  if (file.size > 100 * 1024 * 1024) {
-    throw new Error(`${file.name} is larger than the 100 MB local processing limit.`);
-  }
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const video = await loadVideo(objectUrl);
-    const duration = Number.isFinite(video.duration) ? video.duration : 0;
-    const frameTimes = duration > 1 ? [0, duration * 0.5, duration * 0.9] : [0];
-    const scale = Math.min(1, 960 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-
-    if (!context) throw new Error("This browser cannot prepare video frames for AI.");
-
-    canvas.width = Math.max(1, Math.round((video.videoWidth || 1) * scale));
-    canvas.height = Math.max(1, Math.round((video.videoHeight || 1) * scale));
-    const frames: AiDesignImageInput[] = [];
-
-    for (const [index, time] of frameTimes.entries()) {
-      await seekVideo(video, time);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const webp = canvas.toDataURL("image/webp", 0.48);
-      const url = webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", 0.48);
-      frames.push({ name: `${file.name} · frame ${index + 1}/${frameTimes.length}`, url });
-    }
-
-    return frames;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+  return canvas.toDataURL("image/jpeg", quality);
 };
 
 export const readImageFiles = async (files: FileList | null) => {
-  const collection = Array.from(files || []).slice(0, 6);
-  const prepared: AiDesignImageInput[] = [];
-
-  for (const file of collection) {
-    if (file.type.startsWith("video/")) {
-      prepared.push(...await compressVideoFrames(file));
-      continue;
-    }
-
-    if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not a supported image or video.`);
-    if (file.size > 24 * 1024 * 1024) throw new Error(`${file.name} is larger than the 24 MB local image processing limit.`);
-
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      prepared.push({ name: file.name, url: await compressImageUrl(objectUrl) });
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
+  const collection = Array.from(files || []);
+  const oversized = collection.find((file) => file.size > REFERENCE_IMAGE_MAX_FILE_BYTES);
+  if (oversized) {
+    throw new Error(`${oversized.name} is too large for AI context. Remove it or upload a smaller screenshot.`);
   }
+  const images = await Promise.all(
+    collection.map(async (file) => ({
+      name: file.name,
+      url: await compressImageDataUrl(await readFileAsDataUrl(file))
+    }))
+  );
 
-  return prepared.filter((image) => image.url).slice(0, 12);
+  return images.filter((image) => image.url) as AiDesignImageInput[];
 };
 
 export const appendUniqueImages = (current: AiDesignImageInput[], incoming: AiDesignImageInput[]) => {
@@ -268,6 +275,27 @@ export const appendUniqueImages = (current: AiDesignImageInput[], incoming: AiDe
   });
 
   return Array.from(byUrl.values());
+};
+
+export const mergeAiReferenceImagesWithinBudget = (current: AiDesignImageInput[], incoming: AiDesignImageInput[]) => {
+  const images = appendUniqueImages(current, incoming);
+  const totalChars = images.reduce((sum, image) => sum + image.url.length, 0);
+
+  if (images.length > REFERENCE_IMAGE_MAX_COUNT) {
+    return {
+      images: current,
+      message: `AI reference images are limited to ${REFERENCE_IMAGE_MAX_COUNT}. Remove older screenshots before adding more.`
+    };
+  }
+
+  if (totalChars > REFERENCE_IMAGE_MAX_TOTAL_CHARS) {
+    return {
+      images: current,
+      message: "The compressed screenshots still exceed the AI context budget. Remove one or more images, or crop them to the important area."
+    };
+  }
+
+  return { images, message: "" };
 };
 
 export const toggleRequirementOnPreviewCase = (

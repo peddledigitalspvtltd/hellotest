@@ -1,6 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useAuth } from "../auth/AuthContext";
-import { api } from "../lib/api";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import {
   DEFAULT_LOCALIZATION_STRINGS,
   LOCALIZATION_STORAGE_KEY,
@@ -30,47 +28,19 @@ const readCachedStrings = () => {
 };
 
 export function LocalizationProvider({ children }: { children: ReactNode }) {
-  const { session } = useAuth();
   const [strings, setStrings] = useState<LocalizationStrings>(() => readCachedStrings());
 
-  useEffect(() => {
-    if (!session) {
-      setStrings(readCachedStrings());
-      return;
-    }
-
-    let isCancelled = false;
-
-    void api.settings.getLocalization()
-      .then((response) => {
-        if (isCancelled) {
-          return;
-        }
-
-        const nextStrings = mergeLocalizationStrings(response.strings);
-        setStrings(nextStrings);
-        window.localStorage.setItem(LOCALIZATION_STORAGE_KEY, JSON.stringify(nextStrings));
-      })
-      .catch(() => {
-        if (!isCancelled) {
-          setStrings(readCachedStrings());
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [session]);
+  const setWorkspaceStrings = useCallback((nextStrings: LocalizationStrings) => {
+    const merged = mergeLocalizationStrings(nextStrings);
+    setStrings(merged);
+    window.localStorage.setItem(LOCALIZATION_STORAGE_KEY, JSON.stringify(merged));
+  }, []);
 
   const value = useMemo<LocalizationContextValue>(() => ({
     strings,
     t: (key, fallback) => strings[key] || fallback || key,
-    setWorkspaceStrings: (nextStrings) => {
-      const merged = mergeLocalizationStrings(nextStrings);
-      setStrings(merged);
-      window.localStorage.setItem(LOCALIZATION_STORAGE_KEY, JSON.stringify(merged));
-    }
-  }), [strings]);
+    setWorkspaceStrings
+  }), [setWorkspaceStrings, strings]);
 
   return (
     <LocalizationContext.Provider value={value}>

@@ -1,4 +1,4 @@
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 
 const isMissingKnowledgeRepo = (error) =>

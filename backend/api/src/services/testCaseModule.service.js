@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
@@ -70,6 +70,28 @@ const hydrateModule = async (module) => {
   };
 };
 
+const parseTestCaseIds = (value) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const hydrateModuleListRow = (module) => ({
+  ...module,
+  test_case_ids: parseTestCaseIds(module.test_case_ids)
+});
+
 const ensureAppTypeExists = async (appTypeId) => {
   const resolvedAppTypeId = normalizeText(appTypeId);
 
@@ -102,7 +124,14 @@ const ensureCasesMatchAppType = async (caseIds, appTypeId) => {
 
 exports.listModules = async ({ app_type_id } = {}) => {
   let query = `
-    SELECT test_case_modules.*, COUNT(test_case_module_cases.test_case_id)::INTEGER AS test_case_count
+    SELECT
+      test_case_modules.*,
+      COUNT(test_case_module_cases.test_case_id)::INTEGER AS test_case_count,
+      COALESCE(
+        jsonb_agg(test_case_module_cases.test_case_id ORDER BY test_case_module_cases.sort_order ASC)
+          FILTER (WHERE test_case_module_cases.test_case_id IS NOT NULL),
+        '[]'::jsonb
+      ) AS test_case_ids
     FROM test_case_modules
     LEFT JOIN test_case_module_cases ON test_case_module_cases.module_id = test_case_modules.id
     WHERE 1 = 1
@@ -120,7 +149,7 @@ exports.listModules = async ({ app_type_id } = {}) => {
   `;
 
   const rows = await db.prepare(query).all(...params);
-  return Promise.all(rows.map((row) => hydrateModule(row)));
+  return rows.map(hydrateModuleListRow);
 };
 
 exports.getModule = async (id) => {

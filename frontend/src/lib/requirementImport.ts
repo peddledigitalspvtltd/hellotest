@@ -8,6 +8,9 @@ export type ImportedRequirementRow = {
   sprint?: string;
   fix_version?: string;
   release?: string;
+  iteration_id?: string;
+  linked_test_cases?: string;
+  linked_bugs?: string;
   priority?: number;
   status?: string;
 };
@@ -19,13 +22,16 @@ type ParsedCsv = {
 };
 
 const HEADER_ALIASES: Record<keyof ImportedRequirementRow, string[]> = {
-  title: ["title", "requirement", "requirementtitle", "name", "summary"],
+  title: ["title", "story", "storytitle", "requirement", "requirementtitle", "name", "summary"],
   description: ["description", "details", "notes", "acceptancecriteria", "story"],
   external_references: ["externalreferences", "externalreference", "references", "reference", "externallinks", "externaltickets", "ticketlinks", "tickets", "jira", "issue", "issues"],
   labels: ["labels", "label", "tags", "tag"],
   sprint: ["sprint", "iteration"],
   fix_version: ["fixversion", "fixversions", "targetversion", "version"],
   release: ["release", "releaseversion", "targetrelease"],
+  iteration_id: ["iterationid", "requirementiteration", "iterationname"],
+  linked_test_cases: ["linkedtestcases", "testcaseids", "testcases", "linkedtests"],
+  linked_bugs: ["linkedbugs", "bugids", "bugs", "defects"],
   priority: ["priority", "severity"],
   status: ["status", "state"]
 };
@@ -59,7 +65,7 @@ export function parseRequirementCsv(text: string): ParsedCsv {
   const warnings: string[] = [];
 
   if (!headerMap.includes("title")) {
-    warnings.push("A title column is required. Supported aliases include Title, Requirement, or Summary.");
+    warnings.push("A title column is required. Supported aliases include Title, Story, or Summary.");
   }
 
   const normalizedRows = rows
@@ -94,7 +100,7 @@ export function parseRequirementCsv(text: string): ParsedCsv {
     .filter((row): row is ImportedRequirementRow => Boolean(row.title?.trim()));
 
   if (!normalizedRows.length && rows.length) {
-    warnings.push("No valid rows were found. Every imported row must include a requirement title.");
+    warnings.push("No valid rows were found. Every imported row must include a story title.");
   }
 
   return {

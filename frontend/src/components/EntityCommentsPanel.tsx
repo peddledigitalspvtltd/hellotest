@@ -60,7 +60,7 @@ export function EntityCommentsPanel({ projectId, entityType, entityId, canView, 
       {comments.error ? <div className="inline-error">{comments.error instanceof Error ? comments.error.message : "Unable to load comments."}</div> : null}
       <div className="entity-comment-list">
         {(comments.data || []).map((comment) => {
-          const author = comment.author?.displayName || "QAira user";
+          const author = comment.author?.displayName || "HelloTest user";
           const avatar = comment.author?.avatarUrls?.["32x32"];
           return (
             <article className="entity-comment-card" key={comment.id}>

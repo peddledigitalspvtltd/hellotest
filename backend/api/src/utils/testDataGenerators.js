@@ -86,7 +86,7 @@ const generateAiData = (option, now) => {
   }
 
   if (prompt.includes("address")) {
-    return `${randomFromAlphabet(3, "123456789")} QAira Test Street`;
+    return `${randomFromAlphabet(3, "123456789")} HelloTest Test Street`;
   }
 
   return `ai-${suffix}`;

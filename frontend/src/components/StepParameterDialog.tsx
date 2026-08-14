@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { DialogCloseButton } from "./DialogCloseButton";
 import { FormField } from "./FormField";
+import { TestDataIcon } from "./AppIcons";
 import type { StepParameterDefinition } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 
@@ -60,6 +63,7 @@ export function StepParameterDialog({
   headerContent?: ReactNode;
   getInputState?: (parameter: StepParameterDefinition) => StepParameterDialogInputState;
 }) {
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     t: true,
     s: true,
@@ -185,22 +189,25 @@ export function StepParameterDialog({
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
-        aria-label={title}
+        aria-labelledby="step-parameter-dialog-title"
         aria-modal="true"
         className="modal-card suite-create-modal step-parameter-dialog"
         onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="suite-create-header step-parameter-dialog-header">
           <div className="suite-create-title">
-            <p className="eyebrow">{title}</p>
+            <div className="step-parameter-dialog-title-row">
+              <TestDataIcon size={18} />
+              <h2 className="dialog-title" id="step-parameter-dialog-title">{title}</h2>
+            </div>
             {subtitle ? <span>{subtitle}</span> : null}
           </div>
           <div className="step-parameter-dialog-head-meta">
             <span className="count-pill">{parameterCount} field{parameterCount === 1 ? "" : "s"}</span>
-            <button className="ghost-button" onClick={onClose} type="button">
-              Close
-            </button>
+            <DialogCloseButton label={`Close ${title}`} onClick={onClose} />
           </div>
         </div>
 
@@ -208,7 +215,7 @@ export function StepParameterDialog({
           {headerContent ? <div className="step-parameter-dialog-header-slot">{headerContent}</div> : null}
           {parameters.length ? (
             <div className="step-parameter-list">
-              {groupedParameters.map((group) => (
+              {groupedParameters.map((group, groupIndex) => (
                 <section className="step-parameter-group" key={group.scope}>
                   <div
                     className="step-parameter-group-head"
@@ -225,6 +232,7 @@ export function StepParameterDialog({
                     <button
                       aria-expanded={!collapsedGroups[group.scope]}
                       className="step-parameter-group-toggle"
+                      data-autofocus={groupIndex === 0 ? "true" : undefined}
                       onClick={(event) => {
                         event.stopPropagation();
                         toggleParameterGroup(group.scope);

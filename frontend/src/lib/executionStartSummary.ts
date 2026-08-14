@@ -28,7 +28,7 @@ export function summarizeExecutionStart(
   }
 
   if (manualCaseCount > 0) {
-    parts.push(`${formatCount(manualCaseCount, "manual case")} ready in QAira`);
+    parts.push(`${formatCount(manualCaseCount, "manual case")} ready in HelloTest`);
   }
 
   if (unsupportedAutomatedCaseCount > 0) {

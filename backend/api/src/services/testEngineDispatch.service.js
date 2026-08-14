@@ -1,6 +1,6 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const executionResultService = require("./executionResult.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const apiRequestExecutionService = require("./apiRequestExecution.service");
@@ -1586,7 +1586,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
 
   const engineHost = normalizeEngineHostUrl(engineBaseUrl || integration?.base_url);
   if (!engineHost) {
-    throw new Error("Local run requires a local Test Engine URL. Start QAira local-run or the local runner service first.");
+    throw new Error("Local run requires a local Test Engine URL. Start HelloTest local-run or the local runner service first.");
   }
 
   const activeWebEngine = "playwright";

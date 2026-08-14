@@ -16,21 +16,28 @@ import {
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
-import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DataTable, type DataTableColumn, type DataTableRowGroup } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
+import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { TileCardStatusIndicator } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { asArray } from "../lib/collectionGuards";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { buildBrowserUrl } from "../lib/integrationUrls";
+import { hasPermission } from "../lib/permissions";
+import { isRovoIntegrationId } from "../lib/rovo";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type { Integration } from "../types";
+import "./IntegrationsPage.rovo.css";
 
 type IntegrationDraft = {
   type: Integration["type"];
@@ -122,7 +129,7 @@ type IntegrationTypeDefinition = {
   defaults?: Record<string, unknown>;
 };
 
-type IntegrationCategoryKey = "ai" | "alm" | "notification" | "sso" | "backup" | "repository" | "testgrid" | "ops";
+type IntegrationCategoryKey = "ai" | "notification" | "sso" | "backup" | "repository" | "testgrid" | "ops";
 type IntegrationTypeFilter = "all" | IntegrationCategoryKey;
 
 const DEFAULT_INTEGRATION_TYPE: Integration["type"] = "llm";
@@ -135,8 +142,7 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
   description: string;
   defaultProvider: Integration["type"];
 }> = [
-  { value: "ai", label: "AI Providers", description: "LLM and model providers used by QAira AI flows.", defaultProvider: "llm" },
-  { value: "alm", label: "ALM", description: "Application lifecycle and issue management providers.", defaultProvider: "jira" },
+  { value: "ai", label: "AI Providers", description: "Direct LLM providers and Jira-native Rovo agent access used by HelloTest AI flows.", defaultProvider: "llm" },
   { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
   { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },
   { value: "sso", label: "SSO", description: "Single sign-on identity providers.", defaultProvider: "google_auth" },
@@ -147,8 +153,6 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
 
 function getIntegrationCategoryKey(type: Integration["type"]): IntegrationCategoryKey {
   switch (type) {
-    case "jira":
-      return "alm";
     case "testengine":
     case "cloudrun":
     case "local-desktop":
@@ -309,19 +313,6 @@ function IntegrationBadgeSvg({
   );
 }
 
-function JiraIntegrationIcon() {
-  return (
-    <IntegrationBadgeSvg>
-      <rect height="6" rx="1.4" width="6" x="4" y="4" />
-      <rect height="6" rx="1.4" width="6" x="14" y="4" />
-      <rect height="6" rx="1.4" width="6" x="9" y="14" />
-      <path d="M10 7h4" />
-      <path d="M7 10v4" />
-      <path d="M17 10v4" />
-    </IntegrationBadgeSvg>
-  );
-}
-
 function TestEngineIntegrationIcon() {
   return (
     <IntegrationBadgeSvg>
@@ -356,8 +347,6 @@ function getIntegrationBadgeIcon(type: Integration["type"]) {
   switch (type) {
     case "llm":
       return <SparkIcon size={18} />;
-    case "jira":
-      return <JiraIntegrationIcon />;
     case "email":
       return <MailIcon size={18} />;
     case "google_auth":
@@ -732,7 +721,7 @@ function getDraftFromIntegration(
   }, definitions);
 }
 
-function buildIntegrationConfig(draft: IntegrationDraft, definitions: IntegrationTypeDefinition[]): Record<string, unknown> {
+function buildIntegrationConfig(draft: IntegrationDraft, definitions: IntegrationTypeDefinition[], includeMobileAppium = false): Record<string, unknown> {
   const emailDefaults = getIntegrationTypeDefinition("email", definitions)?.defaults || {};
 
   if (draft.type === "email") {
@@ -800,16 +789,18 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       queue_poll_interval_minutes: Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5,
       max_api_workers: Number.parseInt(draft.engine_max_api_workers, 10) || 10,
       max_web_workers: Number.parseInt(draft.engine_max_web_workers, 10) || 5,
-      max_android_workers: Number.parseInt(draft.engine_max_android_workers, 10) || 2,
       live_view_url: draft.engine_live_view_url.trim() || null,
-      mobile_engine_url: draft.engine_mobile_engine_url.trim() || null,
-      mobile_cloud_provider: draft.engine_mobile_cloud_provider,
-      mobile_remote_url: draft.engine_mobile_remote_url.trim() || null,
-      mobile_username: draft.engine_mobile_username.trim() || null,
-      mobile_access_key: isMaskedSecretValue(draft.engine_mobile_access_key) ? undefined : draft.engine_mobile_access_key.trim() || null,
-      device_name: draft.engine_mobile_device_name.trim() || null,
-      platform_version: draft.engine_mobile_platform_version.trim() || null,
-      android_app: draft.engine_android_app.trim() || null,
+      ...(includeMobileAppium ? {
+        max_android_workers: Number.parseInt(draft.engine_max_android_workers, 10) || 2,
+        mobile_engine_url: draft.engine_mobile_engine_url.trim() || null,
+        mobile_cloud_provider: draft.engine_mobile_cloud_provider,
+        mobile_remote_url: draft.engine_mobile_remote_url.trim() || null,
+        mobile_username: draft.engine_mobile_username.trim() || null,
+        mobile_access_key: isMaskedSecretValue(draft.engine_mobile_access_key) ? undefined : draft.engine_mobile_access_key.trim() || null,
+        device_name: draft.engine_mobile_device_name.trim() || null,
+        platform_version: draft.engine_mobile_platform_version.trim() || null,
+        android_app: draft.engine_android_app.trim() || null
+      } : {}),
       promote_healed_patches: "review"
     };
   }
@@ -821,8 +812,10 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       remote_url: draft.cloud_run_remote_url.trim() || draft.base_url.trim() || null,
       browser: draft.cloud_run_browser.trim() || "Chrome",
       os: draft.cloud_run_os.trim() || "Windows",
-      device_name: draft.cloud_run_device_name.trim() || null,
-      platform_version: draft.cloud_run_platform_version.trim() || null,
+      ...(includeMobileAppium ? {
+        device_name: draft.cloud_run_device_name.trim() || null,
+        platform_version: draft.cloud_run_platform_version.trim() || null
+      } : {}),
       build_name: draft.cloud_run_build_name.trim() || null,
       session_name: draft.cloud_run_session_name.trim() || null,
       provider_options: {}
@@ -849,20 +842,20 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
   return {};
 }
 
-function getIntegrationSummary(integration: Integration, definitions: IntegrationTypeDefinition[]) {
+function getIntegrationSummary(integration: Integration, definitions: IntegrationTypeDefinition[], includeMobileAppium = false) {
   const config: Record<string, unknown> = integration.config || {};
   const emailDefaults = getIntegrationTypeDefinition("email", definitions)?.defaults || {};
+
+  if (isRovoIntegrationId(integration.id)) {
+    return {
+      primary: "Jira-native QA Agent conversation",
+      secondary: "Availability is checked in Jira · not a direct model call"
+    };
+  }
 
   if (integration.type === "llm") {
     return {
       primary: integration.model || "Model not set",
-      secondary: integration.base_url || "No base URL configured"
-    };
-  }
-
-  if (integration.type === "jira") {
-    return {
-      primary: integration.project_key || "Project key not set",
       secondary: integration.base_url || "No base URL configured"
     };
   }
@@ -914,7 +907,7 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
 
     return {
       primary: integration.base_url || "Engine host not set",
-      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · caps API ${apiWorkers}/Web ${webWorkers}/Android ${androidWorkers} · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${qairaApiBaseUrl ? ` · QAira API ${qairaApiBaseUrl}` : ""}`
+      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · caps API ${apiWorkers}/Web ${webWorkers}${includeMobileAppium ? `/Android ${androidWorkers}` : ""} · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${qairaApiBaseUrl ? ` · HelloTest API ${qairaApiBaseUrl}` : ""}`
     };
   }
 
@@ -926,7 +919,7 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
 
     return {
       primary: integration.base_url || (typeof config.remote_url === "string" ? config.remote_url : "Remote hub not set"),
-      secondary: `${provider} · ${deviceName ? `${deviceName} · ` : ""}${browser} on ${os}`
+      secondary: `${provider} · ${includeMobileAppium && deviceName ? `${deviceName} · ` : ""}${browser} on ${os}`
     };
   }
 
@@ -945,19 +938,31 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
 
 function IntegrationReadOnlyDetails({
   integration,
-  definitions
+  definitions,
+  includeMobileAppium
 }: {
   integration: Integration;
   definitions: IntegrationTypeDefinition[];
+  includeMobileAppium: boolean;
 }) {
-  const summary = getIntegrationSummary(integration, definitions);
-  const configEntries = Object.entries(integration.config || {}).filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const summary = getIntegrationSummary(integration, definitions, includeMobileAppium);
+  const isRovo = isRovoIntegrationId(integration.id);
+  const mobileConfigKeys = new Set(['android_app', 'device_name', 'platform_version', 'max_android_workers']);
+  const configEntries = Object.entries(integration.config || {}).filter(([key, value]) =>
+    value !== null && value !== undefined && value !== ""
+    && (includeMobileAppium || (!key.startsWith('mobile_') && !mobileConfigKeys.has(key)))
+  );
 
   return (
     <div className="detail-stack">
       <div className="empty-state compact integration-helper">
-        Members can use this active integration from QAira workflows. Secrets are masked and connection changes stay with admins.
+        {isRovo
+          ? "This is HelloTest's built-in Jira-native Rovo entry point. Availability is user/site specific, and it is not editable, deletable, credential-tested, or invoked as a direct Forge LLM model."
+          : "Members can use this active integration from HelloTest workflows. Secrets are masked and connection changes stay with admins."}
       </div>
+      {isRovo ? (
+        <RovoProviderStatus prompt="Help me review how the Jira-native HelloTest QA Agent can support this project's quality-engineering workflow. Do not change Jira records." />
+      ) : null}
       <div className="integration-readable-grid">
         <article className="integration-readable-card">
           <span className="integration-readable-label">Name</span>
@@ -993,13 +998,16 @@ function IntegrationReadOnlyDetails({
 export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const integrationTypeDefinitions = useMemo(
-    () => (domainMetadataQuery.data?.integrations.types || []) as IntegrationTypeDefinition[],
+    () => ((domainMetadataQuery.data?.integrations?.types || []) as IntegrationTypeDefinition[]).filter((definition) => definition.value !== "jira"),
     [domainMetadataQuery.data]
   );
-  const defaultIntegrationType = (domainMetadataQuery.data?.integrations.default_type || DEFAULT_INTEGRATION_TYPE) as Integration["type"];
+  const defaultIntegrationType = (domainMetadataQuery.data?.integrations?.default_type || DEFAULT_INTEGRATION_TYPE) as Integration["type"];
   const emptyDraft = useMemo(
     () => buildEmptyDraft(integrationTypeDefinitions, defaultIntegrationType),
     [defaultIntegrationType, integrationTypeDefinitions]
@@ -1036,8 +1044,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   });
   const deleteIntegration = useMutation({ mutationFn: api.integrations.delete });
 
-  const integrations = integrationsQuery.data || [];
-  const projects = projectsQuery.data || [];
+  const integrations = asArray(integrationsQuery.data);
+  const projects = asArray(projectsQuery.data);
   const isIntegrationCatalogLoading = integrationsQuery.isLoading;
   const integrationTypeOptions = INTEGRATION_CATEGORY_DEFINITIONS;
   const searchFilteredIntegrations = useMemo(() => {
@@ -1048,7 +1056,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     }
 
     return integrations.filter((integration) => {
-      const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+      const summary = getIntegrationSummary(integration, integrationTypeDefinitions, canUseMobileAppium);
 
       return [
         integration.id,
@@ -1069,7 +1077,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         .toLowerCase()
         .includes(normalizedSearch);
     });
-  }, [integrationSearch, integrationTypeDefinitions, integrations]);
+  }, [canUseMobileAppium, integrationSearch, integrationTypeDefinitions, integrations]);
   const integrationTypeSections = useMemo(
     () =>
       integrationTypeOptions.map((definition) => {
@@ -1078,7 +1086,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
         return {
           ...definition,
-          activeCount: allTypeIntegrations.filter((integration) => integration.is_active).length,
+          activeCount: allTypeIntegrations.filter((integration) => integration.is_active && !isRovoIntegrationId(integration.id)).length,
           items,
           totalCount: allTypeIntegrations.length
         };
@@ -1099,7 +1107,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         : searchFilteredIntegrations.filter((integration) => getIntegrationCategoryKey(integration.type) === selectedIntegrationTypeFilter),
     [searchFilteredIntegrations, selectedIntegrationTypeFilter]
   );
-  const visibleIntegrationIds = useMemo(() => filteredIntegrations.map((integration) => integration.id), [filteredIntegrations]);
+  const visibleIntegrationIds = useMemo(
+    () => filteredIntegrations.filter((integration) => !isRovoIntegrationId(integration.id)).map((integration) => integration.id),
+    [filteredIntegrations]
+  );
   const areAllFilteredIntegrationsSelected = visibleIntegrationIds.length > 0 && visibleIntegrationIds.every((id) => selectedActionIntegrationIds.includes(id));
   const integrationListColumns = useMemo<Array<DataTableColumn<Integration>>>(() => [
     {
@@ -1110,7 +1121,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       minWidth: 180,
       sortValue: (integration) => integration.name,
       render: (integration) => {
-        const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+        const summary = getIntegrationSummary(integration, integrationTypeDefinitions, canUseMobileAppium);
 
         return (
           <div className="data-table-multiline">
@@ -1126,32 +1137,66 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       width: 170,
       minWidth: 128,
       sortValue: (integration) => getIntegrationTypeLabel(integration.type, integrationTypeDefinitions),
-      render: (integration) => getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)
+      render: (integration) => isRovoIntegrationId(integration.id)
+        ? "Jira-native agent"
+        : getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)
     },
     {
       key: "status",
       label: "Status",
       width: 120,
       minWidth: 96,
-      sortValue: (integration) => integration.is_active ? "active" : "inactive",
-      render: (integration) => <StatusBadge value={integration.is_active ? "active" : "inactive"} />
+      sortValue: (integration) => isRovoIntegrationId(integration.id) ? "built-in" : integration.is_active ? "active" : "inactive",
+      render: (integration) => isRovoIntegrationId(integration.id)
+        ? <span className="count-pill">Built-in</span>
+        : <StatusBadge value={integration.is_active ? "active" : "inactive"} />
     },
     {
       key: "details",
       label: "Details",
       width: 260,
       minWidth: 160,
-      render: (integration) => getIntegrationSummary(integration, integrationTypeDefinitions).secondary
+      render: (integration) => getIntegrationSummary(integration, integrationTypeDefinitions, canUseMobileAppium).secondary
     }
-  ], [integrationTypeDefinitions]);
+  ], [canUseMobileAppium, integrationTypeDefinitions]);
+  const renderIntegrationTypeSectionHeader = (section: typeof visibleIntegrationSections[number]) => (
+    <div className="integration-type-section-header-stack">
+      <div className="integration-type-section-header">
+        <span className="integration-type-section-icon">{getIntegrationBadgeIcon(section.defaultProvider)}</span>
+        <div>
+          <strong>{section.label}</strong>
+          <span>{section.description || "Configured external system profiles for this integration type."}</span>
+        </div>
+        <div className="integration-type-section-meta">
+          <span className="count-pill">{section.items.length} shown</span>
+          <span className="count-pill">{section.totalCount} total</span>
+          <span className="count-pill">{section.activeCount} {section.value === "ai" ? "direct active" : "active"}</span>
+        </div>
+      </div>
+      {section.value === "ai" ? (
+        <RovoProviderStatus
+          compact
+          prompt="Help me review HelloTest's Jira-native Rovo QA Agent availability and where a conversational review is useful alongside direct AI generation. Do not change Jira records."
+        />
+      ) : null}
+    </div>
+  );
+  const integrationListRowGroups: Array<DataTableRowGroup<Integration>> = visibleIntegrationSections.map((section) => ({
+    content: section.items.length ? undefined : (
+      <div className="empty-state compact">No {section.label} integrations match the current search.</div>
+    ),
+    header: renderIntegrationTypeSectionHeader(section),
+    key: section.value,
+    rows: section.items
+  }));
   const selectedIntegration = useMemo(
     () => integrations.find((item) => item.id === selectedIntegrationId) || null,
     [integrations, selectedIntegrationId]
   );
-  const activeIntegrationCount = integrations.filter((item) => item.is_active).length;
+  const activeIntegrationCount = integrations.filter((item) => item.is_active && !isRovoIntegrationId(item.id)).length;
+  const isSelectedIntegrationRovo = isRovoIntegrationId(selectedIntegration?.id);
   const isAdmin = session?.user.role === "admin";
   const isLlm = draft.type === "llm";
-  const isJira = draft.type === "jira";
   const isEmail = draft.type === "email";
   const isGoogle = draft.type === "google_auth";
   const isGoogleDrive = draft.type === "google_drive";
@@ -1289,6 +1334,11 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!isCreating && isSelectedIntegrationRovo) {
+      showError(new Error("The built-in Rovo QA Agent entry is managed by the Jira app and cannot be edited."), "Unable to save integration");
+      return;
+    }
+
     try {
       const resolvedApiKey = isCloudRun ? draft.cloud_run_access_key : draft.api_key;
       const resolvedBaseUrl = isCloudRun ? draft.cloud_run_remote_url || draft.base_url : draft.base_url;
@@ -1301,7 +1351,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         model: draft.model.trim() || undefined,
         project_key: draft.project_key.trim() || undefined,
         username: resolvedUsername.trim() || undefined,
-        config: buildIntegrationConfig(draft, integrationTypeDefinitions),
+        config: buildIntegrationConfig(draft, integrationTypeDefinitions, canUseMobileAppium),
         is_active: draft.is_active
       };
 
@@ -1327,6 +1377,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   };
 
   const handleDelete = async () => {
+    if (isSelectedIntegrationRovo) {
+      showError(new Error("The built-in Rovo QA Agent entry cannot be deleted."), "Unable to delete integration");
+      return;
+    }
     if (!selectedIntegration || !(await confirmDelete({ message: `Delete integration "${selectedIntegration.name}"?` }))) {
       return;
     }
@@ -1384,9 +1438,18 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         throw new Error("Import file must contain an integrations array");
       }
 
-      const result = await importIntegrations.mutateAsync({ integrations: integrationsToImport });
+      const importableIntegrations = integrationsToImport.filter((integration) => !isRovoIntegrationId(integration.id));
+      const skippedBuiltInCount = integrationsToImport.length - importableIntegrations.length;
+      if (!importableIntegrations.length) {
+        showSuccess(skippedBuiltInCount
+          ? "Skipped the built-in Rovo QA Agent entry; Jira app provisioning owns it. No integrations were imported."
+          : "No integrations were available to import.");
+        return;
+      }
+      const result = await importIntegrations.mutateAsync({ integrations: importableIntegrations });
       const failureCopy = result.failed ? ` ${result.failed} failed.` : "";
-      showSuccess(`Integrations imported in TestOps${result.transaction_id ? ` (${result.transaction_id.slice(0, 8)})` : ""}: ${result.imported} new, ${result.updated} updated.${failureCopy}`);
+      const skippedCopy = skippedBuiltInCount ? ` ${skippedBuiltInCount} built-in Rovo entr${skippedBuiltInCount === 1 ? "y was" : "ies were"} skipped.` : "";
+      showSuccess(`Integrations imported in TestOps${result.transaction_id ? ` (${result.transaction_id.slice(0, 8)})` : ""}: ${result.imported} new, ${result.updated} updated.${failureCopy}${skippedCopy}`);
       await refresh();
     } catch (error) {
       showError(error, "Unable to import integrations");
@@ -1418,12 +1481,16 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   };
 
   const handleTestConnection = async () => {
+    if (isSelectedIntegrationRovo) {
+      showError(new Error("Rovo availability is checked through the Jira bridge, not through the Forge LLM connection test."), "Unable to test integration");
+      return;
+    }
     try {
       const result = await testIntegrationConnection.mutateAsync({
         type: draft.type,
         base_url: draft.base_url.trim() || undefined,
         api_key: draft.api_key.trim() && !isMaskedSecretValue(draft.api_key) ? draft.api_key.trim() : undefined,
-        config: buildIntegrationConfig(draft, integrationTypeDefinitions)
+        config: buildIntegrationConfig(draft, integrationTypeDefinitions, canUseMobileAppium)
       });
       if (result.type === "ops") {
         const summary = `${result.service} responded in ${result.latency_ms} ms from ${result.base_url}. Health ${result.health_url}. Events ${result.events_url}. Board ${result.board_url}.`;
@@ -1479,7 +1546,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   ) : null;
 
   const renderIntegrationTile = (integration: Integration) => {
-    const summary = getIntegrationSummary(integration, integrationTypeDefinitions);
+    const summary = getIntegrationSummary(integration, integrationTypeDefinitions, canUseMobileAppium);
+    const isRovo = isRovoIntegrationId(integration.id);
 
     return (
       <button
@@ -1492,7 +1560,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         type="button"
       >
         <div className="tile-card-main">
-          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+          {!isRovo ? <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
             <label className="checkbox-field">
               <input
                 aria-label={`Select ${integration.name}`}
@@ -1508,18 +1576,18 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
               />
               <span className="sr-only">Select integration</span>
             </label>
-          </div>
+          </div> : <div className="tile-card-select-row"><span className="count-pill">Built-in</span></div>}
           <div className="tile-card-header">
             <span className="integration-type-badge">{getIntegrationBadgeIcon(integration.type)}</span>
             <div className="tile-card-title-group">
               <strong>{integration.name}</strong>
-              <span className="tile-card-kicker">{getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
+              <span className="tile-card-kicker">{isRovo ? "Jira-native agent conversation" : getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
             </div>
-            <TileCardStatusIndicator title={integration.is_active ? "Active" : "Inactive"} tone={integration.is_active ? "success" : "neutral"} />
+            <TileCardStatusIndicator title={isRovo ? "Built-in" : integration.is_active ? "Active" : "Inactive"} tone={isRovo ? "neutral" : integration.is_active ? "success" : "neutral"} />
           </div>
           <p className="tile-card-description">{summary.primary}</p>
           <div className="integration-card-footer">
-            <StatusBadge value={integration.is_active ? "active" : "inactive"} />
+            {isRovo ? <span className="count-pill">Conversation</span> : <StatusBadge value={integration.is_active ? "active" : "inactive"} />}
             <span className="count-pill">{summary.secondary}</span>
           </div>
         </div>
@@ -1536,13 +1604,12 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         <PageHeader
           eyebrow="Administration"
           title="Integrations"
-          description="Manage the external systems QAira uses for AI generation, Jira sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
+          description="Manage the external systems HelloTest uses for AI generation, Jira sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
           meta={[
             { label: "Configured", value: integrations.length },
             { label: "Active", value: activeIntegrationCount },
             { label: "Selected type", value: selectedIntegrationTypeFilter === "all" ? "All types" : getIntegrationCategoryDefinition(selectedIntegrationTypeFilter)?.label || "None" }
           ]}
-          actions={integrationActions}
         />
       ) : null}
 
@@ -1553,8 +1620,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	              titleVariant="eyebrow"
 	              subtitle="Review configured connections grouped by integration type, then open one profile into a focused editor."
 	            >
-	              <div className="design-list-toolbar integration-catalog-toolbar">
-	                <CatalogSearchFilter
+	              <div className="design-list-toolbar catalog-command-toolbar integration-catalog-toolbar">
+	                <div className="catalog-toolbar-discovery" aria-label="Integration views, search, and selection">
+	                  <CatalogViewToggle onChange={setIntegrationCatalogViewMode} value={integrationCatalogViewMode} />
+	                  <CatalogSearchFilter
 	                  activeFilterCount={(integrationSearch.trim() ? 1 : 0) + (selectedIntegrationTypeFilter !== "all" ? 1 : 0)}
 	                  ariaLabel="Search integrations"
 	                  onChange={setIntegrationSearch}
@@ -1616,57 +1685,28 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	                      </button>
 	                    </div>
 	                  </div>
-                </CatalogSearchFilter>
-                <CatalogSelectionControls
-                  allSelected={areAllFilteredIntegrationsSelected}
-                  canSelectAll={Boolean(visibleIntegrationIds.length)}
-                  onClear={() => setSelectedActionIntegrationIds([])}
-                  onSelectAll={() => setSelectedActionIntegrationIds((current) => Array.from(new Set([...current, ...visibleIntegrationIds])))}
-                  selectedCount={selectedActionIntegrationIds.length}
-                />
-                <CatalogViewToggle onChange={setIntegrationCatalogViewMode} value={integrationCatalogViewMode} />
-                {embedded && integrationActions ? <div className="catalog-toolbar-actions">{integrationActions}</div> : null}
+                  </CatalogSearchFilter>
+                  <CatalogSelectionControls
+                    allSelected={areAllFilteredIntegrationsSelected}
+                    canSelectAll={Boolean(visibleIntegrationIds.length)}
+                    onClear={() => setSelectedActionIntegrationIds([])}
+                    onSelectAll={() => setSelectedActionIntegrationIds((current) => Array.from(new Set([...current, ...visibleIntegrationIds])))}
+                    selectedCount={selectedActionIntegrationIds.length}
+                  />
+                </div>
+                {integrationActions ? <div className="catalog-toolbar-actions" aria-label="Integration actions">{integrationActions}</div> : null}
               </div>
               {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
-              {!isIntegrationCatalogLoading && visibleIntegrationSections.length ? (
+              {!isIntegrationCatalogLoading && visibleIntegrationSections.length && integrationCatalogViewMode === "tile" ? (
                 <div className="integration-type-section-stack">
                   {visibleIntegrationSections.map((section) => (
                     <section className="integration-type-section" key={section.value}>
-                      <div className="integration-type-section-header">
-                        <span className="integration-type-section-icon">{getIntegrationBadgeIcon(section.defaultProvider)}</span>
-                        <div>
-                          <strong>{section.label}</strong>
-                          <span>{section.description || "Configured external system profiles for this integration type."}</span>
-                        </div>
-                        <div className="integration-type-section-meta">
-                          <span className="count-pill">{section.items.length} shown</span>
-                          <span className="count-pill">{section.totalCount} total</span>
-                          <span className="count-pill">{section.activeCount} active</span>
-                        </div>
-                      </div>
+                      {renderIntegrationTypeSectionHeader(section)}
 
-                      {section.items.length && integrationCatalogViewMode === "tile" ? (
+                      {section.items.length ? (
                         <div className="tile-browser-grid integration-type-grid">
                           {section.items.map((integration) => renderIntegrationTile(integration))}
                         </div>
-                      ) : null}
-
-                      {section.items.length && integrationCatalogViewMode === "list" ? (
-                        <DataTable
-                          columns={integrationListColumns}
-                          enableColumnResize
-                          enableHeaderColumnReorder
-                          emptyMessage={`No ${section.label} integrations match the current search.`}
-                          getRowClassName={(integration) => (selectedIntegrationId === integration.id ? "is-active-row" : "")}
-                          getRowKey={(integration) => integration.id}
-                          hideToolbarCopy
-                          onRowClick={(integration) => {
-                            setSelectedIntegrationId(integration.id);
-                            setIsCreating(false);
-                          }}
-                          rows={section.items}
-                          storageKey={`qaira:integrations:list-columns:${section.value}`}
-                        />
                       ) : null}
 
                       {!section.items.length ? (
@@ -1674,6 +1714,26 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       ) : null}
                     </section>
                   ))}
+                </div>
+              ) : null}
+              {!isIntegrationCatalogLoading && visibleIntegrationSections.length && integrationCatalogViewMode === "list" ? (
+                <div className="integration-type-section-stack">
+                  <DataTable
+                    columns={integrationListColumns}
+                    enableColumnResize
+                    enableHeaderColumnReorder
+                    emptyMessage="No integrations match the current search."
+                    getRowClassName={(integration) => (selectedIntegrationId === integration.id ? "is-active-row" : "")}
+                    getRowKey={(integration) => integration.id}
+                    hideToolbarCopy
+                    onRowClick={(integration) => {
+                      setSelectedIntegrationId(integration.id);
+                      setIsCreating(false);
+                    }}
+                    rowGroups={integrationListRowGroups}
+                    rows={[]}
+                    storageKey="qaira:integrations:list-columns:v2"
+                  />
                 </div>
               ) : null}
               {!isIntegrationCatalogLoading && !integrations.length ? <div className="empty-state compact">No integrations configured yet.</div> : null}
@@ -1684,10 +1744,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
             <Panel
               actions={<WorkspaceBackButton label="Back to integration tiles" onClick={closeIntegrationWorkspace} />}
               title={isCreating ? "New integration" : selectedIntegration ? "Integration details" : "Integration editor"}
-              subtitle="Store the credentials and provider settings QAira needs to call external systems and power secure authentication flows."
+              subtitle="Store the credentials and provider settings HelloTest needs to call external systems and power secure authentication flows."
             >
-              {!isAdmin && selectedIntegration ? (
-                <IntegrationReadOnlyDetails definitions={integrationTypeDefinitions} integration={selectedIntegration} />
+              {selectedIntegration && (!isAdmin || isSelectedIntegrationRovo) ? (
+                <IntegrationReadOnlyDetails definitions={integrationTypeDefinitions} includeMobileAppium={canUseMobileAppium} integration={selectedIntegration} />
               ) : isCreating || selectedIntegration ? (
                 <form className="form-grid" onSubmit={(event) => void handleSave(event)}>
                 <div className="record-grid">
@@ -1733,46 +1793,30 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                   </FormField>
                 </div>
 
-                {(isLlm || isJira) ? (
+                {isLlm ? (
                   <>
                     <div className="record-grid">
                       <FormField label="Base URL">
                         <input
-                          placeholder={isLlm ? defaultLlmBaseUrl || "https://api.openai.com/v1" : "https://your-company.atlassian.net"}
+                          placeholder={defaultLlmBaseUrl || "https://api.openai.com/v1"}
                           value={draft.base_url}
                           onChange={(event) => setDraft((current) => ({ ...current, base_url: event.target.value }))}
                         />
                       </FormField>
 
-                      {isLlm ? (
-                        <FormField label="Model">
-                          <input
-                            placeholder="gpt-5.4-mini"
-                            value={draft.model}
-                            onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
-                          />
-                        </FormField>
-                      ) : (
-                        <FormField label="Jira Project Key">
-                          <input
-                            placeholder="QA"
-                            value={draft.project_key}
-                            onChange={(event) => setDraft((current) => ({ ...current, project_key: event.target.value }))}
-                          />
-                        </FormField>
-                      )}
+                      <FormField label="Model">
+                        <input
+                          placeholder="gpt-5.4-mini"
+                          value={draft.model}
+                          onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+                        />
+                      </FormField>
                     </div>
 
                     <div className="record-grid">
                       <FormField label="API Key">
                         <input type="password" value={draft.api_key} onChange={(event) => setDraft((current) => ({ ...current, api_key: event.target.value }))} />
                       </FormField>
-
-                      {isJira ? (
-                        <FormField label="Username / Email">
-                          <input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} />
-                        </FormField>
-                      ) : null}
                     </div>
                   </>
                 ) : null}
@@ -1780,7 +1824,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 {isEmail ? (
                   <>
                     <div className="empty-state compact integration-helper">
-                      QAira sends signup and forgot-password verification codes through this SMTP profile. Set the sender email to <strong>{defaultEmailSender || "your sender mailbox"}</strong> when that mailbox is configured on your mail provider.
+                      HelloTest sends signup and forgot-password verification codes through this SMTP profile. Set the sender email to <strong>{defaultEmailSender || "your sender mailbox"}</strong> when that mailbox is configured on your mail provider.
                     </div>
 
                     <div className="record-grid">
@@ -1852,7 +1896,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 {isGoogle ? (
                   <>
                     <div className="empty-state compact integration-helper">
-                      Add the Google OAuth web client ID that should power the sign-in button on the QAira login page.
+                      Add the Google OAuth web client ID that should power the sign-in button on the HelloTest login page.
                     </div>
 
                     <div className="record-grid">
@@ -1871,8 +1915,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                   <>
                     <div className="empty-state compact integration-helper">
                       {isGoogleDrive
-                        ? "Store a Google access token and Drive folder so QAira can upload a compressed project artifact with requirements and test case exports."
-                        : "Store a GitHub access token and target repository so QAira can sync test-case-linked automation code and manifests asynchronously."}
+                        ? "Store a Google access token and Drive folder so HelloTest can upload a compressed project artifact with story and test case exports."
+                        : "Store a GitHub access token and target repository so HelloTest can sync test-case-linked automation code and manifests asynchronously."}
                     </div>
 
                     <div className="record-grid">
@@ -1979,7 +2023,9 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	                {isCloudRun ? (
 	                  <>
 	                    <div className="empty-state compact integration-helper">
-	                      Store cloud browser and device provider credentials independently from project records. These settings remain in Admin Space and can be reused across runs.
+	                      {canUseMobileAppium
+	                        ? "Store cloud browser and device provider credentials independently from project records."
+	                        : "Store cloud browser provider credentials independently from project records."} These settings remain in Admin Space and can be reused across runs.
 	                    </div>
 
 	                    <div className="record-grid">
@@ -2055,28 +2101,30 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	                      </FormField>
 	                    </div>
 
-	                    <div className="record-grid">
-	                      <FormField label="Device name">
-	                        <input
-	                          placeholder="Pixel 8 or iPhone 15"
-	                          value={draft.cloud_run_device_name}
-	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_device_name: event.target.value }))}
-	                        />
-	                      </FormField>
+	                    {canUseMobileAppium ? (
+	                      <div className="record-grid">
+	                        <FormField label="Device name">
+	                          <input
+	                            placeholder="Pixel 8 or iPhone 15"
+	                            value={draft.cloud_run_device_name}
+	                            onChange={(event) => setDraft((current) => ({ ...current, cloud_run_device_name: event.target.value }))}
+	                          />
+	                        </FormField>
 
-	                      <FormField label="Platform version">
-	                        <input
-	                          placeholder="14"
-	                          value={draft.cloud_run_platform_version}
-	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_platform_version: event.target.value }))}
-	                        />
-	                      </FormField>
-	                    </div>
+	                        <FormField label="Platform version">
+	                          <input
+	                            placeholder="14"
+	                            value={draft.cloud_run_platform_version}
+	                            onChange={(event) => setDraft((current) => ({ ...current, cloud_run_platform_version: event.target.value }))}
+	                          />
+	                        </FormField>
+	                      </div>
+	                    ) : null}
 
 	                    <div className="record-grid">
 	                      <FormField label="Build name">
 	                        <input
-	                          placeholder="QAira regression"
+	                          placeholder="HelloTest regression"
 	                          value={draft.cloud_run_build_name}
 	                          onChange={(event) => setDraft((current) => ({ ...current, cloud_run_build_name: event.target.value }))}
 	                        />
@@ -2096,7 +2144,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 	                {isTestEngine ? (
 	                  <>
                     <div className="empty-state compact integration-helper">
-                      QAira remains the only run UI. Configure the Test Engine host and active web engine here. QAira derives the queue, pull-based execution flow, and provider-aware runtime defaults automatically, so you no longer need to manage callback URLs, signing secrets, or engine tokens from this screen.
+                      HelloTest remains the only run UI. Configure the Test Engine host and active web engine here. HelloTest derives the queue, pull-based execution flow, and provider-aware runtime defaults automatically, so you no longer need to manage callback URLs, signing secrets, or engine tokens from this screen.
                     </div>
 
                     <div className="record-grid">
@@ -2129,7 +2177,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                         />
                       </FormField>
 
-                      <FormField label="QAira API Base URL">
+                      <FormField label="HelloTest API Base URL">
                         <input
                           placeholder="https://qaira.company.internal/api"
                           value={draft.engine_qaira_api_base_url}
@@ -2152,7 +2200,9 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       </FormField>
 
                       <div className="empty-state compact integration-helper">
-                        The standalone Test Engine uses this cadence when split API, Web, and Android workers pull queued automation jobs from QAira. Set the engine container's QAIRA_API_BASE_URL to the QAira API URL above, or to the public QAira URL when /api proxying is available.
+                        {canUseMobileAppium
+                          ? "The standalone Test Engine uses this cadence when split API, Web, and Android workers pull queued automation jobs from HelloTest."
+                          : "The standalone Test Engine uses this cadence when API and Web workers pull queued automation jobs from HelloTest."} Set the engine container's QAIRA_API_BASE_URL to the HelloTest API URL above, or to the public HelloTest URL when /api proxying is available.
                       </div>
                     </div>
 
@@ -2173,14 +2223,16 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                           onChange={(event) => setDraft((current) => ({ ...current, engine_max_web_workers: event.target.value }))}
                         />
                       </FormField>
-                      <FormField label="Max Android Workers">
-                        <input
-                          inputMode="numeric"
-                          placeholder="2"
-                          value={draft.engine_max_android_workers}
-                          onChange={(event) => setDraft((current) => ({ ...current, engine_max_android_workers: event.target.value }))}
-                        />
-                      </FormField>
+                      {canUseMobileAppium ? (
+                        <FormField label="Max Android Workers">
+                          <input
+                            inputMode="numeric"
+                            placeholder="2"
+                            value={draft.engine_max_android_workers}
+                            onChange={(event) => setDraft((current) => ({ ...current, engine_max_android_workers: event.target.value }))}
+                          />
+                        </FormField>
+                      ) : null}
                     </div>
 
                     <div className="record-grid">
@@ -2321,7 +2373,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                           )
                           : (
                             <>
-                              Playwright runs inside the Test Engine service container with QAira-managed queue orchestration, result updates, and the provider-aware live session endpoint.
+                              Playwright runs inside the Test Engine service container with HelloTest-managed queue orchestration, result updates, and the provider-aware live session endpoint.
                             </>
                           )}
                       </div>
@@ -2338,12 +2390,13 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
                       <div className="empty-state compact integration-helper">
                         {draft.engine_active_web_engine === "selenium"
-                          ? "Selenium runs expose noVNC on port 7900 by default. QAira derives that URL from the engine host unless you override it."
-                          : "Playwright runs use the Test Engine live-session endpoint. QAira auto-populates this URL when Playwright is selected."}
+                          ? "Selenium runs expose noVNC on port 7900 by default. HelloTest derives that URL from the engine host unless you override it."
+                          : "Playwright runs use the Test Engine live-session endpoint. HelloTest auto-populates this URL when Playwright is selected."}
                         {derivedTestEngineLiveViewUrl ? <strong>{derivedTestEngineLiveViewUrl}</strong> : null}
                       </div>
                     </div>
 
+                    {canUseMobileAppium ? (<>
                     <div className="record-grid">
                       <FormField label="Mobile Engine URL">
                         <input
@@ -2383,7 +2436,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                         />
                       </FormField>
                     </div>
-
                     <div className="record-grid">
                       <FormField label="Device name">
                         <input
@@ -2400,6 +2452,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                         />
                       </FormField>
                     </div>
+                    </>) : null}
 
                     <div className="record-grid">
                       <label className="checkbox-field">
@@ -2419,7 +2472,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                     <div className="record-grid">
                       <div className="empty-state compact integration-helper">
                         Derived automatically after save:
-                        <strong> queue pull mode</strong>, <strong>API + web execution scope</strong>, deterministic engine defaults, and QAira-managed queued, running, step, case, suite, and run updates.
+                        <strong> queue pull mode</strong>, <strong>API + web execution scope</strong>, deterministic engine defaults, and HelloTest-managed queued, running, step, case, suite, and run updates.
                       </div>
                     </div>
 
@@ -2457,7 +2510,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 {isOps ? (
                   <>
                     <div className="empty-state compact integration-helper">
-                      OPS Telemetry now rides on the active Test Engine host for the selected scope. Configure only the event paths, labels, and which execution events QAira should emit. QAira still sends telemetry best-effort, so a temporary OPS issue will not block the run, and the hosted engine exposes a board at <strong>/ops-telemetry</strong> where operators can filter captured logs by service.
+                      OPS Telemetry now rides on the active Test Engine host for the selected scope. Configure only the event paths, labels, and which execution events HelloTest should emit. HelloTest still sends telemetry best-effort, so a temporary OPS issue will not block the run, and the hosted engine exposes a board at <strong>/ops-telemetry</strong> where operators can filter captured logs by service.
                     </div>
 
                     <div className="record-grid">
@@ -2478,7 +2531,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                         <span>
                           {resolvedOpsEngineIntegration
                             ? `Using "${resolvedOpsEngineIntegration.name}" as the transport host for OPS health and event delivery.`
-                            : "Create or activate a matching Test Engine integration first so QAira knows where to send OPS telemetry."}
+                            : "Create or activate a matching Test Engine integration first so HelloTest knows where to send OPS telemetry."}
                         </span>
                       </div>
                     </div>

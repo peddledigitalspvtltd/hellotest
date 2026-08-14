@@ -1,6 +1,6 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
@@ -767,8 +767,8 @@ exports.processQueuedJobs = async () => {
             level: "warning",
             phase: isAiCapacityError(error) ? "ai-capacity-wait" : "retry-wait",
             message: isAiCapacityError(error)
-              ? `AI provider capacity is exhausted. QAira will retry around ${nextRunAt}.`
-              : `Temporary failure. QAira will retry around ${nextRunAt}.`,
+              ? `AI provider capacity is exhausted. HelloTest will retry around ${nextRunAt}.`
+              : `Temporary failure. HelloTest will retry around ${nextRunAt}.`,
             details: {
               job_id: job.id,
               operation: operation || "unknown",

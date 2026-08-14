@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="HelloTest">
+  <defs>
+    <linearGradient id="hellotestGradient" x1="9" y1="7" x2="55" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0747D9"/>
+      <stop offset=".52" stop-color="#233CCF"/>
+      <stop offset="1" stop-color="#A719DF"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#hellotestGradient)" stroke-width="3.4">
+    <circle cx="32" cy="32" r="26"/>
+    <circle cx="32" cy="32" r="19.2"/>
+    <circle cx="32" cy="32" r="12.4"/>
+  </g>
+  <path d="m26.4 32.1 4.1 4.2 7.8-8.5" fill="none" stroke="#162A78" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.8"/>
+</svg>

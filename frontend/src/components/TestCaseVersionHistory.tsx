@@ -4,6 +4,8 @@ import type { TestCase, TestCaseVersionContent, TestStep } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { richTextToPlainText } from "./RichTextEditor";
+import { DialogCloseButton } from "./DialogCloseButton";
+import { LoadingState } from "./LoadingState";
 import { StatusBadge } from "./StatusBadge";
 import { ToastMessage } from "./ToastMessage";
 
@@ -47,6 +49,8 @@ function stepsFingerprint(steps?: TestStep[]) {
     action: step.action || "",
     expected_result: step.expected_result || "",
     step_type: step.step_type || "web",
+    automation_code: step.automation_code || "",
+    api_request: step.api_request || null,
     group_id: step.group_id || null,
     reusable_group_id: step.reusable_group_id || null
   })));
@@ -59,25 +63,22 @@ function buildVersionDiff(content: TestCaseVersionContent, currentCase: TestCase
     { key: "status", label: "Status", previous: content.status || "—", current: currentCase.status || "—", equal: (content.status || "") === (currentCase.status || "") },
     { key: "priority", label: "Priority", previous: content.priority ? `P${content.priority}` : "—", current: currentCase.priority ? `P${currentCase.priority}` : "—", equal: (content.priority || null) === (currentCase.priority || null) },
     { key: "labels", label: "Labels", previous: listLabel(content.labels), current: listLabel(currentCase.labels), equal: listLabel(content.labels) === listLabel(currentCase.labels) },
-    { key: "requirements", label: "Requirements", previous: listLabel(content.requirement_ids), current: listLabel(currentCase.requirement_ids), equal: listLabel(content.requirement_ids) === listLabel(currentCase.requirement_ids) },
+    { key: "requirements", label: "Stories", previous: listLabel(content.requirement_ids), current: listLabel(currentCase.requirement_ids), equal: listLabel(content.requirement_ids) === listLabel(currentCase.requirement_ids) },
     { key: "suites", label: "Suites", previous: listLabel(content.suite_ids), current: listLabel(currentCase.suite_ids), equal: listLabel(content.suite_ids) === listLabel(currentCase.suite_ids) },
     { key: "parameters", label: "Test data", previous: parameterLabel(content.parameter_values), current: parameterLabel(currentCase.parameter_values), equal: parameterLabel(content.parameter_values) === parameterLabel(currentCase.parameter_values) },
     { key: "steps", label: "Steps", previous: `${content.steps?.length || 0} step${content.steps?.length === 1 ? "" : "s"}`, current: `${currentSteps.length} step${currentSteps.length === 1 ? "" : "s"}`, equal: stepsFingerprint(content.steps) === stepsFingerprint(currentSteps) }
   ];
-
   return candidates.filter((item) => !item.equal).map(({ equal: _equal, ...item }) => item);
 }
 
 export function TestCaseVersionHistory({
   canRestore,
   currentCase,
-  currentSteps,
-  onRestored
+  currentSteps
 }: {
   canRestore: boolean;
   currentCase: TestCase;
   currentSteps: TestStep[];
-  onRestored?: () => Promise<void> | void;
 }) {
   const queryClient = useQueryClient();
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
@@ -108,11 +109,12 @@ export function TestCaseVersionHistory({
     [currentCase, currentSteps, snapshotQuery.data]
   );
   const restoreMutation = useMutation({
-    mutationFn: (revision: number) => api.testCases.restoreVersion(
-      currentCase.id,
-      revision,
-      versionsQuery.data?.current_revision || 1
-    ),
+    mutationFn: (revision: number) =>
+      api.testCases.restoreVersion(
+        currentCase.id,
+        revision,
+        versionsQuery.data?.current_revision || currentCase.revision,
+      ),
     onSuccess: async (result) => {
       setConfirmRevision(null);
       setMessageTone("success");
@@ -121,9 +123,9 @@ export function TestCaseVersionHistory({
         queryClient.invalidateQueries({ queryKey: ["test-case-versions", currentCase.id] }),
         queryClient.invalidateQueries({ queryKey: ["test-case-version", currentCase.id] }),
         queryClient.invalidateQueries({ queryKey: ["global-test-cases"] }),
-        queryClient.invalidateQueries({ queryKey: ["test-case-steps", currentCase.id] })
+        queryClient.invalidateQueries({ queryKey: ["test-case-steps", currentCase.id] }),
+        queryClient.invalidateQueries({ queryKey: ["test-steps"] })
       ]);
-      await onRestored?.();
     },
     onError: (error) => {
       setMessageTone("error");
@@ -133,19 +135,23 @@ export function TestCaseVersionHistory({
   const closeRestoreDialog = () => {
     if (!restoreMutation.isPending) setConfirmRevision(null);
   };
-  const restoreDialogRef = useDialogFocus<HTMLDivElement>();
+  const restoreDialogRef = useDialogFocus<HTMLDivElement>({
+    active: confirmRevision !== null,
+    closeDisabled: restoreMutation.isPending,
+    onClose: closeRestoreDialog
+  });
 
   return (
     <section className="test-case-version-history" aria-labelledby="test-case-version-history-title">
       <div className="test-case-version-heading">
         <div>
           <h3 id="test-case-version-history-title">Content versions</h3>
-          <span>Current version {versionsQuery.data?.current_revision || 1}</span>
+          <span>Current version {versionsQuery.data?.current_revision || currentCase.revision || 1}</span>
         </div>
         <StatusBadge value={`${versions.length} retained`} />
       </div>
 
-      {versionsQuery.isLoading ? <div className="entity-evidence-loading">Loading content versions…</div> : null}
+      {versionsQuery.isLoading ? <LoadingState label="Loading content versions" /> : null}
       {versionsQuery.error ? <div className="error-banner">{versionsQuery.error instanceof Error ? versionsQuery.error.message : "Unable to load content versions."}</div> : null}
       {!versionsQuery.isLoading && !versions.length ? <div className="empty-state compact">Versions appear after the first saved change.</div> : null}
 
@@ -163,13 +169,13 @@ export function TestCaseVersionHistory({
               >
                 <strong>Version {version.revision}</strong>
                 <span>{formatVersionDate(version.captured_at)}</span>
-                <small>{version.step_count} step{version.step_count === 1 ? "" : "s"} · {version.reason}</small>
+                <small>{version.step_count} step{version.step_count === 1 ? "" : "s"}</small>
               </button>
             ))}
           </div>
 
           <div className="test-case-version-comparison">
-            {snapshotQuery.isLoading ? <div className="entity-evidence-loading">Loading version comparison…</div> : null}
+            {snapshotQuery.isLoading ? <LoadingState label="Loading version comparison" /> : null}
             {snapshotQuery.error ? <div className="error-banner">{snapshotQuery.error instanceof Error ? snapshotQuery.error.message : "Unable to load the selected version."}</div> : null}
             {snapshotQuery.data ? (
               <>
@@ -178,11 +184,14 @@ export function TestCaseVersionHistory({
                     <strong>Version {snapshotQuery.data.revision} → current</strong>
                     <span>{diffRows.length} changed field{diffRows.length === 1 ? "" : "s"}</span>
                   </div>
-                  {canRestore ? (
-                    <button className="ghost-button compact" disabled={restoreMutation.isPending} onClick={() => setConfirmRevision(snapshotQuery.data.revision)} type="button">
-                      Restore version {snapshotQuery.data.revision}
-                    </button>
-                  ) : null}
+                  <button
+                    className="ghost-button compact"
+                    disabled={!canRestore || restoreMutation.isPending}
+                    onClick={() => setConfirmRevision(snapshotQuery.data.revision)}
+                    type="button"
+                  >
+                    Restore version {snapshotQuery.data.revision}
+                  </button>
                 </div>
                 {diffRows.length ? (
                   <div className="test-case-version-diff">
@@ -191,7 +200,9 @@ export function TestCaseVersionHistory({
                     </div>
                     {diffRows.map((row) => (
                       <div className="test-case-version-diff-row" key={row.key}>
-                        <strong>{row.label}</strong><span>{row.previous}</span><span>{row.current}</span>
+                        <strong>{row.label}</strong>
+                        <span>{row.previous}</span>
+                        <span>{row.current}</span>
                       </div>
                     ))}
                   </div>
@@ -206,10 +217,18 @@ export function TestCaseVersionHistory({
 
       {confirmRevision !== null ? (
         <div className="modal-backdrop" onClick={closeRestoreDialog} role="presentation">
-          <div aria-labelledby="restore-test-case-version-title" aria-modal="true" className="modal-card test-case-version-restore-dialog" onClick={(event) => event.stopPropagation()} ref={restoreDialogRef} role="dialog" tabIndex={-1}>
+          <div
+            aria-labelledby="restore-test-case-version-title"
+            aria-modal="true"
+            className="modal-card test-case-version-restore-dialog"
+            onClick={(event) => event.stopPropagation()}
+            ref={restoreDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="ai-studio-header">
               <h2 className="dialog-title" id="restore-test-case-version-title">Restore version {confirmRevision}</h2>
-              <button aria-label="Close restore confirmation" className="ghost-button compact" disabled={restoreMutation.isPending} onClick={closeRestoreDialog} type="button">×</button>
+              <DialogCloseButton disabled={restoreMutation.isPending} label="Close restore confirmation" onClick={closeRestoreDialog} />
             </div>
             <p>The current content is preserved as a new snapshot. Restored content requires review.</p>
             <div className="action-row ai-studio-footer">

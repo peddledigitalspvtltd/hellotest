@@ -1,0 +1,29 @@
+html,
+body,
+#root {
+  width: var(--analytics-preview-width, 1020px) !important;
+  min-width: var(--analytics-preview-width, 1020px) !important;
+  min-height: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #f8f9ff !important;
+}
+
+.analytics-preview-workspace,
+.analytics-preview-workspace.workspace-main {
+  width: var(--analytics-preview-width, 1020px) !important;
+  min-width: var(--analytics-preview-width, 1020px) !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: #f8f9ff !important;
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root,
+:root[data-theme="dark"] .analytics-preview-workspace.workspace-main {
+  background: #07111f !important;
+}

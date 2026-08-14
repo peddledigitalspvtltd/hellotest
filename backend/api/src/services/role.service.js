@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSION_GROUPS } = require("../security/permissions.catalog");
 const featureFlagService = require("./featureFlag.service");
 

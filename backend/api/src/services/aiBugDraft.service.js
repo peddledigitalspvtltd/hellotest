@@ -79,7 +79,7 @@ const requestLlmDraft = async (integration, input, context) => {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: "You are a senior QA defect triage assistant. Return strict JSON only. Never invent evidence." },
-        { role: "user", content: `Draft a concise, Jira-ready bug. Return JSON with title, message, steps_to_reproduce, expected_result, actual_result, severity (critical|high|medium|low), priority (p1|p2|p3|p4), environment, build, labels, rationale.\n\nReporter input:\n${JSON.stringify(input, null, 2)}\n\nBounded QAira evidence:\n${JSON.stringify(context, null, 2)}` }
+        { role: "user", content: `Draft a concise, Jira-ready bug. Return JSON with title, message, steps_to_reproduce, expected_result, actual_result, severity (critical|high|medium|low), priority (p1|p2|p3|p4), environment, build, labels, rationale.\n\nReporter input:\n${JSON.stringify(input, null, 2)}\n\nBounded HelloTest evidence:\n${JSON.stringify(context, null, 2)}` }
       ]
     })
   }, { operation: "bug-draft.generate" });
@@ -120,6 +120,6 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
   return {
     draft: { ...candidate, linked_test_run_id: context.run?.id || "", linked_test_case_ids: context.cases.map((item) => item.id), linked_requirement_ids: context.requirements.map((item) => item.id) },
     citations,
-    provenance: { capability: "ai-bug-triage", generation_mode: integration && !fallbackReason ? "llm" : "deterministic", provider: integration?.name || "QAira evidence graph", model: integration?.model || null, request_id: `bug-draft-${Date.now()}`, input_fingerprint: fingerprint(input), generated_at: now, confidence: citations.length ? 0.84 : 0.58, evidence: citations.map((item) => `${item.type}:${item.id}`), fallback_used: Boolean(fallbackReason), fallback_reason: fallbackReason, requires_human_review: true }
+    provenance: { capability: "ai-bug-triage", generation_mode: integration && !fallbackReason ? "llm" : "deterministic", provider: integration?.name || "HelloTest evidence graph", model: integration?.model || null, request_id: `bug-draft-${Date.now()}`, input_fingerprint: fingerprint(input), generated_at: now, confidence: citations.length ? 0.84 : 0.58, evidence: citations.map((item) => `${item.type}:${item.id}`), fallback_used: Boolean(fallbackReason), fallback_reason: fallbackReason, requires_human_review: true }
   };
 };

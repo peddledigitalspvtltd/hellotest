@@ -1,6 +1,13 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  IconActivity,
+  IconAlertTriangle,
+  IconChartBar,
+  IconCircleCheck,
+  IconShieldCheck
+} from "@tabler/icons-react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
@@ -11,10 +18,15 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
+import { DialogCloseButton } from "../components/DialogCloseButton";
+import { EvidenceFlipCard } from "../components/EvidenceFlipCard";
+import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
+import { LoadingState } from "../components/LoadingState";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { ProjectTraceabilityMap } from "../components/ProjectTraceabilityMap";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
   TileCardAppTypesIcon,
@@ -30,17 +42,23 @@ import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { useAuth } from "../auth/AuthContext";
 import { formatAuditTimestamp } from "../lib/auditDisplay";
+import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { hasPermission } from "../lib/permissions";
 import { resolveVisibleEmail } from "../lib/userDisplay";
-import type { AppType, Execution, ExecutionResult, Integration, Project, WorkspaceTransaction } from "../types";
+import type { AppType, Execution, ExecutionResult, Issue, Project, Requirement, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
+import "./ProjectsPage.css";
 
-type ProjectSection = "members" | "appTypes";
+type ProjectSection = "traceability" | "members" | "appTypes";
 
 type ProjectAppTypeDraft = {
   id: string;
@@ -53,8 +71,16 @@ type ProjectCreateDraft = {
   name: string;
   description: string;
   memberIds: string[];
+  memberRoleIds: Record<string, string>;
   appTypes: ProjectAppTypeDraft[];
 };
+
+const NEW_PROJECT_ROLE_DEFAULTS = [
+  { id: "qa-lead", name: "QA lead" },
+  { id: "qa-member", name: "QA member" },
+  { id: "viewer", name: "Viewer" }
+] as const;
+const DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID = "qa-member";
 
 type ProjectRequirementCoverage = {
   totalRequirements: number;
@@ -116,6 +142,7 @@ const createInitialProjectDraft = (defaultType: string): ProjectCreateDraft => (
   name: "",
   description: "",
   memberIds: [],
+  memberRoleIds: {},
   appTypes: [createProjectAppTypeDraft(defaultType)]
 });
 
@@ -263,7 +290,7 @@ const resolveProjectHealth = ({
 
 const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
   if (!item.requirementCount && !item.testCaseCount) {
-    return "Start by importing requirements or creating the first test suite.";
+    return "Start by importing stories or creating the first test suite.";
   }
 
   if (item.latestFailedCount > 0 || item.latestBlockedCount > 0) {
@@ -275,7 +302,7 @@ const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
   }
 
   if (item.coverage.totalRequirements > 0 && item.coverage.coveragePercent < 80) {
-    return "Requirement traceability has gaps. Link uncovered requirements before release planning.";
+    return "Story traceability has gaps. Link uncovered stories before release planning.";
   }
 
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent >= 80) {
@@ -283,6 +310,68 @@ const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
   }
 
   return "Project scope is available. Add recent execution evidence to improve readiness confidence.";
+};
+
+const getProjectRiskSignals = (item: ProjectPortfolioItem) => {
+  const signals: Array<{ label: string; detail: string; tone: "danger" | "warning" | "neutral" }> = [];
+
+  if (item.latestFailedCount > 0) {
+    signals.push({
+      label: "Latest execution failures",
+      detail: `${formatCompactCount(item.latestFailedCount, "failed test")} in the latest project run.`,
+      tone: "danger"
+    });
+  }
+
+  if (item.latestBlockedCount > 0) {
+    signals.push({
+      label: "Blocked execution paths",
+      detail: `${formatCompactCount(item.latestBlockedCount, "blocked test")} cannot currently complete.`,
+      tone: "danger"
+    });
+  }
+
+  if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60) {
+    signals.push({
+      label: "Pass confidence below threshold",
+      detail: `${item.passCoverage.coveragePercent}% latest pass confidence is below the 60% risk threshold.`,
+      tone: "danger"
+    });
+  }
+
+  if (!item.latestExecution) {
+    signals.push({
+      label: "Execution evidence missing",
+      detail: "No completed project run is available to validate the current delivery scope.",
+      tone: "warning"
+    });
+  }
+
+  if (item.coverage.totalRequirements > 0 && item.coverage.coveragePercent < 80) {
+    signals.push({
+      label: "Story traceability gap",
+      detail: `${item.coverage.totalRequirements - item.coverage.coveredRequirements} of ${item.coverage.totalRequirements} Stories have no linked test case.`,
+      tone: "warning"
+    });
+  }
+
+  if (item.automationCoverage.totalCases > 0 && item.automationCoverage.coveragePercent < 40) {
+    signals.push({
+      label: "Low automation coverage",
+      detail: `${item.automationCoverage.coveragePercent}% of loaded test cases are automated; the guidance threshold is 40%.`,
+      tone: "warning"
+    });
+  }
+
+  if (!signals.length) {
+    signals.push({
+      label: "Weighted readiness needs review",
+      detail: `${item.readinessScore}% readiness remains below the 80% release-ready threshold.`,
+      tone: "neutral"
+    });
+  }
+
+  return signals;
 };
 
 function ProjectProgressBar({
@@ -309,78 +398,37 @@ function ProjectProgressBar({
   );
 }
 
-function readIntegrationConfigValue(integration: Integration | null, keys: string[]) {
-  if (!integration?.config) {
-    return "";
-  }
-
-  for (const key of keys) {
-    const value = integration.config[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return "";
-}
-
-function ProjectSyncStatusCard({
-  actionLabel,
-  configuredSummary,
-  configureLabel,
-  icon,
-  info,
-  integration,
-  lastTransaction,
-  missingSummary,
-  onConfigure,
-  title
+function PortfolioMetricCard({
+  label,
+  value,
+  caption,
+  evidence,
+  criteriaKey,
+  tone
 }: {
-  actionLabel: string;
-  configuredSummary: string;
-  configureLabel: string;
-  icon: ReactNode;
-  info: string;
-  integration: Integration | null;
-  lastTransaction?: WorkspaceTransaction;
-  missingSummary: string;
-  onConfigure: () => void;
-  title: string;
+  label: string;
+  value: ReactNode;
+  caption: string;
+  evidence: string[];
+  criteriaKey?: string;
+  tone?: "danger" | "warning" | "success" | "info";
 }) {
-  const isConfigured = Boolean(integration);
-  const mode = String(integration?.config?.schedule_mode || "manual");
-  const lastActivity = lastTransaction
-    ? formatAuditTimestamp(lastTransaction.completed_at || lastTransaction.created_at, "Not recorded")
-    : formatAuditTimestamp(typeof integration?.config?.last_synced_at === "string" ? integration.config.last_synced_at : undefined, "Not recorded");
-
+  const { getMetricCriteria } = useAiPromptRegistry();
   return (
-    <article className={isConfigured ? "project-sync-status-card is-configured" : "project-sync-status-card"}>
-      <div className="project-sync-status-head">
-        <span className="project-sync-status-icon" aria-hidden="true">{icon}</span>
-        <div>
-          <div className="project-sync-status-title-row">
-            <strong>{title}</strong>
-            <InfoTooltip content={info} label={`${title} information`} />
-          </div>
-          <span className={isConfigured ? "project-sync-status-badge is-ready" : "project-sync-status-badge"}>
-            {isConfigured ? "Ready" : "Not configured"}
-          </span>
-        </div>
-      </div>
-      <p>{isConfigured ? configuredSummary : missingSummary}</p>
-      {isConfigured ? (
-        <div className="project-sync-status-meta">
-          <span><b>Mode</b>{mode}</span>
-          <span><b>Last</b>{lastActivity}</span>
-        </div>
-      ) : (
-        <button className="ghost-button project-sync-configure-button" onClick={onConfigure} type="button">
-          <OpenIcon />
-          <span>{configureLabel}</span>
-        </button>
-      )}
-      {isConfigured ? <span className="project-sync-status-action">{actionLabel}</span> : null}
-    </article>
+    <EvidenceFlipCard
+      caption={caption}
+      evidence={evidence}
+      frontAccessory={criteriaKey ? (
+        <MetricMethodologyInfo
+          criteriaKey={criteriaKey}
+          evidence={evidence.join(" · ")}
+          organizationCriteria={getMetricCriteria(criteriaKey)}
+        />
+      ) : null}
+      label={label}
+      tone={tone}
+      value={value}
+    />
   );
 }
 
@@ -389,28 +437,45 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
-  const canManageUsers = hasPermission(session, "user.manage");
-  const canCreateProjects = hasPermission(session, "project.create");
-  const canDeleteProjects = hasPermission(session, "project.delete");
+  const { getMetricCriteria } = useAiPromptRegistry();
+  const hasJiraAdministration = session?.user.role === "admin";
+  const canManageUsers = hasPermission(session, "user.view");
+  const canCreateProjects = hasJiraAdministration && hasPermission(session, "project.manage");
+  const canDeleteProjects = hasJiraAdministration && hasPermission(session, "project.delete");
   const canSyncProjects = hasPermission(session, "project.sync");
-  const canManageProjectMembers = hasPermission(session, "project_member.manage");
-  const canManageAppTypes = hasPermission(session, "app_type.manage");
+  const canManageProjectMembers = hasJiraAdministration && hasPermission(session, "project_member.manage");
+  const canManageAppTypes = hasJiraAdministration && hasPermission(session, "project.manage");
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
-  const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData();
+  const [loadProjectMetrics, setLoadProjectMetrics] = useState(false);
+  const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData({
+    issues: false,
+    requirements: loadProjectMetrics,
+    testSuites: loadProjectMetrics,
+    testCases: loadProjectMetrics,
+    executions: loadProjectMetrics,
+    executionResults: loadProjectMetrics,
+    testCasesProjection: "summary"
+  });
   const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewProjectAutomationCoverage = hasPermission(session, "automation.analytics.view")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.analytics"]);
   const [focusedProjectId, setFocusedProjectId] = useState("");
-  const [section, setSection] = useState<ProjectSection>("members");
+  const [section, setSection] = useState<ProjectSection>("traceability");
+  const [traceabilityAppTypeId, setTraceabilityAppTypeId] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isRiskEvidenceOpen, setIsRiskEvidenceOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState("");
+  const deferredProjectSearch = useDeferredValue(projectSearch);
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
   const [projectMemberFilter, setProjectMemberFilter] = useState("all");
   const [projectViewMode, setProjectViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [selectedActionProjectIds, setSelectedActionProjectIds] = useState<string[]>([]);
-  const defaultAppTypeValue = domainMetadataQuery.data?.app_types.default_type || "web";
-  const appTypeTypeOptions = domainMetadataQuery.data?.app_types.types || [];
+  const defaultAppTypeValue = domainMetadataQuery.data?.app_types?.default_type || "web";
+  const appTypeTypeOptions = domainMetadataQuery.data?.app_types?.types || [];
   const appTypeDropdownOptions = useMemo(
     () =>
       appTypeTypeOptions.map((option) => ({
@@ -424,7 +489,7 @@ export function ProjectsPage() {
   const [projectDraft, setProjectDraft] = useState<ProjectCreateDraft>(() => createInitialProjectDraft(defaultAppTypeValue));
   const [quickAddAppTypeType, setQuickAddAppTypeType] = useState(defaultAppTypeValue);
   const integrationsQuery = useQuery({
-    queryKey: ["integrations"],
+    queryKey: ["integrations", selectedProjectId],
     queryFn: () => api.integrations.list(),
     enabled: Boolean(session)
   });
@@ -438,16 +503,14 @@ export function ProjectsPage() {
     enabled: Boolean((focusedProjectId || selectedProjectId) && session)
   });
 
-  const projectItems = projects.data || [];
-  const isProjectCatalogLoading =
-    projects.isPending ||
-    projectMembers.isPending ||
-    appTypes.isPending ||
-    requirements.isPending ||
-    testSuites.isPending ||
-    testCases.isPending ||
-    executions.isPending ||
-    executionResults.isPending;
+  const projectItems = asArray(projects.data);
+  const isProjectCatalogLoading = projects.isPending;
+
+  useEffect(() => {
+    if (!projects.data?.length || loadProjectMetrics) return;
+    const timer = window.setTimeout(() => setLoadProjectMetrics(true), 120);
+    return () => window.clearTimeout(timer);
+  }, [loadProjectMetrics, projects.data?.length]);
 
   useEffect(() => {
     if (!appTypeDropdownOptions.length) {
@@ -474,6 +537,7 @@ export function ProjectsPage() {
   );
   const scopedProject = focusedProject || selectedProject;
   const projectId = scopedProject?.id;
+  const [, setCurrentAppTypeId] = useCurrentAppType(projectId);
 
   useEffect(() => {
     if (focusedProjectId && !projectItems.some((project) => String(project.id) === String(focusedProjectId))) {
@@ -820,8 +884,14 @@ export function ProjectsPage() {
 
   const portfolioSummary = useMemo(() => {
     const totalProjects = projectPortfolioItems.length;
-    const riskyProjects = projectPortfolioItems.filter((item) => item.healthTone === "danger").length;
-    const releaseReadyProjects = projectPortfolioItems.filter((item) => item.healthTone === "success").length;
+    const riskyItems = projectPortfolioItems.filter((item) => item.healthTone === "danger");
+    const watchItems = projectPortfolioItems.filter((item) => item.healthTone === "warning");
+    const releaseReadyItems = projectPortfolioItems.filter((item) => item.healthTone === "success");
+    const assessedItems = projectPortfolioItems.filter((item) => item.healthTone !== "neutral");
+    const riskyProjects = riskyItems.length;
+    const watchProjects = watchItems.length;
+    const releaseReadyProjects = releaseReadyItems.length;
+    const attentionProjects = riskyProjects + watchProjects;
     const averageRequirementCoverage = totalProjects
       ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.coverage.coveragePercent, 0) / totalProjects)
       : 0;
@@ -831,19 +901,60 @@ export function ProjectsPage() {
     const overallHealth = totalProjects
       ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.readinessScore, 0) / totalProjects)
       : 0;
+    const totalStories = projectPortfolioItems.reduce((sum, item) => sum + item.coverage.totalRequirements, 0);
+    const coveredStories = projectPortfolioItems.reduce((sum, item) => sum + item.coverage.coveredRequirements, 0);
+    const totalCases = projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.totalCases, 0);
+    const automatedCases = projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.automatedCases, 0);
+    const riskyLatestFailed = riskyItems.reduce((sum, item) => sum + item.latestFailedCount, 0);
+    const riskyLatestBlocked = riskyItems.reduce((sum, item) => sum + item.latestBlockedCount, 0);
+    const riskyLowPassProjects = riskyItems.filter((item) => item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60).length;
+    const readyWithExecutionEvidence = releaseReadyItems.filter((item) => Boolean(item.latestExecution)).length;
+    const releaseReadyAverage = releaseReadyItems.length
+      ? Math.round(releaseReadyItems.reduce((sum, item) => sum + item.readinessScore, 0) / releaseReadyItems.length)
+      : 0;
+    const passAssessedItems = projectPortfolioItems.filter((item) => item.passCoverage.totalCases > 0);
+    const averagePassCoverage = passAssessedItems.length
+      ? Math.round(passAssessedItems.reduce((sum, item) => sum + item.passCoverage.coveragePercent, 0) / passAssessedItems.length)
+      : 0;
+    const attentionWithoutExecution = [...riskyItems, ...watchItems].filter((item) => !item.latestExecution).length;
 
     return {
       totalProjects,
       riskyProjects,
+      watchProjects,
+      attentionProjects,
       releaseReadyProjects,
+      assessedProjects: assessedItems.length,
       averageRequirementCoverage,
       averageAutomationCoverage,
-      overallHealth
+      overallHealth,
+      totalStories,
+      coveredStories,
+      totalCases,
+      automatedCases,
+      riskyLatestFailed,
+      riskyLatestBlocked,
+      riskyLowPassProjects,
+      readyWithExecutionEvidence,
+      releaseReadyAverage,
+      averagePassCoverage,
+      attentionWithoutExecution
     };
   }, [projectPortfolioItems]);
 
+  const projectRiskEvidenceItems = useMemo(
+    () =>
+      projectPortfolioItems
+        .filter((item) => item.healthTone === "danger" || item.healthTone === "warning")
+        .sort((left, right) => {
+          const toneRank = { danger: 0, warning: 1, success: 2, neutral: 3 } as const;
+          return toneRank[left.healthTone] - toneRank[right.healthTone] || left.readinessScore - right.readinessScore;
+        }),
+    [projectPortfolioItems]
+  );
+
   const filteredProjectItems = useMemo(() => {
-    const normalizedSearch = projectSearch.trim().toLowerCase();
+    const normalizedSearch = deferredProjectSearch.trim().toLowerCase();
 
     return projectPortfolioItems.filter((item) => {
       const { project } = item;
@@ -910,7 +1021,7 @@ export function ProjectsPage() {
     projectPortfolioItems,
     projectMemberFilter,
     projectMemberUserIdsByProjectId,
-    projectSearch,
+    deferredProjectSearch,
     userSearchValueById
   ]);
 
@@ -934,12 +1045,104 @@ export function ProjectsPage() {
     () => (appTypes.data || []).filter((item) => String(item.project_id) === String(projectId)),
     [appTypes.data, projectId]
   );
+  const traceabilityModulesQuery = useQuery({
+    queryKey: ["project-traceability-modules", projectId, traceabilityAppTypeId],
+    queryFn: () => api.testCaseModules.list({ app_type_id: traceabilityAppTypeId }),
+    enabled: Boolean(projectId && traceabilityAppTypeId && loadProjectMetrics),
+    staleTime: 30_000
+  });
+  const traceabilityRequirementsQuery = useInfiniteQuery({
+    queryKey: ["project-traceability-requirements", projectId],
+    queryFn: ({ pageParam }) => api.requirements.listPage({
+      project_id: projectId,
+      page_size: 50,
+      cursor: pageParam,
+      projection: "summary"
+    }).then((value) => normalizePagedResult<Requirement>(value)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _pages, _lastPageParam, pageParams) => {
+      const cursor = getVerifiedNextPageCursor(lastPage);
+      return cursor && !pageParams.includes(cursor) ? cursor : undefined;
+    },
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    staleTime: 30_000
+  });
+  const traceabilityCasesQuery = useInfiniteQuery({
+    queryKey: ["project-traceability-cases", projectId, traceabilityAppTypeId],
+    queryFn: ({ pageParam }) => api.testCases.listPage({
+      app_type_id: traceabilityAppTypeId,
+      page_size: 50,
+      cursor: pageParam,
+      projection: "summary"
+    }).then((value) => normalizePagedResult<TestCase>(value)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _pages, _lastPageParam, pageParams) => {
+      const cursor = getVerifiedNextPageCursor(lastPage);
+      return cursor && !pageParams.includes(cursor) ? cursor : undefined;
+    },
+    enabled: Boolean(projectId && focusedProject && traceabilityAppTypeId && section === "traceability" && loadProjectMetrics),
+    staleTime: 30_000
+  });
+  const traceabilityBugsQuery = useInfiniteQuery({
+    queryKey: ["project-traceability-bugs", projectId],
+    queryFn: ({ pageParam }) => api.issues.listPage({
+      project_id: projectId,
+      page_size: 50,
+      cursor: pageParam,
+      projection: "detail"
+    }).then((value) => normalizePagedResult<Issue>(value)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _pages, _lastPageParam, pageParams) => {
+      const cursor = getVerifiedNextPageCursor(lastPage);
+      return cursor && !pageParams.includes(cursor) ? cursor : undefined;
+    },
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    staleTime: 30_000
+  });
+  const traceabilityRequirements = useMemo(
+    () => traceabilityRequirementsQuery.data?.pages?.flatMap((page) => page.items) || [],
+    [traceabilityRequirementsQuery.data]
+  );
+  const traceabilityCases = useMemo(
+    () => traceabilityCasesQuery.data?.pages?.flatMap((page) => page.items) || [],
+    [traceabilityCasesQuery.data]
+  );
+  const traceabilityBugs = useMemo(
+    () => traceabilityBugsQuery.data?.pages?.flatMap((page) => page.items) || [],
+    [traceabilityBugsQuery.data]
+  );
+  const isTraceabilityLoading = traceabilityRequirementsQuery.isLoading || traceabilityCasesQuery.isLoading || traceabilityBugsQuery.isLoading || traceabilityModulesQuery.isLoading;
+  const isTraceabilityError = traceabilityRequirementsQuery.isError || traceabilityCasesQuery.isError || traceabilityBugsQuery.isError || traceabilityModulesQuery.isError;
+  const hasMoreTraceability = Boolean(traceabilityRequirementsQuery.hasNextPage || traceabilityCasesQuery.hasNextPage || traceabilityBugsQuery.hasNextPage);
+  const isLoadingMoreTraceability = traceabilityRequirementsQuery.isFetchingNextPage || traceabilityCasesQuery.isFetchingNextPage || traceabilityBugsQuery.isFetchingNextPage;
+  const traceabilityLoadMoreError = traceabilityRequirementsQuery.isFetchNextPageError || traceabilityCasesQuery.isFetchNextPageError || traceabilityBugsQuery.isFetchNextPageError;
+  useEffect(() => {
+    if (!scopedAppTypes.length) {
+      setTraceabilityAppTypeId("");
+      return;
+    }
+    if (!scopedAppTypes.some((item) => item.id === traceabilityAppTypeId)) {
+      setTraceabilityAppTypeId(scopedAppTypes[0].id);
+      setCurrentAppTypeId(scopedAppTypes[0].id);
+    }
+  }, [scopedAppTypes, setCurrentAppTypeId, traceabilityAppTypeId]);
+  const assignableProjectRoles = useMemo(
+    () => (roles.data || []).filter((role) => role.id !== "jira-admin"),
+    [roles.data]
+  );
+  const newProjectRoleOptions = useMemo(
+    () => NEW_PROJECT_ROLE_DEFAULTS.map((fallback) => {
+      const configured = (roles.data || []).find((role) => role.id === fallback.id);
+      return { id: fallback.id, name: configured?.name || fallback.name };
+    }),
+    [roles.data]
+  );
 
   const projectMemberOptions = useMemo(
     () =>
       [...(users.data || [])].sort((left, right) => {
-        const leftAuto = left.id === session?.user.id || left.role === "admin";
-        const rightAuto = right.id === session?.user.id || right.role === "admin";
+        const leftAuto = left.id === session?.user.id;
+        const rightAuto = right.id === session?.user.id;
 
         if (leftAuto !== rightAuto) {
           return leftAuto ? -1 : 1;
@@ -952,7 +1155,7 @@ export function ProjectsPage() {
   const selectableProjectMemberIds = useMemo(
     () =>
       projectMemberOptions
-        .filter((user) => user.id !== session?.user.id && user.role !== "admin")
+        .filter((user) => user.id !== session?.user.id)
         .map((user) => user.id),
     [projectMemberOptions, session?.user.id]
   );
@@ -1022,10 +1225,11 @@ export function ProjectsPage() {
   const createProject = useMutation({
     mutationFn: api.projects.create,
     onSuccess: async (response) => {
-      setMessageTone("success");
-      setMessage(
-        `Project created. ${response.members_added} members linked and ${response.app_types_created} app type${response.app_types_created === 1 ? "" : "s"} added.`
-      );
+      const provisioningErrorCount = response.provisioning_errors?.length || 0;
+      setMessageTone(provisioningErrorCount ? "error" : "success");
+      setMessage(provisioningErrorCount
+        ? `Project created, but ${provisioningErrorCount} access or app-type item${provisioningErrorCount === 1 ? " needs" : "s need"} attention. Open the project and retry the missing setup.`
+        : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"} and ${response.app_types_created} app type${response.app_types_created === 1 ? "" : "s"} are ready.`);
       setSelectedProjectId(response.id);
       setFocusedProjectId(response.id);
       setIsCreateModalOpen(false);
@@ -1038,21 +1242,6 @@ export function ProjectsPage() {
     }
   });
 
-  useEffect(() => {
-    if (!isCreateModalOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !createProject.isPending) {
-        setIsCreateModalOpen(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [createProject.isPending, isCreateModalOpen]);
-
   const createMember = useMutation({
     mutationFn: api.projectMembers.create,
     onSuccess: async () => {
@@ -1063,6 +1252,19 @@ export function ProjectsPage() {
     onError: (error) => {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Unable to add project member");
+    }
+  });
+  const updateMemberRole = useMutation({
+    mutationFn: ({ memberId, roleId }: { memberId: string; roleId: string }) =>
+      api.projectMembers.update(memberId, { role_id: roleId }),
+    onSuccess: async () => {
+      setMessageTone("success");
+      setMessage("Project role updated.");
+      await invalidate();
+    },
+    onError: (error) => {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to update the project role");
     }
   });
 
@@ -1112,7 +1314,7 @@ export function ProjectsPage() {
   const openCreateProjectModal = () => {
     if (!canCreateProjects) {
       setMessageTone("error");
-      setMessage("Permission required: project.create");
+      setMessage("Permission required: project.manage");
       return;
     }
 
@@ -1127,6 +1329,18 @@ export function ProjectsPage() {
 
     setIsCreateModalOpen(false);
   };
+  const createProjectDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isCreateModalOpen,
+    closeDisabled: createProject.isPending,
+    onClose: closeCreateProjectModal
+  });
+  const closeRiskEvidenceDialog = useCallback(() => {
+    setIsRiskEvidenceOpen(false);
+  }, []);
+  const riskEvidenceDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isRiskEvidenceOpen,
+    onClose: closeRiskEvidenceDialog
+  });
 
   const handleDeleteProject = async () => {
     if (!focusedProject || deleteProject.isPending || !canDeleteProjects) {
@@ -1168,12 +1382,44 @@ export function ProjectsPage() {
   };
 
   const toggleProjectDraftMember = (userId: string) => {
+    setProjectDraft((current) => {
+      const isSelected = current.memberIds.includes(userId);
+      const memberRoleIds = { ...current.memberRoleIds };
+      if (isSelected) {
+        delete memberRoleIds[userId];
+      } else {
+        memberRoleIds[userId] = DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID;
+      }
+      return {
+        ...current,
+        memberIds: isSelected
+          ? current.memberIds.filter((id) => id !== userId)
+          : [...current.memberIds, userId],
+        memberRoleIds
+      };
+    });
+  };
+
+  const updateProjectDraftMemberRole = (userId: string, roleId: string) => {
     setProjectDraft((current) => ({
       ...current,
-      memberIds: current.memberIds.includes(userId)
-        ? current.memberIds.filter((id) => id !== userId)
-        : [...current.memberIds, userId]
+      memberRoleIds: { ...current.memberRoleIds, [userId]: roleId }
     }));
+  };
+
+  const selectAllProjectDraftMembers = () => {
+    setProjectDraft((current) => ({
+      ...current,
+      memberIds: selectableProjectMemberIds,
+      memberRoleIds: Object.fromEntries(selectableProjectMemberIds.map((userId) => [
+        userId,
+        current.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
+      ]))
+    }));
+  };
+
+  const clearProjectDraftMembers = () => {
+    setProjectDraft((current) => ({ ...current, memberIds: [], memberRoleIds: {} }));
   };
 
   const addProjectAppTypeRow = () => {
@@ -1211,7 +1457,7 @@ export function ProjectsPage() {
 
     if (!canCreateProjects) {
       setMessageTone("error");
-      setMessage("Permission required: project.create");
+      setMessage("Permission required: project.manage");
       return;
     }
 
@@ -1245,7 +1491,10 @@ export function ProjectsPage() {
     createProject.mutate({
       name: normalizedName,
       description: projectDraft.description.trim() || undefined,
-      member_ids: projectDraft.memberIds,
+      members: projectDraft.memberIds.map((userId) => ({
+        user_id: userId,
+        role_id: projectDraft.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
+      })),
       app_types: normalizedAppTypes
     });
   };
@@ -1305,12 +1554,12 @@ export function ProjectsPage() {
       description: "Open members, app types, integrations, and project summary."
     },
     {
-      label: "Open requirements",
+      label: "Open stories",
       icon: <TileCardRequirementIcon />,
       onClick: () => openPortfolioProjectPath(item, "/requirements"),
       featureKeys: ["qaira.manual.requirements"],
       requiredPermissions: ["requirement.view"],
-      description: "Review requirement scope and coverage links."
+      description: "Review story scope and coverage links."
     },
     {
       label: "Open test cases",
@@ -1433,7 +1682,7 @@ export function ProjectsPage() {
       render: (item) => (
         <div className="projects-list-meta-cell">
           <strong>{item.appTypeCount} app types</strong>
-          <span>{item.suiteCount} suites / {item.requirementCount} reqs / {item.testCaseCount} cases</span>
+          <span>{item.suiteCount} suites / {item.requirementCount} stories / {item.testCaseCount} cases</span>
         </div>
       )
     },
@@ -1454,7 +1703,7 @@ export function ProjectsPage() {
       sortValue: (item) => item.coverage.coveragePercent,
       render: (item) => (
         <div className="projects-list-meta-cell">
-          <span>Req {item.coverage.coveragePercent}%</span>
+          <span>Story {item.coverage.coveragePercent}%</span>
           <span>Auto {item.automationCoverage.coveragePercent}%</span>
           <span>Pass {item.passCoverage.coveragePercent}%</span>
         </div>
@@ -1473,21 +1722,8 @@ export function ProjectsPage() {
           <span>{item.latestDurationLabel}</span>
         </div>
       )
-    },
-    {
-      key: "actions",
-      label: "Actions",
-      canToggle: false,
-      canReorder: false,
-      canResize: false,
-      width: 92,
-      render: (item) => (
-        <div className="projects-list-actions" onClick={(event) => event.stopPropagation()}>
-          <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
-        </div>
-      )
     }
-  ], [areAllFilteredProjectsSelected, filteredProjectItems, getProjectActionItems, selectedActionProjectIds]);
+  ], [areAllFilteredProjectsSelected, filteredProjectItems, selectedActionProjectIds]);
 
   return (
     <div className="page-content projects-page">
@@ -1498,53 +1734,104 @@ export function ProjectsPage() {
         tone={messageTone}
       />
 
-      <section className="projects-command-card">
-        <div className="projects-command-copy">
-          <h2 className="page-header-title">Projects</h2>
-          <p>Monitor project health, automation maturity, execution confidence and delivery blockers from one workspace.</p>
-        </div>
-          <div className="projects-command-insight">
-          <span className="projects-ai-chip">AI Insight</span>
-          <h3>{portfolioSummary.riskyProjects || "No"} project{portfolioSummary.riskyProjects === 1 ? "" : "s"} need attention</h3>
-          <p>
-            {portfolioSummary.riskyProjects
-              ? "Review risky projects before release planning. Low pass rate and blocked cases are weighted into readiness."
-              : "Portfolio readiness is stable. Keep execution evidence fresh as project scope changes."}
-          </p>
-          <div className="projects-health-ring" style={{ "--score": `${portfolioSummary.overallHealth}%` } as CSSProperties}>
-            <strong>{portfolioSummary.overallHealth}%</strong>
-            <span>Overall health</span>
-          </div>
-        </div>
-      </section>
+      {!focusedProject ? (
+        <>
+          <section className="projects-command-card">
+            <div className="projects-command-copy">
+              <h2 className="page-header-title">Projects</h2>
+            </div>
+            <div className="projects-command-insight">
+              <div className="projects-command-insight-copy">
+                <div className="projects-command-insight-topline">
+                  <span className="projects-ai-chip">AI Insight</span>
+                  <button
+                    aria-haspopup="dialog"
+                    className="projects-view-evidence-button"
+                    onClick={() => setIsRiskEvidenceOpen(true)}
+                    type="button"
+                  >
+                    View evidence
+                  </button>
+                </div>
+                <h3>{portfolioSummary.attentionProjects || "No"} project{portfolioSummary.attentionProjects === 1 ? "" : "s"} {portfolioSummary.attentionProjects === 1 ? "needs" : "need"} attention</h3>
+                <div className="projects-command-evidence" aria-label="Portfolio attention evidence">
+                  <span><strong>{portfolioSummary.riskyProjects}</strong> risky</span>
+                  <span><strong>{portfolioSummary.watchProjects}</strong> watch</span>
+                  <span><strong>{portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked}</strong> failed or blocked</span>
+                </div>
+                <p>
+                  {portfolioSummary.attentionProjects
+                    ? "Latest execution outcomes, Story traceability, and pass confidence explain the signal."
+                    : "No project crosses the current watch or risk threshold."}
+                </p>
+              </div>
+              <div className="projects-health-ring" style={{ "--score": `${portfolioSummary.overallHealth}%` } as CSSProperties}>
+                <strong>{portfolioSummary.overallHealth}%</strong>
+                <span>Overall health</span>
+                <MetricMethodologyInfo criteriaKey="metric.project.portfolio_health" evidence={`${projectPortfolioItems.length} equally weighted visible project readiness scores.`} organizationCriteria={getMetricCriteria("metric.project.portfolio_health")} />
+              </div>
+            </div>
+          </section>
 
-      <section className="projects-stats-grid" aria-label="Portfolio summary">
-        <article className="project-stat-card">
-          <span>Total Projects</span>
-          <strong>{portfolioSummary.totalProjects}</strong>
-          <small>{formatCompactCount(projectPortfolioItems.filter((item) => item.appTypeCount > 0).length, "project")} with app types</small>
-        </article>
-        <article className="project-stat-card danger">
-          <span>Risky Projects</span>
-          <strong>{portfolioSummary.riskyProjects}</strong>
-          <small>Needs immediate review</small>
-        </article>
-        <article className="project-stat-card warning">
-          <span>Release Ready</span>
-          <strong>{portfolioSummary.releaseReadyProjects}</strong>
-          <small>Passing health threshold</small>
-        </article>
-        <article className="project-stat-card success">
-          <span>Requirement Coverage</span>
-          <strong>{portfolioSummary.averageRequirementCoverage}%</strong>
-          <small>Average across scope</small>
-        </article>
-        <article className="project-stat-card info">
-          <span>Automation Coverage</span>
-          <strong>{portfolioSummary.averageAutomationCoverage}%</strong>
-          <small>Automation maturity</small>
-        </article>
-      </section>
+          <section className="projects-stats-grid metric-strip page-metric-strip" aria-label="Portfolio summary">
+            <PortfolioMetricCard
+              caption="Jira projects in portfolio"
+              evidence={[
+                `${projectPortfolioItems.filter((item) => item.appTypeCount > 0).length} with app types`,
+                `${portfolioSummary.assessedProjects} with assessable QA scope`
+              ]}
+              label="Total Projects"
+              value={portfolioSummary.totalProjects}
+            />
+            <PortfolioMetricCard
+              caption="Needs immediate review"
+              evidence={[
+                `${portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked} failed or blocked in latest runs`,
+                `${portfolioSummary.riskyLowPassProjects} below the 60% pass-confidence threshold`
+              ]}
+              label="Risky Projects"
+              criteriaKey="metric.project.risky_classification"
+              tone="danger"
+              value={portfolioSummary.riskyProjects}
+            />
+            <PortfolioMetricCard
+              caption="Passing health threshold"
+              evidence={[
+                `${portfolioSummary.readyWithExecutionEvidence} with execution evidence`,
+                `${portfolioSummary.releaseReadyAverage}% average readiness`
+              ]}
+              label="Release Ready"
+              criteriaKey="metric.project.release_ready"
+              tone="success"
+              value={portfolioSummary.releaseReadyProjects}
+            />
+            <PortfolioMetricCard
+              caption="Average across project scope"
+              evidence={[
+                `${portfolioSummary.coveredStories} of ${portfolioSummary.totalStories} Stories linked`,
+                `${portfolioSummary.totalStories - portfolioSummary.coveredStories} coverage gaps`
+              ]}
+              label="Story Coverage"
+              criteriaKey="metric.project.average_story_coverage"
+              tone="success"
+              value={`${portfolioSummary.averageRequirementCoverage}%`}
+            />
+            {canViewProjectAutomationCoverage ? (
+              <PortfolioMetricCard
+                caption="Automation maturity"
+                evidence={[
+                  `${portfolioSummary.automatedCases} of ${portfolioSummary.totalCases} cases automated`,
+                  `${portfolioSummary.totalCases - portfolioSummary.automatedCases} manual or incomplete`
+                ]}
+                label="Automation Coverage"
+                criteriaKey="metric.project.average_automation_coverage"
+                tone="info"
+                value={`${portfolioSummary.averageAutomationCoverage}%`}
+              />
+            ) : null}
+          </section>
+        </>
+      ) : null}
 
       <WorkspaceMasterDetail
         browseView={(
@@ -1554,85 +1841,93 @@ export function ProjectsPage() {
             titleVariant="eyebrow"
             subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or app types."
             actions={(
-              <div className="projects-catalog-actions">
-                <CatalogSearchFilter
-                  activeFilterCount={activeProjectFilterCount}
-                  ariaLabel="Search projects"
-                  onChange={setProjectSearch}
-                  placeholder="Search projects"
-                  subtitle="Filter projects by app type scope or project members."
-                  title="Filter projects"
-                  type="search"
-                  value={projectSearch}
-                >
-                  <div className="catalog-filter-grid">
-                    <label className="catalog-filter-field">
-                      <span>App type</span>
-                      <select onChange={(event) => setProjectAppTypeFilter(event.target.value)} value={projectAppTypeFilter}>
-                        <option value="all">All app types</option>
-                        <option value="with-app-types">Has app types</option>
-                        <option value="without-app-types">No app types</option>
-                        {appTypeTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="catalog-filter-field">
-                      <span>Project member</span>
-                      <select onChange={(event) => setProjectMemberFilter(event.target.value)} value={projectMemberFilter}>
-                        <option value="all">All members</option>
-                        <option value="with-members">Has members</option>
-                        <option value="without-members">No members</option>
-                        {projectMemberOptions.map((user) => (
-                          <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="catalog-filter-actions">
-                      <button
-                        className="ghost-button"
-                        disabled={!activeProjectFilterCount}
-                        onClick={() => {
-                          setProjectAppTypeFilter("all");
-                          setProjectMemberFilter("all");
-                        }}
-                        type="button"
-                      >
-                        Clear filters
-                      </button>
+              <div className="projects-catalog-actions catalog-command-toolbar">
+                <div className="catalog-toolbar-discovery" aria-label="Project views, search, and selection">
+                  <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
+                  <CatalogSearchFilter
+                    activeFilterCount={activeProjectFilterCount}
+                    ariaLabel="Search projects"
+                    onChange={setProjectSearch}
+                    placeholder="Search projects"
+                    subtitle="Filter projects by app type scope or project members."
+                    title="Filter projects"
+                    type="search"
+                    value={projectSearch}
+                  >
+                    <div className="catalog-filter-grid">
+                      <label className="catalog-filter-field">
+                        <span>App type</span>
+                        <select onChange={(event) => setProjectAppTypeFilter(event.target.value)} value={projectAppTypeFilter}>
+                          <option value="all">All app types</option>
+                          <option value="with-app-types">Has app types</option>
+                          <option value="without-app-types">No app types</option>
+                          {appTypeTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="catalog-filter-field">
+                        <span>Project member</span>
+                        <select onChange={(event) => setProjectMemberFilter(event.target.value)} value={projectMemberFilter}>
+                          <option value="all">All members</option>
+                          <option value="with-members">Has members</option>
+                          <option value="without-members">No members</option>
+                          {projectMemberOptions.map((user) => (
+                            <option key={user.id} value={user.id}>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="catalog-filter-actions">
+                        <button
+                          className="ghost-button"
+                          disabled={!activeProjectFilterCount}
+                          onClick={() => {
+                            setProjectAppTypeFilter("all");
+                            setProjectMemberFilter("all");
+                          }}
+                          type="button"
+                        >
+                          Clear filters
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </CatalogSearchFilter>
-                <CatalogSelectionControls
-                  allSelected={areAllFilteredProjectsSelected}
-                  canSelectAll={Boolean(filteredProjectItems.length)}
-                  onClear={() => setSelectedActionProjectIds([])}
-                  onSelectAll={() =>
-                    setSelectedActionProjectIds((current) => [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])])
-                  }
-                  selectedCount={selectedActionProjectIds.length}
-                />
-                <CatalogViewToggle onChange={setProjectViewMode} value={projectViewMode} />
-                <button
-                  className="ghost-button projects-catalog-create-button"
-                  disabled={!canCreateProjects}
-                  onClick={openCreateProjectModal}
-                  type="button"
-                >
-                  <AddIcon />
-                  <span>Create New Project</span>
-                </button>
-                {selectedActionProjectIds.length ? (
+                  </CatalogSearchFilter>
+                  <CatalogSelectionControls
+                    allSelected={areAllFilteredProjectsSelected}
+                    canSelectAll={Boolean(filteredProjectItems.length)}
+                    onClear={() => setSelectedActionProjectIds([])}
+                    onSelectAll={() =>
+                      setSelectedActionProjectIds((current) => [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])])
+                    }
+                    selectedCount={selectedActionProjectIds.length}
+                  />
+                </div>
+                <div className="catalog-toolbar-actions" aria-label="Project actions">
+                  <button
+                    className="ghost-button projects-catalog-create-button"
+                    disabled={!canCreateProjects}
+                    onClick={openCreateProjectModal}
+                    type="button"
+                  >
+                    <AddIcon />
+                    <span>Create New Project</span>
+                  </button>
                   <button
                     className="ghost-button danger projects-catalog-delete-button"
-                    disabled={!canDeleteProjects || deleteProject.isPending}
+                    disabled={!selectedActionProjectIds.length || !canDeleteProjects || deleteProject.isPending}
                     onClick={() => void handleDeleteSelectedProjects()}
                     type="button"
                   >
                     <TrashIcon />
-                    <span>{deleteProject.isPending ? "Deleting…" : `Delete selected (${selectedActionProjectIds.length})`}</span>
+                    <span>
+                      {deleteProject.isPending
+                        ? "Deleting…"
+                        : selectedActionProjectIds.length
+                          ? `Delete selected (${selectedActionProjectIds.length})`
+                          : "Delete selected"}
+                    </span>
                   </button>
-                ) : null}
+                </div>
               </div>
             )}
           >
@@ -1644,8 +1939,8 @@ export function ProjectsPage() {
                     const { project, coverage, automationCoverage, passCoverage } = item;
                     const isSelected = String(selectedProjectId) === String(project.id);
                     const requirementCoverageDetail = coverage.totalRequirements
-                      ? `${coverage.coveredRequirements}/${coverage.totalRequirements} requirements covered`
-                      : "No requirements available to measure coverage";
+                      ? `${coverage.coveredRequirements}/${coverage.totalRequirements} stories covered`
+                      : "No stories available to measure coverage";
                     const automationCoverageDetail = automationCoverage.totalCases
                       ? `${automationCoverage.automatedCases}/${automationCoverage.totalCases} cases automated`
                       : "No test cases available to measure automation coverage";
@@ -1732,7 +2027,7 @@ export function ProjectsPage() {
                         <div className="project-card-progress-stack" aria-label={`${project.name} coverage summary`}>
                           <ProjectProgressBar
                             detail={requirementCoverageDetail}
-                            label="Requirement coverage"
+                            label="Story coverage"
                             tone={getMetricTone(coverage.coveredRequirements, coverage.totalRequirements)}
                             value={coverage.coveragePercent}
                           />
@@ -1763,7 +2058,7 @@ export function ProjectsPage() {
                           <span><b>{item.memberCount}</b> Members</span>
                           <span><b>{item.suiteCount}</b> Suites</span>
                           <span><b>{item.testCaseCount}</b> Cases</span>
-                          <span><b>{item.requirementCount}</b> Requirements</span>
+                          <span><b>{item.requirementCount}</b> Stories</span>
                         </div>
 
                         <div className={`project-risk-note ${item.healthTone}`}>
@@ -1786,6 +2081,11 @@ export function ProjectsPage() {
                   getRowKey={(item) => item.project.id}
                   hideToolbarCopy
                   onRowClick={openPortfolioProject}
+                  renderRowActions={(item) => (
+                    <div className="projects-list-actions">
+                      <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+                    </div>
+                  )}
                   rows={filteredProjectItems}
                   storageKey="qaira:projects:list-columns"
                 />
@@ -1811,43 +2111,47 @@ export function ProjectsPage() {
                   <div className="metric-strip">
                     <button
                       aria-label={`Open members for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card"
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectSection("members")}
                       type="button"
                     >
                       <strong>{scopedMembers.length}</strong>
                       <span>Members</span>
+                      <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
                       aria-label={`Open app types for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card"
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectSection("appTypes")}
                       type="button"
                     >
                       <strong>{selectedProjectAppTypeCount}</strong>
                       <span>App types</span>
+                      <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
-                      aria-label={`Open requirements for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card"
+                      aria-label={`Open stories for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectWorkspacePage("/requirements")}
                       type="button"
                     >
                       <strong>{selectedProjectRequirementCount}</strong>
-                      <span>Requirements</span>
+                      <span>Stories</span>
+                      <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
                       aria-label={`Open test cases for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card"
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectWorkspacePage("/test-cases")}
                       type="button"
                     >
                       <strong>{selectedProjectTestCaseCount}</strong>
                       <span>Test cases</span>
+                      <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
                       aria-label={`Open execution results for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card"
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectWorkspacePage("/executions")}
                       type="button"
                     >
@@ -1857,6 +2161,7 @@ export function ProjectsPage() {
                           ? `Pass rate · ${selectedProjectPassCoverage.passedCases}/${selectedProjectPassCoverage.totalCases} passed`
                           : "Pass rate"}
                       </span>
+                      <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                   </div>
                   <div className="action-row">
@@ -1864,11 +2169,6 @@ export function ProjectsPage() {
                       className="ghost-button"
                       disabled={!canSyncProjects || !focusedGoogleDriveIntegration || queueProjectSync.isPending}
                       onClick={() => focusedProject && queueProjectSync.mutate({ projectId: focusedProject.id, provider: "google_drive" })}
-                      title={
-                        focusedGoogleDriveIntegration
-                          ? `Last backup: ${lastProjectBackupByProvider.google_drive ? formatAuditTimestamp(lastProjectBackupByProvider.google_drive.completed_at || lastProjectBackupByProvider.google_drive.created_at, "Not recorded") : "Not recorded"}`
-                          : "Backup is off until this project is mapped to a Google Drive integration"
-                      }
                       type="button"
                     >
                       <GoogleDriveIcon />
@@ -1878,11 +2178,6 @@ export function ProjectsPage() {
                       className="ghost-button"
                       disabled={!canSyncProjects || !focusedGithubIntegration || queueProjectSync.isPending}
                       onClick={() => focusedProject && queueProjectSync.mutate({ projectId: focusedProject.id, provider: "github" })}
-                      title={
-                        focusedGithubIntegration
-                          ? `Last sync: ${lastProjectBackupByProvider.github ? formatAuditTimestamp(lastProjectBackupByProvider.github.completed_at || lastProjectBackupByProvider.github.created_at, "Not recorded") : "Not recorded"}`
-                          : "Repository sync is off until this project is mapped to a GitHub integration"
-                      }
                       type="button"
                     >
                       <GithubIcon />
@@ -1899,39 +2194,6 @@ export function ProjectsPage() {
                       </button>
                     ) : null}
                   </div>
-                  <div className="project-sync-status-grid">
-                    <ProjectSyncStatusCard
-                      actionLabel="Artifact backup"
-                      configuredSummary={`Artifacts are mapped to ${readIntegrationConfigValue(focusedGoogleDriveIntegration, ["folder_name", "folder_id", "drive_folder_id"]) || "the configured Drive folder"}.`}
-                      configureLabel="Configure Drive"
-                      icon={<GoogleDriveIcon />}
-                      info="Google Drive stores compressed project artifacts and run evidence snapshots when the project has an active Drive integration."
-                      integration={focusedGoogleDriveIntegration}
-                      lastTransaction={lastProjectBackupByProvider.google_drive}
-                      missingSummary="Backups are off. Connect Drive when this project needs artifact retention outside QAira."
-                      onConfigure={() => navigate("/integrations")}
-                      title="Drive backup"
-                    />
-                    <ProjectSyncStatusCard
-                      actionLabel="Automation sync"
-                      configuredSummary={`Automation code syncs to ${
-                        [
-                          readIntegrationConfigValue(focusedGithubIntegration, ["owner"]),
-                          readIntegrationConfigValue(focusedGithubIntegration, ["repo", "repository"])
-                        ].filter(Boolean).join("/")
-                        || readIntegrationConfigValue(focusedGithubIntegration, ["repository_full_name"])
-                        || "the configured repository"
-                      }${readIntegrationConfigValue(focusedGithubIntegration, ["branch"]) ? ` on ${readIntegrationConfigValue(focusedGithubIntegration, ["branch"])}` : ""}.`}
-                      configureLabel="Configure repo"
-                      icon={<GithubIcon />}
-                      info="GitHub sync publishes generated automation code and manifests to the repository mapped to this project."
-                      integration={focusedGithubIntegration}
-                      lastTransaction={lastProjectBackupByProvider.github}
-                      missingSummary="Repository sync is off. Connect GitHub when generated automation should be versioned in a repo."
-                      onConfigure={() => navigate("/integrations")}
-                      title="GitHub repository"
-                    />
-                  </div>
                 </div>
               ) : (
                 <div className="empty-state compact">Choose a project to continue.</div>
@@ -1942,10 +2204,59 @@ export function ProjectsPage() {
               value={section}
               onChange={setSection}
               items={[
+                { value: "traceability", label: "Traceability Map", meta: traceabilityAppTypeId ? "Live" : "—" },
                 { value: "members", label: "Members", meta: `${scopedMembers.length}` },
                 { value: "appTypes", label: "App Types", meta: `${scopedAppTypes.length}` }
               ]}
             />
+
+            {section === "traceability" ? (
+              <Panel title="Traceability map" subtitle="Explore Story-to-Bug coverage for one app type without leaving the project.">
+                {scopedAppTypes.length && traceabilityAppTypeId ? (
+                  isTraceabilityLoading ? <LoadingState label="Loading app-type traceability" /> : isTraceabilityError ? (
+                    <div className="empty-state compact">
+                      <strong>Traceability data could not be loaded.</strong>
+                      <span>Retry the Jira Story, module, test case, and Bug queries without leaving this project.</span>
+                      <button className="ghost-button compact" onClick={() => {
+                        void traceabilityRequirementsQuery.refetch();
+                        void traceabilityCasesQuery.refetch();
+                        void traceabilityBugsQuery.refetch();
+                        void traceabilityModulesQuery.refetch();
+                      }} type="button">Retry map</button>
+                    </div>
+                  ) : <ProjectTraceabilityMap
+                    appTypes={scopedAppTypes}
+                    bugs={traceabilityBugs}
+                    hasMore={hasMoreTraceability}
+                    isLoadingMore={isLoadingMoreTraceability}
+                    loadMoreError={traceabilityLoadMoreError}
+                    modules={(traceabilityModulesQuery.data || []) as TestCaseModule[]}
+                    onAppTypeChange={(id) => {
+                      setTraceabilityAppTypeId(id);
+                      setCurrentAppTypeId(id);
+                    }}
+                    onOpen={(kind, id) => {
+                      const target = kind === "requirement"
+                        ? `/requirements?requirement=${encodeURIComponent(id)}`
+                        : kind === "bug"
+                          ? `/issues?issue=${encodeURIComponent(id)}`
+                          : kind === "module"
+                            ? `/test-cases?module=${encodeURIComponent(id)}`
+                            : `/test-cases?case=${encodeURIComponent(id)}`;
+                      navigate(target);
+                    }}
+                    onLoadMore={() => {
+                      if (traceabilityRequirementsQuery.hasNextPage) void traceabilityRequirementsQuery.fetchNextPage();
+                      if (traceabilityCasesQuery.hasNextPage) void traceabilityCasesQuery.fetchNextPage();
+                      if (traceabilityBugsQuery.hasNextPage) void traceabilityBugsQuery.fetchNextPage();
+                    }}
+                    requirements={traceabilityRequirements}
+                    selectedAppTypeId={traceabilityAppTypeId}
+                    testCases={traceabilityCases}
+                  />
+                ) : <div className="empty-state compact">Add an app type to build its traceability map.</div>}
+              </Panel>
+            ) : null}
 
             {section === "members" ? (
               <Panel title="Project members" subtitle={projectId ? `Assignments for ${scopedProject?.name}` : "Select a project first"}>
@@ -1969,7 +2280,7 @@ export function ProjectsPage() {
                 </select>
                 <select name="role_id" required defaultValue="">
                   <option value="" disabled>Select role</option>
-                  {(roles.data || []).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                  {assignableProjectRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
                 </select>
                 <button className="primary-button" disabled={!canManageProjectMembers || !projectId || createMember.isPending} type="submit">
                   {createMember.isPending ? "Adding…" : "Add member"}
@@ -1981,15 +2292,27 @@ export function ProjectsPage() {
                   const user = users.data?.find((item) => item.id === member.user_id);
                   const role = roles.data?.find((item) => item.id === member.role_id);
                   const isCurrentUser = member.user_id === session?.user.id;
+                  const isJiraManagedAdministrator = member.role_id === "jira-admin" && member.assignment_source === "jira-permission";
 
                   return (
                     <article className="mini-card" key={member.id}>
                       <strong>{user?.name || visibleUserEmail(user?.email) || member.user_id}</strong>
-                      <span>{role?.name || member.role_id}</span>
-                      {isCurrentUser ? <span className="text-muted project-member-note">You</span> : null}
+                      <select
+                        aria-label={`HelloTest role for ${user?.name || member.user_id}`}
+                        disabled={!canManageProjectMembers || updateMemberRole.isPending || isJiraManagedAdministrator}
+                        onChange={(event) => updateMemberRole.mutate({ memberId: member.id, roleId: event.target.value })}
+                        value={member.role_id}
+                      >
+                        {!assignableProjectRoles.some((roleOption) => roleOption.id === member.role_id) ? (
+                          <option value={member.role_id}>{role?.name || member.role_id} · Jira-derived</option>
+                        ) : null}
+                        {assignableProjectRoles.map((roleOption) => (
+                          <option key={roleOption.id} value={roleOption.id}>{roleOption.name}</option>
+                        ))}
+                      </select>
                       <button
                         className="ghost-button danger"
-                        disabled={!canManageProjectMembers}
+                        disabled={!canManageProjectMembers || isJiraManagedAdministrator}
                         onClick={() => void handleRemoveMember(member)}
                         type="button"
                       >
@@ -2068,28 +2391,229 @@ export function ProjectsPage() {
         isDetailOpen={Boolean(focusedProject)}
       />
 
+      {isRiskEvidenceOpen ? (
+        <div
+          className="modal-backdrop project-risk-evidence-backdrop"
+          onClick={closeRiskEvidenceDialog}
+          role="presentation"
+        >
+          <div
+            aria-describedby="project-risk-evidence-description"
+            aria-labelledby="project-risk-evidence-title"
+            aria-modal="true"
+            className="modal-card project-risk-evidence-dialog"
+            onClick={(event) => event.stopPropagation()}
+            ref={riskEvidenceDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <header className="project-risk-evidence-header">
+              <div className="project-risk-evidence-heading">
+                <span className="project-risk-evidence-icon" aria-hidden="true">
+                  <IconShieldCheck size={20} stroke={1.9} />
+                </span>
+                <div>
+                  <span className="dialog-context-label">Portfolio health</span>
+                  <h2 className="dialog-title" id="project-risk-evidence-title">Why projects need attention</h2>
+                  <p id="project-risk-evidence-description">
+                    Current evidence from loaded Stories, test cases, automation status, and the latest execution results.
+                  </p>
+                </div>
+              </div>
+              <DialogCloseButton
+                label="Close project risk evidence"
+                onClick={closeRiskEvidenceDialog}
+              />
+            </header>
+
+            <div className="project-risk-evidence-body">
+              <section className="project-risk-summary-grid" aria-label="Portfolio risk summary">
+                <article className="project-risk-summary-card tone-danger">
+                  <IconAlertTriangle aria-hidden="true" size={18} stroke={1.9} />
+                  <span>Needs attention</span>
+                  <strong>{portfolioSummary.attentionProjects}</strong>
+                  <small>{portfolioSummary.riskyProjects} risky · {portfolioSummary.watchProjects} watch</small>
+                </article>
+                <article className="project-risk-summary-card tone-danger">
+                  <IconActivity aria-hidden="true" size={18} stroke={1.9} />
+                  <span>Execution blockers</span>
+                  <strong>{portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked}</strong>
+                  <small>Failed or blocked latest results</small>
+                </article>
+                <article className="project-risk-summary-card tone-info">
+                  <IconChartBar aria-hidden="true" size={18} stroke={1.9} />
+                  <span>Average pass confidence</span>
+                  <strong>{portfolioSummary.averagePassCoverage}%</strong>
+                  <small>Across loaded project test-case scope</small>
+                </article>
+                <article className="project-risk-summary-card tone-warning">
+                  <IconShieldCheck aria-hidden="true" size={18} stroke={1.9} />
+                  <span>Evidence missing</span>
+                  <strong>{portfolioSummary.attentionWithoutExecution}</strong>
+                  <small>Attention projects without a recorded run</small>
+                </article>
+              </section>
+
+              <section className="project-risk-method" aria-labelledby="project-risk-method-title">
+                <div>
+                  <span className="project-risk-method-icon" aria-hidden="true">
+                    <IconCircleCheck size={18} stroke={1.9} />
+                  </span>
+                  <div>
+                    <h3 id="project-risk-method-title">How the signal is calculated</h3>
+                    <p>
+                      Readiness weights Story coverage at 35%, automation coverage at 25%, and latest pass confidence at 40%.
+                      Loaded cases without a passing latest result do not increase pass confidence.
+                    </p>
+                  </div>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Risky</dt>
+                    <dd>Latest failures or blockers, or pass confidence below 60%.</dd>
+                  </div>
+                  <div>
+                    <dt>Watch</dt>
+                    <dd>Assessable scope with weighted readiness below 80%.</dd>
+                  </div>
+                  <div>
+                    <dt>Release ready</dt>
+                    <dd>Weighted readiness of at least 80% with no hard risk signal.</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="project-risk-projects" aria-labelledby="project-risk-projects-title">
+                <div className="project-risk-section-heading">
+                  <div>
+                    <h3 id="project-risk-projects-title">Project evidence</h3>
+                    <p>Highest-risk projects appear first. Each reason is tied to a loaded metric or execution outcome.</p>
+                  </div>
+                  <span>{projectRiskEvidenceItems.length} project{projectRiskEvidenceItems.length === 1 ? "" : "s"}</span>
+                </div>
+
+                {projectRiskEvidenceItems.length ? (
+                  <div className="project-risk-project-list">
+                    {projectRiskEvidenceItems.map((item) => {
+                      const riskSignals = getProjectRiskSignals(item);
+
+                      return (
+                        <article className={`project-risk-project-card tone-${item.healthTone}`} key={item.project.id}>
+                          <header>
+                            <div>
+                              <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
+                              <h4>{item.project.name}</h4>
+                              <small>{item.project.display_id || item.project.id} · Latest run {item.latestRunLabel}</small>
+                            </div>
+                            <button
+                              className="project-risk-open-button"
+                              onClick={() => {
+                                closeRiskEvidenceDialog();
+                                openPortfolioProject(item);
+                              }}
+                              type="button"
+                            >
+                              Open project
+                            </button>
+                          </header>
+
+                          <div className="project-risk-score-row">
+                            <div>
+                              <span>Readiness</span>
+                              <strong>{item.readinessScore}%</strong>
+                            </div>
+                            <ProjectProgressBar
+                              detail="35% Story coverage, 25% automation coverage, and 40% pass confidence"
+                              label="Weighted readiness"
+                              tone={item.healthTone === "danger" ? "danger" : "info"}
+                              value={item.readinessScore}
+                            />
+                          </div>
+
+                          <dl className="project-risk-metric-grid">
+                            <div>
+                              <dt>Story coverage</dt>
+                              <dd>{item.coverage.coveragePercent}%</dd>
+                              <small>{item.coverage.coveredRequirements}/{item.coverage.totalRequirements} linked</small>
+                            </div>
+                            <div>
+                              <dt>Automation</dt>
+                              <dd>{item.automationCoverage.coveragePercent}%</dd>
+                              <small>{item.automationCoverage.automatedCases}/{item.automationCoverage.totalCases} automated</small>
+                            </div>
+                            <div>
+                              <dt>Pass confidence</dt>
+                              <dd>{item.passCoverage.coveragePercent}%</dd>
+                              <small>{item.passCoverage.passedCases}/{item.passCoverage.totalCases} latest passed</small>
+                            </div>
+                            <div>
+                              <dt>Latest blockers</dt>
+                              <dd>{item.latestFailedCount + item.latestBlockedCount}</dd>
+                              <small>{item.latestFailedCount} failed · {item.latestBlockedCount} blocked</small>
+                            </div>
+                          </dl>
+
+                          <ul className="project-risk-signal-list" aria-label={`${item.project.name} attention reasons`}>
+                            {riskSignals.map((signal) => (
+                              <li className={`tone-${signal.tone}`} key={signal.label}>
+                                <span aria-hidden="true" />
+                                <div>
+                                  <strong>{signal.label}</strong>
+                                  <p>{signal.detail}</p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="project-risk-empty-state">
+                    <IconCircleCheck aria-hidden="true" size={22} stroke={1.9} />
+                    <div>
+                      <strong>No portfolio risk signals</strong>
+                      <p>Loaded projects are release ready or do not yet have enough QA scope to assess.</p>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <footer className="project-risk-evidence-footer">
+              <span>Evidence refreshes with the project portfolio data.</span>
+              <button className="ghost-button" onClick={closeRiskEvidenceDialog} type="button">Close</button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
       {isCreateModalOpen ? (
-        <div className="modal-backdrop" onClick={closeCreateProjectModal}>
+        <div className="modal-backdrop" onClick={closeCreateProjectModal} role="presentation">
           <div
             aria-labelledby="create-project-title"
             aria-modal="true"
             className="modal-card project-create-modal"
             onClick={(event) => event.stopPropagation()}
+            ref={createProjectDialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="project-create-header">
               <div className="project-create-title">
                 <div className="modal-title-info-row">
-                  <p className="eyebrow" id="create-project-title">Create project</p>
+                  <h2 className="dialog-title" id="create-project-title">Create project</h2>
                   <InfoTooltip
                     content="Create the project, attach app types, and select any extra members. Admins are added automatically, and your account is linked as a member."
                     label="Create project information"
                   />
                 </div>
               </div>
-              <button className="ghost-button" disabled={createProject.isPending} onClick={closeCreateProjectModal} type="button">
-                Close
-              </button>
+              <DialogCloseButton
+                disabled={createProject.isPending}
+                label="Close create project dialog"
+                onClick={closeCreateProjectModal}
+              />
             </div>
 
             <form className="project-create-modal-form" onSubmit={handleProjectCreate}>
@@ -2099,6 +2623,7 @@ export function ProjectsPage() {
                     <input
                       autoComplete="organization"
                       autoFocus
+                      data-autofocus="true"
                       id="project-name-input"
                       onChange={(event) => updateProjectDraft({ name: event.target.value })}
                       value={projectDraft.name}
@@ -2106,6 +2631,7 @@ export function ProjectsPage() {
                   </FormField>
                   <FormField label="Description" inputId="project-description-input">
                     <RichTextEditor
+                      appearance="canonical"
                       id="project-description-input"
                       onChange={(description) => updateProjectDraft({ description })}
                       rows={3}
@@ -2126,8 +2652,8 @@ export function ProjectsPage() {
                 </div>
 
                 <div className="detail-summary">
-                  <strong>Automatic membership is handled for you</strong>
-                  <span>Admins are linked automatically with admin access, while the project creator is linked automatically as a member. Extra selected users are added as project members in the same create action.</span>
+                  <strong>Project-scoped access from the first save</strong>
+                  <span>The creator receives the Jira administrator role when Jira grants Administer Jira; otherwise the creator receives QA lead. Every selected member must have a HelloTest role.</span>
                 </div>
 
                 <section className="project-create-section">
@@ -2175,14 +2701,14 @@ export function ProjectsPage() {
                   <div className="project-create-section-head">
                     <div>
                       <h4>Project members</h4>
-                      <p>All existing users are listed here. Admins are auto-added, your account is auto-added as a member, and any other users can be selected now.</p>
+                      <p>Select Jira users and assign a HelloTest role. The creator is added as QA lead, and every other selection defaults to QA member.</p>
                     </div>
                     <div className="panel-head-actions">
                       <span className="status-pill tone-neutral">{projectDraft.memberIds.length} selected</span>
                       <button
                         className="ghost-button"
                         disabled={!selectableProjectMemberIds.length || areAllSelectableProjectMembersSelected}
-                        onClick={() => updateProjectDraft({ memberIds: selectableProjectMemberIds })}
+                        onClick={selectAllProjectDraftMembers}
                         type="button"
                       >
                         Select all
@@ -2190,7 +2716,7 @@ export function ProjectsPage() {
                       <button
                         className="ghost-button"
                         disabled={!projectDraft.memberIds.length}
-                        onClick={() => updateProjectDraft({ memberIds: [] })}
+                        onClick={clearProjectDraftMembers}
                         type="button"
                       >
                         Clear
@@ -2201,24 +2727,39 @@ export function ProjectsPage() {
                   {projectMemberOptions.length ? (
                     <div className="modal-case-picker project-member-picker">
                       {projectMemberOptions.map((user) => {
-                        const isAutoIncluded = user.id === session?.user.id || user.role === "admin";
+                        const isAutoIncluded = user.id === session?.user.id;
+                        const isSelected = isAutoIncluded || projectDraft.memberIds.includes(user.id);
 
                         return (
-                          <label className={isAutoIncluded ? "modal-case-option project-member-option is-auto-included" : "modal-case-option project-member-option"} key={user.id}>
-                            <input
-                              checked={isAutoIncluded || projectDraft.memberIds.includes(user.id)}
-                              disabled={isAutoIncluded}
-                              onChange={() => toggleProjectDraftMember(user.id)}
-                              type="checkbox"
-                            />
-                            <div>
-                              <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
-                              <span>{visibleUserEmail(user.email)}</span>
-                              <span className="project-member-option-meta">
-                                {isAutoIncluded ? (user.id === session?.user.id ? "Project creator • auto-added as member" : "Admin • auto-added") : "Selectable member"}
+                          <div className={isAutoIncluded ? "modal-case-option project-member-option is-auto-included" : "modal-case-option project-member-option"} key={user.id}>
+                            <label className="project-member-option-identity">
+                              <input
+                                checked={isSelected}
+                                disabled={isAutoIncluded}
+                                onChange={() => toggleProjectDraftMember(user.id)}
+                                type="checkbox"
+                              />
+                              <span>
+                                <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
+                                <span>{visibleUserEmail(user.email)}</span>
+                                <span className="project-member-option-meta">
+                                  {isAutoIncluded ? `Project creator · ${hasJiraAdministration ? "Jira administrator" : "QA lead"}` : isSelected ? "Role required" : "Not added"}
+                                </span>
                               </span>
-                            </div>
-                          </label>
+                            </label>
+                            {isAutoIncluded ? (
+                              <span className="status-pill tone-info">{hasJiraAdministration ? "Jira administrator" : "QA lead"}</span>
+                            ) : isSelected ? (
+                              <select
+                                aria-label={`HelloTest role for ${user.name || visibleUserEmail(user.email) || "selected user"}`}
+                                onChange={(event) => updateProjectDraftMemberRole(user.id, event.target.value)}
+                                required
+                                value={projectDraft.memberRoleIds[user.id] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID}
+                              >
+                                {newProjectRoleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                              </select>
+                            ) : null}
+                          </div>
                         );
                       })}
                     </div>

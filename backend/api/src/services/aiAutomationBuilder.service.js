@@ -1,6 +1,6 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const integrationService = require("./integration.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const testStepService = require("./testStep.service");
@@ -498,9 +498,9 @@ const requestChatCompletion = async ({ integration, prompt, content }) => {
         {
           role: "system",
           content: [
-            "You are QAira Pilot, a senior test automation engineer.",
+            "You are HelloTest Pilot, a senior test automation engineer.",
             "Return strict JSON only.",
-            "Generate deterministic QAira web keyword automation that runs in the QAira Test Engine Playwright facade.",
+            "Generate deterministic HelloTest web keyword automation that runs in the HelloTest Test Engine Playwright facade.",
             "Never invent business assertions that are not present in the manual case."
           ].join(" ")
         },
@@ -804,7 +804,7 @@ const loadRepositoryRowsForNaming = async (testCase) => {
 };
 
 const buildRecorderRepositoryNamingPrompt = ({ pages, fields, testCase }) => [
-  "Suggest short, stable QAira Object Repository names for recorded UI actions.",
+  "Suggest short, stable HelloTest Object Repository names for recorded UI actions.",
   "",
   "Return strict JSON only with this shape:",
   "{",
@@ -937,7 +937,7 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
     await appendEvent(transactionId, {
       level: "warning",
       phase: "recorder.repository.naming.fallback",
-      message: "AI repository naming was unavailable, so QAira used deterministic screen and field names from the recording.",
+      message: "AI repository naming was unavailable, so HelloTest used deterministic screen and field names from the recording.",
       details: {
         error: error instanceof Error ? error.message : "AI repository naming failed"
       }
@@ -1868,7 +1868,7 @@ const buildRecorderMappingPrompt = ({
   capturedActions,
   additionalContext
 }) => [
-  "Map recorded browser automation snippets onto the existing QAira manual test steps.",
+  "Map recorded browser automation snippets onto the existing HelloTest manual test steps.",
   "",
   "Rules:",
   "- Preserve the manual step rows, manual action text, and expected result text.",
@@ -2077,12 +2077,12 @@ const buildPrompt = ({
   additionalContext
 }) => {
   const prompt = [
-    "Build automation for this QAira manual web test case.",
+    "Build automation for this HelloTest manual web test case.",
     "",
     "Runtime contract:",
-    "- Prefer Playwright-style executable JavaScript using the QAira runtime references: page, expect, playwrightPage, web, params, and capture.",
+    "- Prefer Playwright-style executable JavaScript using the HelloTest runtime references: page, expect, playwrightPage, web, params, and capture.",
     "- Use page.goto, page.locator(...).click/fill/selectOption/check/uncheck/press, page.getByRole/getByLabel/getByText, expect(page.locator(...)).toBeVisible/toContainText, expect(page).toHaveURL, page.keyboard.press, page.mouse.wheel, and capture.",
-    "- Use web.openTab, web.switchTab, and web.closeTab for tab management so QAira keeps the active Page aligned across later steps.",
+    "- Use web.openTab, web.switchTab, and web.closeTab for tab management so HelloTest keeps the active Page aligned across later steps.",
     "- Each step automation_code must be executable JavaScript statements, not a full Playwright test file.",
     "- Wait explicitly before actions when needed, for example await page.locator(\"Login.Email\").waitFor({ state: \"visible\", timeout: 10000 });",
     "- For text entry, use await page.locator(target).fill(value).",
@@ -2172,7 +2172,7 @@ const buildPrompt = ({
 };
 
 const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
-  "Improve this QAira object repository entry for stable Test Engine execution.",
+  "Improve this HelloTest object repository entry for stable Test Engine execution.",
   "",
   "Return strict JSON with this shape:",
   "{",
@@ -2201,7 +2201,7 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
 ].join("\n");
 
 const buildRepositoryExtractPrompt = ({ screenName, pageUrl, domStructure, businessMeaning, candidateFields }) => [
-  "Extract a mature object repository model from this QAira application screen.",
+  "Extract a mature object repository model from this HelloTest application screen.",
   "",
   "Return strict JSON only with this shape:",
   "{",
@@ -2507,7 +2507,7 @@ const updateTransaction = async (transactionId, patch) => {
 
 const createArtifactContent = ({ testCase, updates }) => {
   const lines = [
-    `// QAira generated automation artifact`,
+    `// HelloTest generated automation artifact`,
     `// Test case: ${testCase.title}`,
     `// Test case id: ${testCase.id}`,
     ""
@@ -2518,7 +2518,7 @@ const createArtifactContent = ({ testCase, updates }) => {
     if (update.api_request) {
       lines.push(`// API request: ${JSON.stringify(update.api_request)}`);
     }
-    lines.push(update.automation_code || "// API request is stored structurally on the QAira step.");
+    lines.push(update.automation_code || "// API request is stored structurally on the HelloTest step.");
     lines.push("");
   });
 
@@ -2784,7 +2784,7 @@ const buildCaseCore = async ({
       await appendEvent(transaction_id, {
         level: "warning",
         phase: "automation.llm.fallback",
-        message: "LLM automation generation failed; QAira created deterministic keyword starter automation instead.",
+        message: "LLM automation generation failed; HelloTest created deterministic keyword starter automation instead.",
         details: {
           error: fallbackReason
         }
@@ -2796,7 +2796,7 @@ const buildCaseCore = async ({
     await appendEvent(transaction_id, {
       level: "warning",
       phase: "automation.llm.unavailable",
-      message: "No active LLM integration is configured; QAira created deterministic keyword starter automation.",
+      message: "No active LLM integration is configured; HelloTest created deterministic keyword starter automation.",
       details: {
         fallback_reason: fallbackReason
       }
@@ -3200,7 +3200,7 @@ const finalizeRecorderBuild = async ({
         await appendEvent(transactionId, {
           level: "warning",
           phase: "recorder.ai.mapping.partial",
-          message: "AI mapped part of the recorder flow; QAira mapped the remaining recorded interactions with deterministic flow matching.",
+          message: "AI mapped part of the recorder flow; HelloTest mapped the remaining recorded interactions with deterministic flow matching.",
           details: {
             ai_mapped_steps: aiMappings.mappings.length,
             fallback_mapped_steps: fallbackMappings.length,
@@ -3214,7 +3214,7 @@ const finalizeRecorderBuild = async ({
       await appendEvent(transactionId, {
         level: "warning",
         phase: "recorder.ai.mapping.fallback",
-        message: "AI recorder mapping was unavailable, so QAira mapped recorded automation to the existing manual steps using deterministic flow matching.",
+        message: "AI recorder mapping was unavailable, so HelloTest mapped recorded automation to the existing manual steps using deterministic flow matching.",
         details: {
           fallback_reason: aiMappingFallbackReason,
           mapped_steps: recorderMappings.length,
@@ -3329,7 +3329,7 @@ const finalizeRecorderBuild = async ({
     summary: appliedSteps.length
       ? existingSteps.length
         ? "Recorder interactions were mapped onto the existing manual test steps without replacing the manual text."
-        : "Recorder interactions were converted into QAira web keyword automation steps."
+        : "Recorder interactions were converted into HelloTest web keyword automation steps."
       : "Recorder stopped cleanly, but no supported interactions were captured.",
     artifact_id: artifact?.id || null,
     step_updates: appliedSteps.map(({ automation_code, operation, source_action_index, ...step }) => ({
@@ -4513,7 +4513,7 @@ exports.cleanupOrphanRecorderSessions = async ({ limit = 25 } = {}) => {
 
       const message = shouldStop
         ? "Recorder session was auto-stopped after more than 3 minutes without live-view or input activity."
-        : "Recorder session was already stopped while QAira still had the process marked as running.";
+        : "Recorder session was already stopped while HelloTest still had the process marked as running.";
 
       await appendEvent(transaction.id, {
         level: "warning",
@@ -4678,7 +4678,7 @@ exports.startRecorderSession = async ({
   await appendEvent(transaction.id, {
     phase: "recorder.started",
     message: session.live_view_path || session.live_view_url
-      ? `Started a ${recorderTarget} recorder session with a QAira live view.`
+      ? `Started a ${recorderTarget} recorder session with a HelloTest live view.`
       : `Started a ${recorderTarget} recorder session.`,
     details: {
       recorder_session_id: session.id,

@@ -1,6 +1,7 @@
 const service = require("../services/testCaseModule.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
+const { paginate } = require("../utils/pagination");
 
 const ensureAppTypeAccess = async (appTypeId, userId) => {
   if (!appTypeId) {
@@ -56,7 +57,7 @@ module.exports = async function (fastify) {
   fastify.get("/test-case-modules/:id/test-cases", async (req) => {
     await fastify.authenticate(req);
     await ensureModuleAccess(req.params.id, req.user.id);
-    return service.getModuleCases(req.params.id);
+    return paginate(await service.getModuleCases(req.params.id), req.query);
   });
 
   fastify.put("/test-case-modules/:id", async (req) => {
@@ -86,6 +87,18 @@ module.exports = async function (fastify) {
 
     await ensureModuleAccess(req.params.id, req.user.id);
 
+    return service.assignCases(req.params.id, req.body.test_case_ids, {
+      append: req.body.append !== false
+    });
+  });
+
+  fastify.put("/test-case-modules/:id/test-cases", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      test_case_ids: { required: true, type: "array", items: "string" },
+      append: { required: false, type: "boolean" }
+    }, req.body || {});
+    await ensureModuleAccess(req.params.id, req.user.id);
     return service.assignCases(req.params.id, req.body.test_case_ids, {
       append: req.body.append !== false
     });

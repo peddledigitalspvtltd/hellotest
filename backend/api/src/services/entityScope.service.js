@@ -71,7 +71,7 @@ const resolveEntityScope = async ({ entityType, entityId, projectId }) => {
 
   const row = await db.prepare(definition.query).get(normalizedEntityId);
   if (!row) {
-    throw createError("The requested QAira record was not found.", 404);
+    throw createError("The requested HelloTest record was not found.", 404);
   }
 
   const resolvedProjectId = String(row.project_id || projectId || "").trim();

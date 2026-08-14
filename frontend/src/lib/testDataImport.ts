@@ -1,4 +1,5 @@
-import * as XLSX from "xlsx";
+import { readSheet } from "read-excel-file/browser";
+import { parseCsvGrid } from "./csvGrid";
 
 export type ParsedTestDataFile = {
   columns: string[];
@@ -169,21 +170,15 @@ export async function parseJsonFile(file: File): Promise<ParsedTestDataFile> {
 }
 
 export async function parseSpreadsheetFile(file: File): Promise<ParsedTestDataFile> {
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith(".xls")) {
+    throw new Error("Legacy .xls files are not accepted because their parser is not security-maintained. Save the workbook as .xlsx or .csv and upload it again.");
+  }
+
   try {
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array", dense: true });
-    const firstSheetName = workbook.SheetNames[0];
-
-    if (!firstSheetName) {
-      return {
-        columns: [],
-        rows: [],
-        warnings: ["The spreadsheet does not contain any sheets."]
-      };
-    }
-
-    const sheet = workbook.Sheets[firstSheetName];
-    const rawGrid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+    const isCsv = lowerName.endsWith(".csv") || file.type === "text/csv";
+    const rawText = isCsv ? await file.text() : "";
+    const rawGrid = isCsv ? parseCsvGrid(rawText) : await readSheet(file);
     const grid = normalizeGrid(rawGrid);
 
     if (!grid.length) {
@@ -195,10 +190,10 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedTestDataFi
     }
 
     const warnings: string[] = [];
-    const rawCsvText = XLSX.utils.sheet_to_csv(sheet);
-    const sanitizedRawText = sanitizeCellValue(rawCsvText);
+    const rawContent = isCsv ? rawText : rawGrid.flat().map((cell) => String(cell ?? "")).join("\n");
+    const sanitizedRawText = sanitizeCellValue(rawContent);
 
-    if (rawCsvText !== sanitizedRawText) {
+    if (rawContent !== sanitizedRawText) {
       warnings.push("Invalid control characters were removed while importing this spreadsheet.");
     }
 
@@ -236,7 +231,7 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedTestDataFi
       return {
         columns: fallbackColumns,
         rows: fallbackRows,
-        warnings: [...warnings, "No header row was detected, so QAira generated column names automatically."]
+        warnings: [...warnings, "No header row was detected, so HelloTest generated column names automatically."]
       };
     }
 
@@ -246,7 +241,7 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedTestDataFi
       warnings: [...warnings, "The spreadsheet did not produce any populated data rows."]
     };
   } catch {
-    throw new Error("Unable to read this spreadsheet. Upload a valid .xlsx, .xls, or .csv file with a readable first sheet.");
+    throw new Error("Unable to read this spreadsheet. Upload a valid .xlsx or .csv file with a readable first sheet.");
   }
 }
 

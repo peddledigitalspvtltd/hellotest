@@ -1,52 +1,19 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { buildVariablesForStorage, sanitizeVariablesForRead } = require("../utils/contextVariables");
-
-const selectProject = db.prepare(`
-  SELECT id
-  FROM projects
-  WHERE id = ?
-`);
-
-const selectAppType = db.prepare(`
-  SELECT id, project_id
-  FROM app_types
-  WHERE id = ?
-`);
+const { validateProjectAppTypeScope } = require("./projectScope.service");
 
 const hydrateEnvironment = (row) => ({
   ...row,
   variables: sanitizeVariablesForRead(row.variables)
 });
 
-const validateScope = async (projectId, appTypeId) => {
-  const project = await selectProject.get(projectId);
-
-  if (!project) {
-    throw new Error("Project not found");
-  }
-
-  if (!appTypeId) {
-    return;
-  }
-
-  const appType = await selectAppType.get(appTypeId);
-
-  if (!appType) {
-    throw new Error("App type not found");
-  }
-
-  if (appType.project_id !== projectId) {
-    throw new Error("App type must belong to the selected project");
-  }
-};
-
 exports.createTestEnvironment = async ({ project_id, app_type_id, name, description, base_url, browser, notes, variables }) => {
   if (!project_id || !name) {
     throw new Error("Missing required fields");
   }
 
-  await validateScope(project_id, app_type_id);
+  await validateProjectAppTypeScope(project_id, app_type_id);
 
   const id = uuid();
 
@@ -135,7 +102,7 @@ exports.updateTestEnvironment = async (id, data) => {
   const projectId = data.project_id ?? existing.project_id;
   const appTypeId = data.app_type_id === undefined ? existing.app_type_id : data.app_type_id || null;
 
-  await validateScope(projectId, appTypeId);
+  await validateProjectAppTypeScope(projectId, appTypeId);
 
   await db.prepare(`
     UPDATE test_environments
@@ -165,11 +132,15 @@ exports.updateTestEnvironment = async (id, data) => {
 };
 
 exports.deleteTestEnvironment = async (id) => {
-  await exports.getTestEnvironment(id);
-  await db.prepare(`
+  const deleted = await db.prepare(`
     DELETE FROM test_environments
     WHERE id = ?
-  `).run(id);
+    RETURNING id
+  `).get(id);
+
+  if (!deleted) {
+    throw new Error("Test environment not found");
+  }
 
   return { deleted: true };
 };

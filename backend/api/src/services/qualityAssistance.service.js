@@ -22,7 +22,7 @@ const assisted = ({ capability, input, evidence, confidence, payload }) => {
   const provenance = {
     capability,
     generation_mode: "deterministic",
-    provider: "QAira evidence graph",
+    provider: "HelloTest evidence graph",
     model: null,
     request_id: requestId,
     input_fingerprint: fingerprint(input),
@@ -35,7 +35,7 @@ const assisted = ({ capability, input, evidence, confidence, payload }) => {
   };
   return {
     ...payload,
-    integration: { id: "qaira-evidence-graph", name: "QAira evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "qaira-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     provenance,
     generation_mode: "deterministic",
     generated_at: generatedAt,
@@ -94,7 +94,7 @@ const previewRequirementImpact = async ({ user, requirementId, proposedChange })
         automation_assets: automation.map((item) => ({ ...reference(item, "automation-asset"), title: item.locator_intent, confidence: item.confidence })),
         totals: { test_cases: testCases.length, test_suites: suites.length, test_runs: runs.length, automation_assets: automation.length }
       },
-      explanation: testCases.length ? "Impact is derived from current QAira links, suite membership, run snapshots, and automation dependencies. No source record was changed." : "No linked test case was found, so the proposed requirement change exposes a coverage gap.",
+      explanation: testCases.length ? "Impact is derived from current HelloTest links, suite membership, run snapshots, and automation dependencies. No source record was changed." : "No linked test case was found, so the proposed requirement change exposes a coverage gap.",
       recommended_actions: [testCases.length ? "Review linked test intent and expected results against the proposed change." : "Create and review tests for the changed acceptance criteria.", runs.length ? "Reassess queued, active, and release-scoped runs containing affected tests." : null, automation.length ? "Review automation and locator dependencies before the next automated run." : null, "Confirm impact with a human reviewer before applying changes."].filter(Boolean),
       scope: { project_id: scope.projectId }
     }
@@ -131,7 +131,7 @@ const previewTestCaseImpact = async ({ user, testCaseId, proposedChange }) => {
         totals: { requirements: requirements.length, test_suites: suites.length, test_runs: runs.length, automation_assets: automation.length, object_repository_items: automation.length }
       },
       risk_signals: signals,
-      explanation: "Impact is derived from current QAira relationships, run snapshots, steps, and object repository dependencies. This preview does not mutate the test case.",
+      explanation: "Impact is derived from current HelloTest relationships, run snapshots, steps, and object repository dependencies. This preview does not mutate the test case.",
       recommended_actions: ["Review expected results and steps against the proposed change.", runs.length ? "Decide whether affected queued or active runs need refreshing or rerunning." : null, automation.length ? "Review automation and locator dependencies before applying the change." : null, "Apply changes only after human review."].filter(Boolean),
       scope: { project_id: scope.projectId }
     }
@@ -191,7 +191,7 @@ const previewFailureClusters = async ({ user, executionId, requestedScope }) => 
       failed_or_blocked_results: failures.length,
       clusters,
       unclassified_count: clusters.find((item) => item.id === "unclassified")?.count || 0,
-      explanation: failures.length ? "Clusters are explainable keyword-based triage suggestions over QAira result evidence; they are not confirmed root causes." : "No failed or blocked result is available to cluster.",
+      explanation: failures.length ? "Clusters are explainable keyword-based triage suggestions over HelloTest result evidence; they are not confirmed root causes." : "No failed or blocked result is available to cluster.",
       recommended_actions: failures.length ? ["Review the largest cluster first.", "Confirm each root cause with linked evidence.", "Create or link a defect only for reproducible product behavior.", "Rerun the smallest affected scope after remediation."] : ["Complete execution and attach evidence before requesting failure clustering."],
       scope: { project_id: scope.projectId }
     }

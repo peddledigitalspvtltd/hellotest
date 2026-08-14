@@ -216,7 +216,7 @@ const buildAutomationFileContent = ({
 }) => {
   const caseType = resolveCaseType(testCase, steps);
   const header = [
-    `// QAira synced automation artifact`,
+    `// HelloTest synced automation artifact`,
     `// Project: ${project.name}`,
     `// Test case: ${testCase.display_id || testCase.id} · ${testCase.title}`,
     `// Type: ${caseType}`,
@@ -593,7 +593,7 @@ async function syncAutomationToGithub(integration, projectId) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      message: `QAira sync: ${artifact.project.name} (${new Date().toISOString()})`,
+      message: `HelloTest sync: ${artifact.project.name} (${new Date().toISOString()})`,
       tree: tree.sha,
       parents: [baseCommitSha]
     })

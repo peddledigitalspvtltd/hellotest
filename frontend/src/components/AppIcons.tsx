@@ -1,4 +1,16 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  IconArrowIteration,
+  IconChevronDown,
+  IconChevronRight,
+  IconClipboardList,
+  IconDatabase,
+  IconFileDescription,
+  IconFlask2,
+  IconFolderOff,
+  IconLink,
+  IconTag
+} from "@tabler/icons-react";
 
 type IconProps = {
   size?: number;
@@ -82,6 +94,84 @@ export function FileAddIcon({ size }: IconProps) {
       <path d="M5 14C4.448 14 4 13.552 4 13V3C4 2.448 4.448 2 5 2H8V4.5C8 5.328 8.672 6 9.5 6H12V6.025C12.344 6.056 12.677 6.121 13 6.213V5.414C13 5.016 12.842 4.635 12.561 4.353L9.647 1.439C9.366 1.158 8.984 1 8.586 1H5C3.895 1 3 1.895 3 3V13C3 14.105 3.895 15 5 15H7.261C7.008 14.693 6.791 14.357 6.607 14H5ZM9 2.207L11.793 5H9.5C9.224 5 9 4.776 9 4.5V2.207ZM11.5 7C9.015 7 7 9.015 7 11.5C7 13.985 9.015 16 11.5 16C13.985 16 16 13.985 16 11.5C16 9.015 13.985 7 11.5 7ZM14 12H12V14C12 14.276 11.776 14.5 11.5 14.5C11.224 14.5 11 14.276 11 14V12H9C8.724 12 8.5 11.776 8.5 11.5C8.5 11.224 8.724 11 9 11H11V9C11 8.724 11.224 8.5 11.5 8.5C11.776 8.5 12 8.724 12 9V11H14C14.276 11 14.5 11.224 14.5 11.5C14.5 11.776 14.276 12 14 12Z" />
     </ProductIconFrame>
   );
+}
+
+export function StoryIcon({ size }: IconProps) {
+  return (
+    <ProductIconFrame size={size}>
+      <path d="M11.518 3a.5.5 0 0 0-.5-.5H4.983a.5.5 0 0 0-.5.5v9.806L8 10.333l.431.304 3.087 2.169zm1.5 11.202a.776.776 0 0 1-1.122.694l-.099-.06L8 12.166l-3.796 2.67a.775.775 0 0 1-1.22-.634V3a2 2 0 0 1 2-2h6.035a2 2 0 0 1 2 2z" />
+    </ProductIconFrame>
+  );
+}
+
+/**
+ * Backlog combines Tabler's iteration and list primitives so the mark reads as
+ * "iteration work waiting below" without copying the supplied stock artwork.
+ */
+export function BacklogIcon({ size = 20, strokeWidth = 2 }: IconProps) {
+  return (
+    <>
+      <IconClipboardList
+        aria-hidden="true"
+        className="backlog-entity-icon__list"
+        size={Math.max(12, Math.round(size * 0.7))}
+        stroke={strokeWidth}
+      />
+      <IconArrowIteration
+        aria-hidden="true"
+        className="backlog-entity-icon__iteration"
+        size={size}
+        stroke={strokeWidth}
+      />
+    </>
+  );
+}
+
+/** Shared document-and-lab identity for Test Cases at peer-safe catalog sizes. */
+export function TestCaseIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  const style = {
+    "--test-case-entity-icon-size": `${size}px`
+  } as CSSProperties;
+
+  return (
+    <span aria-hidden="true" className="test-case-entity-icon" style={style}>
+      <IconFileDescription
+        className="test-case-entity-icon__file"
+        size={size}
+        stroke={strokeWidth}
+      />
+      <IconFlask2
+        className="test-case-entity-icon__lab"
+        size={Math.max(8, Math.round(size * 0.62))}
+        stroke={Math.max(2, strokeWidth)}
+      />
+    </span>
+  );
+}
+
+/** Shared database identity for reusable test data across navigation, catalogs, and dialogs. */
+export function TestDataIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconDatabase aria-hidden="true" size={size} stroke={strokeWidth} />;
+}
+
+export function FolderOffIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconFolderOff aria-hidden="true" size={size} stroke={strokeWidth} />;
+}
+
+export function ChevronRightIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconChevronRight aria-hidden="true" size={size} stroke={strokeWidth} />;
+}
+
+export function ChevronDownIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconChevronDown aria-hidden="true" size={size} stroke={strokeWidth} />;
+}
+
+export function LinkIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconLink aria-hidden="true" size={size} stroke={strokeWidth} />;
+}
+
+export function TagIcon({ size = 16, strokeWidth = 1.9 }: IconProps) {
+  return <IconTag aria-hidden="true" size={size} stroke={strokeWidth} />;
 }
 
 export function RefreshIcon({ size }: IconProps) {
@@ -184,50 +274,15 @@ export function FolderIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
-export function IterationIcon({ size = 16 }: IconProps) {
+export function SprintIcon({ size = 16 }: IconProps) {
   return (
-    <svg aria-hidden="true" fill="none" height={size} viewBox="0 0 24 24" width={size}>
+    <ProductIconFrame size={size}>
       <path
-        d="M6.2 14.7a7.1 7.1 0 0 1 8.7-9.3"
-        stroke="#2f7dcc"
-        strokeLinecap="round"
-        strokeWidth="2.4"
+        clipRule="evenodd"
+        d="M8 1.5A4.75 4.75 0 0 0 8 11h5.44l-2.22-2.22 1.06-1.06 3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5-1.06-1.06 2.22-2.22H0V11h3.938A6.25 6.25 0 1 1 14.25 6.25h-1.5A4.75 4.75 0 0 0 8 1.5"
+        fillRule="evenodd"
       />
-      <path
-        d="M14.7 2.9v4.7h-4.6"
-        stroke="#2f7dcc"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.4"
-      />
-      <path
-        d="M6 18.6h8.5"
-        stroke="#2f7dcc"
-        strokeLinecap="round"
-        strokeWidth="2.4"
-      />
-      <circle cx="11.6" cy="12.1" fill="#f28a20" r="3.9" />
-      <path
-        d="m9.8 12 1.25 1.25 2.35-2.55"
-        stroke="#ffffff"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.6"
-      />
-      <path
-        d="M15.2 16.6h5.1"
-        stroke="#f28a20"
-        strokeLinecap="round"
-        strokeWidth="2.4"
-      />
-      <path
-        d="m18.2 13.7 3 2.9-3 2.9"
-        stroke="#f28a20"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.4"
-      />
-    </svg>
+    </ProductIconFrame>
   );
 }
 

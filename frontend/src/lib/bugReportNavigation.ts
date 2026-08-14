@@ -17,12 +17,20 @@ export type BugReportContext = {
   returnLabel?: string | null;
 };
 
-const SAFE_RETURN_ROUTES = new Set(["/executions", "/test-cases", "/design", "/requirements"]);
-const uniqueIds = (values: string[] | undefined) => [...new Set((values || []).map((value) => String(value).trim()).filter(Boolean))];
+const SAFE_RETURN_ROUTES = new Set([
+  "/executions",
+  "/test-cases",
+  "/design",
+  "/requirements"
+]);
+
+const uniqueIds = (values: string[] | undefined) =>
+  [...new Set((values || []).map((value) => String(value).trim()).filter(Boolean))];
 
 export function safeBugReportReturnRoute(value: string | null | undefined) {
   const route = String(value || "").trim();
   if (!route || route.length > 2_000 || !route.startsWith("/") || route.startsWith("//")) return "";
+
   try {
     const parsed = new URL(route, "https://qaira.invalid");
     if (parsed.origin !== "https://qaira.invalid" || !SAFE_RETURN_ROUTES.has(parsed.pathname)) return "";
@@ -35,11 +43,13 @@ export function safeBugReportReturnRoute(value: string | null | undefined) {
 export function buildBugReportPath(context: BugReportContext, mode: "manual" | "ai" = "manual") {
   const params = new URLSearchParams();
   params.set(mode === "ai" ? "ai" : "create", "1");
+
   const testCaseIds = uniqueIds(context.testCaseIds);
   const suiteIds = uniqueIds(context.suiteIds);
   const moduleIds = uniqueIds(context.moduleIds);
   const requirementIds = uniqueIds(context.requirementIds);
   const returnTo = safeBugReportReturnRoute(context.returnTo);
+
   if (context.runId) params.set("run", context.runId);
   if (context.runName) params.set("runName", context.runName);
   if (context.runStatus) params.set("status", context.runStatus);
@@ -56,5 +66,6 @@ export function buildBugReportPath(context: BugReportContext, mode: "manual" | "
   if (context.message) params.set("message", context.message);
   if (returnTo) params.set("returnTo", returnTo);
   if (context.returnLabel) params.set("returnLabel", context.returnLabel.slice(0, 80));
+
   return `/issues?${params.toString()}`;
 }

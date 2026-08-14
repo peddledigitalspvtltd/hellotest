@@ -283,6 +283,9 @@ CREATE TABLE test_cases (
   parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   automated TEXT NOT NULL DEFAULT 'no' CHECK(automated IN ('yes','no')),
   automation_status TEXT NOT NULL DEFAULT 'not_automated' CHECK(automation_status IN ('not_automated','ready','incomplete')),
+  manual_test_case_id TEXT,
+  authoring_mode TEXT NOT NULL DEFAULT 'structured' CHECK(authoring_mode IN ('structured','gherkin')),
+  gherkin_document TEXT,
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'active',
   requirement_id TEXT,
@@ -293,8 +296,26 @@ CREATE TABLE test_cases (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (suite_id) REFERENCES test_suites(id),
-  FOREIGN KEY (requirement_id) REFERENCES requirements(id)
+  FOREIGN KEY (requirement_id) REFERENCES requirements(id),
+  FOREIGN KEY (manual_test_case_id) REFERENCES test_cases(id) ON DELETE SET NULL
 );
+
+CREATE TABLE automation_case_links (
+  automation_test_case_id TEXT NOT NULL,
+  manual_test_case_id TEXT NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (automation_test_case_id, manual_test_case_id),
+  FOREIGN KEY (automation_test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE,
+  FOREIGN KEY (manual_test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE,
+  CHECK (automation_test_case_id <> manual_test_case_id)
+);
+
+CREATE INDEX idx_automation_case_links_manual
+  ON automation_case_links (manual_test_case_id, automation_test_case_id);
+CREATE UNIQUE INDEX idx_automation_case_links_primary
+  ON automation_case_links (automation_test_case_id)
+  WHERE is_primary;
 
 CREATE TABLE requirement_test_cases (
   requirement_id TEXT NOT NULL,
@@ -744,6 +765,9 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT C
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS automation_status TEXT NOT NULL DEFAULT 'not_automated';
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS manual_test_case_id TEXT REFERENCES test_cases(id) ON DELETE SET NULL;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS authoring_mode TEXT NOT NULL DEFAULT 'structured';
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS gherkin_document TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS reviewer_id TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested';
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -769,6 +793,32 @@ ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automation_status_ch
 ALTER TABLE test_cases
   ADD CONSTRAINT test_cases_automation_status_check
   CHECK (automation_status IN ('not_automated', 'ready', 'incomplete'));
+
+ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_authoring_mode_check;
+ALTER TABLE test_cases
+  ADD CONSTRAINT test_cases_authoring_mode_check
+  CHECK (authoring_mode IN ('structured', 'gherkin'));
+
+DROP INDEX IF EXISTS idx_test_cases_one_automation_per_manual;
+
+CREATE TABLE IF NOT EXISTS automation_case_links (
+  automation_test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  manual_test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (automation_test_case_id, manual_test_case_id),
+  CHECK (automation_test_case_id <> manual_test_case_id)
+);
+CREATE INDEX IF NOT EXISTS idx_automation_case_links_manual
+  ON automation_case_links (manual_test_case_id, automation_test_case_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_case_links_primary
+  ON automation_case_links (automation_test_case_id)
+  WHERE is_primary;
+INSERT INTO automation_case_links (automation_test_case_id, manual_test_case_id, is_primary)
+SELECT id, manual_test_case_id, TRUE
+FROM test_cases
+WHERE automated = 'yes' AND manual_test_case_id IS NOT NULL
+ON CONFLICT (automation_test_case_id, manual_test_case_id) DO NOTHING;
 
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_source_check;
 ALTER TABLE test_cases

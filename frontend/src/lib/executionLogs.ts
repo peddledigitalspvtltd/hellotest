@@ -1,9 +1,13 @@
 export type ExecutionStepStatus = "passed" | "failed" | "blocked";
 
 export type ExecutionStepEvidence = {
-  dataUrl: string;
+  attachmentId?: string;
+  dataUrl?: string;
   fileName?: string;
   mimeType?: string;
+  size?: number;
+  checksum?: string;
+  createdAt?: string;
 };
 
 export type ExecutionApiAssertion = {
@@ -88,6 +92,7 @@ export type ExecutionLogsPayload = {
   stepStatuses?: Record<string, ExecutionStepStatus>;
   stepNotes?: Record<string, string>;
   stepEvidence?: Record<string, ExecutionStepEvidence>;
+  stepDefects?: Record<string, string[]>;
   stepApiDetails?: Record<string, ExecutionStepApiDetail>;
   stepWebDetails?: Record<string, ExecutionStepWebDetail>;
   stepAutomationDetails?: Record<string, ExecutionStepAutomationDetail>;
@@ -112,17 +117,31 @@ const normalizeStepEvidence = (value: unknown): Record<string, ExecutionStepEvid
       ? String((evidence as { dataUrl?: string }).dataUrl || "").trim()
       : "";
 
-    if (!dataUrl || !isExecutionEvidenceDataUrl(dataUrl)) {
+    const attachmentId = typeof (evidence as { attachmentId?: unknown }).attachmentId === "string"
+      ? String((evidence as { attachmentId?: string }).attachmentId || "").trim()
+      : "";
+
+    if (!attachmentId && (!dataUrl || !isExecutionEvidenceDataUrl(dataUrl))) {
       return accumulator;
     }
 
     accumulator[stepId] = {
-      dataUrl,
+      attachmentId: attachmentId || undefined,
+      dataUrl: dataUrl && isExecutionEvidenceDataUrl(dataUrl) ? dataUrl : undefined,
       fileName: typeof (evidence as { fileName?: unknown }).fileName === "string"
         ? String((evidence as { fileName?: string }).fileName || "").trim() || undefined
         : undefined,
       mimeType: typeof (evidence as { mimeType?: unknown }).mimeType === "string"
         ? String((evidence as { mimeType?: string }).mimeType || "").trim() || undefined
+        : undefined,
+      size: typeof (evidence as { size?: unknown }).size === "number"
+        ? Number((evidence as { size?: number }).size || 0)
+        : undefined,
+      checksum: typeof (evidence as { checksum?: unknown }).checksum === "string"
+        ? String((evidence as { checksum?: string }).checksum || "").trim() || undefined
+        : undefined,
+      createdAt: typeof (evidence as { createdAt?: unknown }).createdAt === "string"
+        ? String((evidence as { createdAt?: string }).createdAt || "").trim() || undefined
         : undefined
     };
 
@@ -223,6 +242,9 @@ export function parseExecutionLogs(logs: string | null): ExecutionLogsPayload {
         : {},
       stepNotes: typeof payload.stepNotes === "object" && payload.stepNotes && !Array.isArray(payload.stepNotes) ? payload.stepNotes : {},
       stepEvidence: normalizeStepEvidence(payload.stepEvidence),
+      stepDefects: typeof payload.stepDefects === "object" && payload.stepDefects && !Array.isArray(payload.stepDefects)
+        ? Object.fromEntries(Object.entries(payload.stepDefects).map(([stepId, ids]) => [stepId, Array.isArray(ids) ? [...new Set(ids.map(String).filter(Boolean))] : []]).filter(([, ids]) => ids.length))
+        : {},
       stepApiDetails: typeof payload.stepApiDetails === "object" && payload.stepApiDetails && !Array.isArray(payload.stepApiDetails)
         ? payload.stepApiDetails
         : {},
@@ -245,6 +267,7 @@ export function stringifyExecutionLogs(payload: ExecutionLogsPayload): string {
     stepStatuses: payload.stepStatuses || {},
     stepNotes: payload.stepNotes || {},
     stepEvidence: payload.stepEvidence || {},
+    stepDefects: payload.stepDefects || {},
     stepApiDetails: payload.stepApiDetails || {},
     stepWebDetails: payload.stepWebDetails || {},
     stepAutomationDetails: payload.stepAutomationDetails || {},

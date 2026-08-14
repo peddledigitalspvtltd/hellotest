@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const { sanitizeVariablesForRead } = require("../utils/contextVariables");
 const integrationService = require("./integration.service");
 const testEngineDispatchService = require("./testEngineDispatch.service");
@@ -9,13 +9,8 @@ const executionStepRuntimeService = require("./executionStepRuntime.service");
 const opsTelemetryService = require("./opsTelemetry.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { materializeDataSetSnapshot, materializeParameterValues, materializeTemplateValue } = require("../utils/testDataGenerators");
-
-const getSuiteIdsForExecution = db.prepare(`
-  SELECT suite_id, suite_name
-  FROM execution_suites
-  WHERE execution_id = ?
-  ORDER BY suite_id ASC
-`);
+const { assertExpectedRevision } = require("../utils/revision");
+const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
 
 const getCaseSnapshotsForExecution = db.prepare(`
   SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, sort_order, assigned_to, assigned_to_ids, assignment_source
@@ -587,50 +582,60 @@ function attachExecutionContext(execution) {
   };
 }
 
-async function attachExecutionAssignee(execution) {
-  if (!execution) {
-    return execution;
+async function hydrateExecutionScopes(executions) {
+  const executionIds = uniqueIds(executions);
+  if (!executionIds.length) {
+    return executions;
   }
 
-  const assignedToIds = normalizeTextList(parseJsonValue(execution.assigned_to_ids, []));
-  const legacyAssignedTo = normalizeText(execution.assigned_to);
-  const resolvedAssignedToIds = assignedToIds.length
-    ? assignedToIds
-    : legacyAssignedTo
-      ? [legacyAssignedTo]
-      : [];
+  const contextualExecutions = executions.map(attachExecutionContext);
+  const userIds = [...new Set(contextualExecutions.flatMap((execution) => {
+    const assignedToIds = normalizeTextList(parseJsonValue(execution.assigned_to_ids, []));
+    const legacyAssignedTo = normalizeText(execution.assigned_to);
+    return assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+  }))];
+  const [suiteRows, userRows] = await Promise.all([
+    db.prepare(`
+      SELECT execution_id, suite_id, suite_name
+      FROM execution_suites
+      WHERE execution_id IN (${placeholdersFor(executionIds)})
+      ORDER BY execution_id ASC, suite_id ASC
+    `).all(...executionIds),
+    userIds.length
+      ? db.prepare(`
+          SELECT id, email, name, avatar_data_url
+          FROM users
+          WHERE id IN (${placeholdersFor(userIds)})
+        `).all(...userIds)
+      : Promise.resolve([])
+  ]);
+  const suitesByExecution = groupRows(suiteRows, "execution_id");
+  const usersById = new Map(userRows.map((user) => [user.id, shapeAssignedUser(user)]));
 
-  if (!resolvedAssignedToIds.length) {
+  return contextualExecutions.map((execution) => {
+    const assignedToIds = normalizeTextList(parseJsonValue(execution.assigned_to_ids, []));
+    const legacyAssignedTo = normalizeText(execution.assigned_to);
+    const resolvedAssignedToIds = assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+    const assignedUsers = resolvedAssignedToIds.map((id) => usersById.get(id)).filter(Boolean);
+    const executionSuites = suitesByExecution.get(execution.id) || [];
+
     return {
       ...execution,
-      assigned_to_ids: [],
+      assigned_to: resolvedAssignedToIds[0] || null,
+      assigned_to_ids: resolvedAssignedToIds,
       suite_assignments: normalizeAssignmentMap(execution.suite_assignments),
       module_assignments: normalizeAssignmentMap(execution.module_assignments),
       case_assignments: normalizeAssignmentMap(execution.case_assignments),
-      assigned_users: [],
-      assigned_user: null
+      assigned_user: assignedUsers[0] || null,
+      assigned_users: assignedUsers,
+      suite_ids: executionSuites.map((row) => row.suite_id),
+      suite_snapshots: executionSuites.map((row) => ({
+        id: row.suite_id,
+        name: row.suite_name || "Deleted Suite",
+        parameter_values: {}
+      }))
     };
-  }
-
-  const assignedUsers = [];
-
-  for (const userId of resolvedAssignedToIds) {
-    const assignedUser = shapeAssignedUser(await selectExecutionAssignee.get(userId));
-    if (assignedUser) {
-      assignedUsers.push(assignedUser);
-    }
-  }
-
-  return {
-    ...execution,
-    assigned_to: resolvedAssignedToIds[0] || null,
-    assigned_to_ids: resolvedAssignedToIds,
-    suite_assignments: normalizeAssignmentMap(execution.suite_assignments),
-    module_assignments: normalizeAssignmentMap(execution.module_assignments),
-    case_assignments: normalizeAssignmentMap(execution.case_assignments),
-    assigned_user: assignedUsers[0] || null,
-    assigned_users: assignedUsers
-  };
+  });
 }
 
 async function attachExecutionCaseAssignees(caseSnapshots) {
@@ -642,11 +647,16 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
     const ids = normalizeTextList(parseJsonValue(snapshot.assigned_to_ids, []));
     return ids.length ? ids : snapshot.assigned_to ? [snapshot.assigned_to] : [];
   }))];
-  const assignedUsersById = {};
-
-  for (const userId of userIds) {
-    assignedUsersById[userId] = shapeAssignedUser(await selectExecutionAssignee.get(userId));
-  }
+  const userRows = userIds.length
+    ? await db.prepare(`
+        SELECT id, email, name, avatar_data_url
+        FROM users
+        WHERE id IN (${placeholdersFor(userIds)})
+      `).all(...userIds)
+    : [];
+  const assignedUsersById = Object.fromEntries(
+    userRows.map((user) => [user.id, shapeAssignedUser(user)])
+  );
 
   return caseSnapshots.map((snapshot) => {
     const assignedToIds = normalizeTextList(parseJsonValue(snapshot.assigned_to_ids, []));
@@ -742,8 +752,10 @@ async function recalculateExecutionScopeAssignments(executionId, executionRecord
 }
 
 async function updateExecutionScopeAssignment(executionId, level, scopeId, input = {}) {
-  const execution = await selectExecutionRecord.get(executionId);
+  const transaction = db.transaction(async () => {
+  const execution = await db.prepare(`SELECT * FROM executions WHERE id = ? FOR UPDATE`).get(executionId);
   if (!execution) throw new Error("Execution not found");
+  const currentRevision = assertExpectedRevision(execution.revision, input.expected_revision, "Run");
 
   const definitions = {
     suites: { property: "suite_assignments", snapshotField: "suite_id" },
@@ -767,10 +779,13 @@ async function updateExecutionScopeAssignment(executionId, level, scopeId, input
   if (assignedToIds.length) assignments[normalizedScopeId] = assignedToIds;
   else delete assignments[normalizedScopeId];
 
-  await db.prepare(`UPDATE executions SET ${definition.property} = ? WHERE id = ?`).run(assignments, executionId);
-  await recalculateExecutionScopeAssignments(executionId, { ...execution, [definition.property]: assignments });
+  await db.prepare(`UPDATE executions SET ${definition.property} = ?, revision = ? WHERE id = ?`).run(assignments, currentRevision + 1, executionId);
+  await recalculateExecutionScopeAssignments(executionId, { ...execution, [definition.property]: assignments, revision: currentRevision + 1 });
   executionCache.delete(executionId);
-  return { updated: true, scope_id: normalizedScopeId };
+  return { updated: true, scope_id: normalizedScopeId, revision: currentRevision + 1 };
+  });
+
+  return transaction();
 }
 
 function resolveExecutionAssignee(assignedTo, createdBy) {
@@ -983,16 +998,7 @@ async function attachScope(execution) {
   if (!execution) {
     return execution;
   }
-
-  const executionWithMetadata = await attachExecutionAssignee(attachExecutionContext(execution));
-  const suiteRows = await getSuiteIdsForExecution.all(execution.id);
-  const suite_ids = suiteRows.map((row) => row.suite_id);
-
-  return {
-    ...executionWithMetadata,
-    suite_ids,
-    suite_snapshots: suiteRows.map((row) => ({ id: row.suite_id, name: row.suite_name || "Deleted Suite", parameter_values: {} }))
-  };
+  return (await hydrateExecutionScopes([execution]))[0];
 }
 
 function mergeSuiteSnapshotsWithParameters(suiteSnapshots = [], caseSnapshots = []) {
@@ -1033,7 +1039,10 @@ async function attachDetailedScope(execution) {
   }
 
   const hydrated = await attachScope(execution);
-  const suiteRows = await getSuiteIdsForExecution.all(execution.id);
+  const suiteRows = (hydrated.suite_snapshots || []).map((suite) => ({
+    suite_id: suite.id,
+    suite_name: suite.name
+  }));
   const storedCaseSnapshots = await getCaseSnapshotsForExecution.all(execution.id);
   const storedStepSnapshots = await getStepSnapshotsForExecution.all(execution.id);
   const hydratedCaseSnapshots = await attachExecutionCaseAssignees(storedCaseSnapshots);
@@ -1411,14 +1420,14 @@ exports.getExecutions = async ({ project_id, app_type_id, status }) => {
 
   try {
     const rows = await db.prepare(createdAtOrderedQuery).all(...params);
-    return Promise.all(rows.map(attachScope));
+    return hydrateExecutionScopes(rows);
   } catch (error) {
     if (error?.code !== "42703") {
       throw error;
     }
 
     const rows = await db.prepare(legacyOrderedQuery).all(...params);
-    return Promise.all(rows.map(attachScope));
+    return hydrateExecutionScopes(rows);
   }
 };
 
@@ -1623,6 +1632,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
 exports.startExecution = async (id, options = {}) => {
   const execution = await exports.getExecution(id);
+  const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
   const skipTestEngineDispatch = Boolean(options.skip_testengine_dispatch)
     || (execution.trigger === "manual" && options.execution_mode !== "local" && options.execution_mode !== "remote");
 
@@ -1708,11 +1718,14 @@ exports.startExecution = async (id, options = {}) => {
     }
   }
 
-  await db.prepare(`
+  const startResult = await db.prepare(`
     UPDATE executions
-    SET status = 'running', started_at = CURRENT_TIMESTAMP, trigger = ?
-    WHERE id = ?
-  `).run(shouldMarkAsCi ? "ci" : execution.trigger || "manual", id);
+    SET status = 'running', started_at = CURRENT_TIMESTAMP, trigger = ?, revision = ?
+    WHERE id = ? AND status = 'queued' AND revision = ?
+  `).run(shouldMarkAsCi ? "ci" : execution.trigger || "manual", currentRevision + 1, id, currentRevision);
+  if (startResult.changes !== 1) {
+    assertExpectedRevision(currentRevision + 1, currentRevision, "Run");
+  }
 
   let dispatchSummary = {
     automated_case_count: 0,
@@ -1745,8 +1758,8 @@ exports.startExecution = async (id, options = {}) => {
         warnings: [
           ...(dispatchPlan.warnings || []),
           error instanceof Error
-            ? `QAira started the run, but could not queue automated handoff: ${error.message}`
-            : "QAira started the run, but could not queue automated handoff."
+            ? `HelloTest started the run, but could not queue automated handoff: ${error.message}`
+            : "HelloTest started the run, but could not queue automated handoff."
         ]
       };
     }
@@ -1764,6 +1777,7 @@ exports.startExecution = async (id, options = {}) => {
 
   return {
     started: true,
+    revision: currentRevision + 1,
     ...dispatchSummary
   };
 };
@@ -1833,22 +1847,26 @@ exports.startLocalExecution = async (id, options = {}) => {
   };
 };
 
-exports.completeExecution = async (id, status) => {
-  if (!["completed", "failed", "aborted"].includes(status)) {
+exports.completeExecution = async (id, status, options = {}) => {
+  if (!["completed", "failed", "blocked", "aborted"].includes(status)) {
     throw new Error("Invalid completion status");
   }
 
   const execution = await exports.getExecution(id);
+  const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
 
   if (execution.status !== "running") {
     throw new Error("Only running executions can be completed");
   }
 
-  await db.prepare(`
+  const completionResult = await db.prepare(`
     UPDATE executions
-    SET status = ?, ended_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(status, id);
+    SET status = ?, ended_at = CURRENT_TIMESTAMP, revision = ?
+    WHERE id = ? AND status = 'running' AND revision = ?
+  `).run(status, currentRevision + 1, id, currentRevision);
+  if (completionResult.changes !== 1) {
+    assertExpectedRevision(currentRevision + 1, currentRevision, "Run");
+  }
 
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
@@ -1860,7 +1878,7 @@ exports.completeExecution = async (id, status) => {
     // OPS telemetry is best-effort and must not block execution completion.
   }
 
-  return { completed: true };
+  return { completed: true, status, revision: currentRevision + 1 };
 };
 
 exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed_by } = {}) => {
@@ -2064,11 +2082,13 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
 };
 
 exports.updateExecution = async (id, input = {}) => {
-  const execution = await selectExecutionRecord.get(id);
+  const transaction = db.transaction(async () => {
+  const execution = await db.prepare(`SELECT * FROM executions WHERE id = ? FOR UPDATE`).get(id);
 
   if (!execution) {
     throw new Error("Execution not found");
   }
+  const currentRevision = assertExpectedRevision(execution.revision, input.expected_revision, "Run");
 
   if (Object.prototype.hasOwnProperty.call(input, "assigned_to_ids") || Object.prototype.hasOwnProperty.call(input, "assigned_to")) {
     const assignedToIds = Object.prototype.hasOwnProperty.call(input, "assigned_to_ids")
@@ -2097,8 +2117,13 @@ exports.updateExecution = async (id, input = {}) => {
     `).run(...metadataValues, id);
   }
 
+  await db.prepare(`UPDATE executions SET revision = ? WHERE id = ?`).run(currentRevision + 1, id);
+
   executionCache.delete(id);
-  return { updated: true };
+  return { updated: true, revision: currentRevision + 1 };
+  });
+
+  return transaction();
 };
 
 exports.updateExecutionCaseAssignment = async (executionId, testCaseId, input = {}) => {

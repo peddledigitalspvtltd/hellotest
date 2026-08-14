@@ -34,7 +34,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
     defaults: {
       smtp_port: 587,
       sender_email: "support@qualipal.in",
-      sender_name: "QAira Support"
+      sender_name: "HelloTest Support"
     }
   },
   {
@@ -68,7 +68,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
   {
     value: "testengine",
     label: "Test Engine",
-    description: "Provider-switchable remote execution backend for QAira with API automation, Playwright or Selenium web execution, and step-level evidence updates.",
+    description: "Provider-switchable remote execution backend for HelloTest with API automation, Playwright or Selenium web execution, and step-level evidence updates.",
     icon: "TE",
     defaults: {
       runner: "hybrid",

@@ -1,5 +1,5 @@
 const db = require("../db");
-const { v4: uuid } = require("uuid");
+const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 
 const normalizeText = (value) => {
@@ -129,6 +129,18 @@ exports.getIteration = async (id) => {
   }
 
   return hydrateIteration(iteration);
+};
+
+exports.listRequirements = async (id, { limit } = {}) => {
+  await exports.getIteration(id);
+  const boundedLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(Number(limit), 10000) : null;
+  return db.prepare(`
+    SELECT requirements.*
+    FROM requirements
+    WHERE requirements.iteration_id = ?
+    ORDER BY COALESCE(requirements.updated_at, requirements.created_at) DESC, requirements.title ASC
+    ${boundedLimit ? "LIMIT ?" : ""}
+  `).all(...(boundedLimit ? [id, boundedLimit] : [id]));
 };
 
 exports.createIteration = async ({ project_id, name, description, goal, state, start_date, end_date, requirement_ids = [], created_by } = {}) => {
