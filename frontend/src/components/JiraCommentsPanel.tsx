@@ -20,7 +20,7 @@ const initials = (name: string) => name
   .map((part) => part[0]?.toUpperCase())
   .join("") || "JU";
 
-export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment }: { issueKey: string; projectId: string; entityType: QairaEntityType; entityId: string; canComment: boolean }) {
+export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment, onEvidenceChange }: { issueKey: string; projectId: string; entityType: QairaEntityType; entityId: string; canComment: boolean; onEvidenceChange?: () => void }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState("");
@@ -40,6 +40,7 @@ export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, c
       setMessageTone("success");
       setMessage("Comment posted to HelloTest.");
       await queryClient.invalidateQueries({ queryKey });
+      onEvidenceChange?.();
     },
     onError: (error) => {
       setMessageTone("error");

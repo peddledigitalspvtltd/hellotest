@@ -13,6 +13,7 @@ export function FormField({
   className = "",
   error,
   hint,
+  hintVisible = false,
   inputId,
   required
 }: {
@@ -23,6 +24,7 @@ export function FormField({
   className?: string;
   error?: string;
   hint?: string;
+  hintVisible?: boolean;
   inputId?: string;
   required?: boolean;
 }) {
@@ -43,6 +45,10 @@ export function FormField({
           "aria-invalid":
             (children as ReactElement<Record<string, unknown>>).props["aria-invalid"] ||
             Boolean(error) ||
+            undefined,
+          "aria-required":
+            (children as ReactElement<Record<string, unknown>>).props["aria-required"] ||
+            required ||
             undefined
         })
       : children;
@@ -55,7 +61,7 @@ export function FormField({
         {required ? <span aria-hidden="true" className="form-field-required-marker"> *</span> : null}
       </label>
       {fieldControl}
-      {hint ? <p className="form-field-hint sr-only" id={hintId}>{hint}</p> : null}
+      {hint ? <p className={hintVisible ? "form-field-hint" : "form-field-hint sr-only"} id={hintId}>{hint}</p> : null}
       {error ? <span className="form-field-error" id={errorId} role="alert">{error}</span> : null}
     </div>
   );

@@ -1,17 +1,16 @@
 import { FormEvent, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { BugIcon, ExportIcon, SearchIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { BugIcon, ChevronRightIcon, ExportIcon, SearchIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { AiAuthoringDialogHeader } from "../components/AiAuthoringDialogHeader";
 import {
   AiAuthoringContextPaneResizer,
-  AiAuthoringContextPaneToggle,
   useAiAuthoringContextPaneWidth
 } from "../components/AiAuthoringContextPane";
 import { AiInsightPreviewDialog, type AiPreviewFinding } from "../components/AiInsightPreviewDialog";
-import { AgenticProcessRail, AiFeatureComposer } from "../components/AgenticExperience";
+import { AgenticProcessRail, AiEvidenceButton, AiEvidenceFlyout, AiFeatureComposer } from "../components/AgenticExperience";
 import { AiPromptContextPanel } from "../components/AiPromptContextPanel";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -50,12 +49,38 @@ import { asArray } from "../lib/collectionGuards";
 import { downloadCsvRecords } from "../lib/csvExport";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
-import type { AiBugDraftPreview, AiDesignImageInput, Issue, Requirement, TestCase } from "../types";
+import type { AiBugDraftEditableField, AiBugDraftPreview, AiDesignImageInput, AiProcessingSnapshot, Issue, Requirement, TestCase } from "../types";
 import "./IssuesPage.css";
 
 const MAX_AI_BUG_TRIAGE_ITEMS = 10;
 const BULK_BUG_DELETE_BATCH_SIZE = 20;
 const BUG_EXPORT_BATCH_SIZE = 100;
+
+const AI_BUG_DRAFT_PENDING_PROCESSING: AiProcessingSnapshot = {
+  active_stage_id: "context",
+  completed_stage_count: 1,
+  total_stage_count: 4,
+  status_label: "Validating selected evidence",
+  stages: [
+    { id: "intake", status: "complete", detail: "Incident brief submitted.", evidence: "The reporter's requested Bug boundary was accepted." },
+    { id: "context", status: "running", detail: "Validating project records and reporter evidence.", evidence: "Only bounded, project-scoped sources will be admitted." },
+    { id: "specialist", status: "queued", detail: "Drafting starts after evidence validation." },
+    { id: "review", status: "queued", detail: "Human review opens after contract validation." }
+  ]
+};
+
+const AI_BUG_TRIAGE_PENDING_PROCESSING: AiProcessingSnapshot = {
+  active_stage_id: "context",
+  completed_stage_count: 1,
+  total_stage_count: 4,
+  status_label: "Assessing recorded signals",
+  stages: [
+    { id: "intake", status: "complete", detail: "Selected Bug scope submitted.", evidence: "Only the explicitly selected Bugs are in scope." },
+    { id: "context", status: "running", detail: "Reading recorded fields and traceability.", evidence: "Category and priority recommendations must cite their supporting fields." },
+    { id: "specialist", status: "queued", detail: "Recommendations wait for evidence validation." },
+    { id: "review", status: "queued", detail: "No Bug field changes without human review." }
+  ]
+};
 
 type IssueDraft = {
   title: string;
@@ -273,6 +298,34 @@ type ImpactPickerOption = {
   meta?: string;
 };
 
+function BugAiContextPaneToggle({
+  buttonRef,
+  controlsId,
+  isCollapsed,
+  onToggle
+}: {
+  buttonRef: RefObject<HTMLButtonElement>;
+  controlsId: string;
+  isCollapsed: boolean;
+  onToggle: () => void;
+}) {
+  const actionLabel = isCollapsed ? "Expand AI Bug context pane" : "Collapse AI Bug context pane";
+  return (
+    <button
+      aria-controls={controlsId}
+      aria-expanded={!isCollapsed}
+      aria-label={actionLabel}
+      className={`ghost-button ai-studio-sidebar-toggle ai-authoring-context-pane-toggle${isCollapsed ? "" : " is-expanded"}`}
+      onClick={onToggle}
+      ref={buttonRef}
+      title={actionLabel}
+      type="button"
+    >
+      <ChevronRightIcon size={17} />
+    </button>
+  );
+}
+
 function ImpactCheckboxPicker({
   disabled,
   emptyText,
@@ -334,7 +387,7 @@ function ImpactCheckboxPicker({
           </button>
         </div>
       </div>
-      <div aria-labelledby={labelId} className="impact-checkbox-picker" role="group">
+      <div className="impact-checkbox-picker">
         <label className="impact-checkbox-search">
           <SearchIcon />
           <input
@@ -345,7 +398,7 @@ function ImpactCheckboxPicker({
             value={search}
           />
         </label>
-        <div className="impact-checkbox-list" role="listbox" aria-label={label}>
+        <div aria-labelledby={labelId} className="impact-checkbox-list" role="group">
           {visibleItems.map((item) => {
             const isChecked = selectedIds.includes(item.id);
 
@@ -425,7 +478,7 @@ export function IssuesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { session } = useAuth();
-  const { getMetricCriteria } = useAiPromptRegistry();
+  const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canViewAttachments = hasPermission(session, "attachment.view");
@@ -459,7 +512,6 @@ export function IssuesPage() {
   const [issueSearch, setIssueSearch] = useState("");
   const deferredIssueSearch = useDeferredValue(issueSearch);
   const [isAiBugDraftOpen, setIsAiBugDraftOpen] = useState(false);
-  const [aiBugInteractionMode, setAiBugInteractionMode] = useState<"chat" | "agent">("agent");
   const [aiIntent, setAiIntent] = useState("");
   const [aiEvidence, setAiEvidence] = useState("");
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
@@ -470,10 +522,27 @@ export function IssuesPage() {
   const [aiLinkedRequirementIds, setAiLinkedRequirementIds] = useState<string[]>([]);
   const [aiDraftPreview, setAiDraftPreview] = useState<AiBugDraftPreview | null>(null);
   const [aiDraftMessage, setAiDraftMessage] = useState("");
+  const [aiDraftMessageTone, setAiDraftMessageTone] = useState<"error" | "warning">("error");
   const [isAiContextCollapsed, setIsAiContextCollapsed] = useState(false);
+  const aiBugContextPaneId = `ai-bug-context-pane-${useId().replace(/:/g, "")}`;
+  const aiBugContextPaneToggleRef = useRef<HTMLButtonElement>(null);
+  const restoreAiBugContextToggleFocusRef = useRef(false);
+  const [isAiBugEvidenceSetupOpen, setIsAiBugEvidenceSetupOpen] = useState(false);
+  const [isAiBugDraftEvidenceOpen, setIsAiBugDraftEvidenceOpen] = useState(false);
   const aiBugContextPane = useAiAuthoringContextPaneWidth();
   const [hasAppliedBugContextDefaults, setHasAppliedBugContextDefaults] = useState(true);
   const [hasAppliedAiBugContextDefaults, setHasAppliedAiBugContextDefaults] = useState(true);
+
+  useEffect(() => {
+    if (!restoreAiBugContextToggleFocusRef.current) return;
+    aiBugContextPaneToggleRef.current?.focus();
+    restoreAiBugContextToggleFocusRef.current = false;
+  }, [isAiContextCollapsed]);
+
+  const toggleAiBugContextPane = (collapsed: boolean) => {
+    restoreAiBugContextToggleFocusRef.current = true;
+    setIsAiContextCollapsed(collapsed);
+  };
   const shouldLoadBugContext = isCreating || Boolean(selectedIssueId) || isAiBugDraftOpen;
   const { issues, users, executions, testCases, testSuites, requirements } = useWorkspaceData({
     roles: false,
@@ -1171,7 +1240,7 @@ export function IssuesPage() {
       description: recommendation.explanation,
       action: asArray(recommendation.review_actions).join(" "),
       meta: `${recommendation.title} · Current ${recommendation.current_priority} · Recommended ${recommendation.recommended_priority}`,
-      evidence: asArray(recommendation.signals)
+      evidence: asArray(recommendation.evidence_refs)
     })),
     [previewAiBugTriage.data]
   );
@@ -1203,7 +1272,10 @@ export function IssuesPage() {
       || searchParams.get("linked_requirement_ids")
     );
     setAiDraftPreview(null);
+    setIsAiBugEvidenceSetupOpen(false);
+    setIsAiBugDraftEvidenceOpen(false);
     setAiDraftMessage("");
+    setAiDraftMessageTone("error");
     setAiIntent(contextualTitle || (hasContextualScope ? "Investigate the selected failed QA context" : ""));
     setAiEvidence([
       contextualMessage,
@@ -1231,7 +1303,12 @@ export function IssuesPage() {
     }
     previewAiBugTriage.reset();
     setIsAiBugTriageOpen(true);
-    previewAiBugTriage.mutate({ project_id: projectId, issue_ids: selectedIssueIds });
+    previewAiBugTriage.mutate({
+      project_id: projectId,
+      issue_ids: selectedIssueIds,
+      integration_id: getLlmIntegrationId("ai.bug.triage") || undefined,
+      prompt_guidance: getPrompt("ai.bug.triage") || undefined
+    });
   };
 
   useEffect(() => {
@@ -1267,6 +1344,51 @@ export function IssuesPage() {
   const invalidateAiBugDraft = () => {
     setAiDraftPreview(null);
     setAiDraftMessage("");
+    setAiDraftMessageTone("error");
+  };
+
+  const updateAiBugDraftField = (
+    field: AiBugDraftEditableField,
+    value: AiBugDraftPreview["draft"][AiBugDraftEditableField]
+  ) => {
+    setAiDraftPreview((current) => {
+      if (!current || JSON.stringify(current.draft[field]) === JSON.stringify(value)) return current;
+      const reviewState = current.client_review || { human_edited_fields: [], stale_field_evidence: {}, stale_gaps: {}, stale_fallback_fields: [] };
+      const staleFieldEvidence = { ...reviewState.stale_field_evidence };
+      if (!Object.prototype.hasOwnProperty.call(staleFieldEvidence, field)) {
+        staleFieldEvidence[field] = [...(current.field_evidence[field] || [])];
+      }
+      const staleGaps = { ...reviewState.stale_gaps };
+      if (!Object.prototype.hasOwnProperty.call(staleGaps, field)) {
+        staleGaps[field] = current.gaps.filter((gap) => gap.field === field);
+      }
+      const staleFallbackFields = current.fallback_fields.includes(field)
+        ? [...new Set([...reviewState.stale_fallback_fields, field])]
+        : reviewState.stale_fallback_fields;
+      const humanEditedFields = [...new Set([...reviewState.human_edited_fields, field])];
+      return {
+        ...current,
+        draft: { ...current.draft, [field]: value } as AiBugDraftPreview["draft"],
+        field_evidence: { ...current.field_evidence, [field]: [] },
+        gaps: current.gaps.filter((gap) => gap.field !== field),
+        fallback_fields: current.fallback_fields.filter((fallbackField) => fallbackField !== field),
+        processing: {
+          ...current.processing,
+          status_label: "Human edits awaiting verification",
+          stages: current.processing.stages?.map((stage) => stage.id === "specialist" || stage.id === "evaluation"
+            ? { ...stage, evidence: "Generated evaluation is historical and does not validate human-edited fields." }
+            : stage.id === "review"
+              ? { ...stage, evidence: `${humanEditedFields.length} human-edited field${humanEditedFields.length === 1 ? " has" : "s have"} no active AI evidence attribution and require reviewer verification.` }
+              : stage)
+        },
+        client_review: {
+          human_edited_fields: humanEditedFields,
+          stale_field_evidence: staleFieldEvidence,
+          stale_gaps: staleGaps,
+          stale_fallback_fields: staleFallbackFields
+        }
+      };
+    });
   };
 
   const handleAddAiReferenceImages = async (files: FileList | null) => {
@@ -1280,20 +1402,24 @@ export function IssuesPage() {
         return result.images;
       });
       if (budgetMessage) {
+        setAiDraftMessageTone("warning");
         setAiDraftMessage(budgetMessage);
       }
     } catch (error) {
+      setAiDraftMessageTone("error");
       setAiDraftMessage(error instanceof Error ? error.message : "Unable to attach the selected reference image.");
     }
   };
 
   const handlePreviewAiBugDraft = async () => {
     if (!projectId || !aiIntent.trim()) {
+      setAiDraftMessageTone("error");
       setAiDraftMessage("Describe the failure or bug intent before generating a draft.");
       return;
     }
 
     setAiDraftMessage("");
+    setAiDraftMessageTone("error");
     try {
       const response = await previewAiBugDraft.mutateAsync({
         project_id: projectId,
@@ -1301,13 +1427,19 @@ export function IssuesPage() {
         evidence: aiEvidence.trim(),
         additional_context: aiAdditionalContext,
         external_links: parseExternalLinks(aiExternalLinksText),
-        reference_photos: aiReferenceImages.map((image) => ({ name: image.name })),
+        reference_photos: aiReferenceImages,
         linked_test_run_id: aiLinkedRunId,
         linked_test_case_ids: aiLinkedCaseIds,
-        linked_requirement_ids: aiLinkedRequirementIds
+        linked_requirement_ids: aiLinkedRequirementIds,
+        integration_id: getLlmIntegrationId("ai.bug.draft") || undefined,
+        prompt_guidance: getPrompt("ai.bug.draft") || undefined
       });
-      setAiDraftPreview(response);
+      setAiDraftPreview({
+        ...response,
+        client_review: { human_edited_fields: [], stale_field_evidence: {}, stale_gaps: {}, stale_fallback_fields: [] }
+      });
     } catch (error) {
+      setAiDraftMessageTone("error");
       setAiDraftMessage(error instanceof Error ? error.message : "Unable to generate the bug draft.");
     }
   };
@@ -1317,6 +1449,7 @@ export function IssuesPage() {
       return;
     }
     const candidate = aiDraftPreview.draft;
+    const humanEditedFieldCount = aiDraftPreview.client_review?.human_edited_fields.length || 0;
     const contextualCaseIds = parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase"));
     const isHierarchyScopedContext = !contextualCaseIds.length && Boolean(
       searchParams.get("linked_module_ids")
@@ -1347,8 +1480,13 @@ export function IssuesPage() {
     setSelectedIssueId("");
     setIsCreating(true);
     setIsAiBugDraftOpen(false);
+    setIsAiBugEvidenceSetupOpen(false);
+    setIsAiBugDraftEvidenceOpen(false);
+    setAiDraftPreview(null);
     setMessageTone("success");
-    setMessage("AI draft applied. Review every field before saving the Bug to HelloTest.");
+    setMessage(humanEditedFieldCount
+      ? `${humanEditedFieldCount} human-edited proposal field${humanEditedFieldCount === 1 ? " was" : "s were"} applied without AI evidence attribution. Review every field before saving the Bug to HelloTest.`
+      : "AI draft applied. Review every field before saving the Bug to HelloTest.");
   };
 
   const createIssue = useMutation({
@@ -1492,6 +1630,8 @@ export function IssuesPage() {
 
   const closeAiBugReport = () => {
     setIsAiBugDraftOpen(false);
+    setIsAiBugEvidenceSetupOpen(false);
+    setIsAiBugDraftEvidenceOpen(false);
     if (bugReturnTo && !isCreating && !selectedIssueId) navigate(bugReturnTo);
   };
   const aiBugDialogRef = useDialogFocus<HTMLDivElement>({
@@ -1511,6 +1651,20 @@ export function IssuesPage() {
     || searchParams.get("linked_requirement_ids")
   );
   const normalizedBugReturnLabel = bugReturnLabel.toLowerCase();
+  const aiBugExternalLinks = parseExternalLinks(aiExternalLinksText);
+  const aiBugEvidenceSourceCount = aiLinkedCaseIds.length
+    + aiLinkedRequirementIds.length
+    + aiReferenceImages.length
+    + aiBugExternalLinks.length
+    + (aiLinkedRunId ? 1 : 0)
+    + (aiEvidence.trim() ? 1 : 0)
+    + (aiAdditionalContext.trim() ? 1 : 0);
+  const aiBugOmittedEvidenceCount = Object.values(aiDraftPreview?.boundaries.omitted || {})
+    .reduce((total, count) => total + Number(count || 0), 0)
+    + (aiDraftPreview?.boundaries.content_omissions?.length || 0);
+  const aiBugHumanEditedFields = aiDraftPreview?.client_review?.human_edited_fields || [];
+  const aiBugHumanEditedFieldCount = aiBugHumanEditedFields.length;
+  const hasAiBugEvidenceContext = aiBugEvidenceSourceCount > 0;
   const aiBugContextSource = normalizedBugReturnLabel.includes("test case")
     ? "Failed test case"
     : normalizedBugReturnLabel.includes("suite")
@@ -1530,16 +1684,22 @@ export function IssuesPage() {
       {confirmationDialog}
       <AiInsightPreviewDialog
         assuranceTitle="Evidence-grounded Bug triage"
+        boundaryOmissions={asArray(previewAiBugTriage.data?.boundaries?.omissions)}
         emptyMessage="No classification recommendation was returned for the selected Bugs."
+        evidenceSources={asArray(previewAiBugTriage.data?.evidence_sources)}
         error={previewAiBugTriage.error instanceof Error ? previewAiBugTriage.error.message : null}
         eyebrow="Bugs · AI review"
         findings={aiBugTriageFindings}
+        inputEvidenceCount={selectedActionIssues.length}
         limitations={asArray(previewAiBugTriage.data?.limitations)}
         loading={previewAiBugTriage.isPending}
         onClose={() => setIsAiBugTriageOpen(false)}
         open={isAiBugTriageOpen}
+        processing={previewAiBugTriage.data?.processing || (previewAiBugTriage.isPending ? AI_BUG_TRIAGE_PENDING_PROCESSING : undefined)}
+        profile="bug-triage"
         recommendedActions={asArray(previewAiBugTriage.data?.review_sequence)}
         response={previewAiBugTriage.data}
+        scoreLabel="Required evidence coverage"
         subtitle={`Review categories and priority recommendations for up to ${MAX_AI_BUG_TRIAGE_ITEMS} selected project Bugs. Nothing is updated automatically.`}
         summary={previewAiBugTriage.data?.summary || "HelloTest compares the selected Bug fields and traceability signals, then explains each recommendation for human review."}
         title="Classify and prioritize Bugs"
@@ -1571,61 +1731,23 @@ export function IssuesPage() {
               titleId="ai-bug-draft-title"
             />
 
-            <div className="ai-bug-feature-composer">
-              <AiFeatureComposer
-                agentName="Bug Reporter"
-                briefItems={[
-                  {
-                    id: "context",
-                    kind: "context",
-                    label: "Failure evidence",
-                    onClick: () => setIsAiContextCollapsed(false),
-                    state: aiLinkedRunId || aiLinkedCaseIds.length || aiLinkedRequirementIds.length ? "ready" : "attention",
-                    value: `${aiLinkedRunId ? "1 run" : "No run"} · ${aiLinkedCaseIds.length} case${aiLinkedCaseIds.length === 1 ? "" : "s"} · ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}`
-                  },
-                  { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable Bug draft with reproduction evidence" },
-                  { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept into form, then review before create" }
-                ]}
-                contextLabel={`${aiLinkedRunId ? "1 run" : "No run"} · ${aiLinkedCaseIds.length} case${aiLinkedCaseIds.length === 1 ? "" : "s"} · ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}`}
-                disabled={!projectId}
-                mode={aiBugInteractionMode}
-                onContextClick={() => setIsAiContextCollapsed(false)}
-                onModeChange={setAiBugInteractionMode}
-                onPromptChange={(value) => {
-                  setAiIntent(value);
-                  invalidateAiBugDraft();
-                }}
-                onSubmit={() => void handlePreviewAiBugDraft()}
-                placeholder="Describe what failed, where it failed, the expected behavior, and why the impact matters."
-                prompt={aiIntent}
-                running={previewAiBugDraft.isPending}
-                submitLabel={aiDraftPreview ? "Regenerate draft" : "Generate draft"}
-              />
-            </div>
-
-            <AgenticProcessRail
-              agentName="Bug Reporter"
-              compact
-              stageEvidence={{
-                intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Bug drafting boundary." : "Add the observed failure and expected behavior before delegating a Bug draft.",
-                context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, and ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"} form the evidence pack.`,
-                guardrails: "The agent cannot create a Bug, change Jira, or treat reference text as trusted instructions.",
-                specialist: "Bug Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
-                outcome: "Title, severity, priority, description, steps, expected result, and actual result remain editable proposal fields.",
-                evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
-                review: "The proposal must first be accepted into the Bug form and then explicitly created by a person."
-              }}
-              status={previewAiBugDraft.isPending ? "running" : aiDraftPreview ? "completed" : aiDraftMessage ? "failed" : "idle"}
-            />
-
-            <div
+            <div className="ai-bug-authoring-workbench">
+              <div
               className={isAiContextCollapsed ? "ai-studio-shell ai-authoring-dialog-layout is-sidebar-collapsed" : "ai-studio-shell ai-authoring-dialog-layout"}
               style={aiBugContextPane.style}
-            >
-              <aside className={isAiContextCollapsed ? "ai-studio-sidebar ai-authoring-dialog-sidebar is-collapsed" : "ai-studio-sidebar ai-authoring-dialog-sidebar"}>
+              >
+              <aside
+                className={isAiContextCollapsed ? "ai-studio-sidebar ai-authoring-dialog-sidebar is-collapsed" : "ai-studio-sidebar ai-authoring-dialog-sidebar"}
+                id={aiBugContextPaneId}
+              >
                 {isAiContextCollapsed ? (
                   <div className="ai-studio-sidebar-collapsed-bar">
-                    <AiAuthoringContextPaneToggle isCollapsed onToggle={() => setIsAiContextCollapsed(false)} />
+                    <BugAiContextPaneToggle
+                      buttonRef={aiBugContextPaneToggleRef}
+                      controlsId={aiBugContextPaneId}
+                      isCollapsed
+                      onToggle={() => toggleAiBugContextPane(false)}
+                    />
                   </div>
                 ) : (
                   <div className="ai-studio-sidebar-panels">
@@ -1646,7 +1768,12 @@ export function IssuesPage() {
                       </p>
                     </section>
                     <div className="ai-studio-sidebar-divider">
-                      <AiAuthoringContextPaneToggle isCollapsed={false} onToggle={() => setIsAiContextCollapsed(true)} />
+                      <BugAiContextPaneToggle
+                        buttonRef={aiBugContextPaneToggleRef}
+                        controlsId={aiBugContextPaneId}
+                        isCollapsed={false}
+                        onToggle={() => toggleAiBugContextPane(true)}
+                      />
                     </div>
                     <AiPromptContextPanel
                       additionalContext={aiAdditionalContext}
@@ -1681,67 +1808,119 @@ export function IssuesPage() {
                 />
               ) : null}
 
-              <main className="ai-studio-main ai-bug-draft-main ai-authoring-dialog-workspace">
-                <section className="ai-studio-panel ai-bug-intent-panel">
-                  <FormField label="Observed evidence">
-                    <textarea
-                      disabled={previewAiBugDraft.isPending}
-                      onChange={(event) => {
-                        setAiEvidence(event.target.value);
-                        invalidateAiBugDraft();
-                      }}
-                      placeholder="Error text, observed result, timestamps, logs, or reproduction notes"
-                      rows={5}
-                      value={aiEvidence}
-                    />
-                  </FormField>
-                </section>
+              <section aria-label="AI Bug draft workspace" className="ai-studio-main ai-bug-draft-main ai-authoring-dialog-workspace">
+                <div className="ai-bug-feature-composer">
+                  <AiFeatureComposer
+                    agentName="Bug Reporter"
+                    briefItems={[
+                      {
+                        id: "context",
+                        kind: "context",
+                        label: "Failure evidence",
+                        onClick: () => setIsAiContextCollapsed(false),
+                        state: hasAiBugEvidenceContext ? "ready" : "attention",
+                        value: `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} · ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}`
+                      },
+                      { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable Bug draft with reproduction evidence" },
+                      { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept into form, then review before create" }
+                    ]}
+                    briefCollapsible
+                    contextLabel={`${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"}`}
+                    density="compact"
+                    disabled={!projectId}
+                    mode="agent"
+                    onContextClick={() => setIsAiContextCollapsed(false)}
+                    onPromptChange={(value) => {
+                      setAiIntent(value);
+                      invalidateAiBugDraft();
+                    }}
+                    onSubmit={() => void handlePreviewAiBugDraft()}
+                    placeholder="Describe what failed, where it failed, the expected behavior, and why the impact matters."
+                    prompt={aiIntent}
+                    running={previewAiBugDraft.isPending}
+                    showIdentity={false}
+                    showModeSwitcher={false}
+                    showProviderSelector={false}
+                    submitLabel={aiDraftPreview ? "Regenerate draft" : "Generate draft"}
+                  />
+                </div>
 
-                <section className="ai-studio-panel">
-                  <div className="issue-form-grid issue-form-grid--triple ai-bug-scope-grid">
-                    <FormField label="Impacted Test Run">
-                      <select
+                <div className="ai-bug-evidence-launch">
+                  <span><strong>Evidence and impacted scope</strong><small>Add only logs, reproduction notes, runs, Test Cases, and Stories that support this Bug.</small></span>
+                  <AiEvidenceButton count={aiBugEvidenceSourceCount} label="Review evidence setup" onClick={() => setIsAiBugEvidenceSetupOpen(true)} />
+                </div>
+
+                <AiEvidenceFlyout
+                  description="Add or refine the bounded evidence pack used to prepare this Bug proposal. External URLs remain pointer-only."
+                  eyebrow="Bug creation · Input evidence"
+                  facts={[
+                    { label: "Linked run", value: aiLinkedRunId ? "1" : "0" },
+                    { label: "Test Cases", value: aiLinkedCaseIds.length },
+                    { label: "Stories", value: aiLinkedRequirementIds.length },
+                    { label: "Images", value: aiReferenceImages.length }
+                  ]}
+                  onClose={() => setIsAiBugEvidenceSetupOpen(false)}
+                  open={isAiBugEvidenceSetupOpen}
+                  title="Evidence and impacted scope"
+                >
+                  <div className="ai-bug-input-flyout__body">
+                    <FormField label="Observed evidence">
+                      <textarea
                         disabled={previewAiBugDraft.isPending}
                         onChange={(event) => {
-                          setAiLinkedRunId(event.target.value);
+                          setAiEvidence(event.target.value);
                           invalidateAiBugDraft();
                         }}
-                        value={aiLinkedRunId}
-                      >
-                        <option value="">No linked run</option>
-                        {executionItems.map((execution) => (
-                          <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
-                        ))}
-                      </select>
+                        placeholder="Error text, observed result, timestamps, logs, or reproduction notes"
+                        rows={4}
+                        value={aiEvidence}
+                      />
                     </FormField>
-                    <ImpactCheckboxPicker
-                      disabled={previewAiBugDraft.isPending}
-                      emptyText="No test cases are available for this project."
-                      items={testCaseImpactOptions}
-                      label="Impacted Test Cases"
-                      onChange={(ids) => {
-                        updateAiLinkedTestCases(ids);
-                        invalidateAiBugDraft();
-                      }}
-                      placeholder="Search test cases..."
-                      selectedIds={aiLinkedCaseIds}
-                    />
-                    <ImpactCheckboxPicker
-                      disabled={previewAiBugDraft.isPending}
-                      emptyText="No stories are available for this project."
-                      items={requirementImpactOptions}
-                      label="Impacted Stories"
-                      onChange={(ids) => {
-                        setAiLinkedRequirementIds(ids);
-                        invalidateAiBugDraft();
-                      }}
-                      placeholder="Search stories..."
-                      selectedIds={aiLinkedRequirementIds}
-                    />
+                    <div className="issue-form-grid issue-form-grid--triple ai-bug-scope-grid">
+                      <FormField label="Impacted Test Run">
+                        <select
+                          disabled={previewAiBugDraft.isPending}
+                          onChange={(event) => {
+                            setAiLinkedRunId(event.target.value);
+                            invalidateAiBugDraft();
+                          }}
+                          value={aiLinkedRunId}
+                        >
+                          <option value="">No linked run</option>
+                          {executionItems.map((execution) => (
+                            <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
+                          ))}
+                        </select>
+                      </FormField>
+                      <ImpactCheckboxPicker
+                        disabled={previewAiBugDraft.isPending}
+                        emptyText="No test cases are available for this project."
+                        items={testCaseImpactOptions}
+                        label="Impacted Test Cases"
+                        onChange={(ids) => {
+                          updateAiLinkedTestCases(ids);
+                          invalidateAiBugDraft();
+                        }}
+                        placeholder="Search test cases..."
+                        selectedIds={aiLinkedCaseIds}
+                      />
+                      <ImpactCheckboxPicker
+                        disabled={previewAiBugDraft.isPending}
+                        emptyText="No stories are available for this project."
+                        items={requirementImpactOptions}
+                        label="Impacted Stories"
+                        onChange={(ids) => {
+                          setAiLinkedRequirementIds(ids);
+                          invalidateAiBugDraft();
+                        }}
+                        placeholder="Search stories..."
+                        selectedIds={aiLinkedRequirementIds}
+                      />
+                    </div>
                   </div>
-                </section>
+                </AiEvidenceFlyout>
 
-                {aiDraftMessage ? <p className="inline-message error-message">{aiDraftMessage}</p> : null}
+                {aiDraftMessage ? <p className={`inline-message ${aiDraftMessageTone === "warning" ? "warning-message" : "error-message"}`} role={aiDraftMessageTone === "error" ? "alert" : "status"}>{aiDraftMessage}</p> : null}
 
                 {aiDraftPreview ? (
                   <section className="ai-bug-review-card" aria-label="AI bug draft preview">
@@ -1750,60 +1929,196 @@ export function IssuesPage() {
                         <span>Human review required</span>
                         <strong>Editable Bug proposal</strong>
                       </div>
-                      <span className="count-pill">{Math.round(aiDraftPreview.provenance.confidence * 100)}% confidence <MetricMethodologyInfo criteriaKey="metric.ai.evidence_grounding" evidence={`${aiDraftPreview.provenance.evidence.length} bounded HelloTest evidence reference${aiDraftPreview.provenance.evidence.length === 1 ? "" : "s"}; ${aiDraftPreview.provenance.generation_mode === "deterministic" ? "deterministic fallback" : "contract-valid assisted response"}.`} organizationCriteria={getMetricCriteria("metric.ai.evidence_grounding")} /></span>
+                      <div className="ai-bug-review-head__evidence">
+                        <span className="count-pill">{aiBugHumanEditedFieldCount ? `${aiBugHumanEditedFieldCount} human-edited · verify evidence` : aiDraftPreview.gaps.length ? `${aiDraftPreview.gaps.length} gap${aiDraftPreview.gaps.length === 1 ? "" : "s"} to verify` : "Required evidence present"} <MetricMethodologyInfo criteriaKey="metric.ai.evidence_grounding" evidence={`${aiDraftPreview.provenance.evidence.length} bounded evidence reference${aiDraftPreview.provenance.evidence.length === 1 ? "" : "s"}; ${aiDraftPreview.gaps.length} explicit gap${aiDraftPreview.gaps.length === 1 ? "" : "s"}; ${aiDraftPreview.fallback_fields.length} deterministic fallback field${aiDraftPreview.fallback_fields.length === 1 ? "" : "s"}; ${aiBugHumanEditedFieldCount} human-edited field${aiBugHumanEditedFieldCount === 1 ? "" : "s"} with original AI evidence attribution removed. This does not measure model certainty.`} organizationCriteria={getMetricCriteria("metric.ai.evidence_grounding")} /></span>
+                        <AiEvidenceButton count={aiDraftPreview.evidence_sources.length} label="View evidence" onClick={() => setIsAiBugDraftEvidenceOpen(true)} />
+                      </div>
                     </div>
+                    {aiDraftPreview.provenance.fallback_used ? (
+                      <p className="inline-message warning-message" role="status">
+                        {aiDraftPreview.provenance.generation_mode === "hybrid" ? "Some proposal fields used evidence-bound deterministic values." : "HelloTest used the evidence-bound deterministic drafting path."} {aiDraftPreview.provenance.fallback_reason || "Review every field before accepting it."}
+                      </p>
+                    ) : null}
+                    {aiBugHumanEditedFieldCount ? (
+                      <p className="inline-message warning-message ai-bug-human-edit-notice" role="status">
+                        <strong>Human-edited content is unverified.</strong> Original field citations were removed from {aiBugHumanEditedFieldCount} changed field{aiBugHumanEditedFieldCount === 1 ? "" : "s"}; review the current values before accepting them.
+                      </p>
+                    ) : null}
                     <div className="ai-bug-proposal-fields">
                       <FormField label="Title" required>
-                        <input onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, title: event.target.value } } : current)} value={aiDraftPreview.draft.title} />
+                        <input onChange={(event) => updateAiBugDraftField("title", event.target.value)} value={aiDraftPreview.draft.title} />
                       </FormField>
                       <div className="ai-bug-proposal-pair">
                         <FormField label="Severity">
-                          <select onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, severity: event.target.value as AiBugDraftPreview["draft"]["severity"] } } : current)} value={aiDraftPreview.draft.severity}>
+                          <select onChange={(event) => updateAiBugDraftField("severity", event.target.value as AiBugDraftPreview["draft"]["severity"])} value={aiDraftPreview.draft.severity}>
                             {['critical', 'high', 'medium', 'low'].map((value) => <option key={value} value={value}>{value}</option>)}
                           </select>
                         </FormField>
                         <FormField label="Priority">
-                          <select onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, priority: event.target.value as AiBugDraftPreview["draft"]["priority"] } } : current)} value={aiDraftPreview.draft.priority}>
+                          <select onChange={(event) => updateAiBugDraftField("priority", event.target.value as AiBugDraftPreview["draft"]["priority"])} value={aiDraftPreview.draft.priority}>
                             {['Highest', 'High', 'Medium', 'Low', 'Lowest'].map((value) => <option key={value} value={value}>{value}</option>)}
                           </select>
                         </FormField>
                       </div>
                       <FormField label="Description">
-                        <textarea onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, message: event.target.value } } : current)} rows={4} value={aiDraftPreview.draft.message} />
+                        <textarea onChange={(event) => updateAiBugDraftField("message", event.target.value)} rows={4} value={aiDraftPreview.draft.message} />
                       </FormField>
                       <FormField label="Steps to reproduce">
-                        <textarea onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, steps_to_reproduce: event.target.value } } : current)} rows={5} value={aiDraftPreview.draft.steps_to_reproduce} />
+                        <textarea onChange={(event) => updateAiBugDraftField("steps_to_reproduce", event.target.value)} rows={5} value={aiDraftPreview.draft.steps_to_reproduce} />
                       </FormField>
                       <div className="ai-bug-proposal-pair">
                         <FormField label="Expected result">
-                          <textarea onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, expected_result: event.target.value } } : current)} rows={3} value={aiDraftPreview.draft.expected_result} />
+                          <textarea onChange={(event) => updateAiBugDraftField("expected_result", event.target.value)} rows={3} value={aiDraftPreview.draft.expected_result} />
                         </FormField>
                         <FormField label="Actual result">
-                          <textarea onChange={(event) => setAiDraftPreview((current) => current ? { ...current, draft: { ...current.draft, actual_result: event.target.value } } : current)} rows={3} value={aiDraftPreview.draft.actual_result} />
+                          <textarea onChange={(event) => updateAiBugDraftField("actual_result", event.target.value)} rows={3} value={aiDraftPreview.draft.actual_result} />
                         </FormField>
                       </div>
+                      <div className="ai-bug-proposal-pair">
+                        <FormField label="Environment">
+                          <input onChange={(event) => updateAiBugDraftField("environment", event.target.value)} placeholder="Not evidenced" value={aiDraftPreview.draft.environment} />
+                        </FormField>
+                        <FormField label="Build or version">
+                          <input onChange={(event) => updateAiBugDraftField("build", event.target.value)} placeholder="Not evidenced" value={aiDraftPreview.draft.build} />
+                        </FormField>
+                      </div>
+                      <FormField label="Labels">
+                        <input onChange={(event) => updateAiBugDraftField("labels", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} value={aiDraftPreview.draft.labels.join(", ")} />
+                      </FormField>
                     </div>
-                    <div className="ai-bug-review-grid">
-                      <div><span>Severity</span><strong>{aiDraftPreview.draft.severity}</strong></div>
-                      <div><span>Priority</span><strong>{aiDraftPreview.draft.priority}</strong></div>
-                      <div><span>Run</span><strong>{aiDraftPreview.draft.linked_test_run_id ? runLabelById.get(aiDraftPreview.draft.linked_test_run_id) || aiDraftPreview.draft.linked_test_run_id : "Not linked"}</strong></div>
-                      <div><span>Impact</span><strong>{aiDraftPreview.draft.linked_test_case_ids.length} cases · {aiDraftPreview.draft.linked_requirement_ids.length} stories</strong></div>
-                    </div>
-                    <p>{aiDraftPreview.draft.rationale}</p>
+                    <AiEvidenceFlyout
+                      description="Inspect the exact source references, field grounding, disclosed gaps, and processing boundary for this proposal."
+                      eyebrow="Bug creation · Decision evidence"
+                      facts={[
+                        { label: "Mode", value: aiDraftPreview.provenance.generation_mode },
+                        { label: "Evidence sources", value: aiDraftPreview.evidence_sources.length },
+                        { label: "Evidence gaps", value: aiDraftPreview.gaps.length },
+                        { label: "Fallback fields", value: aiDraftPreview.fallback_fields.length },
+                        { label: "Human-edited", value: aiBugHumanEditedFieldCount },
+                        { label: "Omitted by boundary", value: aiBugOmittedEvidenceCount }
+                      ]}
+                      onClose={() => setIsAiBugDraftEvidenceOpen(false)}
+                      open={isAiBugDraftEvidenceOpen}
+                      title="Bug proposal evidence"
+                    >
+                      <section className="ai-evidence-flyout__section ai-bug-evidence-sources">
+                        <header><span>Sources</span><strong>Bounded evidence pack</strong></header>
+                        <div>
+                          {aiDraftPreview.evidence_sources.map((source) => (
+                            <article key={source.ref}>
+                              <span>{source.type.replace(/-/g, " ")}{source.trust ? ` · ${source.trust}` : ""}</span>
+                              <strong>{source.title}</strong>
+                              {source.excerpt ? <p>{source.excerpt}</p> : null}
+                              <code>{source.ref}</code>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                      <section className="ai-evidence-flyout__section ai-bug-field-evidence">
+                        <header><span>Field grounding</span><strong>Evidence used by proposal field</strong></header>
+                        <dl>
+                          {Object.entries(aiDraftPreview.field_evidence).map(([field, refs]) => {
+                            const editableField = field as AiBugDraftEditableField;
+                            const isHumanEdited = aiBugHumanEditedFields.includes(editableField);
+                            const staleRefs = aiDraftPreview.client_review?.stale_field_evidence[editableField] || [];
+                            const staleGaps = aiDraftPreview.client_review?.stale_gaps[editableField] || [];
+                            const hadDeterministicFallback = aiDraftPreview.client_review?.stale_fallback_fields.includes(editableField) || false;
+                            return (
+                              <div key={field}>
+                                <dt>{field.replace(/_/g, " ")}</dt>
+                                <dd data-evidence-state={isHumanEdited ? "human-edited" : "current"}>
+                                  {isHumanEdited ? (
+                                    <>
+                                      <span className="ai-bug-field-evidence__state">Human-edited · unverified</span>
+                                      <small>Active AI evidence attribution was removed for the current value.</small>
+                                      {staleRefs.length ? <span className="ai-bug-field-evidence__stale">Original proposal only — stale: {staleRefs.map((ref) => <code key={ref}>{ref}</code>)}</span> : null}
+                                      {staleGaps.length ? <span className="ai-bug-field-evidence__stale">Original generated gap — stale: {staleGaps.map((gap) => gap.reason).join(" ")}</span> : null}
+                                      {hadDeterministicFallback ? <span className="ai-bug-field-evidence__stale">Original deterministic fallback evaluation — stale after edit.</span> : null}
+                                    </>
+                                  ) : refs.length ? refs.map((ref) => <code key={ref}>{ref}</code>) : <span>No supporting ref</span>}
+                                </dd>
+                              </div>
+                            );
+                          })}
+                        </dl>
+                      </section>
+                      {aiDraftPreview.gaps.length ? (
+                        <section className="ai-evidence-flyout__section ai-bug-evidence-gaps">
+                          <header><span>Needs verification</span><strong>Evidence gaps</strong></header>
+                          <ul>{aiDraftPreview.gaps.map((gap) => <li key={`${gap.field}:${gap.reason}`}><strong>{gap.field.replace(/_/g, " ")}</strong><span>{gap.reason}</span>{gap.question ? <em>{gap.question}</em> : null}</li>)}</ul>
+                        </section>
+                      ) : null}
+                      {aiDraftPreview.fallback_fields.length ? (
+                        <section className="ai-evidence-flyout__section">
+                          <header><span>Hybrid boundary</span><strong>Fields using deterministic fallback</strong></header>
+                          <ul className="ai-evidence-flyout__bullet-list">
+                            {aiDraftPreview.fallback_fields.map((field) => <li key={field}>{field.replace(/_/g, " ")}</li>)}
+                          </ul>
+                        </section>
+                      ) : null}
+                      {aiDraftPreview.assumptions.length ? (
+                        <section className="ai-evidence-flyout__section">
+                          <header><span>Needs verification</span><strong>Explicit assumptions</strong></header>
+                          <ul className="ai-evidence-flyout__bullet-list">
+                            {aiDraftPreview.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}
+                          </ul>
+                        </section>
+                      ) : null}
+                      {aiDraftPreview.boundaries.partial_sources ? (
+                        <section className="ai-evidence-flyout__section ai-bug-field-evidence">
+                          <header><span>Processing boundary</span><strong>Requested evidence not included</strong></header>
+                          <dl>
+                            {Object.entries(aiDraftPreview.boundaries.omitted).filter(([, count]) => count > 0).map(([source, count]) => (
+                              <div key={source}><dt>{source.replace(/_/g, " ")}</dt><dd>{count} omitted</dd></div>
+                            ))}
+                            {(aiDraftPreview.boundaries.content_omissions || []).map((omission) => (
+                              <div key={`${omission.source_ref}:${omission.field}`}><dt>{omission.field.replace(/_/g, " ")}</dt><dd>{omission.omitted} {omission.unit} omitted from <code>{omission.source_ref}</code></dd></div>
+                            ))}
+                          </dl>
+                        </section>
+                      ) : null}
+                      <section className="ai-evidence-flyout__section">
+                        <header><span>Decision basis</span><strong>Draft rationale</strong></header>
+                        <p>{aiDraftPreview.draft.rationale}</p>
+                        {aiBugHumanEditedFieldCount ? <p className="warning-message">This rationale describes the generated proposal before human edits. It does not support the current values of human-edited fields.</p> : null}
+                        {aiDraftPreview.boundaries.partial_sources ? <p className="warning-message">Some requested, invalid, inaccessible, or over-limit sources were omitted. Their counts remain part of the input fingerprint.</p> : null}
+                      </section>
+                    </AiEvidenceFlyout>
                   </section>
                 ) : null}
-              </main>
+              </section>
+              </div>
+              <aside aria-label="Bug Reporter generation flow" className="ai-bug-flow-pane">
+                <AgenticProcessRail
+                  agentName="Bug Reporter"
+                  compact
+                  orientation="vertical"
+                  presentation="focused"
+                  profile="bug-create"
+                  processing={aiDraftPreview?.processing || (previewAiBugDraft.isPending ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
+                  stageEvidence={{
+                    intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Bug drafting boundary." : "Add the observed failure and expected behavior before delegating a Bug draft.",
+                    context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, ${aiBugExternalLinks.length} external link pointer${aiBugExternalLinks.length === 1 ? "" : "s"}, ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}, and ${aiEvidence.trim() || aiAdditionalContext.trim() ? "reporter notes" : "no reporter notes"} form the evidence pack.`,
+                    guardrails: "The agent cannot create a Bug, change Jira, or treat reference text as trusted instructions.",
+                    specialist: "Bug Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
+                    outcome: "Title, severity, priority, description, reproduction, expected/actual result, environment, build, and labels remain editable proposal fields.",
+                    evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
+                    review: "The proposal must first be accepted into the Bug form and then explicitly created by a person."
+                  }}
+                  status={previewAiBugDraft.isPending ? "running" : aiDraftPreview ? "completed" : aiDraftMessage && aiDraftMessageTone === "error" ? "failed" : "idle"}
+                />
+              </aside>
             </div>
             <div className="action-row ai-studio-footer ai-bug-draft-footer">
               <span className="ai-authoring-footer-status">
-                {aiDraftPreview ? "1 AI Bug draft ready for human review" : `${aiLinkedCaseIds.length + aiLinkedRequirementIds.length + (aiLinkedRunId ? 1 : 0)} context item${aiLinkedCaseIds.length + aiLinkedRequirementIds.length + (aiLinkedRunId ? 1 : 0) === 1 ? "" : "s"} selected`}
+                {aiDraftPreview ? "1 AI Bug draft ready for human review" : `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} selected`}
               </span>
               {aiDraftPreview ? (
-                <button className="ghost-button" onClick={() => setAiDraftPreview(null)} type="button">Discard draft</button>
+                <button className="ghost-button" onClick={() => { setIsAiBugDraftEvidenceOpen(false); setAiDraftPreview(null); }} type="button">Discard draft</button>
               ) : (
                 <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={closeAiBugReport} type="button">Cancel</button>
               )}
-              <button className="primary-button" disabled={!aiDraftPreview?.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Bug form</button>
+              {aiDraftPreview ? <button className="primary-button" disabled={!aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Bug form</button> : null}
             </div>
           </div>
         </div>

@@ -51,11 +51,20 @@ export function useDialogFocus<T extends HTMLElement>({
       previousBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
     }
+    const previousDialog = openDialogStack[openDialogStack.length - 1];
+    const previousDialogAriaHidden = previousDialog?.getAttribute("aria-hidden") ?? null;
+    const previousDialogWasInert = previousDialog?.inert ?? false;
+    if (previousDialog) {
+      previousDialog.setAttribute("aria-hidden", "true");
+      previousDialog.inert = true;
+    }
     openDialogStack.push(dialog);
 
     const frameId = window.requestAnimationFrame(() => {
-      const preferredTarget = dialog.querySelector<HTMLElement>("[data-autofocus='true']");
-      const fallbackTarget = dialog.querySelector<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR);
+      const canReceiveFocus = (target: HTMLElement | null) => Boolean(target && !target.closest("[inert], [aria-hidden='true']"));
+      const preferredCandidate = dialog.querySelector<HTMLElement>("[data-autofocus='true']");
+      const preferredTarget = canReceiveFocus(preferredCandidate) ? preferredCandidate : null;
+      const fallbackTarget = Array.from(dialog.querySelectorAll<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR)).find(canReceiveFocus) || null;
 
       (preferredTarget || fallbackTarget || dialog).focus();
     });
@@ -77,7 +86,7 @@ export function useDialogFocus<T extends HTMLElement>({
       }
 
       const focusableTargets = Array.from(dialog.querySelectorAll<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR))
-        .filter((target) => target.getAttribute("aria-hidden") !== "true" && target.offsetParent !== null);
+        .filter((target) => !target.closest("[inert], [aria-hidden='true']") && target.offsetParent !== null);
 
       if (!focusableTargets.length) {
         event.preventDefault();
@@ -109,6 +118,15 @@ export function useDialogFocus<T extends HTMLElement>({
       }
       if (openDialogStack.length === 0) {
         document.body.style.overflow = previousBodyOverflow;
+      }
+
+      if (previousDialog && document.contains(previousDialog)) {
+        if (previousDialogAriaHidden === null) {
+          previousDialog.removeAttribute("aria-hidden");
+        } else {
+          previousDialog.setAttribute("aria-hidden", previousDialogAriaHidden);
+        }
+        previousDialog.inert = previousDialogWasInert;
       }
 
       const previouslyFocused = previouslyFocusedRef.current;

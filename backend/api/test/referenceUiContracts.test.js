@@ -1,10 +1,14 @@
 const assert = require("node:assert/strict");
+const { readFile } = require("node:fs/promises");
+const path = require("node:path");
 const test = require("node:test");
 const { paginate, shouldPaginate } = require("../src/utils/pagination");
 const { requirementMetadata, issueMetadata } = require("../src/utils/nativeIssueMetadata");
 const { assertExpectedRevision, normalizeExpectedRevision } = require("../src/utils/revision");
 const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 const { validateInput } = require("../src/plugins/validator");
+
+const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
 test("reference workspaces use bounded cursor pagination", () => {
   const first = paginate(["a", "b", "c", "d"], { page_size: "2" });
@@ -55,6 +59,85 @@ test("request contracts enforce bounded text and collection sizes", () => {
     () => validateInput({ prompt: { type: "string", maxLength: 4 } }, { prompt: "12345" }),
     /at most 4 characters/
   );
+});
+
+test("Complete Story keeps external pointers and validated image context end to end", async () => {
+  const [routeSource, serviceSource] = await Promise.all([
+    readSource("../src/routes/requirements.routes.js"),
+    readSource("../src/services/requirement.service.js")
+  ]);
+
+  assert.match(routeSource, /external_links: \{ required: false, type: "array", items: "string", maxItems: 20 \}/);
+  assert.match(routeSource, /images: \{ required: false, type: "array", maxItems: 6 \}/);
+  assert.match(routeSource, /external_links: req\.body\?\.external_links/);
+  assert.match(routeSource, /images: req\.body\?\.images/);
+
+  for (const contractMarker of [
+    "(?:png|jpe?g|webp)",
+    "INVALID_AI_REFERENCE_IMAGE",
+    "REQUIREMENT_AI_REFERENCE_IMAGE_TOTAL_CHARS",
+    'type: "image_url"',
+    "External URLs are opaque pointers only. Their page contents were not fetched.",
+    "not analyzed by the deterministic fallback"
+  ]) {
+    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
+  }
+});
+
+test("Test Improve accepts pointer-only links and validated image context without widening step rephrase", async () => {
+  const [routeSource, serviceSource] = await Promise.all([
+    readSource("../src/routes/testCases.routes.js"),
+    readSource("../src/services/aiCaseAuthoring.service.js")
+  ]);
+  const improveRoute = routeSource.slice(
+    routeSource.indexOf('fastify.post("/test-cases/ai-authoring-preview"'),
+    routeSource.indexOf('fastify.post("/test-cases/ai-step-rephrase"')
+  );
+  const stepRoute = routeSource.slice(
+    routeSource.indexOf('fastify.post("/test-cases/ai-step-rephrase"'),
+    routeSource.indexOf('fastify.post("/test-cases/design-test-cases-accept"')
+  );
+  const stepService = serviceSource.slice(serviceSource.indexOf("exports.rephraseTestStep"));
+
+  assert.match(improveRoute, /external_links: \{ required: false, type: "array", items: "string", maxItems: 20 \}/);
+  assert.match(improveRoute, /images: \{ required: false, type: "array", maxItems: 6 \}/);
+  assert.match(improveRoute, /external_links: req\.body\.external_links/);
+  assert.match(improveRoute, /images: req\.body\.images/);
+  assert.doesNotMatch(stepRoute, /external_links|images/);
+  assert.doesNotMatch(stepService, /external_links|safeImages/);
+
+  for (const contractMarker of [
+    "(?:png|jpe?g|webp)",
+    "INVALID_AI_REFERENCE_IMAGE",
+    "TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS",
+    'type: "image_url"',
+    "External URLs are opaque pointers only. Their page contents were not fetched.",
+    "requestChatCompletion({ integration, prompt, images: safeImages })"
+  ]) {
+    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
+  }
+});
+
+test("AI Bug drafting keeps pointer links, validated image data, and canonical Bug priorities", async () => {
+  const [routeSource, serviceSource] = await Promise.all([
+    readSource("../src/routes/issues.routes.js"),
+    readSource("../src/services/aiBugDraft.service.js")
+  ]);
+
+  assert.match(routeSource, /external_links: \{ required: false, type: "array", items: "string", maxItems: 12 \}/);
+  assert.match(routeSource, /reference_photos: \{ required: false, type: "array", maxItems: 6 \}/);
+
+  for (const contractMarker of [
+    "IMAGE_DATA_URL_PATTERN",
+    'type: "image_url"',
+    "External links are pointers only; their contents were not fetched.",
+    'p1: "Highest"',
+    'priority (Highest|High|Medium|Low|Lowest)',
+    "reference_photos: imageAssets.map",
+    'capability: "ai-bug-draft"'
+  ]) {
+    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
+  }
 });
 
 test("every reference UI backend capability is protected by an explicit permission", () => {

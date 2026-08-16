@@ -70,17 +70,23 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
-      project_id: { required: true, type: "string" },
-      app_type_id: { required: true, type: "string" },
-      integration_id: { required: false, type: "string" },
-      release_scope: { required: false, type: "string" },
-      additional_context: { required: false, type: "string" },
-      impacted_requirement_ids: { required: false, type: "array", items: "string" },
-      test_environment_id: { required: false, type: "string" },
-      test_configuration_id: { required: false, type: "string" },
-      test_data_set_id: { required: false, type: "string" }
+      project_id: { required: true, type: "string", maxLength: 255 },
+      app_type_id: { required: true, type: "string", maxLength: 255 },
+      integration_id: { required: false, type: "string", maxLength: 255 },
+      release: { required: false, type: "string", maxLength: 255 },
+      sprint: { required: false, type: "string", maxLength: 255 },
+      build: { required: false, type: "string", maxLength: 255 },
+      scope_description: { required: false, type: "string", maxLength: 4_000 },
+      release_scope: { required: false, type: "string", maxLength: 4_000 },
+      additional_context: { required: false, type: "string", maxLength: 4_000 },
+      prompt_guidance: { required: false, type: "string", maxLength: 4_000 },
+      impacted_requirement_ids: { required: false, type: "array", items: "string", maxItems: 100 },
+      test_environment_id: { required: false, type: "string", maxLength: 255 },
+      test_configuration_id: { required: false, type: "string", maxLength: 255 },
+      test_data_set_id: { required: false, type: "string", maxLength: 255 }
     }, req.body);
 
+    await requireFeaturePermission(fastify, req, "run.ai");
     await projectService.getProject(req.body.project_id, req.user.id);
     const appType = await appTypeService.getAppType(req.body.app_type_id);
 
@@ -93,8 +99,13 @@ module.exports = async function (fastify) {
       appType,
       integration_id: req.body.integration_id,
       user_id: req.user.id,
+      release: req.body.release,
+      sprint: req.body.sprint,
+      build: req.body.build,
+      scope_description: req.body.scope_description,
       release_scope: req.body.release_scope,
       additional_context: req.body.additional_context,
+      prompt_guidance: req.body.prompt_guidance,
       impacted_requirement_ids: req.body.impacted_requirement_ids,
       test_environment_id: req.body.test_environment_id,
       test_configuration_id: req.body.test_configuration_id,
@@ -158,6 +169,8 @@ module.exports = async function (fastify) {
       sprint: { required: false, type: "string" },
       build: { required: false, type: "string" },
       name: { required: false, type: "string" },
+      scope_source: { required: false, type: "string", enum: ["smart-run"] },
+      smart_plan: { required: false, type: "object" },
       created_by: { required: true, type: "string" }
     }, req.body);
 
@@ -171,10 +184,126 @@ module.exports = async function (fastify) {
       await requireFeaturePermission(fastify, req, "automation.run.parallel");
     }
 
+    let verifiedSmartPlan = null;
+    let smartRunTransaction = null;
+
+    if (req.body.smart_plan && req.body.scope_source !== "smart-run") {
+      throw createAccessError("smart_plan is only valid when scope_source is smart-run.", 400);
+    }
+
+    if (req.body.scope_source === "smart-run") {
+      if (!req.body.app_type_id) {
+        throw createAccessError("app_type_id is required for Smart Run creation.", 400);
+      }
+      await requireFeaturePermission(fastify, req, "run.ai");
+      fastify.validate({
+        acceptance_token: { required: true, type: "string", maxLength: 10_000 },
+        request_id: { required: true, type: "string", maxLength: 255 },
+        input_fingerprint: { required: true, type: "string", maxLength: 128 },
+        selected_test_case_ids: { required: true, type: "array", items: "string", minItems: 1, maxItems: 30 }
+      }, req.body.smart_plan || {});
+
+      const requestedCaseIds = [...new Set(req.body.test_case_ids || [])];
+      const reviewedCaseIds = [...new Set(req.body.smart_plan.selected_test_case_ids || [])];
+      if (
+        requestedCaseIds.length !== reviewedCaseIds.length
+        || requestedCaseIds.some((id) => !reviewedCaseIds.includes(id))
+      ) {
+        throw createAccessError("Smart Run selected Test Cases must match the accepted preview selection.", 400);
+      }
+
+      verifiedSmartPlan = executionPlanningService.verifySmartExecutionAcceptance({
+        token: req.body.smart_plan.acceptance_token,
+        projectId: req.body.project_id,
+        appTypeId: req.body.app_type_id,
+        userId: req.user.id,
+        requestId: req.body.smart_plan.request_id,
+        inputFingerprint: req.body.smart_plan.input_fingerprint,
+        selectedTestCaseIds: reviewedCaseIds
+      });
+    }
+
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
 
-    return service.createExecution(req.body);
+    if (verifiedSmartPlan) {
+      const startedAt = new Date().toISOString();
+      smartRunTransaction = await workspaceTransactionService.createTransaction({
+        project_id: req.body.project_id,
+        app_type_id: req.body.app_type_id,
+        category: "ai",
+        action: "smart_run_acceptance",
+        status: "running",
+        title: `Smart Run review accepted for ${req.body.name || "new execution"}`,
+        description: `${verifiedSmartPlan.selected_test_case_ids.length} reviewed Test Case${verifiedSmartPlan.selected_test_case_ids.length === 1 ? "" : "s"} accepted for direct impacted scope.`,
+        metadata: {
+          capability: "ai-smart-run",
+          preview_request_id: verifiedSmartPlan.request_id,
+          input_fingerprint: verifiedSmartPlan.input_fingerprint,
+          accepted_test_case_ids: verifiedSmartPlan.selected_test_case_ids,
+          allowed_test_case_count: verifiedSmartPlan.allowed_test_case_ids.length,
+          human_decision: "accepted",
+          preview: verifiedSmartPlan.preview,
+          current_phase: "creating_execution"
+        },
+        related_kind: "smart_run_preview",
+        related_id: verifiedSmartPlan.request_id,
+        created_by: req.user.id,
+        started_at: startedAt
+      });
+    }
+
+    let created;
+    try {
+      created = await service.createExecution({ ...req.body, created_by: req.user.id });
+    } catch (error) {
+      if (smartRunTransaction) {
+        await workspaceTransactionService.updateTransaction(smartRunTransaction.id, {
+          status: "failed",
+          completed_at: new Date().toISOString(),
+          metadata: { current_phase: "failed" }
+        });
+        await workspaceTransactionService.appendTransactionEvent(smartRunTransaction.id, {
+          level: "error",
+          phase: "create-failed",
+          message: "Smart Run creation failed after review acceptance.",
+          details: { preview_request_id: verifiedSmartPlan.request_id }
+        });
+      }
+      throw error;
+    }
+
+    if (smartRunTransaction) {
+      try {
+        const completedAt = new Date().toISOString();
+        await workspaceTransactionService.updateTransaction(smartRunTransaction.id, {
+          status: "completed",
+          related_kind: "execution",
+          related_id: created.id,
+          completed_at: completedAt,
+          metadata: {
+            execution_id: created.id,
+            current_phase: "completed"
+          }
+        });
+        await workspaceTransactionService.appendTransactionEvent(smartRunTransaction.id, {
+          level: "success",
+          phase: "review-accepted",
+          message: `Created Smart Run with ${verifiedSmartPlan.selected_test_case_ids.length} accepted Test Case${verifiedSmartPlan.selected_test_case_ids.length === 1 ? "" : "s"}.`,
+          details: {
+            execution_id: created.id,
+            preview_request_id: verifiedSmartPlan.request_id,
+            accepted_test_case_ids: verifiedSmartPlan.selected_test_case_ids
+          }
+        });
+      } catch {
+        return { ...created, transaction_id: smartRunTransaction.id, audit_status: "acceptance-recorded" };
+      }
+
+      return { ...created, transaction_id: smartRunTransaction.id, audit_status: "completed" };
+    }
+
+    return created;
   });
 
   fastify.post("/executions/local-run", async (req) => {

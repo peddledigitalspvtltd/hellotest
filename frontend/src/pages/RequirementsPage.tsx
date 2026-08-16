@@ -25,7 +25,7 @@ import {
   type StoryAiStudioDraft,
   type StoryAiStudioFieldSelection
 } from "../components/StoryAiStudioContent";
-import { StoryAiStudioShell, type StoryAiStudioNavKey } from "../components/StoryAiStudioShell";
+import { StoryAiSettingsGroup, StoryAiStudioShell, type StoryAiStudioNavKey } from "../components/StoryAiStudioShell";
 import { ActivityIcon, AddIcon, BacklogIcon, BugIcon, ChevronDownIcon, ChevronRightIcon, ClearSelectionIcon, ExportIcon, ImportIcon, LayersIcon, OpenIcon, PencilIcon, SearchIcon, SelectAllIcon, SparkIcon, SprintIcon, StoryIcon, TagIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
@@ -107,7 +107,7 @@ import { getSelectionState, setSelectionIds } from "../lib/requirementSprintSele
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, RequirementIterationHealth, RequirementRelatedItem, TestCase, User } from "../types";
+import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, RequirementIterationHealth, RequirementRelatedItem, StoryGroomingPreviewResponse, TestCase, User } from "../types";
 import "./RequirementsPage.ai.css";
 
 type RequirementDraft = {
@@ -610,7 +610,7 @@ export function RequirementsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
-  const { getMetricCriteria } = useAiPromptRegistry();
+  const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canCreateRequirements = hasPermission(session, "requirement.create");
   const canImportRequirements = hasPermission(session, "requirement.import");
@@ -705,6 +705,8 @@ export function RequirementsPage() {
   const [requirementCoverageFilter, setRequirementCoverageFilter] = useState<RequirementCoverageFilter>("all");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [activeTraceabilityTab, setActiveTraceabilityTab] = useState<RequirementTraceabilityTab>("details");
+  const [storyGroomingByRequirementId, setStoryGroomingByRequirementId] = useState<Record<string, StoryGroomingPreviewResponse>>({});
+  const [storyGroomingContextChangedByRequirementId, setStoryGroomingContextChangedByRequirementId] = useState<Record<string, boolean>>({});
   const [detailTestCaseSearchTerm, setDetailTestCaseSearchTerm] = useState("");
   const [isDetailTestCaseSearchActive, setIsDetailTestCaseSearchActive] = useState(false);
   const [defectSearchTerm, setDefectSearchTerm] = useState("");
@@ -750,6 +752,7 @@ export function RequirementsPage() {
   const [optimizeReferenceImages, setOptimizeReferenceImages] = useState<AiDesignImageInput[]>([]);
   const [optimizationSuggestion, setOptimizationSuggestion] = useState<RequirementOptimizationSuggestion | null>(null);
   const [requirementCreationDrafts, setRequirementCreationDrafts] = useState<RequirementCreationSuggestion[]>([]);
+  const [storyAiHumanEditedFieldsByDraftId, setStoryAiHumanEditedFieldsByDraftId] = useState<Record<string, string[]>>({});
   const [selectedRequirementCreationDraftIds, setSelectedRequirementCreationDraftIds] = useState<string[]>([]);
   const [expandedRequirementCreationDraftIds, setExpandedRequirementCreationDraftIds] = useState<string[]>([]);
   const [requirementCreationJobId, setRequirementCreationJobId] = useState("");
@@ -759,6 +762,7 @@ export function RequirementsPage() {
   const [isRequirementAiReferenceBusy, setIsRequirementAiReferenceBusy] = useState(false);
   const gherkinGenerationKeyRef = useRef("");
   const hydratedRequirementCreationJobKeyRef = useRef("");
+  const ignoredRequirementCreationJobIdRef = useRef("");
   const [optimizationFields, setOptimizationFields] = useState({
     title: true,
     description: true,
@@ -1302,7 +1306,11 @@ export function RequirementsPage() {
   });
   const previewStoryGrooming = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewGrooming>[1] }) =>
-      api.requirements.previewGrooming(requirementId, input)
+      api.requirements.previewGrooming(requirementId, input),
+    onSuccess: (response) => {
+      setStoryGroomingByRequirementId((current) => ({ ...current, [response.requirement.id]: response }));
+      setStoryGroomingContextChangedByRequirementId((current) => ({ ...current, [response.requirement.id]: false }));
+    }
   });
   const requirementCreationJobQuery = useQuery({
     queryKey: ["ai-requirement-generation-job", projectId, requirementCreationJobId],
@@ -1321,11 +1329,15 @@ export function RequirementsPage() {
   });
   const recoveredRequirementCreationJob = useMemo(
     () => (!requirementCreationJobId && !requirementCreationDrafts.length
-      ? asArray(recentRequirementCreationJobsQuery.data).find(isRecoverableRequirementAiJob) || null
+      ? asArray(recentRequirementCreationJobsQuery.data).find((job) => job.id !== ignoredRequirementCreationJobIdRef.current && isRecoverableRequirementAiJob(job)) || null
       : null),
     [recentRequirementCreationJobsQuery.data, requirementCreationDrafts.length, requirementCreationJobId]
   );
-  const requirementCreationJob = requirementCreationJobQuery.data || recoveredRequirementCreationJob || null;
+  const submittedRequirementCreationJob = requirementCreationJobId
+    && (createRequirementGenerationJob.data?.id === requirementCreationJobId || createRequirementGenerationJob.data?.job_id === requirementCreationJobId)
+    ? createRequirementGenerationJob.data
+    : null;
+  const requirementCreationJob = requirementCreationJobQuery.data || submittedRequirementCreationJob || recoveredRequirementCreationJob || null;
   const isRequirementCreationJobRunning = ["queued", "running"].includes(String(requirementCreationJob?.status || "").toLowerCase());
 
   const projects = asArray(projectsQuery.data);
@@ -1543,22 +1555,33 @@ export function RequirementsPage() {
         setSelectedRequirementCreationDraftIds([]);
         setExpandedRequirementCreationDraftIds(generatedDrafts.slice(0, 1).map((draftItem, index) => getRequirementCreationDraftId(draftItem, index)));
         setPreviewTone(requirementCreationJob.fallback_used ? "error" : "success");
+        const jobLimitations = asArray(requirementCreationJob.limitations);
+        const finalJobLimitation = jobLimitations[jobLimitations.length - 1];
         setPreviewMessage(
-          requirementCreationJob.fallback_used
+          !generatedDrafts.length
+            ? `Processing completed without a Story proposal. ${finalJobLimitation || "Add a written outcome and run again."}`
+            : requirementCreationJob.fallback_used
             ? `AI fallback used: ${requirementCreationJob.fallback_reason || "LLM unavailable"}`
             : `${generatedDrafts.length || requirementCreationJob.generated || 0} Story draft${(generatedDrafts.length || requirementCreationJob.generated || 0) === 1 ? "" : "s"} generated. Review and select the strongest drafts before creating Stories.`
         );
       }
       const generationKey = `${requirementCreationJob.id || requirementCreationJobId}:${includeGherkin}`;
       const draftsForGherkin = requirementCreationDrafts.length ? requirementCreationDrafts : generatedDrafts;
-      if (includeGherkin && draftsForGherkin.length && gherkinGenerationKeyRef.current !== generationKey) {
+      const evidencedDraftsForGherkin = draftsForGherkin.filter((item) =>
+        normalizeAiAcceptanceCriteria(item.acceptance_criteria).length > 0
+      );
+      if (includeGherkin && draftsForGherkin.length && !evidencedDraftsForGherkin.length && gherkinGenerationKeyRef.current !== generationKey) {
+        gherkinGenerationKeyRef.current = generationKey;
+        setPreviewTone(requirementCreationJob.fallback_used ? "error" : "success");
+        setPreviewMessage("Story drafts are ready for review. Gherkin was not generated because no evidence-backed acceptance criteria were available.");
+      } else if (includeGherkin && evidencedDraftsForGherkin.length && gherkinGenerationKeyRef.current !== generationKey) {
         gherkinGenerationKeyRef.current = generationKey;
         setIsGeneratingGherkin(true);
         setPreviewMessage("Story drafts are ready. Generating focused Gherkin scenarios from those exact drafts…");
         void api.requirements.previewGherkin({
           project_id: projectId,
           integration_id: integrationId || undefined,
-          requirements: draftsForGherkin.map((item) => ({
+          requirements: evidencedDraftsForGherkin.map((item) => ({
             client_id: item.client_id,
             title: item.title,
             description: item.description,
@@ -3806,6 +3829,7 @@ export function RequirementsPage() {
 
       await replaceMappings.mutateAsync({ requirementId: selectedRequirement.id, testCaseIds: selectedTestCaseIds });
       await replaceDefectMappings.mutateAsync({ requirementId: selectedRequirement.id, issueIds: selectedDefectIds });
+      setStoryGroomingContextChangedByRequirementId((current) => ({ ...current, [selectedRequirement.id]: true }));
       showSuccess("Story updated.");
       await refresh();
     } catch (error) {
@@ -4092,9 +4116,11 @@ export function RequirementsPage() {
   };
 
   const invalidateRequirementAiDraft = () => {
+    ignoredRequirementCreationJobIdRef.current = requirementCreationJob?.id || requirementCreationJobId || "";
     setOptimizationSuggestion(null);
     setActiveRequirementCompletionReview("existing");
     setRequirementCreationDrafts([]);
+    setStoryAiHumanEditedFieldsByDraftId({});
     setSelectedRequirementCreationDraftIds([]);
     setExpandedRequirementCreationDraftIds([]);
     setRequirementCreationJobId("");
@@ -4229,7 +4255,8 @@ export function RequirementsPage() {
       return;
     }
 
-    setRequirementAiMode("improve");
+	    setRequirementAiMode("improve");
+    previewRequirementOptimization.reset();
     setStoryAiStudioNav("drafts");
     setActiveRequirementCompletionReview("existing");
     setOptimizeRequirementIds(targetIds);
@@ -4238,6 +4265,7 @@ export function RequirementsPage() {
     setOptimizeReferenceImages([]);
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
+    setStoryAiHumanEditedFieldsByDraftId({});
     setSelectedRequirementCreationDraftIds([]);
     setExpandedRequirementCreationDraftIds([]);
     setRequirementCreationJobId("");
@@ -4265,6 +4293,9 @@ export function RequirementsPage() {
     }
 
     setRequirementAiMode("create");
+    createRequirementGenerationJob.reset();
+    previewRequirementCreation.reset();
+    ignoredRequirementCreationJobIdRef.current = "";
     setStoryAiStudioNav("drafts");
     setActiveRequirementCompletionReview("existing");
     setOptimizeRequirementIds([]);
@@ -4273,6 +4304,7 @@ export function RequirementsPage() {
     setOptimizeReferenceImages([]);
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
+    setStoryAiHumanEditedFieldsByDraftId({});
     setSelectedRequirementCreationDraftIds([]);
     setExpandedRequirementCreationDraftIds([]);
     setRequirementCreationJobId("");
@@ -4306,6 +4338,7 @@ export function RequirementsPage() {
     setOptimizeRequirementIds([]);
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
+    setStoryAiHumanEditedFieldsByDraftId({});
     setSelectedRequirementCreationDraftIds([]);
     setExpandedRequirementCreationDraftIds([]);
     setRequirementCreationJobId("");
@@ -4403,6 +4436,7 @@ export function RequirementsPage() {
         } : undefined
       };
       if (requirementAiMode === "create") {
+        ignoredRequirementCreationJobIdRef.current = "";
         setRequirementCreationDrafts([]);
         setSelectedRequirementCreationDraftIds([]);
         setExpandedRequirementCreationDraftIds([]);
@@ -4410,7 +4444,7 @@ export function RequirementsPage() {
         gherkinGenerationKeyRef.current = "";
         hydratedRequirementCreationJobKeyRef.current = "";
         setPreviewTone("success");
-        setPreviewMessage("Queuing AI Story generation…");
+        setPreviewMessage("Generating a bounded Story draft set…");
         const job = await createRequirementGenerationJob.mutateAsync({
             project_id: projectId,
             ...promptInput,
@@ -4420,25 +4454,45 @@ export function RequirementsPage() {
           });
         setRequirementCreationJobId(job.id || job.job_id || "");
         setPreviewTone("success");
-        setPreviewMessage("AI Story generation queued. HelloTest will poll until the drafts are ready.");
+        setPreviewMessage(String(job.status || "").toLowerCase() === "queued"
+          ? "Story generation is queued in the backend. Progress will update from the persisted job state."
+          : "Story generation request started. Progress will update from the persisted job state.");
         return;
       }
 
+      setPreviewTone("success");
+      setPreviewMessage("Story completion request in progress…");
       const response = await previewRequirementOptimization.mutateAsync({
         requirementId: selectedRequirementForAi!.id,
         input: promptInput
       });
       let suggestion = response.suggestion;
       setOptimizationSuggestion(suggestion);
-      setOptimizationFields((current) => ({ ...current, gherkin: false }));
+      const savedReferenceKey = [...asArray(selectedRequirementForAi!.external_references)].sort().join("\n");
+      const proposedReferenceKey = [...asArray(suggestion.external_references)].sort().join("\n");
+      setOptimizationFields({
+        title: !suggestion.no_changes_proposed && suggestion.title !== selectedRequirementForAi!.title,
+        description: !suggestion.no_changes_proposed && (
+          suggestion.description !== (selectedRequirementForAi!.description || "")
+          || normalizeAiAcceptanceCriteria(suggestion.acceptance_criteria).length > 0
+        ),
+        external_references: !suggestion.no_changes_proposed && proposedReferenceKey !== savedReferenceKey,
+        priority: !suggestion.no_changes_proposed && suggestion.priority !== (selectedRequirementForAi!.priority ?? 3),
+        status: !suggestion.no_changes_proposed && suggestion.status !== (selectedRequirementForAi!.status || defaultRequirementStatus),
+        gherkin: false
+      });
       setActiveRequirementCompletionReview("generated");
       setPreviewTone(response.fallback_used ? "error" : "success");
       setPreviewMessage(
-        response.fallback_used
+        suggestion.no_changes_proposed
+          ? response.fallback_used
+            ? `Story processing completed without generated changes: ${response.fallback_reason || "the configured provider was unavailable"}`
+            : "Story processing completed without an evidence-supported change. Review the evidence limitations or add focused guidance before running again."
+          : response.fallback_used
           ? `Story completion fallback used: ${response.fallback_reason || "LLM unavailable"}`
           : `Story completion is ready from ${response.integration?.name || "AI"}.`
       );
-      if (includeGherkin) {
+      if (includeGherkin && !suggestion.no_changes_proposed && normalizeAiAcceptanceCriteria(suggestion.acceptance_criteria).length > 0) {
         setIsGeneratingGherkin(true);
         setPreviewMessage("Story completion is ready. Generating Gherkin scenarios from the completed draft…");
         try {
@@ -4470,6 +4524,8 @@ export function RequirementsPage() {
           setPreviewTone("error");
           setPreviewMessage(`Story completion is ready and remains usable. The optional Gherkin pass could not complete${gherkinError instanceof Error ? `: ${gherkinError.message}` : "."}`);
         }
+      } else if (includeGherkin && !suggestion.no_changes_proposed) {
+        setPreviewMessage("Story completion is ready for review. Gherkin was not generated because no evidence-backed acceptance criteria were available.");
       }
     } catch (error) {
       setPreviewTone("error");
@@ -4755,6 +4811,41 @@ export function RequirementsPage() {
   );
   const areAllRequirementCreationDraftsSelected = Boolean(requirementCreationDrafts.length)
     && selectedRequirementCreationDraftCount === requirementCreationDrafts.length;
+  const storyCompletionEnvelope = previewRequirementOptimization.data?.requirement?.id === activeOptimizeRequirement?.id
+    ? previewRequirementOptimization.data
+    : null;
+  const storyAiEnvelope = requirementAiMode === "create" ? requirementCreationJob : storyCompletionEnvelope;
+  const storyAiEvidence = storyAiEnvelope?.evidence || [];
+  const storyAiKnowledgeSourceCount = storyAiEvidence.filter((item) => item.type === "knowledge").length;
+  const storyAiLimitations = storyAiEnvelope?.limitations || [];
+  const storyAiProcessing = storyAiEnvelope?.processing;
+  const storyAiReviewStatus = storyAiEnvelope?.review_status || "awaiting_review";
+  const storyAiGenerationMode = storyAiEnvelope?.generation_mode || (storyAiEnvelope?.fallback_used ? "deterministic" : storyAiEnvelope ? "llm" : undefined);
+  const storyAiRequestId = storyAiEnvelope?.request_id;
+  const storyAiInputFingerprint = storyAiEnvelope?.input_fingerprint;
+  const storyAiContextState = requirementAiMode === "improve"
+    ? aiCompleteRequirementDetailQuery.data ? "ready" as const : "attention" as const
+    : optimizeContext.trim() || optimizeReferenceImages.length || storyAiKnowledgeSourceCount
+      ? "ready" as const
+      : optimizeExternalLinksText.trim()
+        ? "attention" as const
+        : "neutral" as const;
+  const storyAiContextLabel = `${requirementAiMode === "improve"
+    ? aiCompleteRequirementDetailQuery.data ? "Selected Story loaded" : "Selected Story loading"
+    : optimizeContext.trim() ? "Written or packed context" : "No written context"} · ${storyAiKnowledgeSourceCount} project source${storyAiKnowledgeSourceCount === 1 ? "" : "s"} · ${optimizeReferenceImages.length} image${optimizeReferenceImages.length === 1 ? "" : "s"} · ${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`;
+  const storyAiAgentStatus = isStoryAiGenerateBusy
+    ? "running" as const
+    : requirementAiMode === "create"
+      ? String(requirementCreationJob?.status || "").toLowerCase() === "completed"
+        ? "completed" as const
+        : String(requirementCreationJob?.status || "").toLowerCase() === "failed"
+          ? "failed" as const
+          : "idle" as const
+      : optimizationSuggestion
+        ? "completed" as const
+        : previewTone === "error" && previewMessage
+          ? "failed" as const
+          : "idle" as const;
   const activeRequirementCreationDraftId = expandedRequirementCreationDraftIds.find((draftId) =>
     requirementCreationDrafts.some((candidate, index) => getRequirementCreationDraftId(candidate, index) === draftId)
   ) || (requirementCreationDrafts[0] ? getRequirementCreationDraftId(requirementCreationDrafts[0], 0) : "");
@@ -4768,7 +4859,7 @@ export function RequirementsPage() {
     description: candidate.description || "",
     acceptanceCriteria: asArray(candidate.acceptance_criteria),
     gherkinScenarios: asArray(candidate.gherkin_scenarios),
-    confidenceLabel: `${Math.round(Number(candidate.quality_score || 0.72) * 100)}% Conf.`,
+    confidenceLabel: `${Math.round(Number(candidate.quality_score ?? 0.72) * 100)}% Conf.`,
     generated: true,
     status: candidate.status || defaultRequirementStatus,
     priority: candidate.priority || 3,
@@ -4776,7 +4867,16 @@ export function RequirementsPage() {
     risks: asArray(candidate.risks),
     openQuestions: asArray(candidate.open_questions),
     rationale: candidate.rationale || "Generated from the supplied bounded context.",
-    changeSummary: asArray(candidate.change_summary)
+    changeSummary: asArray(candidate.change_summary),
+    evidence: storyAiEvidence,
+    evidenceRefs: asArray(candidate.evidence_refs),
+    limitations: [...storyAiLimitations, ...asArray(candidate.limitations)],
+    fallbackReason: storyAiEnvelope?.fallback_reason,
+    generationMode: storyAiGenerationMode,
+    evaluation: candidate.evaluation,
+    fieldEvidence: candidate.field_evidence,
+    requestId: storyAiRequestId,
+    inputFingerprint: storyAiInputFingerprint
   }));
   const existingStoryStudioDraft: StoryAiStudioDraft | null = activeOptimizeRequirement ? {
     id: `${activeOptimizeRequirement.id}:existing`,
@@ -4791,7 +4891,11 @@ export function RequirementsPage() {
     labels: asArray(activeOptimizeRequirement.labels),
     sprint: activeOptimizeRequirement.sprint,
     release: activeOptimizeRequirement.release || activeOptimizeRequirement.fix_version,
-    externalReferences: asArray(activeOptimizeRequirement.external_references)
+    externalReferences: asArray(activeOptimizeRequirement.external_references),
+    evidence: storyAiEvidence,
+    evidenceRefs: storyAiEvidence.filter((item) => item.type === "story").map((item) => item.ref),
+    limitations: storyAiLimitations,
+    generationMode: "saved Story"
   } : null;
   const completedStoryStudioDraft: StoryAiStudioDraft | null = optimizationSuggestion && activeOptimizeRequirement ? {
     id: `${activeOptimizeRequirement.id}:generated`,
@@ -4812,7 +4916,16 @@ export function RequirementsPage() {
     risks: asArray(optimizationSuggestion.risks),
     openQuestions: asArray(optimizationSuggestion.open_questions),
     rationale: asArray(optimizationSuggestion.change_summary).join(" ") || "The completion preserves the selected Story's intent while filling its reviewable quality gaps.",
-    changeSummary: asArray(optimizationSuggestion.change_summary)
+    changeSummary: asArray(optimizationSuggestion.change_summary),
+    evidence: storyAiEvidence,
+    evidenceRefs: asArray(optimizationSuggestion.evidence_refs),
+    limitations: storyAiLimitations,
+    fallbackReason: storyAiEnvelope?.fallback_reason,
+    generationMode: storyAiGenerationMode,
+    evaluation: storyCompletionEnvelope?.evaluation,
+    fieldEvidence: optimizationSuggestion.field_evidence,
+    requestId: storyAiRequestId,
+    inputFingerprint: storyAiInputFingerprint
   } : null;
   const storyAiActiveDraft = requirementAiMode === "create"
     ? storyAiCreateQueueDrafts[activeRequirementCreationDraftIndex] || storyAiCreateQueueDrafts[0] || null
@@ -4970,21 +5083,28 @@ export function RequirementsPage() {
     }
     runRequirementAssuranceAnalysis(true);
   };
-  const storyGroomingRequestMatchesSelection = Boolean(
+  const storyGroomingMutationMatchesSelection = Boolean(
     selectedRequirement
     && previewStoryGrooming.variables?.requirementId === selectedRequirement.id
   );
-  const selectedStoryGrooming = storyGroomingRequestMatchesSelection
+  const selectedStoryGrooming = storyGroomingMutationMatchesSelection
     && previewStoryGrooming.data?.requirement?.id === selectedRequirement?.id
     ? previewStoryGrooming.data
-    : null;
+    : selectedRequirement
+      ? storyGroomingByRequirementId[selectedRequirement.id] || null
+      : null;
+  const storyGroomingRequestMatchesSelection = Boolean(storyGroomingMutationMatchesSelection || selectedStoryGrooming);
   const runStoryGrooming = () => {
     if (!selectedRequirement || !projectId || !canUseRequirementAi || previewStoryGrooming.isPending) return;
     setActiveTraceabilityTab("grooming");
     previewStoryGrooming.reset();
     previewStoryGrooming.mutate({
       requirementId: selectedRequirement.id,
-      input: { project_id: projectId }
+      input: {
+        project_id: projectId,
+        integration_id: getLlmIntegrationId("ai.requirement.grooming") || undefined,
+        prompt_guidance: getPrompt("ai.requirement.grooming")
+      }
     });
   };
   const isRequirementWorkspaceOpen = Boolean(selectedRequirement);
@@ -5836,7 +5956,7 @@ export function RequirementsPage() {
                       type="button"
                     >
                       <SparkIcon />
-                      <span>{previewStoryGrooming.isPending && storyGroomingRequestMatchesSelection ? "Grooming…" : "AI Groom Story"}</span>
+                      <span>{previewStoryGrooming.isPending && storyGroomingMutationMatchesSelection ? "Grooming…" : "AI Groom Story"}</span>
                     </button>
                     <button
                       className="ghost-button requirement-detail-ai-action requirement-detail-ai-test"
@@ -6083,6 +6203,7 @@ export function RequirementsPage() {
                       entityId={selectedRequirement.id}
                       entityType="requirement"
                       issueKey={selectedRequirement.display_id || selectedRequirement.id}
+                      onEvidenceChange={() => setStoryGroomingContextChangedByRequirementId((current) => ({ ...current, [selectedRequirement.id]: true }))}
                       projectId={projectId}
                     />
                   </div>
@@ -6109,11 +6230,13 @@ export function RequirementsPage() {
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <StoryGroomingWorkspace
                       disabled={!canUseRequirementAi || !projectId || previewStoryGrooming.isPending}
-                      error={previewStoryGrooming.error instanceof Error ? previewStoryGrooming.error.message : null}
-                      isLoading={previewStoryGrooming.isPending}
+                      error={previewStoryGrooming.error instanceof Error && storyGroomingMutationMatchesSelection ? previewStoryGrooming.error.message : null}
+                      isLoading={previewStoryGrooming.isPending && storyGroomingMutationMatchesSelection}
                       onGenerate={runStoryGrooming}
                       response={selectedStoryGrooming ?? null}
                       storyTitle={selectedRequirement.title}
+                      storyUpdatedAt={selectedRequirement.updated_at}
+                      supportingContextChanged={Boolean(storyGroomingContextChangedByRequirementId[selectedRequirement.id])}
                     />
                   </div>
                 ) : null}
@@ -6168,6 +6291,7 @@ export function RequirementsPage() {
                       entityId={selectedRequirement.id}
                       entityType="requirement"
                       issueKey={selectedRequirement.display_id || selectedRequirement.id}
+                      onEvidenceChange={() => setStoryGroomingContextChangedByRequirementId((current) => ({ ...current, [selectedRequirement.id]: true }))}
                       projectId={projectId}
                     />
                   </div>
@@ -6817,10 +6941,11 @@ export function RequirementsPage() {
           >
             <StoryAiStudioShell
               agentName="Story Architect"
-              agentStatus={isStoryAiGenerateBusy ? "running" : requirementAiMode === "create" ? requirementCreationDrafts.length ? "completed" : previewTone === "error" && previewMessage ? "failed" : "idle" : optimizationSuggestion ? "completed" : previewTone === "error" && previewMessage ? "failed" : "idle"}
-              contextLabel={`${requirementAiMode === "improve" ? "Selected Story" : "Project knowledge"} · ${optimizeReferenceImages.length} image${optimizeReferenceImages.length === 1 ? "" : "s"} · ${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`}
+              agentStatus={storyAiAgentStatus}
+              contextLabel={storyAiContextLabel}
+              contextState={storyAiContextState}
               closeDisabled={isStoryAiBlockingClose}
-              commandBar={(
+              commandBar={(requirementAiMode === "create" ? requirementCreationDrafts.length > 0 : Boolean(optimizationSuggestion)) ? (
                 <>
                   <div className="story-studio-command-bar__secondary">
                     <button
@@ -6843,15 +6968,6 @@ export function RequirementsPage() {
                       <IconX size={18} stroke={2} />
                       <span>{requirementAiMode === "create" ? "Decline Draft" : "Decline Changes"}</span>
                     </button>
-                    <button
-                      className="story-studio-command-button"
-                      disabled={!canUseRequirementAi || isStoryAiGenerateBusy || (requirementAiMode === "improve" && !aiCompleteRequirementDetailQuery.data)}
-                      onClick={() => void handlePreviewRequirementOptimization()}
-                      type="button"
-                    >
-                      <IconRefresh size={18} stroke={2} />
-                      <span>Regenerate</span>
-                    </button>
                   </div>
                   <button
                     className="story-studio-accept-button"
@@ -6871,10 +6987,13 @@ export function RequirementsPage() {
                     </span>
                   </button>
                 </>
-              )}
+              ) : null}
               descriptionId="story-studio-description"
               includeGherkin={includeGherkin}
               includeGherkinDisabled={isStoryAiGenerateBusy}
+              hasProposal={requirementAiMode === "create" ? requirementCreationDrafts.length > 0 : Boolean(optimizationSuggestion)}
+              processing={storyAiProcessing}
+              reviewStatus={storyAiReviewStatus}
               inspectorContent={(
                 <StoryAiDraftInspector
                   draft={storyAiActiveDraft}
@@ -7059,24 +7178,26 @@ export function RequirementsPage() {
               }}
               onPrimaryGenerate={() => void handlePreviewRequirementOptimization()}
               outputLabel={requirementAiMode === "create"
-                ? `${requirementAiDraftCount} editable Story draft${requirementAiDraftCount === 1 ? "" : "s"}${includeGherkin ? " with Gherkin" : ""}`
-                : `Field-level Story completion${includeGherkin ? " with Gherkin" : ""}`}
+                ? `${requirementAiDraftCount} editable Story draft${requirementAiDraftCount === 1 ? "" : "s"}${includeGherkin ? "; Gherkin only when criteria support it" : ""}`
+                : `Field-level Story completion${includeGherkin ? "; Gherkin only when criteria support it" : ""}`}
               approvalLabel={requirementAiMode === "create" ? "Select drafts before adding to the library" : "Select fields before applying to the Story"}
               primaryGenerateDisabled={!canUseRequirementAi || isStoryAiGenerateBusy || (requirementAiMode === "improve" && !aiCompleteRequirementDetailQuery.data)}
               primaryGenerateLabel={createRequirementGenerationJob.isPending
-                ? "Queuing…"
+                ? "Submitting…"
                 : isRequirementCreationJobRunning
                   ? "Generating…"
                   : previewRequirementOptimization.isPending || previewRequirementCreation.isPending
-                    ? "Thinking…"
+                    ? "Request in progress…"
                     : requirementAiMode === "create" ? "Generate drafts" : "Complete Story"}
               integrationId={integrationId}
               integrations={integrations}
               stageEvidence={{
                 intake: optimizeContext.trim()
                   ? "The Story Architect will use the stated outcome, constraints, and quality bar as the task boundary."
-                  : "The Story Architect will infer a minimal Story objective from selected project context; add an instruction for a narrower result.",
-                context: `${requirementAiMode === "improve" ? "The selected Story" : "Project knowledge"}, ${optimizeReferenceImages.length} image${optimizeReferenceImages.length === 1 ? "" : "s"}, and ${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} external link${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"} are the visible evidence scope.`,
+                  : requirementAiMode === "improve"
+                    ? "The saved Story is the task boundary; add guidance only when a specific area needs attention."
+                    : "No written Story outcome is available yet. Add a brief or packed context before generation; links alone are pointers, not factual content.",
+                context: `${storyAiContextLabel} defines the visible evidence boundary. External linked page content is not fetched.`,
                 guardrails: "Retrieved text is treated as evidence, not authority. Jira permissions, required fields, and the explicit acceptance gate remain enforced.",
                 specialist: `Story Architect is preparing ${requirementAiMode === "create" ? `${requirementAiDraftCount} candidate draft${requirementAiDraftCount === 1 ? "" : "s"}` : "a field-level completion proposal"}.`,
                 outcome: "Generated titles, descriptions, acceptance criteria, properties, and Gherkin remain editable draft data.",
@@ -7120,12 +7241,11 @@ export function RequirementsPage() {
               )}
               settingsPane={(
                 <div className="story-studio-settings-content">
-                  <section className="story-studio-settings-section story-studio-model-settings">
-                    <div className="story-studio-settings-heading">
-                      <IconSettings size={20} stroke={1.9} />
-                      <h2>Model Settings</h2>
-                    </div>
-                    <p>Use a governed provider and a bounded review batch.</p>
+                  <StoryAiSettingsGroup
+                    description={`${requirementAiMode === "create" ? `${requirementAiDraftCount} draft${requirementAiDraftCount === 1 ? "" : "s"}` : "1 Story"} · governed provider`}
+                    icon={<IconSettings aria-hidden="true" size={17} stroke={1.9} />}
+                    title="Generation setup"
+                  >
                     <div className="story-studio-model-grid">
                       <FormField label="Provider">
                         <select
@@ -7140,34 +7260,35 @@ export function RequirementsPage() {
                           {integrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name}</option>)}
                         </select>
                       </FormField>
-                      <FormField label="Count">
-                        <select
-                          disabled={isStoryAiGenerateBusy || requirementAiMode === "improve"}
-                          onChange={(event) => {
-                            setRequirementAiDraftCount(Number(event.target.value) || 3);
-                            invalidateRequirementAiDraft();
-                          }}
-                          value={requirementAiMode === "create" ? requirementAiDraftCount : 1}
-                        >
-                          {(requirementAiMode === "create" ? [1, 2, 3, 4, 5, 6] : [1]).map((count) => (
-                            <option key={count} value={count}>{requirementAiMode === "create" ? `${count} ${count === 1 ? "draft" : "drafts"}` : "1 Story"}</option>
-                          ))}
-                        </select>
-                      </FormField>
+                      {requirementAiMode === "create" ? (
+                        <FormField label="Count">
+                          <select
+                            disabled={isStoryAiGenerateBusy}
+                            onChange={(event) => {
+                              setRequirementAiDraftCount(Number(event.target.value) || 3);
+                              invalidateRequirementAiDraft();
+                            }}
+                            value={requirementAiDraftCount}
+                          >
+                            {[1, 2, 3, 4, 5, 6].map((count) => (
+                              <option key={count} value={count}>{count} {count === 1 ? "draft" : "drafts"}</option>
+                            ))}
+                          </select>
+                        </FormField>
+                      ) : null}
                     </div>
                     <RovoProviderStatus
                       className="story-studio-rovo-provider"
                       compact
                       prompt={storyRovoPrompt}
                     />
-                  </section>
-                  <hr />
-                  <section className="story-studio-settings-section story-studio-data-sources">
-                    <div className="story-studio-settings-heading">
-                      <IconDatabase size={20} stroke={1.9} />
-                      <h2>Data Sources</h2>
-                    </div>
-                    <p>Add project knowledge, safe text files, links, and screenshots.</p>
+                  </StoryAiSettingsGroup>
+                  <StoryAiSettingsGroup
+                    defaultOpen
+                    description={`${optimizeReferenceImages.length} image${optimizeReferenceImages.length === 1 ? "" : "s"} · ${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${optimizeExternalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`}
+                    icon={<IconDatabase aria-hidden="true" size={17} stroke={1.9} />}
+                    title="Context sources"
+                  >
                     <AiPromptContextPanel
                       additionalContext={optimizeContext}
                       appTypeId={appTypeId}
@@ -7194,7 +7315,7 @@ export function RequirementsPage() {
                       requirements={requirementAiMode === "improve" && activeOptimizeRequirement ? [activeOptimizeRequirement] : []}
                       showPromptEditor={false}
                     />
-                  </section>
+                  </StoryAiSettingsGroup>
                 </div>
               )}
               titleId="story-studio-title"

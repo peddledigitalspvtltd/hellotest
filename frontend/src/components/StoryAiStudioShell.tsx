@@ -1,18 +1,20 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  IconAdjustmentsHorizontal,
   IconBrain,
   IconCheck,
+  IconChevronDown,
   IconEdit,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconX
 } from "@tabler/icons-react";
-import storyAiAssistantAvatar from "../assets/story-ai-assistant.jpg";
 import {
   AgenticProcessRail,
   AiFeatureComposer,
   type AgenticProcessStageId,
-  type AgenticProcessStatus
+  type AgenticProcessStatus,
+  type AgenticProcessingSnapshot
 } from "./AgenticExperience";
 import "./StoryAiStudioShell.css";
 
@@ -26,7 +28,6 @@ export type StoryAiStudioShellProps = {
   includeGherkinDisabled?: boolean;
   showIncludeGherkin?: boolean;
   includeControlLabel?: string;
-  headerControl?: ReactNode;
   primaryGenerateLabel: string;
   onPrimaryGenerate: () => void;
   primaryGenerateDisabled?: boolean;
@@ -37,7 +38,7 @@ export type StoryAiStudioShellProps = {
   settingsPane: ReactNode;
   queuePane: ReactNode;
   inspectorContent: ReactNode;
-  commandBar: ReactNode;
+  commandBar?: ReactNode;
   titleId: string;
   descriptionId?: string;
   studioTitle?: string;
@@ -58,13 +59,37 @@ export type StoryAiStudioShellProps = {
   outputLabel?: string;
   approvalLabel?: string;
   stageEvidence?: Partial<Record<AgenticProcessStageId, string>>;
+  processing?: AgenticProcessingSnapshot;
+  contextState?: "ready" | "attention" | "neutral";
+  reviewStatus?: "awaiting_review" | "accepted" | "discarded" | string;
+  hasProposal?: boolean;
 };
 
-const STORY_STUDIO_NAV_ITEMS: Array<{ id: StoryAiStudioNavKey; label: string }> = [
-  { id: "drafts", label: "Drafts" },
-  { id: "review", label: "Review" },
-  { id: "templates", label: "Templates" }
-];
+export function StoryAiSettingsGroup({
+  children,
+  defaultOpen = false,
+  description,
+  icon,
+  title
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  description: string;
+  icon?: ReactNode;
+  title: string;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <details className="story-studio-settings-group" onToggle={(event) => setIsOpen(event.currentTarget.open)} open={isOpen}>
+      <summary>
+        <span className="story-studio-settings-group__icon">{icon || <IconAdjustmentsHorizontal aria-hidden="true" size={16} stroke={1.9} />}</span>
+        <span className="story-studio-settings-group__copy"><strong>{title}</strong><small>{description}</small></span>
+        <IconChevronDown aria-hidden="true" className="story-studio-settings-group__chevron" size={15} stroke={1.9} />
+      </summary>
+      <div className="story-studio-settings-group__body">{children}</div>
+    </details>
+  );
+}
 
 export function StoryAiStudioShell({
   mode,
@@ -73,13 +98,11 @@ export function StoryAiStudioShell({
   includeGherkinDisabled = false,
   showIncludeGherkin = true,
   includeControlLabel = "Include Gherkin",
-  headerControl,
   primaryGenerateLabel,
   onPrimaryGenerate,
   primaryGenerateDisabled = false,
   onClose,
   closeDisabled = false,
-  navActive = "drafts",
   onNavChange,
   settingsPane,
   queuePane,
@@ -104,11 +127,24 @@ export function StoryAiStudioShell({
   onIntegrationChange,
   outputLabel,
   approvalLabel = "Explicit review before any saved change",
-  stageEvidence = {}
+  stageEvidence = {},
+  processing,
+  contextState = "neutral",
+  reviewStatus = "awaiting_review",
+  hasProposal = true
 }: StoryAiStudioShellProps) {
   const shellRef = useRef<HTMLElement>(null);
-  const [assistantMode, setAssistantMode] = useState<"chat" | "agent">("agent");
+  const contextPaneRef = useRef<HTMLElement>(null);
+  const contextToggleRef = useRef<HTMLButtonElement>(null);
+  const mainPaneRef = useRef<HTMLElement>(null);
+  const inspectorPaneRef = useRef<HTMLElement>(null);
+  const flowPaneRef = useRef<HTMLElement>(null);
+  const queuePaneRef = useRef<HTMLElement>(null);
+  const queueToggleRef = useRef<HTMLButtonElement>(null);
   const [isContextPaneOpen, setIsContextPaneOpen] = useState(true);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isOverlayLayout, setIsOverlayLayout] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches);
+  const [isFullWidthQueueLayout, setIsFullWidthQueueLayout] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches);
   const studioDescription = studioDescriptionOverride || (mode === "create"
     ? `Configure context, generate testable ${entityLabel} drafts, and approve only the candidates you want to keep.`
     : `Configure context, improve the selected ${entityLabel}, and review every suggested change before applying it.`);
@@ -117,9 +153,48 @@ export function StoryAiStudioShell({
     ? `Editable ${entityLabel} drafts`
     : `Editable ${entityLabel} completion proposal`);
 
+  useEffect(() => {
+    const contextMedia = window.matchMedia("(max-width: 900px)");
+    const queueMedia = window.matchMedia("(max-width: 600px)");
+    const update = () => {
+      setIsOverlayLayout(contextMedia.matches);
+      setIsFullWidthQueueLayout(queueMedia.matches);
+    };
+    update();
+    contextMedia.addEventListener("change", update);
+    queueMedia.addEventListener("change", update);
+    return () => {
+      contextMedia.removeEventListener("change", update);
+      queueMedia.removeEventListener("change", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mainPaneRef.current) mainPaneRef.current.inert = isOverlayLayout && isContextPaneOpen;
+    if (flowPaneRef.current) flowPaneRef.current.inert = isOverlayLayout && isContextPaneOpen;
+    if (inspectorPaneRef.current) inspectorPaneRef.current.inert = isFullWidthQueueLayout && isQueueOpen;
+  }, [isContextPaneOpen, isFullWidthQueueLayout, isOverlayLayout, isQueueOpen]);
+
+  const focusPersistentContextToggle = () => window.requestAnimationFrame(() => contextToggleRef.current?.focus());
+  const closeContextPane = () => {
+    setIsContextPaneOpen(false);
+    focusPersistentContextToggle();
+  };
   const revealContextPane = () => {
     setIsContextPaneOpen(true);
-    window.requestAnimationFrame(() => shellRef.current?.querySelector<HTMLElement>(".story-studio-settings-pane")?.scrollTo({ top: 0, behavior: "smooth" }));
+    window.requestAnimationFrame(() => {
+      const pane = contextPaneRef.current;
+      pane?.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      if (isOverlayLayout) pane?.focus();
+    });
+  };
+  const toggleQueuePane = () => {
+    setIsQueueOpen((current) => {
+      const next = !current;
+      onNavChange?.(next ? "drafts" : "review");
+      window.requestAnimationFrame(() => (next ? queuePaneRef.current : queueToggleRef.current)?.focus());
+      return next;
+    });
   };
 
   return (
@@ -128,48 +203,35 @@ export function StoryAiStudioShell({
       aria-labelledby={titleId}
       className="story-studio-shell"
       data-mode={mode}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape" || !isOverlayLayout) return;
+        if (isQueueOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleQueuePane();
+        } else if (isContextPaneOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeContextPane();
+        }
+      }}
       ref={shellRef}
     >
       <header className="story-studio-header">
         <div className="story-studio-header-start">
           <div className="story-studio-brand">
-            <IconBrain aria-hidden="true" size={28} stroke={2} />
+            <IconBrain aria-hidden="true" size={24} stroke={2} />
             <h2 id={titleId}>{studioTitle}</h2>
           </div>
-
-          <nav aria-label="Story studio views" className="story-studio-nav">
-            {STORY_STUDIO_NAV_ITEMS.map((item) => {
-              const isActive = navActive === item.id;
-              const itemClassName = isActive
-                ? "story-studio-nav-item story-studio-nav-item-active"
-                : "story-studio-nav-item";
-
-              return onNavChange ? (
-                <button
-                  aria-current={isActive ? "page" : undefined}
-                  className={itemClassName}
-                  key={item.id}
-                  onClick={() => onNavChange(item.id)}
-                  type="button"
-                >
-                  {item.label}
-                </button>
-              ) : (
-                <span aria-current={isActive ? "page" : undefined} className={itemClassName} key={item.id}>
-                  {item.label}
-                </span>
-              );
-            })}
-          </nav>
         </div>
 
         <div className="story-studio-header-actions">
-          {headerControl}
-
           <button
+            aria-controls={`${titleId}-context-pane`}
             aria-expanded={isContextPaneOpen}
             className="story-studio-context-toggle"
-            onClick={() => setIsContextPaneOpen((current) => !current)}
+            onClick={() => isContextPaneOpen ? closeContextPane() : revealContextPane()}
+            ref={contextToggleRef}
             type="button"
           >
             {isContextPaneOpen ? <IconLayoutSidebarLeftCollapse aria-hidden="true" size={17} stroke={1.9} /> : <IconLayoutSidebarLeftExpand aria-hidden="true" size={17} stroke={1.9} />}
@@ -177,20 +239,23 @@ export function StoryAiStudioShell({
           </button>
 
           {showIncludeGherkin ? (
-            <div className="story-studio-gherkin-control">
-              <span id={`${titleId}-include-label`}>{includeControlLabel}</span>
-              <button
-                aria-checked={includeGherkin}
-                aria-labelledby={`${titleId}-include-label`}
-                className="story-studio-switch"
-                disabled={includeGherkinDisabled || !onIncludeGherkinChange}
-                onClick={() => onIncludeGherkinChange?.(!includeGherkin)}
-                role="switch"
-                type="button"
-              >
-                <span aria-hidden="true" className="story-studio-switch-thumb" />
-              </button>
-            </div>
+            <details className="story-studio-output-options">
+              <summary><IconAdjustmentsHorizontal aria-hidden="true" size={16} stroke={1.9} /><span>Output options</span><IconChevronDown aria-hidden="true" size={14} stroke={1.9} /></summary>
+              <div className="story-studio-gherkin-control">
+                <span id={`${titleId}-include-label`}>{includeControlLabel}</span>
+                <button
+                  aria-checked={includeGherkin}
+                  aria-labelledby={`${titleId}-include-label`}
+                  className="story-studio-switch"
+                  disabled={includeGherkinDisabled || !onIncludeGherkinChange}
+                  onClick={() => onIncludeGherkinChange?.(!includeGherkin)}
+                  role="switch"
+                  type="button"
+                >
+                  <span aria-hidden="true" className="story-studio-switch-thumb" />
+                </button>
+              </div>
+            </details>
           ) : null}
 
           <button
@@ -201,89 +266,151 @@ export function StoryAiStudioShell({
             title={closeLabel}
             type="button"
           >
-            <img alt="" aria-hidden="true" className="story-studio-close-avatar" src={storyAiAssistantAvatar} />
-            <span aria-hidden="true" className="story-studio-close-overlay">
-              <IconX size={18} stroke={2.2} />
-            </span>
+            <IconX aria-hidden="true" size={18} stroke={2.2} />
           </button>
         </div>
       </header>
 
       {descriptionId ? <p className="story-studio-visually-hidden" id={descriptionId}>{studioDescription}</p> : null}
 
-      <div className="story-studio-agent-composer">
-        <AiFeatureComposer
-          agentName={agentName}
-          allowEmptyPrompt
-          briefItems={[
-            {
-              id: "context",
-              kind: "context",
-              label: "Evidence context",
-              onClick: revealContextPane,
-              state: "ready",
-              value: contextLabel
-            },
-            {
-              id: "output",
-              kind: "output",
-              label: "Output contract",
-              state: "ready",
-              value: effectiveOutputLabel
-            },
-            {
-              id: "approval",
-              kind: "approval",
-              label: "Human gate",
-              state: "ready",
-              value: approvalLabel
-            }
-          ]}
-          contextLabel={contextLabel}
-          disabled={primaryGenerateDisabled || !onMissionChange}
-          integrationId={integrationId}
-          integrations={integrations}
-          mode={assistantMode}
-          onContextClick={revealContextPane}
-          onIntegrationChange={onIntegrationChange}
-          onModeChange={setAssistantMode}
-          onPromptChange={(value) => onMissionChange?.(value)}
-          onSubmit={onPrimaryGenerate}
-          placeholder={missionPlaceholder || (mode === "create"
-            ? `Describe the ${entityLabel} outcome, boundary, and quality bar. Attached context remains available.`
-            : `Tell ${agentName} what to strengthen, preserve, or challenge in this ${entityLabel}.`)}
-          prompt={mission}
-          running={agentStatus === "running"}
-          submitLabel={primaryGenerateLabel}
-        />
-      </div>
-
-      <AgenticProcessRail agentName={agentName} compact stageEvidence={stageEvidence} status={agentStatus} />
-
-      <div className={isContextPaneOpen ? "story-studio-workspace" : "story-studio-workspace is-context-collapsed"}>
-        <aside aria-hidden={!isContextPaneOpen || undefined} aria-label={settingsAriaLabel || `${entityLabel} generation settings`} className="story-studio-settings-pane">
-          {settingsPane}
+      <div className={isContextPaneOpen ? "story-studio-workbench" : "story-studio-workbench is-context-collapsed"}>
+        <aside
+          aria-hidden={!isContextPaneOpen || undefined}
+          aria-label={settingsAriaLabel || `${entityLabel} generation settings`}
+          className="story-studio-settings-pane"
+          id={`${titleId}-context-pane`}
+          ref={contextPaneRef}
+          tabIndex={isOverlayLayout ? -1 : undefined}
+        >
+          <div className="story-studio-pane-header">
+            <div><strong>Context</strong><span>{contextLabel}</span></div>
+            <button aria-label="Hide context" onClick={closeContextPane} title="Hide context" type="button"><IconLayoutSidebarLeftCollapse aria-hidden="true" size={16} stroke={1.9} /></button>
+          </div>
+          <div className="story-studio-settings-scroll">{settingsPane}</div>
         </aside>
 
-        <section aria-label={queueAriaLabel || `${entityLabel} draft queue`} className="story-studio-queue-pane">
-          {queuePane}
-        </section>
+        <section
+          aria-hidden={isOverlayLayout && isContextPaneOpen || undefined}
+          aria-label={`${entityLabel} AI draft workspace`}
+          className="story-studio-main-pane"
+          ref={mainPaneRef}
+        >
+          <div className="story-studio-agent-composer">
+            <AiFeatureComposer
+              agentName={agentName}
+              allowEmptyPrompt
+              briefCollapsible
+              briefItems={[
+                {
+                  id: "context",
+                  kind: "context",
+                  label: "Evidence context",
+                  onClick: revealContextPane,
+                  state: contextState,
+                  value: contextLabel
+                },
+                {
+                  id: "output",
+                  kind: "output",
+                  label: "Output contract",
+                  state: "ready",
+                  value: effectiveOutputLabel
+                },
+                {
+                  id: "approval",
+                  kind: "approval",
+                  label: "Human gate",
+                  state: "ready",
+                  value: approvalLabel
+                }
+              ]}
+              contextLabel={contextLabel}
+              density="compact"
+              disabled={primaryGenerateDisabled || !onMissionChange}
+              integrationId={integrationId}
+              integrations={integrations}
+              mode="agent"
+              onContextClick={revealContextPane}
+              onIntegrationChange={onIntegrationChange}
+              onPromptChange={(value) => onMissionChange?.(value)}
+              onSubmit={onPrimaryGenerate}
+              placeholder={missionPlaceholder || (mode === "create"
+                ? `Describe the ${entityLabel} outcome, boundary, and quality bar. Attached context remains available.`
+                : `Tell ${agentName} what to strengthen, preserve, or challenge in this ${entityLabel}.`)}
+              prompt={mission}
+              running={agentStatus === "running"}
+              showIdentity={false}
+              showModeSwitcher={false}
+              showProviderSelector={false}
+              submitLabel={primaryGenerateLabel}
+            />
+          </div>
 
-        <section aria-label={inspectorAriaLabel || `${entityLabel} draft inspector`} className="story-studio-inspector-pane">
-          <div className="story-studio-inspector-scroll">
-            <div className="story-studio-inspector-content">
-              <div className="story-studio-proposal-state" data-ready={agentStatus === "completed" || undefined}>
-                <span>{agentStatus === "completed" ? <IconCheck size={16} stroke={2} /> : <IconEdit size={16} stroke={1.9} />}</span>
-                <div>
-                  <strong>{agentStatus === "completed" ? "Proposal ready for selection and editing" : "Editable proposal workspace"}</strong>
-                  <small>{agentStatus === "completed" ? "Select the output you want, edit it in place, then use the explicit acceptance action below." : "Your saved artifact remains unchanged until you accept a generated proposal."}</small>
-                </div>
+          <div className="story-studio-canvas-bar">
+            <button
+              aria-controls={`${titleId}-draft-queue`}
+              aria-expanded={isQueueOpen}
+              className="story-studio-queue-toggle"
+              onClick={toggleQueuePane}
+              ref={queueToggleRef}
+              type="button"
+            >
+              <IconLayoutSidebarLeftExpand aria-hidden="true" size={16} stroke={1.9} />
+              <span>{isQueueOpen ? "Hide drafts" : `Browse ${entityLabel} drafts`}</span>
+            </button>
+            <div className="story-studio-proposal-state" data-ready={agentStatus === "completed" || undefined} role="status">
+              <span>{agentStatus === "completed" ? <IconCheck size={15} stroke={2} /> : <IconEdit size={15} stroke={1.9} />}</span>
+              <div>
+                <strong>{agentStatus === "completed"
+                  ? !hasProposal ? "Processing complete · no proposal" : reviewStatus === "accepted" ? "Proposal accepted" : "Proposal ready · review required"
+                  : "Draft workspace"}</strong>
+                <small>{agentStatus === "completed"
+                  ? !hasProposal ? "Review the evidence limitations, add missing context, and run again." : reviewStatus === "accepted" ? "The reviewed proposal was accepted." : "Processing is complete; edit and accept only what you want to keep."
+                  : "Saved content stays unchanged until acceptance."}</small>
               </div>
-              {inspectorContent}
             </div>
           </div>
-          <footer className="story-studio-command-bar">{commandBar}</footer>
+
+          <div className={isQueueOpen ? "story-studio-output-workspace is-queue-open" : "story-studio-output-workspace"}>
+            {isQueueOpen ? (
+              <section aria-label={queueAriaLabel || `${entityLabel} draft queue`} className="story-studio-queue-pane" id={`${titleId}-draft-queue`} ref={queuePaneRef} tabIndex={-1}>
+                {queuePane}
+              </section>
+            ) : null}
+
+            <section
+              aria-hidden={isFullWidthQueueLayout && isQueueOpen || undefined}
+              aria-label={inspectorAriaLabel || `${entityLabel} draft inspector`}
+              className="story-studio-inspector-pane"
+              ref={inspectorPaneRef}
+            >
+              <div className="story-studio-inspector-scroll">
+                <div className="story-studio-inspector-content">
+                  {inspectorContent}
+                </div>
+              </div>
+              {commandBar ? <footer className="story-studio-command-bar">{commandBar}</footer> : null}
+            </section>
+          </div>
         </section>
+
+        <aside
+          aria-hidden={isOverlayLayout && isContextPaneOpen || undefined}
+          aria-label={`${agentName} generation flow`}
+          className="story-studio-flow-pane"
+          ref={flowPaneRef}
+        >
+          <AgenticProcessRail
+            agentName={agentName}
+            compact
+            orientation="vertical"
+            presentation="focused"
+            processing={processing}
+            profile={mode === "create" ? "story-create" : "story-complete"}
+            stageEvidence={stageEvidence}
+            status={agentStatus}
+          />
+        </aside>
       </div>
     </section>
   );

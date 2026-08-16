@@ -1,5 +1,6 @@
 const service = require("../services/issues.service");
 const aiBugDraftService = require("../services/aiBugDraft.service");
+const aiBugTriageService = require("../services/aiBugTriage.service");
 const featureFlagService = require("../services/featureFlag.service");
 const { ISSUE_STATUS_VALUES } = require("../domain/catalog");
 const projectService = require("../services/project.service");
@@ -23,10 +24,26 @@ function registerFeedbackRoutes(fastify, basePath) {
 
   fastify.post(`${basePath}/ai-triage-preview`, async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      issue_ids: { required: true, type: "array", items: "string", maxItems: aiBugTriageService.MAX_TRIAGE_ITEMS },
+      integration_id: { required: false, type: "string" },
+      prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
+    }, req.body || {});
+    if (!await featureFlagService.isEnabled("qaira.ai.bug_triage", { user: req.user })) {
+      const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
+      error.statusCode = 403;
+      throw error;
+    }
     const project = await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("feedback.manage", { projectId: project.id })(req);
-    return workspace.previewTriage({ project, issueIds: req.body.issue_ids });
+    return aiBugTriageService.preview({
+      project,
+      issueIds: req.body.issue_ids,
+      user: req.user,
+      integrationId: req.body.integration_id,
+      promptGuidance: req.body.prompt_guidance
+    });
   });
 
   fastify.post(`${basePath}/export`, async (req) => {
@@ -57,13 +74,16 @@ function registerFeedbackRoutes(fastify, basePath) {
       intent: { required: true, type: "string", minLength: 2 },
       evidence: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      external_links: { required: false, type: "array", items: "string", maxItems: 12 },
+      reference_photos: { required: false, type: "array", maxItems: 6 },
       linked_test_run_id: { required: false, type: "string" },
       linked_test_case_ids: { required: false, type: "array", items: "string" },
       linked_requirement_ids: { required: false, type: "array", items: "string" },
-      integration_id: { required: false, type: "string" }
+      integration_id: { required: false, type: "string" },
+      prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
     }, req.body);
     if (!await featureFlagService.isEnabled("qaira.ai.bug_triage", { user: req.user })) {
-      const error = new Error("AI-assisted bug triage is disabled for the workspace.");
+      const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
       error.statusCode = 403;
       throw error;
     }

@@ -710,6 +710,62 @@ export type Issue = {
   updated_at?: string;
 };
 
+export type AiProcessingStage = {
+  id: "intake" | "context" | "guardrails" | "specialist" | "outcome" | "evaluation" | "review";
+  status: "queued" | "running" | "complete" | "failed" | "current";
+  detail?: string;
+  evidence?: string;
+  item_count?: number;
+  duration_ms?: number;
+};
+
+export type AiProcessingSnapshot = {
+  active_stage_id?: AiProcessingStage["id"];
+  completed_stage_count?: number;
+  total_stage_count?: number;
+  status_label?: string;
+  progress_mode?: "determinate" | "indeterminate";
+  stages?: AiProcessingStage[];
+};
+
+export type AiEvidenceSource = {
+  ref: string;
+  type: string;
+  id: string;
+  title: string;
+  excerpt?: string | null;
+  status?: string | null;
+  field?: string | null;
+  related_id?: string | null;
+  url?: string | null;
+  trust?: "workspace" | "user-provided" | "pointer-only" | string;
+};
+
+export type AiEvidenceGap = {
+  field: string;
+  reason: string;
+  question?: string | null;
+};
+
+export type AiBugDraftEditableField =
+  | "title"
+  | "message"
+  | "steps_to_reproduce"
+  | "expected_result"
+  | "actual_result"
+  | "severity"
+  | "priority"
+  | "environment"
+  | "build"
+  | "labels";
+
+export type AiBugDraftClientReviewState = {
+  human_edited_fields: AiBugDraftEditableField[];
+  stale_field_evidence: Partial<Record<AiBugDraftEditableField, string[]>>;
+  stale_gaps: Partial<Record<AiBugDraftEditableField, AiEvidenceGap[]>>;
+  stale_fallback_fields: AiBugDraftEditableField[];
+};
+
 export type AiBugDraftPreview = {
   draft: {
     title: string;
@@ -728,7 +784,31 @@ export type AiBugDraftPreview = {
     rationale: string;
   };
   citations: Array<{ type: string; id: string; title?: string | null }>;
+  evidence_sources: AiEvidenceSource[];
+  field_evidence: Record<string, string[]>;
+  gaps: AiEvidenceGap[];
+  assumptions: string[];
+  boundaries: {
+    limits: Record<string, number>;
+    requested: Record<string, number>;
+    included: Record<string, number>;
+    omitted: Record<string, number>;
+    content_limits: Record<string, number>;
+    content_omissions: Array<{ source_ref: string; field: string; unit: "characters" | "items" | string; omitted: number }>;
+    partial_sources: boolean;
+  };
+  fallback_fields: string[];
+  processing: AiProcessingSnapshot;
   provenance: AiAssistanceProvenance & { usage?: Record<string, number> | null };
+  client_review?: AiBugDraftClientReviewState;
+};
+
+export type AiBugTriageSignal = {
+  code: string;
+  label: string;
+  value: string;
+  supports: Array<"category" | "priority" | "context" | string>;
+  evidence_refs: string[];
 };
 
 export type AiBugTriageRecommendation = {
@@ -739,7 +819,16 @@ export type AiBugTriageRecommendation = {
   current_priority: "Highest" | "High" | "Medium" | "Low" | "Lowest";
   recommended_priority: "Highest" | "High" | "Medium" | "Low" | "Lowest";
   explanation: string;
-  signals: string[];
+  signals: AiBugTriageSignal[];
+  evidence_refs: string[];
+  readiness: {
+    status: "needs-evidence" | "ready-for-review" | string;
+    completed_field_count: number;
+    total_field_count: number;
+    missing_fields: string[];
+    linked_evidence: boolean;
+    review_actions: string[];
+  };
   review_actions: string[];
 };
 
@@ -752,8 +841,16 @@ export type AiBugTriagePreview = AiAssistedPreviewBase & {
   };
   summary: string;
   triage: AiBugTriageRecommendation[];
+  evidence_sources: AiEvidenceSource[];
+  boundaries: {
+    limits: Record<string, number>;
+    omissions: Array<{ issue_id: string; field: string; unit: "characters" | "items" | string; omitted: number }>;
+    partial_sources: boolean;
+  };
+  processing: AiProcessingSnapshot;
   review_sequence: string[];
   limitations: string[];
+  partial_sources: boolean;
   preview_only: true;
   decision_requires_human_approval: true;
 };
@@ -904,6 +1001,10 @@ export type AiAssistanceProvenance = {
   evidence: string[];
   fallback_used: boolean;
   fallback_reason?: string | null;
+  fallback_sections?: string[];
+  fallback_fields?: string[];
+  partial_sources?: boolean;
+  confidence_basis?: string;
   requires_human_review: boolean;
 };
 
@@ -924,6 +1025,7 @@ export type AiAssistedPreviewBase = {
   confidence: number;
   fallback_used: boolean;
   fallback_reason?: string | null;
+  fallback_sections?: string[];
   requires_human_review: boolean;
   preview_only: true;
 };
@@ -937,6 +1039,91 @@ export type StoryGroomingEvidenceSource = {
   issue_type?: string | null;
   status?: string | null;
   jira_url?: string | null;
+};
+
+export type StoryGroomingReadinessStatus = "ready-for-planning" | "needs-clarification" | "not-ready" | (string & {});
+
+export type StoryGroomingReadinessCheckStatus = "met" | "partial" | "missing" | (string & {});
+
+export type StoryGroomingReadinessCheck = {
+  id?: string;
+  label: string;
+  status: StoryGroomingReadinessCheckStatus;
+  detail?: string;
+  evidence_refs?: string[];
+};
+
+export type StoryGroomingScope = {
+  in_scope: string[];
+  out_of_scope: string[];
+  evidence_refs?: string[];
+};
+
+export type StoryGroomingReadiness = {
+  status: StoryGroomingReadinessStatus;
+  summary: string;
+  checks?: StoryGroomingReadinessCheck[];
+  gaps: string[];
+  next_actions: string[];
+  evidence_refs?: string[];
+};
+
+export type StoryGroomingWalkthrough = {
+  purpose: {
+    summary: string;
+    why_needed: string;
+    expected_outcomes: string[];
+    evidence_refs: string[];
+  };
+  user_journey: {
+    summary: string;
+    actors: string[];
+    trigger: string;
+    steps: string[];
+    use_cases?: string[];
+    alternate_paths: string[];
+    evidence_refs: string[];
+  };
+  business_impact: {
+    summary: string;
+    stakeholders: string[];
+    value_outcomes: string[];
+    success_measures: string[];
+    evidence_refs: string[];
+  };
+  solution_design: {
+    overview: string;
+    behaviors: string[];
+    rules: string[];
+    dependencies: string[];
+    constraints: string[];
+    evidence_refs: string[];
+  };
+  implementation: {
+    overview: string;
+    components: string[];
+    data: string[];
+    integrations: string[];
+    quality_requirements: string[];
+    evidence_refs: string[];
+  };
+  validation: {
+    summary: string;
+    acceptance_criteria: string[];
+    test_scenarios: string[];
+    edge_cases?: string[];
+    linked_test_coverage: string[];
+    evidence_refs: string[];
+  };
+  remaining: {
+    summary: string;
+    gaps: string[];
+    questions: string[];
+    decisions: string[];
+    actions: string[];
+    risks: string[];
+    evidence_refs: string[];
+  };
 };
 
 export type StoryGroomingPreviewResponse = AiAssistedPreviewBase & {
@@ -957,6 +1144,9 @@ export type StoryGroomingPreviewResponse = AiAssistedPreviewBase & {
       context: string;
       roles_and_flow: string[];
       use_cases: string[];
+      stakeholders?: string[];
+      outcomes?: string[];
+      success_measures?: string[];
       evidence_refs: string[];
     };
     technical: {
@@ -965,8 +1155,17 @@ export type StoryGroomingPreviewResponse = AiAssistedPreviewBase & {
       data_and_integrations: string[];
       non_functional_requirements: string[];
       testability_notes: string[];
+      acceptance_criteria?: string[];
+      dependencies?: string[];
+      constraints?: string[];
+      edge_cases?: string[];
+      security_and_privacy?: string[];
+      observability?: string[];
       evidence_refs: string[];
     };
+    walkthrough?: StoryGroomingWalkthrough;
+    scope?: StoryGroomingScope;
+    readiness?: StoryGroomingReadiness;
     assumptions: string[];
     open_questions: string[];
     risks: string[];
@@ -983,6 +1182,7 @@ export type StoryGroomingPreviewResponse = AiAssistedPreviewBase & {
       attachment_text_chars: number;
       linked_tickets: number;
       related_project_records: number;
+      external_references: number;
       comment_chars: number;
       description_chars: number;
     };
@@ -992,12 +1192,15 @@ export type StoryGroomingPreviewResponse = AiAssistedPreviewBase & {
       attachment_text_files: number;
       linked_tickets: number;
       related_project_records: number;
+      external_references: number;
     };
     omitted: {
       comments: number;
       attachments: number;
       attachment_text: number;
       linked_tickets: number;
+      related_project_records?: number;
+      external_references: number;
     };
     partial_sources: string[];
     unavailable_sources: string[];
@@ -1410,6 +1613,7 @@ export type SmartExecutionImpactCase = {
   requirement_titles: string[];
   step_count: number;
   reason: string;
+  reason_source?: "model" | "deterministic";
   signals?: string[];
   risk_score?: number;
   impact_level: "critical" | "high" | "medium" | "low";
@@ -1418,6 +1622,8 @@ export type SmartExecutionImpactCase = {
   bug_count?: number;
   last_failure_at?: string | null;
   selection_basis?: string[];
+  evidence_refs?: string[];
+  explanation_evidence_refs?: string[];
   evidence?: {
     result_ids: string[];
     bug_ids: string[];
@@ -1466,8 +1672,47 @@ export type SmartExecutionPreviewResponse = {
   execution_name: string;
   summary: string;
   cases: SmartExecutionImpactCase[];
+  evidence?: Array<AiEvidenceSource & {
+    summary?: string | null;
+    observed_at?: string | null;
+    test_case_id?: string;
+    run_id?: string;
+  }>;
   request_id?: string;
-  generation_mode?: "llm" | "deterministic" | string;
+  acceptance_token: string;
+  generation_mode?: "hybrid" | "deterministic" | string;
+  fallback_used?: boolean;
+  fallback_reason?: string | null;
+  fallback_sections?: string[];
+  input_fingerprint?: string;
+  generated_at?: string;
+  requires_human_review?: boolean;
+  processing?: AiProcessingSnapshot;
+  context?: {
+    limits: Record<string, number>;
+    totals: Record<string, number>;
+    included: Record<string, number>;
+    omitted: Record<string, number>;
+    partial_sources: string[];
+  };
+  provenance?: {
+    capability: "ai-smart-run" | string;
+    request_id: string;
+    input_fingerprint: string;
+    generated_at: string;
+    generation_mode: string;
+    provider?: string | null;
+    model?: string | null;
+    direct_model_invocation?: boolean;
+    bounded: boolean;
+    limits: Record<string, number>;
+    included: Record<string, number>;
+    omitted: Record<string, number>;
+    partial_sources: string[];
+    fallback_used: boolean;
+    fallback_reason?: string | null;
+    requires_human_review: boolean;
+  };
 };
 
 export type TestSuite = {

@@ -188,7 +188,7 @@ const FEATURE_GROUPS = [
       { key: "qaira.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
       { key: "qaira.ai.test_data_generation", label: "Synthetic test data generation", routes: ["/test-data"] },
       { key: "qaira.ai.content_rephrase", label: "Rich-text AI rephrase", routes: ["/requirements", "/test-cases", "/design", "/issues", "/automation", "/shared-steps", "/test-environments", "/test-data"] },
-      { key: "qaira.ai.bug_triage", label: "AI-assisted bug triage", routes: ["/issues", "/feedback"], permissions: ["feedback.manage"] },
+      { key: "qaira.ai.bug_triage", label: "AI-assisted Bug drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.manage"] },
       { key: "qaira.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
       { key: "qaira.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "qaira.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },

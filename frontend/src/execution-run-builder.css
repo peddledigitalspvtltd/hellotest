@@ -976,6 +976,11 @@
   line-height: 1.15;
 }
 
+.execution-smart-studio-modal .execution-smart-evidence-open {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
 .execution-smart-studio-modal .action-row {
   justify-content: flex-end;
   gap: 7px;
@@ -1115,6 +1120,17 @@
   border: 1px solid #cbd5e1;
   border-radius: 7px;
   box-shadow: 0 2px 5px rgba(15, 23, 42, 0.035);
+  cursor: default;
+}
+
+.execution-smart-impact-selector {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.execution-smart-impact-selector input {
+  cursor: pointer;
 }
 
 .execution-smart-studio-modal .execution-smart-impact-card:hover {
@@ -1173,6 +1189,12 @@
   gap: 5px;
 }
 
+.execution-smart-studio-modal .execution-smart-impact-facts .ai-evidence-button {
+  min-height: 24px;
+  padding: 3px 7px;
+  font-size: 9px;
+}
+
 .execution-smart-studio-modal .execution-smart-impact-level,
 .execution-smart-studio-modal .count-pill {
   min-height: 20px;
@@ -1220,6 +1242,111 @@
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 7px;
+}
+
+.execution-smart-evidence-path > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.execution-smart-evidence-basis ul,
+.execution-smart-evidence-records > ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.execution-smart-evidence-basis li {
+  padding: 9px 11px;
+  color: #334155;
+  background: #f7f9fc;
+  border: 1px solid #d9e0ea;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.execution-smart-evidence-records > ul > li {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #d9e0ea;
+  border-radius: 7px;
+}
+
+.execution-smart-evidence-records li > div {
+  display: grid;
+  gap: 2px;
+}
+
+.execution-smart-evidence-records li > div > span {
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.execution-smart-evidence-records :is(p, small, code) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.execution-smart-evidence-records p,
+.execution-smart-evidence-records small {
+  color: #52647f;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.execution-smart-evidence-records code,
+.execution-smart-evidence-boundary > code {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 6px;
+  overflow: hidden;
+  color: #334155;
+  background: #eef2f7;
+  border-radius: 4px;
+  font-size: 9px;
+  text-overflow: ellipsis;
+}
+
+.execution-smart-evidence-boundary dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid #d9e0ea;
+  border-radius: 7px;
+}
+
+.execution-smart-evidence-boundary dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.execution-smart-evidence-boundary dl > div:last-child {
+  border-bottom: 0;
+}
+
+.execution-smart-evidence-boundary :is(dt, dd, p) {
+  margin: 0;
+  color: #52647f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.execution-smart-evidence-boundary dt {
+  color: #334155;
+  font-weight: 700;
+  text-transform: capitalize;
 }
 
 .execution-smart-studio-modal .execution-smart-hooks-disclosure {
@@ -1329,9 +1456,59 @@
   background: #16263f;
 }
 
+:root[data-theme="dark"] .execution-smart-studio-modal .execution-smart-requirement-card {
+  color: #e8eef8;
+  background: #111f36;
+  border-color: rgba(180, 199, 231, 0.24);
+}
+
+:root[data-theme="dark"] .execution-smart-studio-modal .execution-smart-requirement-card.is-selected {
+  background: #16263f;
+  border-color: #85b8ff;
+  box-shadow: 0 0 0 1px #85b8ff;
+}
+
 :root[data-theme="dark"] .execution-smart-studio-modal .execution-smart-impact-reason :is(span, p),
 :root[data-theme="dark"] .execution-smart-studio-modal :is(.execution-smart-pane-header p, .detail-summary span, .selection-summary-card span, dt) {
   color: #aebed4;
+}
+
+:root[data-theme="dark"] .execution-smart-studio-modal :is(
+  .execution-smart-requirement-copy span,
+  .execution-smart-evidence-strip .mini-card span,
+  .execution-smart-evidence-strip .mini-card small,
+  .execution-smart-hooks-disclosure > summary small
+) {
+  color: #b8c7dc;
+}
+
+:root[data-theme="dark"] .execution-smart-studio-modal :is(
+  .execution-smart-requirement-count,
+  .execution-smart-hooks-disclosure > summary > span:last-child
+) {
+  color: #dce8fb;
+  background: #16263f;
+  border-color: rgba(180, 199, 231, 0.24);
+}
+
+:root[data-theme="dark"] :is(.execution-smart-evidence-basis li, .execution-smart-evidence-records > ul > li) {
+  color: #e8eef8;
+  background: #111f36;
+  border-color: rgba(180, 199, 231, 0.2);
+}
+
+:root[data-theme="dark"] .execution-smart-evidence-boundary dl,
+:root[data-theme="dark"] .execution-smart-evidence-boundary dl > div {
+  border-color: rgba(180, 199, 231, 0.2);
+}
+
+:root[data-theme="dark"] :is(.execution-smart-evidence-records p, .execution-smart-evidence-records small, .execution-smart-evidence-boundary dt, .execution-smart-evidence-boundary dd, .execution-smart-evidence-boundary p) {
+  color: #aebed4;
+}
+
+:root[data-theme="dark"] :is(.execution-smart-evidence-records code, .execution-smart-evidence-boundary > code) {
+  color: #dce8fb;
+  background: #16263f;
 }
 
 @media (max-width: 1080px) {
@@ -1363,6 +1540,10 @@
     height: 100dvh;
     max-height: 100dvh !important;
     border-radius: 0;
+  }
+
+  .execution-smart-studio-modal .execution-run-builder-footer {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
   .execution-smart-studio-modal .execution-run-builder-body {

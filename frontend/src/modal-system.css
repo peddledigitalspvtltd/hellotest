@@ -5444,6 +5444,10 @@ body > .sprint-create-backdrop {
     padding: 10px 16px !important;
   }
 
+  .ai-authoring-dialog--bugs .ai-bug-draft-footer {
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  }
+
   .ai-authoring-dialog .ai-authoring-footer-status {
     display: none;
   }

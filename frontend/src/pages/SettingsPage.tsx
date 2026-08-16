@@ -174,6 +174,10 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     () => AI_METRIC_CRITERIA_REGISTRY.filter((metric) => canUseAutomationWorkspace || metric.key !== "metric.automation.coverage"),
     [canUseAutomationWorkspace]
   );
+  const promptWithLengthError = useMemo(
+    () => visibleAiPromptRegistry.find((prompt) => prompt.maxLength && (promptDrafts[prompt.key] ?? prompt.value).length > prompt.maxLength),
+    [promptDrafts, visibleAiPromptRegistry]
+  );
   const apiKeyScopeLabels = useMemo(
     () => Object.fromEntries(apiKeyScopeOptions.map((scope) => [scope.value, scope.label])) as Record<ApiKeyScope, string>,
     [apiKeyScopeOptions]
@@ -217,6 +221,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
+    if (promptWithLengthError) {
+      setMessageTone("error");
+      setMessage(`${promptWithLengthError.label} guidance must be ${promptWithLengthError.maxLength?.toLocaleString()} characters or fewer.`);
+      return;
+    }
     setIsSavingSettings(true);
 
     try {
@@ -455,7 +464,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const settingsActions = (
     <button
       className="primary-button"
-      disabled={isSavingSettings || isSavingLocalization}
+      disabled={isSavingSettings || isSavingLocalization || Boolean(promptWithLengthError)}
       onClick={() => void saveSettings()}
       type="button"
     >
@@ -795,10 +804,19 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                   <textarea
                     aria-label={`${prompt.label} prompt text`}
                     disabled={!canManageAiPrompts}
+                    maxLength={prompt.maxLength}
                     onChange={(event) => setPromptDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
                     rows={5}
                     value={promptDrafts[prompt.key] ?? prompt.value}
                   />
+                  {prompt.maxLength ? (
+                    <small
+                      aria-live="polite"
+                      className={(promptDrafts[prompt.key] ?? prompt.value).length > prompt.maxLength ? "settings-prompt-limit error" : "settings-prompt-limit"}
+                    >
+                      {(promptDrafts[prompt.key] ?? prompt.value).length.toLocaleString()} / {prompt.maxLength.toLocaleString()} characters · Used as evidence-bound guidance, not as instructions that can override grounding rules.
+                    </small>
+                  ) : null}
                   <button
                     className="ghost-button compact"
                     disabled={!canManageAiPrompts || (promptDrafts[prompt.key] ?? prompt.value) === prompt.value}

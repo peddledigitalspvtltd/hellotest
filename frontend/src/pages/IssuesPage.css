@@ -697,3 +697,506 @@
     forced-color-adjust: auto;
   }
 }
+
+/* Reference-led AI Bug workspace: context, editable draft, and run/review rail. */
+.ai-bug-authoring-workbench {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) 216px;
+  overflow: hidden;
+  background: var(--dialog-canvas, #f6f8fa);
+}
+
+.ai-bug-authoring-workbench > .ai-authoring-dialog-layout {
+  width: 100%;
+  height: 100%;
+}
+
+.ai-bug-flow-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--dialog-divider, #d0d7de);
+  background: var(--dialog-surface, #fff);
+}
+
+.ai-bug-flow-pane > .agent-process-rail {
+  --line: var(--dialog-divider, #d0d7de);
+  --panel: var(--dialog-surface-subtle, #f6f8fa);
+  --panel-strong: var(--dialog-surface, #fff);
+  --text-primary: var(--dialog-ink, #1f2328);
+  --text-secondary: var(--dialog-muted, #656d76);
+}
+
+.ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical,
+.ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical.is-compact {
+  gap: 12px;
+  padding: 16px 14px;
+}
+
+.ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical .agent-process-stage {
+  min-height: 52px;
+  padding-bottom: 10px;
+}
+
+.ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical .agent-process-stage:last-child {
+  min-height: 32px;
+}
+
+.ai-bug-flow-pane .agent-process-rail__trace > span {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-feature-composer {
+  position: sticky;
+  z-index: 4;
+  top: -16px;
+  margin: -16px -18px 0;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--dialog-divider, #d0d7de);
+  background: var(--dialog-surface, #fff);
+}
+
+.ai-authoring-dialog--bugs .ai-bug-feature-composer .ai-feature-composer {
+  max-width: 840px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-draft-main {
+  gap: 12px;
+  padding: 16px 18px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-evidence-launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 54px;
+  padding: 9px 12px;
+  border: 1px solid var(--dialog-divider, #d0d7de);
+  border-radius: 8px;
+  background: var(--dialog-surface, #fff);
+}
+
+.ai-authoring-dialog--bugs .ai-bug-evidence-launch > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-evidence-launch strong {
+  color: var(--dialog-ink, #1f2328);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-evidence-launch small {
+  overflow: hidden;
+  color: var(--dialog-muted, #656d76);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-authoring-dialog--bugs :is(
+  .form-field-label,
+  .impact-checkbox-actions,
+  .impact-checkbox-option small,
+  .ai-authoring-dialog-copy .dialog-context-label,
+  .ai-authoring-dialog-description,
+  .ai-authoring-context-status strong,
+  .ai-authoring-context-status span,
+  .ai-authoring-context-pane-heading span,
+  .ai-authoring-sidebar-section-heading span,
+  .ai-authoring-context-card > div:first-child span,
+  .ai-authoring-context-facts span,
+  .ai-authoring-context-card p,
+  .ai-authoring-footer-status
+) {
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-authoring-context-card {
+  gap: 8px;
+  padding: 10px;
+}
+
+.ai-authoring-dialog--bugs .ai-authoring-context-facts span {
+  padding: 2px 7px;
+}
+
+.ai-bug-input-flyout__body {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+}
+
+.ai-bug-input-flyout__body > .form-field,
+.ai-authoring-dialog--bugs .ai-bug-scope-grid .form-field,
+.ai-authoring-dialog--bugs .ai-bug-proposal-fields .form-field {
+  gap: 6px !important;
+}
+
+.ai-bug-input-flyout__body textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-scope-grid {
+  gap: 12px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-scope-grid .impact-checkbox-field {
+  gap: 6px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-scope-grid .impact-checkbox-picker {
+  height: 132px;
+  min-height: 132px;
+  grid-template-rows: 34px minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: 7px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-scope-grid .impact-checkbox-list {
+  min-height: 0;
+  max-height: none;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-scope-grid .impact-checkbox-option {
+  gap: 7px;
+  padding: 6px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-review-card {
+  gap: 12px;
+  padding: 14px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-review-head {
+  align-items: center;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-review-head__evidence {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-review-head span {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-proposal-fields {
+  gap: 12px;
+  padding: 12px;
+  border-radius: 7px;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-proposal-pair {
+  gap: 12px;
+}
+
+.ai-bug-input-flyout__body .ai-bug-scope-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-bug-evidence-sources > div {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-bug-evidence-sources article {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--line, #d0d7de);
+  border-radius: 8px;
+  background: var(--panel-strong, #fff);
+}
+
+.ai-bug-evidence-sources article > span {
+  color: #0c66e4;
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="dark"] .ai-bug-evidence-sources article > span {
+  color: #85b8ff;
+}
+
+.ai-bug-evidence-sources article > p,
+.ai-evidence-flyout__section > p {
+  margin: 0;
+  color: var(--text-secondary, #626f86);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.ai-bug-evidence-sources code,
+.ai-bug-field-evidence code {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary, #626f86);
+  font-size: 0.67rem;
+}
+
+.ai-bug-field-evidence dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.ai-bug-field-evidence dl > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line, #d0d7de);
+}
+
+.ai-bug-field-evidence dt {
+  color: var(--text-primary, #172b4d);
+  font-size: 0.73rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.ai-bug-field-evidence dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+}
+
+.ai-bug-field-evidence dd[data-evidence-state="human-edited"] {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.ai-bug-field-evidence__state {
+  padding: 3px 7px;
+  border: 1px solid var(--ds-border-warning, #e2b203);
+  border-radius: 999px;
+  background: var(--ds-background-warning, #fff7d6);
+  color: var(--ds-text-warning, #5f4b00);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.ai-bug-field-evidence dd > small {
+  color: var(--text-secondary, #626f86);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.ai-bug-field-evidence__stale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--text-secondary, #626f86);
+  font-size: 0.67rem;
+  line-height: 1.4;
+}
+
+.ai-bug-field-evidence__stale code {
+  opacity: 0.72;
+  text-decoration: line-through;
+}
+
+.ai-bug-human-edit-notice strong {
+  color: inherit;
+}
+
+.ai-bug-evidence-gaps ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-bug-evidence-gaps li {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--ds-border-warning, #e2b203);
+  border-radius: 6px;
+  background: var(--ds-background-warning, #fff7d6);
+}
+
+.ai-bug-evidence-gaps li > strong {
+  font-size: 0.74rem;
+  text-transform: capitalize;
+}
+
+.ai-bug-evidence-gaps li > span,
+.ai-bug-evidence-gaps li > em {
+  color: var(--ds-text-warning, #5f4b00);
+  font-size: 0.72rem;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+@media (max-width: 1040px) and (min-width: 721px) {
+  .ai-bug-authoring-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 128px;
+  }
+
+  .ai-bug-flow-pane {
+    border-top: 1px solid var(--dialog-divider, #d0d7de);
+    border-left: 0;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical,
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical.is-compact {
+    grid-template-columns: 148px minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+  }
+
+  .ai-bug-flow-pane .agent-process-rail__stages {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage,
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical .agent-process-stage {
+    min-height: 42px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px 0 0;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage:not(:last-child)::after {
+    top: 13px;
+    right: 1px;
+    bottom: auto;
+    left: 27px;
+    width: auto;
+    height: 1px;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage > div {
+    padding-top: 0;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage small {
+    display: none;
+  }
+
+  .ai-bug-flow-pane :is(.agent-process-rail__trace, .agent-process-rail__details) {
+    display: none !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .ai-bug-authoring-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 108px;
+    overflow: hidden;
+  }
+
+  .ai-bug-authoring-workbench > .ai-authoring-dialog-layout {
+    min-height: 0 !important;
+  }
+
+  .ai-bug-flow-pane {
+    border-top: 1px solid var(--dialog-divider, #d0d7de);
+    border-left: 0;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-feature-composer {
+    top: -16px;
+    margin: -16px -16px 0;
+    padding: 12px 16px;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical,
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical.is-compact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 0;
+    padding: 10px 12px;
+  }
+
+  .ai-bug-flow-pane .agent-process-rail__head,
+  .ai-bug-flow-pane :is(.agent-process-rail__trace, .agent-process-rail__details) {
+    display: none !important;
+  }
+
+  .ai-bug-flow-pane .agent-process-rail__stages {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage,
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical .agent-process-stage {
+    min-height: 42px;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    text-align: center;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage:not(:last-child)::after {
+    top: 13px;
+    right: -1px;
+    bottom: auto;
+    left: calc(50% + 14px);
+    width: calc(100% - 28px);
+    height: 1px;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage > div {
+    padding-top: 0;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-vertical .agent-process-stage small {
+    display: none;
+  }
+
+  .ai-bug-flow-pane > .agent-process-rail.is-focused.is-vertical .agent-process-stage strong {
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-evidence-launch {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-scope-grid,
+  .ai-authoring-dialog--bugs .ai-bug-proposal-pair {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-review-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-review-head__evidence {
+    justify-content: flex-start;
+  }
+
+  .ai-bug-field-evidence dl > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

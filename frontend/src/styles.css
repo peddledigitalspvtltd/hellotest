@@ -39433,6 +39433,16 @@ body > .nested-modal-backdrop {
   padding: 0.65rem 0.72rem;
 }
 
+.settings-prompt-limit {
+  justify-self: end;
+  text-align: right;
+}
+
+.settings-prompt-limit.error {
+  color: var(--danger, #ae2a19);
+  font-weight: 700;
+}
+
 .settings-prompt-card .ghost-button {
   justify-self: start;
 }

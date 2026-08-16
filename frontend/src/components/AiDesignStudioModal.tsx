@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconCalendarTime, IconChecklist, IconDatabase, IconSettings } from "@tabler/icons-react";
+import { IconCalendarTime, IconDatabase, IconSettings } from "@tabler/icons-react";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { FormField } from "./FormField";
@@ -8,7 +8,7 @@ import { InfoTooltip } from "./InfoTooltip";
 import { RovoProviderStatus } from "./RovoProviderStatus";
 import { AiPromptContextPanel } from "./AiPromptContextPanel";
 import { StoryAiDraftQueue, type StoryAiStudioDraft } from "./StoryAiStudioContent";
-import { StoryAiStudioShell } from "./StoryAiStudioShell";
+import { StoryAiSettingsGroup, StoryAiStudioShell } from "./StoryAiStudioShell";
 import {
   TestCaseAiStudioDraftInspector,
   type TestCaseAiStudioDraft,
@@ -140,7 +140,6 @@ function existingToInspectorDraft(testCase: TestCase): TestCaseAiStudioDraft {
 }
 
 export function AiDesignStudioModal({
-  eyebrow,
   requirementLabel,
   requirementHelpText,
   requirements,
@@ -341,9 +340,12 @@ export function AiDesignStudioModal({
 
   const settingsPane = (
     <div className="test-case-studio-settings">
-      <section>
-        <div className="test-case-studio-settings__heading"><IconSettings aria-hidden="true" size={19} stroke={1.9} /><h2>Model Settings</h2></div>
-        <p>Use a governed provider and a bounded review batch.</p>
+      <StoryAiSettingsGroup
+        defaultOpen={!selectedRequirementIds.length}
+        description={`${selectedRequirementIds.length} Stor${selectedRequirementIds.length === 1 ? "y" : "ies"} · ${maxCases} draft${maxCases === 1 ? "" : "s"}`}
+        icon={<IconSettings aria-hidden="true" size={17} stroke={1.9} />}
+        title="Generation setup"
+      >
         <button className="test-case-studio-context-button" disabled={isBusy} onClick={openRequirementDialog} type="button">
           <span><strong>{requirementLabel}</strong><small>{selectedRequirementLabel}</small></span>
           <span>Choose</span>
@@ -378,11 +380,13 @@ export function AiDesignStudioModal({
           </FormField>
         ) : null}
         <div className="test-case-studio-scope-note"><strong>{appTypeName}</strong><span>{requirementHelpText}</span></div>
-      </section>
-      <hr />
-      <section>
-        <div className="test-case-studio-settings__heading"><IconDatabase aria-hidden="true" size={19} stroke={1.9} /><h2>Data Sources</h2></div>
-        <p>Add project knowledge, safe text files, links, and screenshots.</p>
+      </StoryAiSettingsGroup>
+      <StoryAiSettingsGroup
+        defaultOpen={Boolean(selectedRequirementIds.length)}
+        description={`${referenceImages.length} image${referenceImages.length === 1 ? "" : "s"} · ${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`}
+        icon={<IconDatabase aria-hidden="true" size={17} stroke={1.9} />}
+        title="Context sources"
+      >
         <AiPromptContextPanel
           additionalContext={additionalContext}
           appTypeId={promptTemplateAppTypeId}
@@ -400,7 +404,7 @@ export function AiDesignStudioModal({
           requirements={selectedRequirements}
           showPromptEditor={false}
         />
-      </section>
+      </StoryAiSettingsGroup>
     </div>
   );
 
@@ -435,27 +439,28 @@ export function AiDesignStudioModal({
                     </span>
                   ) : null}
                 </div>
-                <button
-                  className="test-case-studio-accept"
-                  disabled={disableAccept || !selectedPreviewCount || selectedPreviewHasInvalidTitle || isBusy}
-                  onClick={() => onAccept(selectedPreviewCaseIds)}
-                  type="button"
-                >
-                  {isAccepting ? "Accepting…" : selectedPreviewCount ? `${acceptLabel} (${selectedPreviewCount})` : "Select drafts to accept"}
-                </button>
+                {previewCases.length ? (
+                  <button
+                    className="test-case-studio-accept"
+                    disabled={disableAccept || !selectedPreviewCount || selectedPreviewHasInvalidTitle || isBusy}
+                    onClick={() => onAccept(selectedPreviewCaseIds)}
+                    type="button"
+                  >
+                    {isAccepting ? "Accepting…" : selectedPreviewCount ? `${acceptLabel} (${selectedPreviewCount})` : "Select drafts to accept"}
+                  </button>
+                ) : null}
               </>
             )}
             descriptionId="ai-design-studio-description"
             entityLabel="Test Case"
-            headerControl={<span className="test-case-studio-header-context"><IconChecklist aria-hidden="true" size={16} stroke={1.9} />{eyebrow}</span>}
             inspectorAriaLabel="Test case draft inspector"
             inspectorContent={(
               <TestCaseAiStudioDraftInspector
                 draft={activeDraft}
                 editable={Boolean(activeCandidate && onPreviewCaseChange) && !isBusy}
                 extraContent={existingCases.length ? (
-                  <section className="test-case-studio-existing-coverage">
-                    <header><strong>{existingCasesTitle}</strong><span>{existingCasesSubtitle}</span></header>
+                  <details className="test-case-studio-existing-coverage">
+                    <summary><span><strong>{existingCasesTitle}</strong><small>{existingCasesSubtitle}</small></span><span>{existingCases.length}</span></summary>
                     <div>
                       {existingCases.slice(0, 8).map((testCase) => (
                         <button disabled={!onViewExistingCase} key={testCase.id} onClick={() => onViewExistingCase?.(testCase.id)} type="button">
@@ -463,7 +468,7 @@ export function AiDesignStudioModal({
                         </button>
                       ))}
                     </div>
-                  </section>
+                  </details>
                 ) : null}
                 onDescriptionChange={(value) => updateActiveCandidate({ description: value })}
                 onOpenExisting={activeExistingCase && onViewExistingCase ? () => onViewExistingCase(activeExistingCase.id) : undefined}

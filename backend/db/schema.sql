@@ -126,6 +126,9 @@ CREATE TABLE requirements (
   project_id TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
+  gherkin_scenarios JSONB NOT NULL DEFAULT '[]'::jsonb,
+  additional_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ai_review JSONB,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   labels JSONB NOT NULL DEFAULT '[]'::jsonb,
   sprint TEXT,
@@ -727,6 +730,9 @@ CREATE INDEX IF NOT EXISTS idx_integrations_type_active
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS gherkin_scenarios JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS additional_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS ai_review JSONB;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS sprint TEXT;

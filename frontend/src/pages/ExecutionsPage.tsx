@@ -40,7 +40,7 @@ import { ActivityIcon, AddIcon, ArchiveIcon, CalendarIcon, ClearSelectionIcon, C
 import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { AiAssurancePanel } from "../components/AiAssurancePanel";
 import { AiInsightPreviewDialog, type AiPreviewFinding } from "../components/AiInsightPreviewDialog";
-import { AgenticProcessRail, AiFeatureComposer } from "../components/AgenticExperience";
+import { AgenticProcessRail, AiEvidenceButton, AiEvidenceFlyout, AiFeatureComposer } from "../components/AgenticExperience";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -3298,6 +3298,7 @@ export function ExecutionsPage() {
         build: executionBuild.trim() || undefined,
         scope_description: smartExecutionReleaseScope.trim() || undefined,
         additional_context: smartExecutionAdditionalContext || undefined,
+        prompt_guidance: getPrompt("ai.execution.smart_plan") || undefined,
         impacted_requirement_ids: selectedSmartRequirementIds.length ? selectedSmartRequirementIds : undefined,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
@@ -3323,8 +3324,8 @@ export function ExecutionsPage() {
       const evidenceSummary = response.evidence_summary;
       setSmartExecutionPreviewMessage(
         response.cases.length
-          ? `${response.matched_case_count} impacted case${response.matched_case_count === 1 ? "" : "s"} selected from ${evidenceSummary?.failed_case_count || 0} failed case${evidenceSummary?.failed_case_count === 1 ? "" : "s"}, ${evidenceSummary?.scoped_bug_count || 0} scoped Bug${evidenceSummary?.scoped_bug_count === 1 ? "" : "s"}, and ${evidenceSummary?.scoped_requirement_count || 0} scoped ${evidenceSummary?.scoped_requirement_count === 1 ? "Story" : "Stories"}; ${response.integration.name} reviewed the bounded evidence.`
-          : `No linked test evidence was identified using ${response.integration.name}. Check the exact Release, Sprint, or Build values, or add a Story/change context.`
+          ? `${response.matched_case_count} evidence-linked case${response.matched_case_count === 1 ? "" : "s"} are ready for review from ${evidenceSummary?.candidate_case_count || 0} scoped candidate${evidenceSummary?.candidate_case_count === 1 ? "" : "s"}. ${response.generation_mode === "hybrid" ? `${response.integration.name} refined explanations with cited records; ranking remained deterministic.` : "Risk and selection were calculated deterministically from the returned project records."}`
+          : "No Test Cases were linked to the supplied exact delivery keys, selected Stories, or change context within the recorded scan boundary."
       );
     } catch (error) {
       if (
@@ -3342,6 +3343,7 @@ export function ExecutionsPage() {
 
   const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (event.target !== event.currentTarget) return;
 
     if (!session?.user.id) {
       setMessageTone("error");
@@ -3379,6 +3381,25 @@ export function ExecutionsPage() {
       );
 	      return;
 	    }
+
+    const acceptedSmartPlan = executionCreateMode === "smart"
+      && smartExecutionPreview?.acceptance_token
+      && smartExecutionPreview.request_id
+      && smartExecutionPreview.input_fingerprint
+      ? {
+          acceptance_token: smartExecutionPreview.acceptance_token,
+          request_id: smartExecutionPreview.request_id,
+          input_fingerprint: smartExecutionPreview.input_fingerprint,
+          selected_test_case_ids: selectedSmartCaseIds
+        }
+      : null;
+
+    if (executionCreateMode === "smart" && !acceptedSmartPlan) {
+      resetSmartExecutionPreview();
+      setSmartExecutionPreviewTone("error");
+      setSmartExecutionPreviewMessage("The reviewed Smart Run acceptance proof is missing. Generate a fresh impact preview before creating the run.");
+      return;
+    }
 
 	    const canCreateSelectedRunMode = executionStartMode === "local"
 	      ? canRunLocalAutomation
@@ -3435,17 +3456,7 @@ export function ExecutionsPage() {
         build: executionBuild.trim() || undefined,
         name: executionName || undefined,
         scope_source: executionCreateMode === "smart" ? "smart-run" : undefined,
-        default_suite: executionCreateMode === "smart" ? smartExecutionPreview?.default_suite : undefined,
-        smart_plan: executionCreateMode === "smart" && smartExecutionPreview
-          ? {
-              request_id: smartExecutionPreview.request_id,
-              generation_mode: smartExecutionPreview.generation_mode,
-              summary: smartExecutionPreview.summary,
-              evidence_summary: smartExecutionPreview.evidence_summary,
-              query_strategy: smartExecutionPreview.query_strategy,
-              selected_test_case_ids: selectedSmartCaseIds
-            }
-          : undefined,
+        smart_plan: acceptedSmartPlan || undefined,
         created_by: session.user.id
       });
 
@@ -3462,7 +3473,7 @@ export function ExecutionsPage() {
       }
       showSuccess(
         executionCreateMode === "smart"
-          ? `AI smart run created with ${selectedSmartCaseIds.length} impacted case${selectedSmartCaseIds.length === 1 ? "" : "s"} under Default.`
+          ? `AI smart run created with ${selectedSmartCaseIds.length} impacted case${selectedSmartCaseIds.length === 1 ? "" : "s"} in Direct impacted scope.`
           : executionStartMode === "manual"
             ? "Manual run created from a snapshot of the selected suites."
             : `Automation run created and started ${executionStartMode === "local" ? "locally" : "remotely"}.`
@@ -12161,7 +12172,8 @@ export function ExecutionCreateModal({
     onClose
   });
   const [suiteSearch, setSuiteSearch] = useState("");
-  const [smartRunInteractionMode, setSmartRunInteractionMode] = useState<"chat" | "agent">("agent");
+  const [smartEvidenceView, setSmartEvidenceView] = useState<{ kind: "plan" } | { kind: "case"; caseId: string } | null>(null);
+  const [areSmartHooksOpen, setAreSmartHooksOpen] = useState(Boolean(executionHookDraft.length));
   const isSmartMode = canUseRunAi && executionCreateMode === "smart";
   const smartPreviewCases = smartExecutionPreview?.cases || [];
   const hasSmartPlanningInput = Boolean(
@@ -12176,7 +12188,6 @@ export function ExecutionCreateModal({
     projectId
     && appTypeId
     && hasSmartPlanningInput
-    && integrations.length
     && !isPreviewingSmartExecution
     && !isSubmitting
   );
@@ -12203,6 +12214,14 @@ export function ExecutionCreateModal({
   const selectedSmartRovoRequirements = smartExecutionRequirementOptions
     .filter((requirement) => selectedSmartRequirementIds.includes(requirement.id))
     .slice(0, 12);
+  const activeSmartEvidenceCase = smartEvidenceView?.kind === "case"
+    ? smartPreviewCases.find((testCase) => testCase.test_case_id === smartEvidenceView.caseId) || null
+    : null;
+  const activeSmartEvidenceRefs = new Set(activeSmartEvidenceCase?.evidence_refs || []);
+  const activeSmartEvidenceRecords = (smartExecutionPreview?.evidence || []).filter((record) =>
+    smartEvidenceView?.kind === "plan" || activeSmartEvidenceRefs.has(record.ref)
+  );
+  const activeSmartEvidenceContext = smartExecutionPreview?.context || null;
   const smartRunRovoPrompt = [
     "Open a Jira-native HelloTest QA Agent conversation. This is an interactive Rovo review, not a direct Forge LLM model invocation and must not create or update a run.",
     `Review an AI Smart Run scope for project ${selectedProject || projectId || "not selected"} and app type ${selectedAppType || appTypeId || "not selected"}.`,
@@ -12353,9 +12372,9 @@ export function ExecutionCreateModal({
 
               {isSmartMode ? (
                 <div className="execution-smart-provider-section">
-                  <FormField label="Direct LLM integration" hint="Invokes a governed model to generate the bounded Smart Run preview.">
+                  <FormField label="Explanation model (optional)" hint="Risk and case selection stay deterministic. A governed model may refine cited explanations.">
                     <select value={smartExecutionIntegrationId} onChange={(event) => onSmartExecutionIntegrationChange(event.target.value)}>
-                      <option value="">Configured prompt LLM or default active model</option>
+                      <option value="">Configured prompt model, active default, or deterministic only</option>
                       {integrations.map((integration) => (
                         <option key={integration.id} value={integration.id}>
                           {integration.name}
@@ -12519,25 +12538,32 @@ export function ExecutionCreateModal({
                     { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Review selections before creating the run" }
                   ]}
                   contextLabel={`${selectedSmartRequirementIds.length} Stor${selectedSmartRequirementIds.length === 1 ? "y" : "ies"} · ${executionRelease || executionSprint || executionBuild || "delivery scope"}`}
-                  disabled={!projectId || !appTypeId || !integrations.length || isSubmitting}
+                  disabled={!projectId || !appTypeId || isSubmitting}
+                  embedded
                   integrationId={smartExecutionIntegrationId}
                   integrations={integrations}
-                  mode={smartRunInteractionMode}
+                  mode="agent"
                   onIntegrationChange={onSmartExecutionIntegrationChange}
-                  onModeChange={setSmartRunInteractionMode}
                   onPromptChange={onSmartExecutionReleaseScopeChange}
                   onSubmit={onPreviewSmartExecution}
                   placeholder="Describe changed workflows, integrations, rollout risks, customer impact, and the coverage outcome you want."
                   prompt={smartExecutionReleaseScope}
                   running={isPreviewingSmartExecution}
+                  showModeSwitcher={false}
+                  showProviderSelector={false}
                   submitDisabled={!canGenerateSmartPlan}
                   submitLabel={smartExecutionPreview ? "Regenerate impact plan" : "Generate impact plan"}
                 />
                 <AgenticProcessRail
                   agentName="Smart Run Planner"
                   compact
+                  presentation="focused"
+                  profile="smart-run"
+                  processing={smartExecutionPreview?.processing}
                   stageEvidence={{
-                    context: `${selectedSmartRequirementIds.length} selected Stories plus Release, Sprint, Build, and run-history evidence.`,
+                    context: smartExecutionPreview
+                      ? `${smartExecutionPreview.retrieved_context_count || 0} returned evidence records are available within the recorded source limits.`
+                      : `${selectedSmartRequirementIds.length} selected Stories and ${[executionRelease, executionSprint, executionBuild].filter(Boolean).length} exact delivery keys are configured.`,
                     outcome: smartExecutionPreview ? `${smartExecutionPreview.cases.length} ranked cases are available for selection and editing.` : "The ranked case proposal will remain separate from the saved run.",
                     review: "Selected cases are only committed when Create AI Smart Run is accepted."
                   }}
@@ -12572,10 +12598,18 @@ export function ExecutionCreateModal({
                       />
                     </FormField>
 
-                    <FormField label="Impacted stories">
-                      <div className="execution-smart-requirements-panel">
+                    <FormField composite inputId="smart-run-impacted-story-filter" label="Impacted stories">
+                      <div aria-label="Impacted stories" className="execution-smart-requirements-panel" role="group">
                         <div className="execution-smart-requirement-toolbar">
                           <input
+                            aria-label="Filter impacted Stories"
+                            id="smart-run-impacted-story-filter"
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }
+                            }}
                             placeholder="Filter linked stories"
                             value={smartExecutionRequirementSearch}
                             onChange={(event) => onSmartExecutionRequirementSearchChange(event.target.value)}
@@ -12644,8 +12678,8 @@ export function ExecutionCreateModal({
                     </div>
 
                     <div className="detail-summary compact-summary">
-                      <strong>{smartExecutionPreview?.default_suite.name || "Default"} suite target</strong>
-                      <span>AI-selected cases are staged under the built-in Default suite so the run stays focused on impacted coverage instead of suite hierarchy.</span>
+                      <strong>{smartExecutionPreview?.default_suite.name || "Direct impacted scope"}</strong>
+                      <span>Recommended cases are staged as direct run scope; no existing suite membership is invented or changed.</span>
                     </div>
                   </section>
                 </div>
@@ -12670,8 +12704,8 @@ export function ExecutionCreateModal({
                     <span>
                       {smartExecutionPreview
                         ? isEngineSmartMode
-                          ? `${smartExecutionPreview.source_case_count} cases were screened. ${automatedSmartPreviewCount} automated cases can run through Test Engine; ${manualSmartPreviewCount} non-automated cases stay out of engine execution.`
-                          : `${smartExecutionPreview.source_case_count} existing cases were screened and ${smartExecutionPreview.matched_case_count} cases were suggested for this run.`
+                          ? `${smartExecutionPreview.evidence_summary?.scanned_case_count ?? 0} of ${smartExecutionPreview.source_case_count} cases were read within the recorded boundary. ${automatedSmartPreviewCount} automated cases can run through Test Engine; ${manualSmartPreviewCount} non-automated cases stay out of engine execution.`
+                          : `${smartExecutionPreview.evidence_summary?.scanned_case_count ?? 0} of ${smartExecutionPreview.source_case_count} existing cases were read and ${smartExecutionPreview.matched_case_count} evidence-linked cases were proposed.`
                         : selectedSmartRequirementIds.length
                           ? `AI will use the selected project, app type, delivery evidence, and ${selectedSmartRequirementIds.length} explicitly selected ${selectedSmartRequirementIds.length === 1 ? "Story" : "Stories"}.`
                           : "HelloTest queries the selected project and app type first, compresses only relevant evidence, then asks AI to review the bounded plan."}
@@ -12700,6 +12734,12 @@ export function ExecutionCreateModal({
                         <strong>{smartExecutionPreview.evidence_summary.scoped_requirement_count}</strong>
                         <small>linked coverage</small>
                       </div>
+                      <AiEvidenceButton
+                        className="execution-smart-evidence-open"
+                        count={smartExecutionPreview.evidence?.length || 0}
+                        label="Review sources"
+                        onClick={() => setSmartEvidenceView({ kind: "plan" })}
+                      />
                     </div>
                   ) : null}
 
@@ -12716,8 +12756,8 @@ export function ExecutionCreateModal({
                   ) : null}
 
                   {!integrations.length ? (
-                    <div className="inline-message error-message">
-                      No direct LLM integration is available for Smart Run generation. Rovo remains a separate Jira-native review conversation and is not used as the model call.
+                    <div className="inline-message warning-message">
+                      No direct LLM integration is configured. The evidence retrieval, deterministic risk ranking, and human-review flow remain available; model-refined explanations will be skipped.
                     </div>
                   ) : null}
 
@@ -12762,15 +12802,9 @@ export function ExecutionCreateModal({
                         ...(testCase.selection_basis || []),
                         ...(testCase.signals || [])
                       ])).slice(0, 6);
-                      const evidenceFacts = [
-                        testCase.evidence?.result_ids.length ? `${testCase.evidence.result_ids.length} result${testCase.evidence.result_ids.length === 1 ? "" : "s"}` : "",
-                        testCase.evidence?.bug_ids.length ? `${testCase.evidence.bug_ids.length} Bug${testCase.evidence.bug_ids.length === 1 ? "" : "s"}` : "",
-                        testCase.evidence?.requirement_ids.length ? `${testCase.evidence.requirement_ids.length} Stor${testCase.evidence.requirement_ids.length === 1 ? "y" : "ies"}` : "",
-                        testCase.evidence?.run_ids.length ? `${testCase.evidence.run_ids.length} run${testCase.evidence.run_ids.length === 1 ? "" : "s"}` : ""
-                      ].filter(Boolean);
 
                       return (
-                        <label
+                        <article
                           className={[
                             "execution-smart-impact-card",
                             isSelected ? "is-selected" : "",
@@ -12778,12 +12812,15 @@ export function ExecutionCreateModal({
                           ].filter(Boolean).join(" ")}
                           key={testCase.test_case_id}
                         >
-                          <input
-                            checked={isSelected}
-                            disabled={isDisabledForEngine}
-                            onChange={() => onToggleSmartExecutionCase(testCase.test_case_id)}
-                            type="checkbox"
-                          />
+                          <label className="execution-smart-impact-selector">
+                            <input
+                              checked={isSelected}
+                              disabled={isDisabledForEngine}
+                              onChange={() => onToggleSmartExecutionCase(testCase.test_case_id)}
+                              type="checkbox"
+                            />
+                            <span className="sr-only">Select {testCase.title}</span>
+                          </label>
                           <div className="execution-smart-impact-body">
                             <div className="execution-smart-impact-top">
                               <div className="execution-smart-impact-heading">
@@ -12823,6 +12860,11 @@ export function ExecutionCreateModal({
                                 >
                                   {isAutomatedSmartCase ? "Automated" : "Not automated"}
                                 </span>
+                                <AiEvidenceButton
+                                  count={testCase.evidence_refs?.length || 0}
+                                  label="Evidence"
+                                  onClick={() => setSmartEvidenceView({ kind: "case", caseId: testCase.test_case_id })}
+                                />
                               </div>
                             </div>
 
@@ -12831,13 +12873,10 @@ export function ExecutionCreateModal({
                               <p>{testCase.reason}</p>
                             </div>
 
-                            {explanationSignals.length || evidenceFacts.length ? (
-                              <div className="execution-smart-signal-row" aria-label="Ranking evidence">
+                            {explanationSignals.length ? (
+                              <div className="execution-smart-signal-row" aria-label="Deterministic selection basis">
                                 {explanationSignals.map((signal) => (
                                   <span className="execution-smart-signal-chip" key={signal}>{signal}</span>
-                                ))}
-                                {evidenceFacts.map((fact) => (
-                                  <span className="execution-smart-signal-chip is-evidence" key={fact}>{fact}</span>
                                 ))}
                               </div>
                             ) : null}
@@ -12852,7 +12891,7 @@ export function ExecutionCreateModal({
                               {testCase.module_names?.length ? <span>Modules: {testCase.module_names.join(" · ")}</span> : null}
                             </div>
                           </div>
-                        </label>
+                        </article>
                       );
                     })}
 
@@ -12860,52 +12899,10 @@ export function ExecutionCreateModal({
                       <div className="empty-state compact">No impacted cases were identified for the current release scope.</div>
                     ) : null}
                     {!smartExecutionPreview ? (
-                      <div className="empty-state compact">Generate a preview to review the impacted cases that will be staged under Default.</div>
+                      <div className="empty-state compact">Generate a preview to review the cases proposed for direct impacted scope.</div>
                     ) : null}
                   </div>
 
-                  {smartExecutionPreview ? (
-                    <section className="execution-smart-provenance" aria-label="Smart Run plan provenance">
-                      <div className="execution-smart-provenance-header">
-                        <div>
-                          <span className="execution-smart-provenance-eyebrow">Explainability</span>
-                          <strong>How this plan was assembled</strong>
-                        </div>
-                        <IconShieldCheck aria-hidden="true" size={19} stroke={1.8} />
-                      </div>
-                      <dl>
-                        <div>
-                          <dt>Model review</dt>
-                          <dd>
-                            {smartExecutionPreview.integration.name}
-                            {smartExecutionPreview.integration.model ? ` · ${smartExecutionPreview.integration.model}` : ""}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Generation</dt>
-                          <dd>{smartExecutionPreview.generation_mode === "deterministic" ? "Deterministic fallback" : "AI reviewed"}</dd>
-                        </div>
-                        <div>
-                          <dt>Context used</dt>
-                          <dd>{smartExecutionPreview.retrieved_context_count ?? 0} bounded records</dd>
-                        </div>
-                        <div>
-                          <dt>Candidate pool</dt>
-                          <dd>{smartExecutionPreview.evidence_summary?.candidate_case_count ?? smartExecutionPreview.source_case_count} cases</dd>
-                        </div>
-                      </dl>
-                      {smartExecutionPreview.query_strategy?.length ? (
-                        <div className="execution-smart-query-strategy">
-                          <span>Retrieval path</span>
-                          <div>
-                            {smartExecutionPreview.query_strategy.map((strategy) => (
-                              <span className="execution-smart-signal-chip" key={strategy}>{strategy}</span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </section>
-                  ) : null}
                 </div>
                 </div>
               </div>
@@ -12987,7 +12984,7 @@ export function ExecutionCreateModal({
             )}
 
               {isSmartMode ? (
-                <details className="execution-smart-hooks-disclosure" open={executionHookDraft.length ? true : undefined}>
+                <details className="execution-smart-hooks-disclosure" onToggle={(event) => setAreSmartHooksOpen(event.currentTarget.open)} open={areSmartHooksOpen}>
                   <summary>
                     <span>
                       <strong>Setup &amp; cleanup automation</strong>
@@ -13055,6 +13052,99 @@ export function ExecutionCreateModal({
             </div>
           </div>
         </form>
+        <AiEvidenceFlyout
+          description={activeSmartEvidenceCase
+            ? "Inspect the exact records permitted to support this Test Case recommendation."
+            : "Inspect the returned records, retrieval boundary, and provenance for this preview."}
+          eyebrow={activeSmartEvidenceCase ? "Smart Run · Case evidence" : "Smart Run · Plan evidence"}
+          facts={activeSmartEvidenceCase
+            ? [
+                { label: "Risk", value: `${Math.round(activeSmartEvidenceCase.risk_score || 0)} · ${executionImpactLevelLabel(activeSmartEvidenceCase.impact_level)}` },
+                { label: "Explanation", value: activeSmartEvidenceCase.reason_source === "model" ? "Model-refined with cited records" : "Deterministic from linked records" },
+                { label: "Evidence refs", value: activeSmartEvidenceCase.evidence_refs?.length || 0 },
+                { label: "Decision", value: "Human selection required" }
+              ]
+            : [
+                { label: "Generation", value: smartExecutionPreview?.generation_mode === "hybrid" ? "Deterministic rank · model-refined explanations" : "Deterministic evidence rank" },
+                { label: "Scan", value: `${smartExecutionPreview?.evidence_summary?.scanned_case_count || 0} of ${smartExecutionPreview?.source_case_count || 0} Test Cases` },
+                { label: "Returned", value: smartExecutionPreview?.matched_case_count || 0 },
+                { label: "Decision", value: "Human review required" }
+              ]}
+          onClose={() => setSmartEvidenceView(null)}
+          open={Boolean(smartEvidenceView && smartExecutionPreview)}
+          title={activeSmartEvidenceCase?.title || smartExecutionPreview?.execution_name || "Smart Run evidence"}
+        >
+          {smartExecutionPreview?.query_strategy?.length && !activeSmartEvidenceCase ? (
+            <section className="ai-evidence-flyout__section execution-smart-evidence-path">
+              <header><span>Retrieval path</span><strong>Queries that contributed to this preview</strong></header>
+              <div>
+                {smartExecutionPreview.query_strategy.map((strategy) => (
+                  <span className="execution-smart-signal-chip" key={strategy}>{strategy}</span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeSmartEvidenceCase?.selection_basis?.length ? (
+            <section className="ai-evidence-flyout__section execution-smart-evidence-basis">
+              <header><span>Selection basis</span><strong>Deterministic factors used for ranking</strong></header>
+              <ul>
+                {activeSmartEvidenceCase.selection_basis.map((basis) => <li key={basis}>{basis}</li>)}
+              </ul>
+            </section>
+          ) : null}
+
+          <section className="ai-evidence-flyout__section execution-smart-evidence-records">
+            <header>
+              <span>Source records</span>
+              <strong>{activeSmartEvidenceRecords.length} returned record{activeSmartEvidenceRecords.length === 1 ? "" : "s"}</strong>
+            </header>
+            {activeSmartEvidenceRecords.length ? (
+              <ul>
+                {activeSmartEvidenceRecords.map((record) => (
+                  <li key={record.ref}>
+                    <div>
+                      <span>{record.type.replace(/-/g, " ")}</span>
+                      <strong>{record.title}</strong>
+                    </div>
+                    <p>{record.summary || record.excerpt || "No additional source summary was returned."}</p>
+                    <small>
+                      {[record.id, record.status, record.observed_at ? new Date(record.observed_at).toLocaleString() : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                    <code>{record.ref}</code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ai-evidence-flyout__boundary">No returned source record is attached to this view.</p>
+            )}
+          </section>
+
+          {!activeSmartEvidenceCase && activeSmartEvidenceContext ? (
+            <section className="ai-evidence-flyout__section execution-smart-evidence-boundary">
+              <header><span>Retrieval boundary</span><strong>Included and omitted records</strong></header>
+              <dl>
+                {Object.keys(activeSmartEvidenceContext.totals).map((source) => (
+                  <div key={source}>
+                    <dt>{source.replace(/_/g, " ")}</dt>
+                    <dd>
+                      {activeSmartEvidenceContext.included[source] || 0} included
+                      {activeSmartEvidenceContext.omitted[source] ? ` · ${activeSmartEvidenceContext.omitted[source]} omitted by limit` : " · none omitted"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {smartExecutionPreview?.input_fingerprint ? <code>Fingerprint {smartExecutionPreview.input_fingerprint}</code> : null}
+              {smartExecutionPreview?.fallback_reason ? <p>{smartExecutionPreview.fallback_reason}</p> : null}
+            </section>
+          ) : null}
+          <p className="ai-evidence-flyout__boundary">
+            <IconShieldCheck aria-hidden="true" size={16} stroke={1.9} />
+            This preview does not create a run. Case selection and Create AI Smart Run remain explicit human actions.
+          </p>
+        </AiEvidenceFlyout>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { IconPhotoPlus } from "@tabler/icons-react";
 import { FileAddIcon, SparkIcon, TrashIcon, UploadIcon } from "./AppIcons";
 import { AiPromptTemplatePicker, type AiPromptScope } from "./AiPromptTemplatePicker";
@@ -10,6 +10,7 @@ import {
   mergeAiContextPack
 } from "../lib/aiDesignStudio";
 import type { AiDesignImageInput, Requirement } from "../types";
+import "./AiPromptContextPanel.css";
 
 const PROMPT_CONTEXT_COPY: Record<AiPromptScope, {
   smartContext: string;
@@ -76,11 +77,20 @@ export function AiPromptContextPanel({
   requirements?: Requirement[];
   showPromptEditor?: boolean;
 }) {
+  const tabIdPrefix = useId();
   const [contextFiles, setContextFiles] = useState<File[]>([]);
   const [isBuildingContext, setIsBuildingContext] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
   const [contextMessageTone, setContextMessageTone] = useState<"info" | "warning">("info");
+  const [activeContextTab, setActiveContextTab] = useState<"text" | "files" | "links" | "images">(showPromptEditor ? "text" : "files");
   const promptContextCopy = PROMPT_CONTEXT_COPY[promptScope];
+  const externalLinkCount = externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length;
+  const contextTabs = [
+    ...(showPromptEditor ? [{ id: "text" as const, label: "Text", count: additionalContext.trim() ? 1 : 0 }] : []),
+    { id: "files" as const, label: "Files", count: contextFiles.length },
+    { id: "links" as const, label: "Links", count: externalLinkCount },
+    { id: "images" as const, label: "Images", count: referenceImages.length }
+  ];
 
   useEffect(() => {
     onBusyChange?.(isBuildingContext);
@@ -126,7 +136,7 @@ export function AiPromptContextPanel({
   return (
     <section className="ai-studio-panel ai-prompt-context-panel">
       <div aria-label="Additional context" className="ai-prompt-context-head">
-        <span>{showPromptEditor ? "Prompt instructions" : "Prompt pattern"}</span>
+        <span>Context engine</span>
         <AiPromptTemplatePicker
           appTypeId={appTypeId}
           disabled={disabled}
@@ -136,94 +146,184 @@ export function AiPromptContextPanel({
         />
       </div>
 
-      <div className="ai-smart-context-card">
-        <div>
-          <strong>Smart context</strong>
-          <span>{promptContextCopy.smartContext}</span>
-        </div>
-        <div className="ai-smart-context-actions">
-          <label className="ghost-button compact ai-context-file-button">
-            <input
-              accept=".txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.feature,.log,text/*,application/json,application/xml"
-              disabled={disabled}
-              multiple
-              onChange={(event) => {
-                setContextFiles((current) => {
-                  const byIdentity = new Map(current.map((file) => [`${file.name}:${file.size}:${file.lastModified}`, file]));
-                  Array.from(event.target.files || []).forEach((file) => {
-                    byIdentity.set(`${file.name}:${file.size}:${file.lastModified}`, file);
-                  });
-                  return [...byIdentity.values()];
-                });
-                event.target.value = "";
-              }}
-              type="file"
-            />
-            <UploadIcon />
-            <span>{contextFiles.length ? `${contextFiles.length} file${contextFiles.length === 1 ? "" : "s"}` : "Add files"}</span>
-          </label>
+      <div aria-label="Context types" className="ai-prompt-context-tabs" role="tablist">
+        {contextTabs.map((tab) => (
           <button
-            className="primary-button compact ai-smart-context-button"
-            disabled={disabled || isBuildingContext}
-            onClick={() => void buildSmartContext()}
+            aria-controls={`${tabIdPrefix}-${tab.id}-panel`}
+            aria-selected={activeContextTab === tab.id}
+            className={activeContextTab === tab.id ? "is-active" : ""}
+            id={`${tabIdPrefix}-${tab.id}-tab`}
+            key={tab.id}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const currentIndex = contextTabs.findIndex((item) => item.id === tab.id);
+              const nextIndex = event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? contextTabs.length - 1
+                  : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + contextTabs.length) % contextTabs.length;
+              const nextTab = contextTabs[nextIndex];
+              setActiveContextTab(nextTab.id);
+              window.requestAnimationFrame(() => document.getElementById(`${tabIdPrefix}-${nextTab.id}-tab`)?.focus());
+            }}
+            onClick={() => setActiveContextTab(tab.id)}
+            role="tab"
+            tabIndex={activeContextTab === tab.id ? 0 : -1}
             type="button"
           >
-            <SparkIcon />
-            <span>{isBuildingContext ? "Packing..." : referenceUploadPresentation === "dropzone" ? "Context" : "Add smart context"}</span>
+            <span>{tab.label}</span>
+            {tab.count ? <em>{tab.count}</em> : null}
           </button>
-        </div>
-        {contextMessage ? <span className={contextMessageTone === "warning" ? "ai-smart-context-note is-warning" : "ai-smart-context-note"}>{contextMessage}</span> : null}
+        ))}
       </div>
 
-      {contextFiles.length ? (
-        <div className="ai-context-file-list" aria-label="Selected context files">
-          {contextFiles.map((file) => {
-            const fileIdentity = `${file.name}:${file.size}:${file.lastModified}`;
-            return (
-              <span className="ai-context-file-chip" key={fileIdentity} title={file.name}>
-                <FileAddIcon size={14} />
-                <span>{file.name}</span>
-                <button
-                  aria-label={`Remove ${file.name}`}
-                  disabled={disabled || isBuildingContext}
-                  onClick={() => setContextFiles((current) => current.filter((candidate) =>
-                    `${candidate.name}:${candidate.size}:${candidate.lastModified}` !== fileIdentity
-                  ))}
-                  type="button"
-                >
-                  <TrashIcon size={13} />
-                </button>
-              </span>
-            );
-          })}
+      {showPromptEditor ? (
+        <div
+          aria-labelledby={`${tabIdPrefix}-text-tab`}
+          className="ai-prompt-context-tab-panel"
+          hidden={activeContextTab !== "text"}
+          id={`${tabIdPrefix}-text-panel`}
+          role="tabpanel"
+        >
+          <FormField className="ai-prompt-copy-field" label="Additional instructions">
+            <textarea
+              disabled={disabled}
+              placeholder={promptContextCopy.promptPlaceholder}
+              rows={5}
+              value={additionalContext}
+              onChange={(event) => onAdditionalContextChange(event.target.value)}
+            />
+          </FormField>
         </div>
       ) : null}
 
-      {showPromptEditor ? (
-        <FormField className="ai-prompt-copy-field" label="Prompt copy">
+      <div
+        aria-labelledby={`${tabIdPrefix}-files-tab`}
+        className="ai-prompt-context-tab-panel"
+        hidden={activeContextTab !== "files"}
+        id={`${tabIdPrefix}-files-panel`}
+        role="tabpanel"
+      >
+        <div className="ai-smart-context-card">
+          <div>
+            <strong>Smart context pack</strong>
+            <span>{promptContextCopy.smartContext}</span>
+          </div>
+          <div className="ai-smart-context-actions">
+            <label className="ghost-button compact ai-context-file-button">
+              <input
+                accept=".txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.feature,.log,text/*,application/json,application/xml"
+                disabled={disabled}
+                multiple
+                onChange={(event) => {
+                  setContextFiles((current) => {
+                    const byIdentity = new Map(current.map((file) => [`${file.name}:${file.size}:${file.lastModified}`, file]));
+                    Array.from(event.target.files || []).forEach((file) => {
+                      byIdentity.set(`${file.name}:${file.size}:${file.lastModified}`, file);
+                    });
+                    return [...byIdentity.values()];
+                  });
+                  event.target.value = "";
+                }}
+                type="file"
+              />
+              <UploadIcon />
+              <span>{contextFiles.length ? `${contextFiles.length} file${contextFiles.length === 1 ? "" : "s"}` : "Add files"}</span>
+            </label>
+            <button
+              className="primary-button compact ai-smart-context-button"
+              disabled={disabled || isBuildingContext}
+              onClick={() => void buildSmartContext()}
+              type="button"
+            >
+              <SparkIcon />
+              <span>{isBuildingContext ? "Packing..." : "Build context"}</span>
+            </button>
+          </div>
+          {contextMessage ? <span className={contextMessageTone === "warning" ? "ai-smart-context-note is-warning" : "ai-smart-context-note"}>{contextMessage}</span> : null}
+        </div>
+
+        {contextFiles.length ? (
+          <div className="ai-context-file-list" aria-label="Selected context files">
+            {contextFiles.map((file) => {
+              const fileIdentity = `${file.name}:${file.size}:${file.lastModified}`;
+              return (
+                <span className="ai-context-file-chip" key={fileIdentity} title={file.name}>
+                  <FileAddIcon size={14} />
+                  <span>{file.name}</span>
+                  <button
+                    aria-label={`Remove ${file.name}`}
+                    disabled={disabled || isBuildingContext}
+                    onClick={() => setContextFiles((current) => current.filter((candidate) =>
+                      `${candidate.name}:${candidate.size}:${candidate.lastModified}` !== fileIdentity
+                    ))}
+                    type="button"
+                  >
+                    <TrashIcon size={13} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="ai-prompt-context-empty">Add only files that directly support this draft.</p>
+        )}
+      </div>
+
+      <div
+        aria-labelledby={`${tabIdPrefix}-links-tab`}
+        className="ai-prompt-context-tab-panel"
+        hidden={activeContextTab !== "links"}
+        id={`${tabIdPrefix}-links-panel`}
+        role="tabpanel"
+      >
+        <FormField
+          className="ai-external-links-field"
+          hint="URLs are passed as reference pointers; linked page content is not fetched."
+          hintVisible
+          label="External links"
+        >
           <textarea
             disabled={disabled}
-            placeholder={promptContextCopy.promptPlaceholder}
+            placeholder="One link per line"
             rows={5}
-            value={additionalContext}
-            onChange={(event) => onAdditionalContextChange(event.target.value)}
+            value={externalLinksText}
+            onChange={(event) => onExternalLinksTextChange(event.target.value)}
           />
         </FormField>
-      ) : null}
+      </div>
 
-      <FormField className="ai-external-links-field" label="External links">
-        <textarea
-          disabled={disabled}
-          placeholder="One link per line"
-          rows={3}
-          value={externalLinksText}
-          onChange={(event) => onExternalLinksTextChange(event.target.value)}
-        />
-      </FormField>
-
-      <FormField className="ai-reference-photos-field" label="Reference photos">
-        {referenceUploadPresentation === "dropzone" ? (
-          <label className="ai-reference-upload-zone">
+      <div
+        aria-labelledby={`${tabIdPrefix}-images-tab`}
+        className="ai-prompt-context-tab-panel"
+        hidden={activeContextTab !== "images"}
+        id={`${tabIdPrefix}-images-panel`}
+        role="tabpanel"
+      >
+        <FormField
+          className="ai-reference-photos-field"
+          hint="Images are analyzed only by supported models; an unsupported provider will show a fallback or error."
+          hintVisible
+          label="Reference images"
+        >
+          {referenceUploadPresentation === "dropzone" ? (
+            <label className="ai-reference-upload-zone">
+              <input
+                accept="image/*"
+                disabled={disabled}
+                multiple
+                onChange={(event) => {
+                  onAddImages(event.target.files);
+                  event.target.value = "";
+                }}
+                type="file"
+              />
+              <IconPhotoPlus aria-hidden="true" size={22} stroke={1.8} />
+              <span>{promptContextCopy.emptyImages}</span>
+              <strong>Choose images</strong>
+            </label>
+          ) : (
             <input
               accept="image/*"
               disabled={disabled}
@@ -234,37 +334,21 @@ export function AiPromptContextPanel({
               }}
               type="file"
             />
-            <IconPhotoPlus aria-hidden="true" size={24} stroke={1.8} />
-            <span>{promptContextCopy.emptyImages}</span>
-            <strong>Choose files</strong>
-          </label>
-        ) : (
-          <input
-            accept="image/*"
-            disabled={disabled}
-            multiple
-            onChange={(event) => {
-              onAddImages(event.target.files);
-              event.target.value = "";
-            }}
-            type="file"
-          />
-        )}
-      </FormField>
+          )}
+        </FormField>
 
-      {referenceImages.length ? (
-        <div className="ai-reference-image-list">
-          {referenceImages.map((image) => (
-            <article className="ai-reference-image-card" key={image.url}>
-              <div className="ai-reference-image-preview"><img alt={image.name || "Reference"} src={image.url} /></div>
-              <div className="ai-reference-image-copy"><strong>{image.name || "Reference image"}</strong></div>
-              <button className="ghost-button danger compact" disabled={disabled} onClick={() => onRemoveImage(image.url)} type="button">Remove</button>
-            </article>
-          ))}
-        </div>
-      ) : referenceUploadPresentation === "input" ? (
-        <div className="empty-state compact">{promptContextCopy.emptyImages}</div>
-      ) : null}
+        {referenceImages.length ? (
+          <div className="ai-reference-image-list">
+            {referenceImages.map((image) => (
+              <article className="ai-reference-image-card" key={image.url}>
+                <div className="ai-reference-image-preview"><img alt={image.name || "Reference"} src={image.url} /></div>
+                <div className="ai-reference-image-copy"><strong>{image.name || "Reference image"}</strong></div>
+                <button className="ghost-button danger compact" disabled={disabled} onClick={() => onRemoveImage(image.url)} type="button">Remove</button>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

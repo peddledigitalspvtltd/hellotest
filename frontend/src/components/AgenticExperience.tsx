@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   IconActivity,
   IconArrowRight,
@@ -8,6 +9,7 @@ import {
   IconCircle,
   IconClock,
   IconDatabase,
+  IconFileSearch,
   IconMessageCircle,
   IconPlayerPlay,
   IconPlus,
@@ -26,7 +28,119 @@ import type {
   AgenticAssistantResult,
   WorkspaceTransactionEvent
 } from "../types";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { DialogCloseButton } from "./DialogCloseButton";
 import "./AgenticExperience.css";
+
+export type AiEvidenceFact = {
+  label: string;
+  value: ReactNode;
+};
+
+export type AiEvidenceFlyoutProps = {
+  open: boolean;
+  onClose: () => void;
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  facts?: AiEvidenceFact[];
+  children?: ReactNode;
+  footer?: ReactNode;
+};
+
+/**
+ * Shared evidence surface for every AI experience. Evidence opens beside the
+ * work instead of expanding the layout and pushing the decision controls away.
+ */
+export function AiEvidenceFlyout({
+  open,
+  onClose,
+  eyebrow = "Decision evidence",
+  title,
+  description,
+  facts = [],
+  children,
+  footer
+}: AiEvidenceFlyoutProps) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useDialogFocus<HTMLElement>({ active: open, onClose });
+
+  if (!open) return null;
+
+  const flyout = (
+    <div
+      className="ai-evidence-flyout-backdrop"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
+      role="presentation"
+    >
+      <aside
+        aria-describedby={description ? descriptionId : undefined}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="ai-evidence-flyout"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className="ai-evidence-flyout__header">
+          <div>
+            <span><IconFileSearch aria-hidden="true" size={15} stroke={1.9} />{eyebrow}</span>
+            <h2 id={titleId}>{title}</h2>
+            {description ? <p id={descriptionId}>{description}</p> : null}
+          </div>
+          <DialogCloseButton label={`Close ${title}`} onClick={onClose} />
+        </header>
+        <div aria-label={`${title} details`} className="ai-evidence-flyout__body" role="region" tabIndex={0}>
+          {facts.length ? (
+            <dl aria-label="Evidence summary" className="ai-evidence-flyout__facts">
+              {facts.map((fact) => (
+                <div key={fact.label}>
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {children}
+        </div>
+        {footer ? <footer className="ai-evidence-flyout__footer">{footer}</footer> : null}
+      </aside>
+    </div>
+  );
+
+  return typeof document !== "undefined" ? createPortal(flyout, document.body) : flyout;
+}
+
+export function AiEvidenceButton({
+  label = "Inspect evidence",
+  count,
+  onClick,
+  className = ""
+}: {
+  label?: string;
+  count?: number;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      aria-haspopup="dialog"
+      className={["ai-evidence-button", className].filter(Boolean).join(" ")}
+      onClick={onClick}
+      type="button"
+    >
+      <IconDatabase aria-hidden="true" size={15} stroke={1.9} />
+      <span>{label}</span>
+      {typeof count === "number" ? <strong>{count}</strong> : null}
+      <IconArrowRight aria-hidden="true" size={14} stroke={1.9} />
+    </button>
+  );
+}
 
 export type HelloTestAgent = {
   id: string;
@@ -280,7 +394,7 @@ export function AgenticCommandComposer({
 export type AiFeatureComposerProps = {
   agentName: string;
   mode: AgenticAssistantMode;
-  onModeChange: (mode: AgenticAssistantMode) => void;
+  onModeChange?: (mode: AgenticAssistantMode) => void;
   prompt: string;
   onPromptChange: (prompt: string) => void;
   onSubmit: () => void;
@@ -296,6 +410,12 @@ export type AiFeatureComposerProps = {
   allowEmptyPrompt?: boolean;
   submitLabel?: string;
   briefItems?: AiFeatureBriefItem[];
+  briefCollapsible?: boolean;
+  density?: "comfortable" | "compact";
+  embedded?: boolean;
+  showIdentity?: boolean;
+  showModeSwitcher?: boolean;
+  showProviderSelector?: boolean;
 };
 
 export type AiFeatureBriefItem = {
@@ -314,11 +434,13 @@ const featureBriefIcon = (kind: AiFeatureBriefItem["kind"]) => {
   return <IconTargetArrow aria-hidden="true" size={15} stroke={1.9} />;
 };
 
-export function AiRunBrief({ items, className = "" }: { items: AiFeatureBriefItem[]; className?: string }) {
+export function AiRunBrief({ items, className = "", collapsible = false }: { items: AiFeatureBriefItem[]; className?: string; collapsible?: boolean }) {
   if (!items.length) return null;
-  return (
-    <div aria-label="Agent run brief" className={className ? `ai-feature-composer__brief ${className}` : "ai-feature-composer__brief"}>
+  const readyCount = items.filter((item) => item.state === "ready").length;
+  const itemGrid = (
+    <div aria-label="Agent run brief" className="ai-feature-composer__brief-grid" role="group">
       {items.map((item) => {
+        const itemState = item.state || "neutral";
         const content = (
           <>
             <span className="ai-feature-composer__brief-icon">{featureBriefIcon(item.kind)}</span>
@@ -326,21 +448,37 @@ export function AiRunBrief({ items, className = "" }: { items: AiFeatureBriefIte
               <small>{item.label}</small>
               <strong title={item.value}>{item.value}</strong>
             </span>
-            <span aria-hidden="true" className="ai-feature-composer__brief-state" />
+            <span aria-label={`${item.label}: ${itemState}`} className="ai-feature-composer__brief-state" role="img" title={itemState === "ready" ? "Ready" : itemState === "attention" ? "Needs attention" : "Not started"}>
+              {itemState === "ready" ? <IconCheck aria-hidden="true" size={12} stroke={2.2} /> : itemState === "attention" ? <IconClock aria-hidden="true" size={12} stroke={2} /> : <IconCircle aria-hidden="true" size={9} stroke={2} />}
+            </span>
           </>
         );
         return item.onClick ? (
-          <button className="ai-feature-composer__brief-item" data-state={item.state || "neutral"} key={item.id} onClick={item.onClick} type="button">
+          <button className="ai-feature-composer__brief-item" data-state={itemState} key={item.id} onClick={item.onClick} type="button">
             {content}
           </button>
         ) : (
-          <div className="ai-feature-composer__brief-item" data-state={item.state || "neutral"} key={item.id}>
+          <div className="ai-feature-composer__brief-item" data-state={itemState} key={item.id}>
             {content}
           </div>
         );
       })}
     </div>
   );
+  const baseClassName = className ? `ai-feature-composer__brief ${className}` : "ai-feature-composer__brief";
+  if (collapsible) {
+    return (
+      <details className={`${baseClassName} is-collapsible`}>
+        <summary>
+          <span><IconShieldCheck aria-hidden="true" size={14} stroke={1.9} />Run setup</span>
+          <em>{readyCount}/{items.length} ready</em>
+          <IconChevronDown aria-hidden="true" size={14} stroke={1.9} />
+        </summary>
+        {itemGrid}
+      </details>
+    );
+  }
+  return <div aria-label="Agent run brief" className={baseClassName}>{itemGrid}</div>;
 }
 
 export function AiFeatureComposer({
@@ -361,7 +499,13 @@ export function AiFeatureComposer({
   submitDisabled = false,
   allowEmptyPrompt = false,
   submitLabel,
-  briefItems = []
+  briefItems = [],
+  briefCollapsible = false,
+  density = "comfortable",
+  embedded = false,
+  showIdentity = true,
+  showModeSwitcher = true,
+  showProviderSelector = true
 }: AiFeatureComposerProps) {
   const canSubmit = allowEmptyPrompt || Boolean(prompt.trim());
   const effectiveSubmitLabel = submitLabel || (mode === "chat" ? "Ask" : "Delegate");
@@ -370,16 +514,18 @@ export function AiFeatureComposer({
     if (!disabled && !submitDisabled && !running && canSubmit) onSubmit();
   };
 
-  return (
-    <form className="ai-feature-composer" onSubmit={submit}>
-      <div className="ai-feature-composer__identity">
-        <span><IconBrain aria-hidden="true" size={17} stroke={1.9} /></span>
-        <div>
-          <strong>{agentName}</strong>
-          <small>{mode === "chat" ? "Explore and refine together" : "Delegate a bounded task for review"}</small>
+  const content = (
+    <>
+      {showIdentity ? (
+        <div className="ai-feature-composer__identity">
+          <span><IconBrain aria-hidden="true" size={17} stroke={1.9} /></span>
+          <div>
+            <strong>{agentName}</strong>
+            <small>{mode === "chat" ? "Explore and refine together" : "Draft for human review"}</small>
+          </div>
+          <em><IconShieldCheck aria-hidden="true" size={14} stroke={1.9} />Governed</em>
         </div>
-        <em><IconShieldCheck aria-hidden="true" size={14} stroke={1.9} />Governed</em>
-      </div>
+      ) : null}
       <textarea
         aria-label={`Instructions for ${agentName}`}
         disabled={disabled || running}
@@ -394,17 +540,19 @@ export function AiFeatureComposer({
         rows={3}
         value={prompt}
       />
-      <AiRunBrief items={briefItems} />
+      <AiRunBrief collapsible={briefCollapsible} items={briefItems} />
       <div className="ai-feature-composer__footer">
         <div className="ai-feature-composer__controls">
-          <div aria-label="AI interaction mode" className="agent-command-mode" role="group">
-            <button aria-pressed={mode === "chat"} disabled={disabled || running} onClick={() => onModeChange("chat")} type="button">
-              <IconMessageCircle size={15} stroke={1.9} />Chat
-            </button>
-            <button aria-pressed={mode === "agent"} disabled={disabled || running} onClick={() => onModeChange("agent")} type="button">
-              <IconRobot size={15} stroke={1.9} />Agent
-            </button>
-          </div>
+          {showModeSwitcher && onModeChange ? (
+            <div aria-label="AI interaction mode" className="agent-command-mode" role="group">
+              <button aria-pressed={mode === "chat"} disabled={disabled || running} onClick={() => onModeChange("chat")} type="button">
+                <IconMessageCircle size={15} stroke={1.9} />Chat
+              </button>
+              <button aria-pressed={mode === "agent"} disabled={disabled || running} onClick={() => onModeChange("agent")} type="button">
+                <IconRobot size={15} stroke={1.9} />Agent
+              </button>
+            </div>
+          ) : null}
           <button className="ai-feature-composer__context" disabled={!onContextClick || disabled || running} onClick={onContextClick} type="button">
             <IconDatabase aria-hidden="true" size={15} stroke={1.9} />
             <span>{contextLabel}</span>
@@ -412,27 +560,40 @@ export function AiFeatureComposer({
           <span className="ai-feature-composer__shortcut">⌘ Enter</span>
         </div>
         <div className="ai-feature-composer__submit">
-          {onIntegrationChange ? (
-            <label className="agent-command-provider">
-              <span className="sr-only">AI provider</span>
-              <select disabled={disabled || running} onChange={(event) => onIntegrationChange(event.target.value)} value={integrationId}>
-                <option value="">Auto model</option>
-                {integrations.map((integration) => (
-                  <option key={integration.id} value={integration.id}>{integration.name}{integration.model ? ` · ${integration.model}` : ""}</option>
-                ))}
-              </select>
-              <IconChevronDown size={14} stroke={1.9} />
-            </label>
-          ) : <span className="agent-command-auto"><IconRobot size={14} stroke={1.9} />Auto</span>}
-          <span className="agent-command-divider" aria-hidden="true" />
-          <button aria-label={running ? `${agentName} is working` : effectiveSubmitLabel} className="ai-feature-composer__send" disabled={disabled || submitDisabled || running || !canSubmit} type="submit">
+          {showProviderSelector ? (
+            onIntegrationChange ? (
+              <label className="agent-command-provider">
+                <span className="sr-only">AI provider</span>
+                <select disabled={disabled || running} onChange={(event) => onIntegrationChange(event.target.value)} value={integrationId}>
+                  <option value="">Auto model</option>
+                  {integrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>{integration.name}{integration.model ? ` · ${integration.model}` : ""}</option>
+                  ))}
+                </select>
+                <IconChevronDown size={14} stroke={1.9} />
+              </label>
+            ) : <span className="agent-command-auto"><IconRobot size={14} stroke={1.9} />Auto</span>
+          ) : null}
+          {showProviderSelector ? <span className="agent-command-divider" aria-hidden="true" /> : null}
+          <button
+            aria-label={running ? `${agentName} is working` : effectiveSubmitLabel}
+            className="ai-feature-composer__send"
+            disabled={disabled || submitDisabled || running || !canSubmit}
+            onClick={embedded ? () => onSubmit() : undefined}
+            type={embedded ? "button" : "submit"}
+          >
             {running ? <IconActivity className="agent-command-spin" size={18} stroke={1.9} /> : <IconSend size={18} stroke={1.9} />}
-            <span>{running ? "Working" : effectiveSubmitLabel}</span>
+            <span aria-live="polite">{running ? "Working" : effectiveSubmitLabel}</span>
           </button>
         </div>
       </div>
-    </form>
+    </>
   );
+
+  const className = density === "compact" ? "ai-feature-composer is-compact" : "ai-feature-composer";
+  return embedded
+    ? <div aria-busy={running} className={className}>{content}</div>
+    : <form aria-busy={running} className={className} onSubmit={submit}>{content}</form>;
 }
 
 type AgentCatalogProps = {
@@ -469,52 +630,264 @@ const PROCESS_STAGES = [
 
 export type AgenticProcessStageId = typeof PROCESS_STAGES[number]["id"];
 
-export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Agent", compact = false, stageEvidence = {}, activeStageId }: {
+export type AgenticFeatureProfileId =
+  | "default"
+  | "story-create"
+  | "story-complete"
+  | "bug-create"
+  | "smart-run"
+  | "bug-triage";
+
+export type AgenticProcessingStage = {
+  id: AgenticProcessStageId;
+  status: "queued" | "running" | "complete" | "failed" | "current";
+  detail?: string;
+  evidence?: string;
+  item_count?: number;
+  duration_ms?: number;
+};
+
+export type AgenticProcessingSnapshot = {
+  active_stage_id?: AgenticProcessStageId;
+  completed_stage_count?: number;
+  total_stage_count?: number;
+  status_label?: string;
+  progress_mode?: "determinate" | "indeterminate";
+  stages?: AgenticProcessingStage[];
+};
+
+const FOCUSED_PROCESS_STAGES: Array<{
+  id: AgenticProcessStageId;
+  label: string;
+  detail: string;
+  evidence: string;
+  evidenceKeys: AgenticProcessStageId[];
+}> = [
+  { id: "intake", label: "Brief", detail: "Goal configured", evidence: "The requested outcome and constraints define this run.", evidenceKeys: ["intake"] },
+  { id: "context", label: "Context", detail: "Sources and safeguards", evidence: "Selected evidence and safeguards stay bounded to this draft.", evidenceKeys: ["context", "guardrails"] },
+  { id: "specialist", label: "Generate", detail: "Draft and evaluate", evidence: "The specialist prepares and evaluates an editable proposal.", evidenceKeys: ["specialist", "outcome", "evaluation"] },
+  { id: "review", label: "Review", detail: "Human decision", evidence: "A person reviews and explicitly accepts or discards the proposal.", evidenceKeys: ["review"] }
+];
+
+const FEATURE_PROCESS_PROFILES: Record<AgenticFeatureProfileId, {
+  heading: string;
+  stages: Partial<Record<AgenticProcessStageId, { label: string; detail: string }>>;
+}> = {
+  default: { heading: "Generation flow", stages: {} },
+  "story-create": {
+    heading: "Story creation",
+    stages: {
+      intake: { label: "Story brief", detail: "Outcome and boundaries" },
+      context: { label: "Grounding", detail: "Project evidence bounded" },
+      specialist: { label: "Compose", detail: "Story and acceptance draft" },
+      review: { label: "Review", detail: "Edit before creation" }
+    }
+  },
+  "story-complete": {
+    heading: "Story completion",
+    stages: {
+      intake: { label: "Existing Story", detail: "Saved content preserved" },
+      context: { label: "Gap scan", detail: "Missing detail identified" },
+      specialist: { label: "Complete", detail: "Bounded improvements drafted" },
+      review: { label: "Apply", detail: "Human-owned update" }
+    }
+  },
+  "bug-create": {
+    heading: "Bug creation",
+    stages: {
+      intake: { label: "Incident brief", detail: "Observed problem captured" },
+      context: { label: "Evidence", detail: "Runs and records verified" },
+      specialist: { label: "Draft Bug", detail: "Reproduction and impact" },
+      review: { label: "Create", detail: "Human-owned submission" }
+    }
+  },
+  "smart-run": {
+    heading: "Smart Run planning",
+    stages: {
+      intake: { label: "Delivery scope", detail: "Change boundary configured" },
+      context: { label: "Impact graph", detail: "Linked evidence retrieved" },
+      specialist: { label: "Rank coverage", detail: "Risk-based cases selected" },
+      review: { label: "Create run", detail: "Selection stays editable" }
+    }
+  },
+  "bug-triage": {
+    heading: "Bug triage",
+    stages: {
+      intake: { label: "Bug set", detail: "Review scope bounded" },
+      context: { label: "Signals", detail: "Impact evidence assessed" },
+      specialist: { label: "Recommend", detail: "Priority and actions drafted" },
+      review: { label: "Acknowledge", detail: "Human decision required" }
+    }
+  }
+};
+
+export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Agent", compact = false, orientation = "horizontal", presentation = "detailed", profile = "default", stageEvidence = {}, activeStageId, processing }: {
   status?: AgenticProcessStatus;
   agentName?: string;
   compact?: boolean;
+  orientation?: "horizontal" | "vertical";
+  presentation?: "detailed" | "focused";
+  profile?: AgenticFeatureProfileId;
   stageEvidence?: Partial<Record<AgenticProcessStageId, string>>;
   activeStageId?: AgenticProcessStageId;
+  processing?: AgenticProcessingSnapshot;
 }) {
+  const profileDefinition = FEATURE_PROCESS_PROFILES[profile];
+  const baseDisplayStages: Array<{
+    id: AgenticProcessStageId;
+    label: string;
+    detail: string;
+    evidence: string;
+    evidenceKeys: AgenticProcessStageId[];
+  }> = presentation === "focused"
+    ? FOCUSED_PROCESS_STAGES
+    : PROCESS_STAGES.map((stage) => ({ ...stage, evidenceKeys: [stage.id] }));
+  const displayStages = baseDisplayStages.map((stage) => ({
+    ...stage,
+    ...(profileDefinition.stages[stage.id] || {})
+  }));
+  const stageForId = (stageId: AgenticProcessStageId) => displayStages.find((stage) => stage.evidenceKeys.includes(stageId)) || displayStages[0];
   const [selectedStageId, setSelectedStageId] = useState<AgenticProcessStageId>(status === "completed" ? "review" : "intake");
+  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
 
   useEffect(() => {
-    setSelectedStageId(activeStageId || (status === "completed" ? "review" : status === "running" || status === "failed" ? "specialist" : "intake"));
-  }, [activeStageId, status]);
+    const nextStageId = processing?.active_stage_id || activeStageId || (status === "completed" ? "review" : status === "failed" ? "specialist" : "intake");
+    setSelectedStageId(stageForId(nextStageId).id);
+  }, [activeStageId, presentation, processing?.active_stage_id, profile, status]);
 
-  const requestedActiveIndex = activeStageId ? PROCESS_STAGES.findIndex((stage) => stage.id === activeStageId) : -1;
+  const effectiveActiveStageId = processing?.active_stage_id || activeStageId;
+  const requestedActiveIndex = effectiveActiveStageId ? displayStages.findIndex((stage) => stage.evidenceKeys.includes(effectiveActiveStageId)) : -1;
   const activeIndex = requestedActiveIndex >= 0
     ? requestedActiveIndex
-    : status === "idle" ? 0 : status === "running" || status === "failed" ? 3 : PROCESS_STAGES.length - 1;
-  const selectedStage = PROCESS_STAGES.find((stage) => stage.id === selectedStageId) || PROCESS_STAGES[0];
+    : status === "idle" || status === "running" ? 0 : status === "failed" ? presentation === "focused" ? 2 : 3 : displayStages.length - 1;
+  const selectedStage = displayStages.find((stage) => stage.id === selectedStageId) || displayStages[0];
+  const computedStages = displayStages.map((stage, index) => {
+    const snapshots = processing?.stages?.filter((item) => stage.evidenceKeys.includes(item.id)) || [];
+    const snapshot = snapshots.find((item) => item.status === "failed")
+      || snapshots.find((item) => item.status === "running")
+      || snapshots.find((item) => item.status === "current")
+      || snapshots[snapshots.length - 1];
+    const fallbackStatus = status === "failed" && index === activeIndex
+      ? "failed"
+      : index < activeIndex
+        ? "complete"
+        : index === activeIndex
+          ? status === "running" ? "running" : "current"
+          : status === "completed" ? "complete" : "queued";
+    const groupedStatus = snapshots.some((item) => item.status === "failed")
+      ? "failed"
+      : snapshots.some((item) => item.status === "running")
+        ? "running"
+        : snapshots.some((item) => item.status === "current")
+          ? "current"
+          : snapshots.length && snapshots.every((item) => item.status === "complete")
+            ? "complete"
+            : snapshot?.status;
+    const evidenceText = stage.evidenceKeys
+      .map((stageId) => processing?.stages?.find((item) => item.id === stageId)?.evidence || stageEvidence[stageId])
+      .filter(Boolean)
+      .join(" ") || stage.evidence;
+    const itemCount = snapshots.reduce((total, item) => total + (item.item_count || 0), 0);
+    const durationMs = snapshots.reduce((total, item) => total + (item.duration_ms || 0), 0);
+    return { ...stage, stageStatus: groupedStatus || fallbackStatus, snapshot, evidenceText, itemCount, durationMs };
+  });
+  const selectedComputedStage = computedStages.find((stage) => stage.id === selectedStage.id) || computedStages[0];
+  const selectedSnapshot = selectedComputedStage?.snapshot;
+  const selectedEvidence = selectedComputedStage?.evidenceText || selectedStage.evidence;
+  const isIndeterminate = status === "running" && (processing?.progress_mode === "indeterminate" || !processing);
+  const useDisplayedStageCounts = presentation === "focused";
+  const completeCount = isIndeterminate ? 0 : useDisplayedStageCounts
+    ? computedStages.filter((stage) => stage.stageStatus === "complete").length
+    : processing?.completed_stage_count ?? computedStages.filter((stage) => stage.stageStatus === "complete").length;
+  const totalCount = useDisplayedStageCounts ? computedStages.length : processing?.total_stage_count ?? computedStages.length;
+  const progressValue = totalCount ? Math.round((completeCount / totalCount) * 100) : 0;
+  const className = [
+    "agent-process-rail",
+    compact ? "is-compact" : "",
+    orientation === "vertical" ? "is-vertical" : "",
+    presentation === "focused" ? "is-focused" : ""
+  ].filter(Boolean).join(" ");
   return (
-    <section aria-label={`${agentName} process`} className={compact ? "agent-process-rail is-compact" : "agent-process-rail"} data-status={status}>
+    <section aria-busy={status === "running"} aria-label={`${agentName} process`} className={className} data-status={status}>
       <div className="agent-process-rail__head">
-        <span><IconActivity size={16} stroke={1.9} /><strong>{agentName}</strong></span>
-        <em>{status === "running" ? "Working now" : status === "completed" ? "Ready for review" : status === "failed" ? "Needs attention" : "Agent run plan"}</em>
+        <span><IconActivity size={16} stroke={1.9} /><strong>{orientation === "vertical" ? profileDefinition.heading : agentName}</strong></span>
+        <em>{orientation === "vertical" ? `${agentName} · ` : ""}{processing?.status_label || (status === "running" ? "Request in progress" : status === "completed" ? "Ready for review" : status === "failed" ? "Needs attention" : "Run plan")}</em>
+      </div>
+      <div
+        aria-label={isIndeterminate ? "Backend processing is in progress; phase completion has not been reported yet" : `${completeCount} of ${totalCount} workflow phases complete`}
+        className={isIndeterminate ? "agent-process-rail__progress is-indeterminate" : "agent-process-rail__progress"}
+        role="progressbar"
+        aria-valuemax={isIndeterminate ? undefined : totalCount}
+        aria-valuemin={isIndeterminate ? undefined : 0}
+        aria-valuenow={isIndeterminate ? undefined : completeCount}
+      >
+        <span><b style={isIndeterminate ? undefined : { width: `${progressValue}%` }} /></span>
+        <em>{isIndeterminate ? "Processing request" : `${completeCount}/${totalCount} complete`}</em>
       </div>
       <div className="agent-process-rail__stages">
-        {PROCESS_STAGES.map((stage, index) => {
-          const stageStatus = status === "failed" && index === activeIndex
-            ? "failed"
-            : index < activeIndex || status === "completed"
-              ? "complete"
-              : index === activeIndex
-                ? status === "running" ? "running" : "current"
-                : "queued";
+        {computedStages.map((stage, index) => {
+          const stageStatus = isIndeterminate ? "queued" : stage.stageStatus;
           return (
-            <button aria-pressed={selectedStageId === stage.id} className="agent-process-stage" data-stage-status={stageStatus} key={stage.id} onClick={() => setSelectedStageId(stage.id)} type="button">
+            <button
+              aria-current={!isIndeterminate && index === activeIndex ? "step" : undefined}
+              aria-haspopup="dialog"
+              aria-label={`${stage.label}, ${stageStatus}`}
+              aria-pressed={selectedStageId === stage.id}
+              className="agent-process-stage"
+              data-stage-status={stageStatus}
+              key={stage.id}
+              onClick={() => {
+                setSelectedStageId(stage.id);
+                setIsEvidenceOpen(true);
+              }}
+              type="button"
+            >
               <span>{stageStatus === "complete" ? <IconCheck size={14} stroke={2.2} /> : stageStatus === "running" ? <IconActivity size={14} stroke={2} /> : <IconCircle size={11} stroke={2} />}</span>
               <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
             </button>
           );
         })}
       </div>
-      <div className="agent-process-rail__trace" role="status">
-        <span>{selectedStage.label}</span>
-        <p>{stageEvidence[selectedStage.id] || selectedStage.evidence}</p>
-        <em>Decision summary only · hidden model reasoning is never exposed</em>
+      <div aria-live="polite" className="agent-process-rail__trace" role="status">
+        <span>{isIndeterminate ? "Processing request" : selectedStage.label}</span>
+        <p>{isIndeterminate ? "The request is active. Phase completion will appear only after the backend reports it." : selectedSnapshot?.detail || selectedStage.detail}</p>
+        <AiEvidenceButton label="Inspect evidence" onClick={() => setIsEvidenceOpen(true)} />
       </div>
+      <AiEvidenceButton className="agent-process-rail__all-evidence" label="View full run evidence" onClick={() => setIsEvidenceOpen(true)} />
+      <AiEvidenceFlyout
+        description={selectedEvidence}
+        eyebrow={`${profileDefinition.heading} · ${agentName}`}
+        facts={[
+          { label: "Phase", value: isIndeterminate ? "Backend processing" : selectedStage.label },
+          { label: "State", value: isIndeterminate ? "in progress" : selectedSnapshot?.status || computedStages.find((stage) => stage.id === selectedStage.id)?.stageStatus || "queued" },
+          { label: "Progress", value: isIndeterminate ? "Awaiting observed phase updates" : `${completeCount} of ${totalCount} phases complete` }
+        ]}
+        onClose={() => setIsEvidenceOpen(false)}
+        open={isEvidenceOpen}
+        title={`${selectedStage.label} evidence`}
+      >
+        <section className="ai-evidence-flyout__section">
+          <header><span>Run trace</span><strong>What each phase used and produced</strong></header>
+          <ol className="ai-evidence-flyout__timeline">
+            {computedStages.map((stage) => (
+              <li data-status={isIndeterminate ? "queued" : stage.stageStatus} key={stage.id}>
+                <span>{!isIndeterminate && stage.stageStatus === "complete" ? <IconCheck aria-hidden="true" size={13} stroke={2.2} /> : <IconCircle aria-hidden="true" size={10} stroke={2} />}</span>
+                <div>
+                  <strong>{stage.label}</strong>
+                  <p>{stage.evidenceText}</p>
+                  {stage.itemCount > 0 || stage.durationMs > 0 ? (
+                    <small>{[
+                      stage.itemCount > 0 ? `${stage.itemCount} item${stage.itemCount === 1 ? "" : "s"}` : null,
+                      stage.durationMs > 0 ? `${stage.durationMs} ms` : null
+                    ].filter(Boolean).join(" · ")}</small>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+        <p className="ai-evidence-flyout__boundary"><IconShieldCheck aria-hidden="true" size={16} stroke={1.9} />This shows decision evidence and recorded processing metadata, never hidden model reasoning.</p>
+      </AiEvidenceFlyout>
     </section>
   );
 }
@@ -539,34 +912,26 @@ const runningTrace = [
 ];
 
 export function AgentActivityTimeline({ events = [], running = false, activeAgentName = "HelloTest Agent" }: { events?: WorkspaceTransactionEvent[]; running?: boolean; activeAgentName?: string }) {
-  const [animatedIndex, setAnimatedIndex] = useState(0);
+  const [evidenceEventId, setEvidenceEventId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!running) {
-      setAnimatedIndex(events.length ? runningTrace.length : 0);
-      return;
-    }
-    setAnimatedIndex(0);
-    const timer = window.setInterval(() => setAnimatedIndex((current) => Math.min(runningTrace.length - 1, current + 1)), 900);
-    return () => window.clearInterval(timer);
-  }, [events.length, running]);
-
-  const items = events.length ? events.map((event) => ({
+  const items = events.length ? events.map((event, index) => ({
     id: event.id,
     phase: event.phase || "activity",
     message: event.message,
     level: event.level,
     details: event.details,
     createdAt: event.created_at,
-    status: event.level === "error" ? "failed" : "complete"
+    status: event.level === "error" ? "failed" : running && index === events.length - 1 ? "running" : "complete"
   })) : runningTrace.map((event, index) => ({
     id: `${event.phase}-${index}`,
     ...event,
     level: "info",
     details: {},
     createdAt: undefined,
-    status: index < animatedIndex ? "complete" : index === animatedIndex && running ? "running" : "queued"
+    status: index === 0 && running ? "running" : "queued"
   }));
+  const evidenceEvent = items.find((item) => item.id === evidenceEventId);
+  const evidenceDetails = evidenceEvent ? toDetailsList(evidenceEvent.details) : [];
 
   return (
     <section className="agent-activity-timeline">
@@ -584,13 +949,34 @@ export function AgentActivityTimeline({ events = [], running = false, activeAgen
                 <header><strong>{phaseLabels[item.phase] || item.phase.replace(/_/g, " ")}</strong>{item.createdAt ? <time>{formatActivityTime(item.createdAt)}</time> : null}</header>
                 <p>{item.message}</p>
                 {details.length ? (
-                  <details><summary>Inspect activity evidence</summary><dl>{details.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{value}</dd></div>)}</dl></details>
+                  <AiEvidenceButton label="Inspect activity evidence" onClick={() => setEvidenceEventId(item.id)} />
                 ) : null}
               </div>
             </article>
           );
         })}
       </div>
+      <AiEvidenceFlyout
+        description={evidenceEvent?.message}
+        eyebrow={`${activeAgentName} · Recorded activity`}
+        facts={evidenceEvent ? [
+          { label: "Phase", value: phaseLabels[evidenceEvent.phase] || evidenceEvent.phase.replace(/_/g, " ") },
+          { label: "State", value: evidenceEvent.status },
+          { label: "Recorded", value: evidenceEvent.createdAt ? formatActivityTime(evidenceEvent.createdAt) : "Current session" }
+        ] : []}
+        onClose={() => setEvidenceEventId(null)}
+        open={Boolean(evidenceEvent)}
+        title="Activity evidence"
+      >
+        <section className="ai-evidence-flyout__section">
+          <header><span>Recorded metadata</span><strong>Inputs and outputs disclosed by this event</strong></header>
+          {evidenceDetails.length ? (
+            <dl className="ai-evidence-flyout__record-list">
+              {evidenceDetails.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{value}</dd></div>)}
+            </dl>
+          ) : <p className="ai-evidence-flyout__empty">No additional event metadata was recorded.</p>}
+        </section>
+      </AiEvidenceFlyout>
     </section>
   );
 }
@@ -618,6 +1004,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const [draftRecommendations, setDraftRecommendations] = useState(result.recommendations);
   const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(result.recommendations.map((_, index) => index));
   const [accepted, setAccepted] = useState(false);
+  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
 
   useEffect(() => {
     setDraftResponse(result.response);
@@ -663,8 +1050,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       <div className="agent-outcome-evidence">
         <span><IconDatabase size={16} stroke={1.9} /><strong>{citations.length}</strong> cited references</span>
         <span><IconShieldCheck size={16} stroke={1.9} /><strong>{guardrails.length}</strong> guardrails</span>
-        <span><IconBrain size={16} stroke={1.9} />{provenance?.provider || "HelloTest evidence engine"}{provenance?.model ? ` · ${provenance.model}` : ""}</span>
-        <span><IconUserCheck size={16} stroke={1.9} />Human decision</span>
+        <AiEvidenceButton label="View outcome evidence" onClick={() => setIsEvidenceOpen(true)} />
       </div>
       <footer className="agent-outcome-review-actions">
         <span>{accepted ? "Proposal accepted for this session." : "Nothing is applied until you accept the edited selection."}</span>
@@ -680,6 +1066,39 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           setAccepted(true);
         }} type="button">Accept agent output</button>
       </footer>
+      <AiEvidenceFlyout
+        description="Review the sources, guardrails, provider, and approval boundary behind this editable outcome."
+        eyebrow="Agent outcome · Evidence"
+        facts={[
+          { label: "References", value: citations.length },
+          { label: "Guardrails", value: guardrails.length },
+          { label: "Decision", value: provenance?.requires_human_review === false ? "Automated" : "Human owned" }
+        ]}
+        onClose={() => setIsEvidenceOpen(false)}
+        open={isEvidenceOpen}
+        title="Outcome evidence"
+      >
+        <section className="ai-evidence-flyout__section">
+          <header><span>Sources</span><strong>Citations used for this outcome</strong></header>
+          {citations.length ? (
+            <ul className="ai-evidence-flyout__source-list">
+              {citations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{citation.scope}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
+            </ul>
+          ) : <p className="ai-evidence-flyout__empty">No citation was returned. Treat the outcome as ungrounded until a source is added.</p>}
+        </section>
+        <section className="ai-evidence-flyout__section">
+          <header><span>Guardrails</span><strong>Boundaries applied to the run</strong></header>
+          {guardrails.length ? <ul className="ai-evidence-flyout__bullet-list">{guardrails.map((guardrail) => <li key={guardrail}>{guardrail}</li>)}</ul> : <p className="ai-evidence-flyout__empty">No guardrail detail was returned.</p>}
+        </section>
+        <section className="ai-evidence-flyout__section">
+          <header><span>Provenance</span><strong>Generation route</strong></header>
+          <dl className="ai-evidence-flyout__record-list">
+            <div><dt>Provider</dt><dd>{provenance?.provider || "HelloTest evidence engine"}</dd></div>
+            <div><dt>Model</dt><dd>{provenance?.model || "Deterministic"}</dd></div>
+            <div><dt>Mode</dt><dd>{provenance?.generation_mode || "Evidence assisted"}</dd></div>
+          </dl>
+        </section>
+      </AiEvidenceFlyout>
     </section>
   );
 }

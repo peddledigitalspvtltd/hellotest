@@ -11,6 +11,8 @@ import type {
   AiCaseAuthoringPreviewResponse,
   AiDesignImageInput,
   AiDesignPreviewResponse,
+  AiEvidenceSource,
+  AiProcessingSnapshot,
   AiPromptTemplate,
   AiRequirementDescriptionRephraseResponse,
   AiRichTextRephraseResponse,
@@ -106,6 +108,12 @@ const API_BASE_URL =
   || import.meta.env.VITE_API_BASE_URL
   || "/api";
 
+export type AiStoryEvidenceSource = AiEvidenceSource & {
+  label?: string;
+  citation_allowed?: boolean;
+  limitation?: string | null;
+};
+
 type AiRequirementCreationSuggestion = {
   client_id: string;
   title: string;
@@ -118,7 +126,12 @@ type AiRequirementCreationSuggestion = {
   open_questions: string[];
   change_summary: string[];
   quality_score: number;
+  evaluation?: { score: number; grounding: string; completeness: string; testability: string };
   rationale: string;
+  evidence_refs?: string[];
+  field_evidence?: Record<string, string[]>;
+  unsupported_fields?: string[];
+  limitations?: string[];
   gherkin_scenarios?: string[];
 };
 
@@ -144,11 +157,21 @@ const normalizeEntityScope = (value: QairaEntityScope | string): QairaEntityScop
 type AiRequirementCreationPreviewResponse = {
   requirement: null;
   integration: { id: string; name: string; type: string; model?: string | null } | null;
-  suggestion: AiRequirementCreationSuggestion & { client_id?: string };
+  suggestion: (AiRequirementCreationSuggestion & { client_id?: string }) | null;
   requirements: AiRequirementCreationSuggestion[];
   generated: number;
   fallback_used: boolean;
   fallback_reason?: string | null;
+  request_id?: string;
+  input_fingerprint?: string;
+  evidence?: AiStoryEvidenceSource[];
+  limitations?: string[];
+  processing?: AiProcessingSnapshot;
+  review_status?: "awaiting_review" | "accepted" | "discarded" | string;
+  generation_mode?: "llm" | "deterministic" | "hybrid" | string;
+  requires_human_review?: boolean;
+  preview_only?: boolean;
+  provenance?: Record<string, unknown>;
   status?: string;
 };
 
@@ -1000,7 +1023,7 @@ export const api = {
       request<{ id: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
-    previewGrooming: (id: string, input: { project_id: string }) =>
+    previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string }) =>
       request<StoryGroomingPreviewResponse>(`/requirements/${id}/ai-groom-preview`, {
         method: "POST",
         body: JSON.stringify(input)
@@ -1049,7 +1072,7 @@ export const api = {
         body: JSON.stringify(input)
       }),
     previewGherkin: (input: { project_id: string; integration_id?: string; model?: string; requirements: Array<{ client_id?: string; title: string; description: string; acceptance_criteria?: string[] }> }) =>
-      request<{ requirements: Array<{ client_id: string; gherkin_scenarios: string[] }>; fallback_used: boolean; fallback_reason?: string | null; validation?: { story_count: number; scenario_count: number; repaired_story_count: number; exact_story_draft_used: boolean } }>("/requirements/ai-gherkin-preview", {
+      request<{ requirements: Array<{ client_id: string; gherkin_scenarios: string[] }>; fallback_used: boolean; fallback_reason?: string | null; validation?: { story_count: number; scenario_count: number; repaired_story_count: number; skipped_story_count?: number; exact_story_draft_used: boolean } }>("/requirements/ai-gherkin-preview", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1087,9 +1110,24 @@ export const api = {
           open_questions: string[];
           change_summary: string[];
           gherkin_scenarios?: string[];
+          evidence_refs?: string[];
+          field_evidence?: Record<string, string[]>;
+          unsupported_fields?: string[];
+          no_changes_proposed?: boolean;
         };
+        evidence?: AiStoryEvidenceSource[];
+        limitations?: string[];
+        evaluation?: { score: number; grounding: string; completeness: string; testability: string };
+        processing?: AiProcessingSnapshot;
+        review_status?: "awaiting_review" | "accepted" | "discarded" | string;
+        generation_mode?: "llm" | "deterministic" | "hybrid" | string;
         fallback_used: boolean;
         fallback_reason?: string | null;
+        request_id?: string;
+        input_fingerprint?: string;
+        requires_human_review?: boolean;
+        preview_only?: boolean;
+        provenance?: Record<string, unknown>;
       }>(`/requirements/${id}/ai-optimize-preview`, {
         method: "POST",
         body: JSON.stringify(input || {})
@@ -1178,16 +1216,17 @@ export const api = {
       additional_context?: string;
       evidence?: string;
       external_links?: string[];
-      reference_photos?: Array<{ name?: string | null }>;
+      reference_photos?: AiDesignImageInput[];
       linked_test_run_id?: string;
       linked_test_case_ids?: string[];
       linked_requirement_ids?: string[];
-      model?: string;
+      integration_id?: string;
+      prompt_guidance?: string;
     }) => request<import("../types").AiBugDraftPreview>("/feedback/ai-draft-preview", {
       method: "POST",
       body: JSON.stringify(input)
     }),
-    previewAiTriage: (input: { project_id: string; issue_ids: string[] }) =>
+    previewAiTriage: (input: { project_id: string; issue_ids: string[]; integration_id?: string; prompt_guidance?: string }) =>
       request<import("../types").AiBugTriagePreview>("/feedback/ai-triage-preview", {
         method: "POST",
         body: JSON.stringify(input)
@@ -1785,10 +1824,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; build?: string; scope_description?: string; additional_context?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; scope_source?: "smart-run"; default_suite?: { id: string; name: string }; smart_plan?: Record<string, unknown>; created_by: string }) =>
-      request<{ id: string }>("/executions", { method: "POST", body: JSON.stringify(input) }),
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
+      request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) }),
     createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: { assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; expected_revision?: number }) =>

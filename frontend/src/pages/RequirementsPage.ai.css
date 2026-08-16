@@ -108,7 +108,7 @@
 
 .story-studio-rovo-provider > div span,
 .story-studio-rovo-provider > div small {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .story-studio-settings-pane .form-field {
@@ -118,9 +118,9 @@
 
 .story-studio-settings-pane .form-field-label {
   color: #475569 !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
-  line-height: 14px !important;
+  line-height: 16px !important;
 }
 
 .story-studio-settings-pane :is(select, textarea, input[type="text"], input[type="url"]) {
@@ -150,7 +150,7 @@
 
 .story-studio-settings-pane .ai-prompt-context-panel {
   display: grid !important;
-  gap: 16px !important;
+  gap: 10px !important;
   padding: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -191,8 +191,8 @@
 
 .story-studio-settings-pane .ai-smart-context-card {
   display: grid !important;
-  gap: 12px !important;
-  padding: 16px !important;
+  gap: 10px !important;
+  padding: 12px !important;
   border: 1px solid #cbd5e1 !important;
   border-radius: 8px !important;
   background: #f1f5f9 !important;
@@ -235,7 +235,7 @@
   margin: 0 !important;
   padding: 8px 10px !important;
   border-radius: 6px !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
   line-height: 14px !important;
 }
@@ -277,12 +277,12 @@
 .story-studio-settings-pane .ai-reference-upload-zone {
   position: relative;
   display: flex;
-  min-height: 156px;
+  min-height: 116px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   gap: 8px;
-  padding: 20px;
+  padding: 14px 12px;
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   background: #ffffff;
@@ -312,7 +312,7 @@
   border-radius: 6px;
   background: #e2e8f0;
   color: #0f172a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 14px;
 }
@@ -340,7 +340,7 @@
   background: transparent !important;
   color: #334155 !important;
   box-shadow: none !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
 }
 
 .story-studio-command-bar__secondary {
@@ -513,9 +513,9 @@
 .story-ai-dialog .ai-smart-context-card > div:first-child > span,
 .story-ai-dialog .ai-smart-context-card > .ai-smart-context-note {
   color: var(--dialog-muted) !important;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 15px;
+  line-height: 17px;
 }
 
 .story-ai-dialog .ai-smart-context-card > .ai-smart-context-note.is-warning {

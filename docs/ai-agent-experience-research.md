@@ -4,7 +4,7 @@
 
 HelloTest should not present AI as a collection of unrelated generation buttons. The product now uses one shared interaction contract across Story design, Test Case design, automation, Smart Runs, failure analysis, Bug reporting, Bug triage, repository curation, and quality evaluation:
 
-1. The user chooses **Chat** for a focused review or **Agent** for a multi-step delegated task.
+1. Where those modes have distinct behavior, the user chooses **Chat** for a focused review or **Agent** for a multi-step delegated task. Focused artifact studios show only the supported delegated flow.
 2. The user can see and constrain the workspace context.
 3. HelloTest names the specialist responsible for the task.
 4. The interface exposes an activity trace without exposing private chain-of-thought.
@@ -88,7 +88,7 @@ The trace intentionally does not expose hidden chain-of-thought. It shows observ
 
 The second design pass applies one visible interaction contract to every AI surface:
 
-1. **Compose:** a compact GitHub-style command box exposes Chat or Agent, the named specialist, real context summary, provider selection where supported, and one send action.
+1. **Compose:** a compact command box exposes the named specialist, real context summary, provider selection where supported, and one send action. Chat or Agent appears only where the modes execute distinct behavior.
 2. **Trace:** Intent, Context, Guardrails, Specialist, Output, Evaluation, and Review are clickable stages. Each stage shows an observable decision summary; private model reasoning is never exposed.
 3. **Propose:** generated content remains separate from the saved artifact. Current and proposed versions stay comparable wherever both exist.
 4. **Edit and select:** Story/Test drafts, recommendations, Bug fields, Smart Run cases, run summaries, locator changes, and inline rephrases can be edited or selected before acceptance.
@@ -102,13 +102,27 @@ AI Story Creation is the reference interaction because it has the widest authori
 
 | Product question | Story Creation inputs | UI treatment |
 | --- | --- | --- |
-| What outcome is wanted? | User outcome, persona, business rules, acceptance boundaries, examples, exclusions, risks, and delivery constraints | One primary mission composer. Chat explores; Agent delegates a bounded draft task. Prompt templates update this same mission instead of creating a second prompt field. |
+| What outcome is wanted? | User outcome, persona, business rules, acceptance boundaries, examples, exclusions, risks, and delivery constraints | One primary mission composer delegates a bounded draft task. Prompt templates update this same mission instead of creating a second prompt field; exploratory Chat remains in the Agent Workbench until it has distinct Story behavior. |
 | What may the agent use? | Current Story for completion, project knowledge, safe text files, external links, screenshots, app type, and Jira delivery scope | A collapsible evidence pane plus a compact evidence summary in the run brief. The user can inspect or change context without losing the draft workspace. |
 | What should be returned? | Draft count, title, description, acceptance criteria, priority/properties, optional Gherkin, rationale, risks, and open questions | An explicit output contract in the composer, a selectable draft queue, and an editable inspector. |
 | Which controls govern the run? | Chat/Agent mode, provider/model, Jira permissions, required fields, untrusted-context handling, and acceptance policy | Controls remain visible near the composer; the seven-stage contract exposes decision summaries without pretending to reveal private reasoning. |
 | What can change saved data? | Selected drafts for creation or selected fields for completion | Generated data stays separate. A named acceptance action is the only path into the Story library or existing Story. |
 
 The reference layout uses progressive disclosure: the mission and run brief remain primary; evidence and advanced provider controls can collapse; the draft queue and editable proposal remain visible together. This same information architecture now shapes Test Case generation/improvement, Bug drafting, Smart Runs, run analysis, and automation planning with feature-specific evidence and acceptance language.
+
+## 2026 compact, draft-first design decisions
+
+The implemented Story, Test, Bug, and insight surfaces use one compact review workspace:
+
+- **Three clear responsibilities:** a collapsible evidence pane, flexible mission and draft workspace, and slim vertical generation-flow rail. Desktop preserves all three; narrower layouts compress and then stack them. This follows Carbon guidance to preserve source context during medium-complexity creation and editing, and to disclose detail only when useful. [Carbon create flows](https://carbondesignsystem.com/community/patterns/create-flows/), [Carbon edit pattern](https://carbondesignsystem.com/community/patterns/edit-pattern/), [Carbon for AI](https://carbondesignsystem.com/guidelines/carbon-for-ai/).
+
+- **Draft before mutation:** Generate and Regenerate produce editable proposals. Accepting a proposal, creating the final artifact, applying changes, or merely acknowledging a read-only review remain distinct actions. This implements Microsoft's recommendation to require review, editing, and human approval before consequential AI actions. [Azure Responsible AI guidance](https://learn.microsoft.com/en-us/azure/ai-foundry/responsible-ai/openai/overview), [Microsoft agent guidance](https://learn.microsoft.com/en-us/agents/center-of-excellence/responsible-ai).
+
+- **Evidence grounding instead of model confidence:** Bug drafts now present an explicit linked-reference count rather than an opaque percentage or an uncalibrated quality label. The explanation says the count does not measure source relevance or model certainty. This avoids the documented risk that confidence displays and citations can inflate trust without improving verification. [Microsoft Appropriate Reliance report](https://www.microsoft.com/en-us/research/wp-content/uploads/2025/03/Appropriate-Reliance-Lessons-Learned-Published-2025-3-3.pdf), [Google PAIR Explainability and Trust](https://pair.withgoogle.com/guidebook-v2/chapter/explainability-trust/).
+
+- **Observable progress, not hidden reasoning:** the seven-stage vertical rail exposes status, bounded evidence, guardrails, output, evaluation, and review summaries while keeping private chain-of-thought private. Progress stays beside the draft so users do not lose context. [Microsoft HAX guidelines](https://www.microsoft.com/en-us/haxtoolkit/ai-guidelines/), [Fluent Wait UX](https://fluent2.microsoft.design/wait-ux).
+
+- **Accessible state communication:** composers expose busy state, progress and trace changes use polite live regions, and readiness states combine icons, labels, and color. Responsive layouts preserve keyboard-readable document order when panes stack. [WCAG 2.2](https://www.w3.org/TR/WCAG22/), [WAI ARIA25 status-message technique](https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA25).
 
 ## Next product increments
 

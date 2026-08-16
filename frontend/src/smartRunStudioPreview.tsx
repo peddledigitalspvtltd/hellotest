@@ -105,7 +105,7 @@ const scopeSuites: TestSuite[] = [{
 const preview: SmartExecutionPreviewResponse = {
   integration: { id: "provider-1", name: "Governed QA model", type: "llm", model: "qaira-risk-review-v2" },
   app_type: { id: "app-1", name: "Web Project" },
-  default_suite: { id: "suite-default", name: "Default" },
+  default_suite: { id: "direct-impact", name: "Direct impacted scope" },
   delivery_scope: { release: "2026.08", sprint: "Identity Sprint 18", build: "sha-88219" },
   source_case_count: 38,
   matched_case_count: 3,
@@ -124,7 +124,42 @@ const preview: SmartExecutionPreviewResponse = {
   retrieved_context_count: 26,
   execution_name: "Identity Sprint 18 · risk-focused regression",
   summary: "Prioritizes password recovery regressions with recent failures, open Bugs, and release-linked Story evidence.",
-  generation_mode: "llm",
+  request_id: "smart-run-preview-identity-18",
+  acceptance_token: "preview-only.acceptance-proof",
+  input_fingerprint: "7c189ac4c1405141f5812551559ee207bf2e93d810a056483fc126efa6496586",
+  generated_at: "2026-08-15T09:30:00.000Z",
+  generation_mode: "hybrid",
+  requires_human_review: true,
+  processing: {
+    active_stage_id: "review",
+    completed_stage_count: 3,
+    total_stage_count: 4,
+    status_label: "Awaiting human review",
+    stages: [
+      { id: "intake", status: "complete", detail: "Delivery scope captured", evidence: "Release, Sprint, Build, and two selected Stories were supplied.", item_count: 5 },
+      { id: "context", status: "complete", detail: "Project evidence retrieved", evidence: "38 Test Cases, 7 matching runs, 3 scoped Bugs, and 4 scoped Stories were read.", item_count: 52 },
+      { id: "specialist", status: "complete", detail: "Risk ranking completed", evidence: "Three evidence-linked recommendations were ranked deterministically.", item_count: 3 },
+      { id: "review", status: "current", detail: "Human decision required", evidence: "No run has been created. Three proposed cases await selection.", item_count: 3 }
+    ]
+  },
+  context: {
+    limits: { test_cases: 500, requirements: 300, execution_results: 500, bugs: 300, ranked_candidates: 30 },
+    totals: { test_cases: 38, requirements: 16, execution_results: 81, bugs: 12, ranked_candidates: 3 },
+    included: { test_cases: 38, requirements: 16, execution_results: 81, bugs: 12, ranked_candidates: 3, evidence_records: 8 },
+    omitted: { test_cases: 0, requirements: 0, execution_results: 0, bugs: 0, ranked_candidates: 0 },
+    partial_sources: []
+  },
+  evidence: [
+    { ref: "scope:release", type: "planning-input", id: "release", title: "Release", summary: "2026.08", status: "provided" },
+    { ref: "scope:sprint", type: "planning-input", id: "sprint", title: "Sprint", summary: "Identity Sprint 18", status: "provided" },
+    { ref: "scope:build", type: "planning-input", id: "build", title: "Build", summary: "sha-88219", status: "provided" },
+    { ref: "requirement:story-142", type: "story", id: "STORY-142", title: "Customers can securely recover a forgotten password", summary: "2026.08 · Identity Sprint 18", status: "in progress" },
+    { ref: "result:result-1", type: "execution-result", id: "result-1", title: "Complete password recovery with a valid token", summary: "failed in Identity regression 17", status: "failed", observed_at: "2026-08-14T08:20:00.000Z" },
+    { ref: "bug:bug-1", type: "bug", id: "BUG-281", title: "Recovery token remains valid after use", summary: "critical · 2026.08 · sha-88219", status: "open", observed_at: "2026-08-14T09:10:00.000Z" },
+    { ref: "test-case:case-1", type: "test-case", id: "TC-101", title: "Complete password recovery with a valid token", summary: "5 steps · automated", status: "active" },
+    { ref: "test-case:case-2", type: "test-case", id: "TC-102", title: "Reject expired and replayed recovery tokens", summary: "4 steps · automated", status: "active" },
+    { ref: "test-case:case-3", type: "test-case", id: "TC-103", title: "Verify neutral response for unknown accounts", summary: "3 steps · manual", status: "active" }
+  ],
   cases: [
     {
       test_case_id: "case-1",
@@ -137,12 +172,14 @@ const preview: SmartExecutionPreviewResponse = {
       requirement_titles: ["Customers can securely recover a forgotten password"],
       step_count: 5,
       reason: "Recent failed evidence and an open release blocker affect the core recovery journey.",
+      reason_source: "model",
       signals: ["recent failure", "release blocker"],
       selection_basis: ["Sprint match"],
       risk_score: 94,
       impact_level: "critical",
       failure_count: 2,
       bug_count: 1,
+      evidence_refs: ["test-case:case-1", "requirement:story-142", "result:result-1", "bug:bug-1", "scope:release", "scope:sprint", "scope:build"],
       evidence: { result_ids: ["result-1", "result-2"], bug_ids: ["bug-1"], requirement_ids: ["story-142"], run_ids: ["run-1"] }
     },
     {
@@ -156,11 +193,13 @@ const preview: SmartExecutionPreviewResponse = {
       requirement_titles: ["Customers can securely recover a forgotten password"],
       step_count: 4,
       reason: "Token handling changed in the selected build and maps to the impacted Story.",
+      reason_source: "deterministic",
       signals: ["changed code", "security boundary"],
       selection_basis: ["Build match"],
       risk_score: 82,
       impact_level: "high",
       blocked_count: 1,
+      evidence_refs: ["test-case:case-2", "requirement:story-142", "scope:build"],
       evidence: { result_ids: ["result-3"], bug_ids: [], requirement_ids: ["story-142"], run_ids: ["run-2"] }
     },
     {
@@ -174,10 +213,12 @@ const preview: SmartExecutionPreviewResponse = {
       requirement_titles: ["Customers can securely recover a forgotten password"],
       step_count: 3,
       reason: "This is adjacent Story-linked coverage with customer privacy impact.",
+      reason_source: "deterministic",
       signals: ["Story link", "privacy"],
       selection_basis: ["Requirement expansion"],
       risk_score: 67,
       impact_level: "medium",
+      evidence_refs: ["test-case:case-3", "requirement:story-142"],
       evidence: { result_ids: [], bug_ids: [], requirement_ids: ["story-142"], run_ids: [] }
     }
   ]

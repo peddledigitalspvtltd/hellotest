@@ -24,11 +24,22 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/:id/ai-groom-preview", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: false, type: "string", maxLength: 255 },
+      integration_id: { required: false, type: "string", maxLength: 255 },
+      prompt_guidance: { required: false, type: "string", maxLength: 4000 }
+    }, req.body || {});
     const requirement = await service.getRequirement(req.params.id);
     const project = await projectService.getProject(requirement.project_id, req.user.id);
     if (req.body?.project_id && req.body.project_id !== project.id) throw Object.assign(new Error("Story does not belong to the selected project"), { statusCode: 403 });
     await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
-    return requirementWorkspaceService.previewGrooming({ requirement, project });
+    return requirementWorkspaceService.previewGrooming({
+      requirement,
+      project,
+      userId: req.user.id,
+      integrationId: req.body?.integration_id,
+      promptGuidance: req.body?.prompt_guidance
+    });
   });
 
   fastify.post("/requirements/ai-description-rephrase", async (req) => {
@@ -52,7 +63,7 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/ai-gherkin-preview", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string" }, requirements: { required: true, type: "array" } }, req.body || {});
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, requirements: { required: true, type: "array", maxItems: 20 } }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
     return requirementWorkspaceService.previewGherkin(req.body);
@@ -60,7 +71,16 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/ai-create-jobs", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string" } }, req.body || {});
+    fastify.validate({
+      project_id: { required: true, type: "string", maxLength: 255 },
+      integration_id: { required: false, type: "string", maxLength: 255 },
+      additional_context: { required: false, type: "string", maxLength: 20000 },
+      external_links: { required: false, type: "array", items: "string", maxItems: 20 },
+      images: { required: false, type: "array", maxItems: 4 },
+      max_requirements: { required: false, type: "number" },
+      priority: { required: false, type: "number" },
+      status: { required: false, type: "string", maxLength: 100 }
+    }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
     return requirementWorkspaceService.createGenerationJob({ input: req.body, userId: req.user.id });
@@ -68,13 +88,17 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirements/ai-create-jobs/:jobId", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 } }, req.query || {});
     const project = await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
     return requirementWorkspaceService.getGenerationJob(req.params.jobId, project.id);
   });
 
   fastify.get("/requirements/ai-create-jobs", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, status: { required: false, type: "string", enum: ["queued", "running", "completed", "failed"] }, limit: { required: false, type: "string", maxLength: 3 } }, req.query || {});
     const project = await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
     return requirementWorkspaceService.listGenerationJobs(project.id, req.query.status, req.query.limit);
   });
 
@@ -85,6 +109,9 @@ module.exports = async function (fastify) {
       project_id: { required: true, type: "string" },
       title: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      gherkin_scenarios: { required: false, type: "array", items: "string", maxItems: 20 },
+      additional_fields: { required: false, type: "object" },
+      ai_review: { required: false, type: "object" },
       external_references: { required: false, type: "array", items: "string" },
       labels: { required: false, type: "array", items: "string" },
       sprint: { required: false, type: "string" },
@@ -92,7 +119,7 @@ module.exports = async function (fastify) {
       release: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
       priority: { required: false, type: "number" },
-      status: { required: false, type: "string" }
+      status: { required: false, type: "string", maxLength: 100 }
     }, req.body);
 
     // Verify user is member of project
@@ -179,16 +206,17 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       project_id: { required: true, type: "string" },
-      integration_id: { required: false, type: "string" },
+      integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 20000 },
-      external_links: { required: false, type: "array", items: "string" },
-      images: { required: false, type: "array" },
+      external_links: { required: false, type: "array", items: "string", maxItems: 20 },
+      images: { required: false, type: "array", maxItems: 4 },
       max_requirements: { required: false, type: "number" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" }
     }, req.body || {});
 
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
 
     return service.previewRequirementCreation({
       ...req.body,
@@ -233,6 +261,9 @@ module.exports = async function (fastify) {
       project_id: { required: false, type: "string" },
       title: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      gherkin_scenarios: { required: false, type: "array", items: "string", maxItems: 20 },
+      additional_fields: { required: false, type: "object" },
+      ai_review: { required: false, type: "object" },
       external_references: { required: false, type: "array", items: "string" },
       labels: { required: false, type: "array", items: "string" },
       sprint: { required: false, type: "string" },
@@ -258,18 +289,23 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
-      integration_id: { required: false, type: "string" },
-      additional_context: { required: false, type: "string" }
+      integration_id: { required: false, type: "string", maxLength: 255 },
+      additional_context: { required: false, type: "string", maxLength: 20000 },
+      external_links: { required: false, type: "array", items: "string", maxItems: 20 },
+      images: { required: false, type: "array", maxItems: 6 }
     }, req.body || {});
 
     const requirement = await service.getRequirement(req.params.id);
     await projectService.getProject(requirement.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: requirement.project_id })(req);
 
     return service.previewRequirementOptimization({
       id: req.params.id,
       integration_id: req.body?.integration_id,
       user_id: req.user.id,
-      additional_context: req.body?.additional_context
+      additional_context: req.body?.additional_context,
+      external_links: req.body?.external_links,
+      images: req.body?.images
     });
   });
 

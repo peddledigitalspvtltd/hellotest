@@ -3,6 +3,7 @@ export type AiPromptRegistryItem = {
   label: string;
   value: string;
   surface: string;
+  maxLength?: number;
 };
 
 export const AI_PROMPT_OVERRIDES_KEY = "ai_prompt_registry_overrides";
@@ -92,7 +93,8 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.requirement.grooming",
     label: "Story grooming",
     surface: "Story details AI Grooming",
-    value: "Explain the selected Story for a cross-functional grooming session using a plain-language analogy, business context and roles, user flow and use cases, technical behavior, dependencies, risks, assumptions, open questions, and source-linked evidence. Never invent facts absent from the Story, comments, attachments, or related Jira work."
+    maxLength: 4_000,
+    value: "Produce a decision-ready, end-to-end feature walkthrough from only the selected Story and bounded Jira evidence. Start with a plain-language purpose and why the feature is needed; then walk through actors, trigger, ordered user journey, and evidenced alternate paths. Explain business impact, stakeholders, value outcomes, and measurable success. Keep solution design (behaviors, rules, boundaries, dependencies) distinct from implementation (components, data, integrations, and quality requirements). Cover validation with acceptance criteria, test scenarios, and linked coverage. Finish with what remains: gaps, questions, decisions, actions, risks, and an evidence-based Definition of Ready status. Every asserted fact must cite a supplied source; label inferences for confirmation, return empty content when a topic is unsupported, never repeat the Story description as filler, never invent controls, architecture, components, or delivery scope, and keep each section concise, distinct, and ordered by review importance."
   },
   {
     key: "ai.requirement.gherkin",
@@ -531,7 +533,9 @@ export function resolveAiPromptRegistryValue(key: string, overrides?: AiPromptOv
   const override = overrides?.[key]?.trim();
   const registryItem = AI_PROMPT_REGISTRY.find((item) => item.key === key);
 
-  return override || registryItem?.value || "";
+  return override && (!registryItem?.maxLength || override.length <= registryItem.maxLength)
+    ? override
+    : registryItem?.value || "";
 }
 
 export function resolveAiMetricCriteriaValue(key: string, overrides?: AiMetricCriteriaOverrides) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconChecklist, IconDatabase, IconSettings, IconX } from "@tabler/icons-react";
+import { IconDatabase, IconSettings, IconX } from "@tabler/icons-react";
 import type { AiAuthoredTestCasePreview, AiDesignImageInput, Integration, Requirement, TestStep } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { normalizeStepParameterValues } from "../lib/stepParameters";
@@ -7,7 +7,7 @@ import { AiPromptContextPanel } from "./AiPromptContextPanel";
 import { FormField } from "./FormField";
 import { RovoProviderStatus } from "./RovoProviderStatus";
 import { StoryAiDraftQueue, type StoryAiStudioDraft } from "./StoryAiStudioContent";
-import { StoryAiStudioShell } from "./StoryAiStudioShell";
+import { StoryAiSettingsGroup, StoryAiStudioShell } from "./StoryAiStudioShell";
 import {
   TestCaseAiStudioDraftInspector,
   type TestCaseAiStudioDraft,
@@ -236,9 +236,12 @@ export function AiCaseAuthoringModal({
 
   const settingsPane = (
     <div className="test-case-studio-settings">
-      <section>
-        <div className="test-case-studio-settings__heading"><IconSettings aria-hidden="true" size={19} stroke={1.9} /><h2>Model Settings</h2></div>
-        <p>Use the current case, its linked Story, and a governed provider.</p>
+      <StoryAiSettingsGroup
+        defaultOpen={!selectedRequirement}
+        description={selectedRequirement ? "1 linked Story · governed provider" : "Choose a linked Story"}
+        icon={<IconSettings aria-hidden="true" size={17} stroke={1.9} />}
+        title="Improvement setup"
+      >
         <FormField label="Story">
           <select data-autofocus="true" disabled={isBusy} onChange={(event) => onRequirementChange(event.target.value)} value={requirementId}>
             <option value="">Select a Story</option>
@@ -261,11 +264,13 @@ export function AiCaseAuthoringModal({
           ].join(" ").slice(0, 3_800)}
         />
         <div className="test-case-studio-scope-note"><strong>{sourceCaseLabel}</strong><span>{selectedRequirement ? `Linked to ${selectedRequirement.title}` : "Choose the Jira Story this Test Case must satisfy."}</span></div>
-      </section>
-      <hr />
-      <section>
-        <div className="test-case-studio-settings__heading"><IconDatabase aria-hidden="true" size={19} stroke={1.9} /><h2>Data Sources</h2></div>
-        <p>Add bounded instructions, project knowledge, links, and visual evidence.</p>
+      </StoryAiSettingsGroup>
+      <StoryAiSettingsGroup
+        defaultOpen={Boolean(selectedRequirement)}
+        description={`${referenceImages.length} image${referenceImages.length === 1 ? "" : "s"} · ${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`}
+        icon={<IconDatabase aria-hidden="true" size={17} stroke={1.9} />}
+        title="Context sources"
+      >
         <AiPromptContextPanel
           additionalContext={additionalContext}
           appTypeId={promptTemplateAppTypeId}
@@ -283,7 +288,7 @@ export function AiCaseAuthoringModal({
           requirements={selectedRequirement ? [selectedRequirement] : []}
           showPromptEditor={false}
         />
-      </section>
+      </StoryAiSettingsGroup>
     </div>
   );
 
@@ -304,13 +309,12 @@ export function AiCaseAuthoringModal({
           agentStatus={isPreviewing ? "running" : preview ? "completed" : previewTone === "error" && previewMessage ? "failed" : "idle"}
           contextLabel={`${selectedRequirement ? "1 Story" : "No Story"} · ${referenceImages.length} visual reference${referenceImages.length === 1 ? "" : "s"}`}
           closeDisabled={effectiveCloseDisabled}
-          commandBar={(
+          commandBar={preview ? (
             <>
               <div className="test-case-studio-command-secondary">
                 {preview && onPreviewChange ? (
                   <button disabled={isBusy} onClick={() => onPreviewChange(null)} type="button"><IconX size={16} stroke={1.9} />Decline proposal</button>
                 ) : null}
-                <button disabled={disableGenerate || isBusy} onClick={onGenerate} type="button">{isPreviewing ? "Improving…" : preview ? "Regenerate" : "Generate proposal"}</button>
               </div>
               <button
                 className="test-case-studio-accept"
@@ -321,10 +325,9 @@ export function AiCaseAuthoringModal({
                 {isApplying ? "Applying…" : isGeneratedActive ? applyLabel : "Review the AI proposal to apply"}
               </button>
             </>
-          )}
+          ) : null}
           descriptionId="ai-case-authoring-description"
           entityLabel="Test Case"
-          headerControl={<span className="test-case-studio-header-context"><IconChecklist aria-hidden="true" size={16} stroke={1.9} />AI Improve Test Cases</span>}
           inspectorAriaLabel="Current and improved test case inspector"
           inspectorContent={(
             <TestCaseAiStudioDraftInspector
@@ -382,7 +385,7 @@ export function AiCaseAuthoringModal({
           settingsPane={settingsPane}
           showIncludeGherkin={false}
           studioDescription="Use the current reusable Test Case and its Jira Story context to produce a reviewable improvement without silently replacing saved content."
-          studioTitle="Test Case Generator"
+          studioTitle={isCreating ? "AI Draft Test Case" : "AI Improve Test Case"}
           titleId="ai-case-authoring-title"
         />
       </div>

@@ -41,6 +41,7 @@ export function JiraAttachmentPanel({
   canView,
   canUpload,
   canDelete,
+  onEvidenceChange,
   title = "Attachments"
 }: {
   issueKey: string;
@@ -50,6 +51,7 @@ export function JiraAttachmentPanel({
   canView: boolean;
   canUpload: boolean;
   canDelete: boolean;
+  onEvidenceChange?: () => void;
   title?: string;
 }) {
   const queryClient = useQueryClient();
@@ -103,7 +105,10 @@ export function JiraAttachmentPanel({
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Unable to upload attachments.");
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey })
+    onSettled: () => {
+      onEvidenceChange?.();
+      return queryClient.invalidateQueries({ queryKey });
+    }
   });
   const remove = useMutation({
     mutationFn: (attachmentId: string) => api.attachments.delete(attachmentId),
@@ -112,6 +117,7 @@ export function JiraAttachmentPanel({
       setMessageTone("success");
       setMessage("Attachment deleted from HelloTest.");
       void queryClient.invalidateQueries({ queryKey });
+      onEvidenceChange?.();
     },
     onError: (error) => {
       setMessageTone("error");

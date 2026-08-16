@@ -925,6 +925,8 @@ module.exports = async function (fastify) {
       requirement_id: { required: true, type: "string" },
       integration_id: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      external_links: { required: false, type: "array", items: "string", maxItems: 20 },
+      images: { required: false, type: "array", maxItems: 6 },
       test_case: { required: false, type: "object" }
     }, req.body);
 
@@ -938,6 +940,8 @@ module.exports = async function (fastify) {
       integration_id: req.body.integration_id,
       user_id: req.user.id,
       additional_context: req.body.additional_context,
+      external_links: req.body.external_links,
+      images: req.body.images,
       test_case: req.body.test_case
     });
   });
