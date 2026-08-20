@@ -1,0 +1,16 @@
+import{c as p,r as d,j as t,F as v}from"./index-Bze7stUe.js";import{p as y,f as u}from"./externalReferences-BMoigrJN.js";/**
+ * @license @tabler/icons-react v3.45.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const g=[["path",{d:"M9 15l6 -6",key:"svg-0"}],["path",{d:"M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464",key:"svg-1"}],["path",{d:"M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463",key:"svg-2"}]],j=p("outline","link","Link",g);/**
+ * @license @tabler/icons-react v3.45.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const b=[["path",{d:"M13 5h8",key:"svg-0"}],["path",{d:"M13 9h5",key:"svg-1"}],["path",{d:"M13 15h8",key:"svg-2"}],["path",{d:"M13 19h5",key:"svg-3"}],["path",{d:"M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4",key:"svg-4"}],["path",{d:"M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4",key:"svg-5"}]],C=p("outline","list-details","ListDetails",b);/**
+ * @license @tabler/icons-react v3.45.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const M=[["path",{d:"M18 6l-12 12",key:"svg-0"}],["path",{d:"M6 6l12 12",key:"svg-1"}]],R=p("outline","x","X",M);function I({className:f="",disabled:o=!1,placeholder:k="Paste work-item links, docs, IDs; press ; to add",value:h,onChange:m}){const[n,i]=d.useState(""),l=`external-reference-${d.useId().replace(/:/g,"")}`,r=d.useMemo(()=>y(h),[h]),a=e=>{const s=e.trim();if(s){if(r.some(c=>c.toLowerCase()===s.toLowerCase())){i("");return}m(u([...r,s])),i("")}},x=e=>{m(u(r.filter(s=>s.toLowerCase()!==e.toLowerCase())))};return t.jsx(v,{className:["canonical-external-references-field",f].filter(Boolean).join(" "),composite:!0,inputId:l,label:"External references",labelIcon:t.jsx(j,{size:15}),hint:"Type a reference, then press semicolon or Enter to add it.",children:t.jsxs("div",{className:"requirement-reference-picker",children:[t.jsxs("div",{className:"requirement-reference-entry",children:[t.jsx("input",{"aria-describedby":`${l}-hint`,"aria-label":"Add external reference",disabled:o,id:l,placeholder:k,value:n,onBlur:()=>a(n),onChange:e=>{const s=e.target.value;if(/[;\n]$/.test(s)){a(s.replace(/[;\n]+$/g,""));return}i(s)},onKeyDown:e=>{(e.key==="Enter"||e.key===";")&&(e.preventDefault(),a(n))}}),t.jsx("button",{className:"ghost-button requirement-label-add-button",disabled:o||!n.trim(),onClick:()=>a(n),type:"button",children:"Add"})]}),r.length?t.jsx("div",{className:"requirement-reference-chip-row",children:r.map(e=>{const s=/^https?:\/\//i.test(e)?t.jsx("a",{href:e,onClick:c=>c.stopPropagation(),rel:"noreferrer",target:"_blank",children:e}):t.jsx("span",{children:e});return t.jsxs("span",{className:"requirement-reference-chip",title:`Remove ${e}`,children:[s,t.jsx("button",{"aria-label":`Remove ${e}`,disabled:o,onClick:()=>x(e),type:"button",children:t.jsx(R,{"aria-hidden":"true",size:13,stroke:2.2})})]},e)})}):null]})})}export{I as E,R as I,j as a,C as b};
