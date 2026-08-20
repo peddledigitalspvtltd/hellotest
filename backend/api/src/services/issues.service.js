@@ -1,5 +1,6 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
+const displayIdService = require("./displayId.service");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 const { normalizeReferenceList } = require("../utils/externalReferences");
 
@@ -24,6 +25,7 @@ const ISSUE_DETAIL_FIELDS = [
 
 const ISSUE_SELECT_COLUMNS = `
   feedback.id,
+  feedback.display_id,
   feedback.project_id,
   feedback.user_id,
   feedback.title,
@@ -132,7 +134,7 @@ const syncIssueLinks = async (issueId, { linked_test_case_ids = [], linked_requi
 };
 
 exports.createIssue = async ({ project_id, user_id, title, message, status, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
-  if (!user_id || !title || !message) {
+  if (!project_id || !user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
 
@@ -140,15 +142,15 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
   await validateUser(details.assignee_id, "Assignee not found");
 
   const id = uuid();
+  const display_id = await displayIdService.createDisplayId("issue");
 
-  if (project_id) {
-    const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
-    if (!project) throw new Error("Project not found");
-  }
+  const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
+  if (!project) throw new Error("Project not found");
 
   await db.prepare(`
     INSERT INTO feedback (
       id,
+      display_id,
       project_id,
       user_id,
       title,
@@ -174,10 +176,11 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
 	      root_cause,
 	      status
 	    )
-	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    project_id || null,
+    display_id,
+    project_id,
     user_id,
     title,
     message,
@@ -193,7 +196,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
 
   await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids });
 
-  return { id };
+  return { id, display_id };
 };
 
 exports.getIssues = async ({ project_id, user_id, status, viewer_id, viewer_is_admin = false } = {}) => {

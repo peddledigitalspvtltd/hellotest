@@ -36,7 +36,7 @@ const PERMISSION_GROUPS = [
   },
   {
     key: "test_management",
-    label: "Test Management",
+    label: "Product Management",
     permissions: [
       ["requirement.view", "View requirements"],
       ["requirement.create", "Create requirements"],

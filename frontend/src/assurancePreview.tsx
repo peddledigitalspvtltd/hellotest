@@ -64,7 +64,7 @@ function Preview() {
     <main className="assurance-preview-shell">
       <header className="assurance-preview-head">
         <div className="assurance-preview-identity">
-          <span>{isStory ? "QAIRA-142 · Story" : "TC-018 · Test Case"}</span>
+          <span>{isStory ? "HELLOTEST-142 · Story" : "TC-018 · Test Case"}</span>
           <h1>{isStory ? "Customers can securely recover a forgotten password" : "Complete password recovery with a valid token"}</h1>
           <p>{isStory ? "Identity Sprint 18 · August release" : "Web Project · Identity regression"}</p>
         </div>
@@ -97,10 +97,10 @@ function Preview() {
       {impactOpen ? (
         <div className="assurance-preview-dialog-backdrop" role="presentation">
           <section aria-labelledby="assurance-impact-title" aria-modal="true" className="assurance-preview-dialog" role="dialog">
-            <span>AI Assurance · Jira evidence</span>
+            <span>AI Assurance · delivery evidence</span>
             <h2 id="assurance-impact-title">{isStory ? "Story change impact" : "Test case downstream impact"}</h2>
             <p>{isStory ? "3 test cases, 2 suites, and 1 active run may require review." : "1 Story, 2 suites, and 4 recorded runs are in the current impact graph."}</p>
-            <div><b>Preview only</b><span>No Jira record has been changed.</span></div>
+            <div><b>Preview only</b><span>No work item has been changed.</span></div>
             <button onClick={() => setImpactOpen(false)} type="button">Close impact</button>
           </section>
         </div>

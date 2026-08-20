@@ -299,11 +299,11 @@ export function ProjectTraceabilityMap({
       </div>
       {hasMore ? (
         <div className={`project-traceability-continuation${loadMoreError ? " is-error" : ""}`} role="status">
-          <span><strong>{loadMoreError ? "The next Jira page could not be loaded." : "More Jira records are available."}</strong> {loadMoreError ? "The visible map is still usable but incomplete; retry when ready." : "Coverage is provisional until the remaining pages are loaded."}</span>
+          <span><strong>{loadMoreError ? "The next work-item page could not be loaded." : "More work items are available."}</strong> {loadMoreError ? "The visible map is still usable but incomplete; retry when ready." : "Coverage is provisional until the remaining pages are loaded."}</span>
           <button className="ghost-button compact" disabled={isLoadingMore} onClick={onLoadMore} type="button">{isLoadingMore ? "Loading…" : "Load more records"}</button>
         </div>
       ) : null}
-      <p className="project-traceability-footnote">Links are derived from loaded Jira/HelloTest Story, module, case, and Bug mappings. Faded items are outside the selected node’s connected neighborhood; gap counts never treat unloaded pages as complete.</p>
+      <p className="project-traceability-footnote">Links are derived from loaded connected workspace and HelloTest Story, module, case, and Bug mappings. Faded items are outside the selected node’s connected neighborhood; gap counts never treat unloaded pages as complete.</p>
     </section>
   );
 }

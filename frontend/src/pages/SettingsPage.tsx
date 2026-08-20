@@ -761,7 +761,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             </div>
             <RovoProviderStatus
               compact
-              prompt="Help me review this Jira project's HelloTest automation defaults, healing boundaries, evidence capture, and retry policy. This is a Rovo conversation, not a direct automation model invocation. Do not change Jira records."
+              prompt="Help me review this project's HelloTest automation defaults, healing boundaries, evidence capture, and retry policy. This is a Rovo conversation, not a direct automation model invocation. Do not change work items."
             />
           </Panel>
 	        ), { adminOnly: true }) : null}
@@ -775,7 +775,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ? "Central keys for AI prompt surfaces used by story, test design, automation, execution, and test data flows."
                 : "Central keys for enabled AI story, test design, execution, and test data surfaces."}
           >
-            <RovoProviderStatus prompt="Help me review HelloTest AI prompt governance and metric criteria for this Jira project." />
+            <RovoProviderStatus prompt="Help me review HelloTest AI prompt governance and metric criteria for this project." />
             <div className="settings-prompt-grid">
               {visibleAiPromptRegistry.map((prompt) => (
                 <article className="settings-prompt-card" key={prompt.key}>

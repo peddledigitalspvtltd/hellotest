@@ -180,7 +180,7 @@ export function TestCaseAiStudioDraftInspector({
         <section className="story-studio-card test-case-studio-mapping-card">
           <div className="story-studio-card__section-heading">
             <h2><IconChecklist size={20} stroke={1.9} />Story mapping</h2>
-            <span>Keep every generated case traceable to the Jira Story evidence it covers.</span>
+            <span>Keep every generated case traceable to the Story evidence it covers.</span>
           </div>
           <div className="test-case-studio-mapping-list">
             {requirements.length ? requirements.map((requirement) => {

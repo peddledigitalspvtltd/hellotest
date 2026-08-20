@@ -1293,6 +1293,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     [testCases]
   );
   const activeAutomatedCase = automatedCases.find((testCase) => testCase.id === selectedAutomatedCaseId) || automatedCases[0] || null;
+  const selectedAutomationActionTargetIds = selectedAutomationCaseIds.filter((testCaseId) =>
+    automatedCases.some((testCase) => testCase.id === testCaseId)
+  );
+  const automationActionTargetIds = selectedAutomationActionTargetIds.length
+    ? selectedAutomationActionTargetIds
+    : activeAutomatedCase ? [activeAutomatedCase.id] : [];
   const selectedCaseSummary = automatedCases.find((testCase) => testCase.id === selectedCaseId) || null;
   const activeCase = selectedAutomationCaseDetail;
   const isAutomationCaseDetailReady = Boolean(activeCase);
@@ -2443,6 +2449,72 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       invalidateAutomationData();
     },
     onError: (error) => showError(error, "Unable to queue automation.")
+  });
+
+  const mapExistingAutomation = useMutation({
+    mutationFn: async () => {
+      if (!canUseAutomationBuilder || !canUseAutomationAi) {
+        throw new Error("Permission required: automation.build and automation.ai");
+      }
+      if (!automationActionTargetIds.length) {
+        throw new Error("Select at least one Automation Case to map.");
+      }
+
+      const results = await Promise.allSettled(automationActionTargetIds.map((testCaseId) =>
+        api.testCases.buildAutomation(testCaseId, {
+          start_url: startUrl || undefined,
+          additional_context: [builderContext, getPrompt("ai.automation.gap_analysis")].filter(Boolean).join("\n\n") || undefined,
+          test_environment_id: selectedExecutionEnvironmentId || undefined,
+          test_configuration_id: selectedExecutionConfigurationId || undefined,
+          test_data_set_id: selectedExecutionDataSetId || undefined
+        })
+      ));
+      const successfulResponses = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const failedCount = results.length - successfulResponses.length;
+
+      if (!successfulResponses.length) {
+        const firstFailure = results.find((result) => result.status === "rejected");
+        throw firstFailure && firstFailure.status === "rejected" ? firstFailure.reason : new Error("No Automation Cases were mapped.");
+      }
+
+      return {
+        count: successfulResponses.length,
+        failedCount,
+        mappedSteps: successfulResponses.reduce((total, response) => total + Number(response.generated_step_count || 0), 0)
+      };
+    },
+    onSuccess: ({ count, failedCount, mappedSteps }) => {
+      invalidateAutomationData();
+      showSuccess(`AI mapped ${mappedSteps} step${mappedSteps === 1 ? "" : "s"} across ${count} Automation Case${count === 1 ? "" : "s"}${failedCount ? `; ${failedCount} case${failedCount === 1 ? "" : "s"} need a retry` : ""}.`);
+    },
+    onError: (error) => showError(error, "Unable to map existing automation.")
+  });
+
+  const scheduleAiAutomation = useMutation({
+    mutationFn: () => {
+      if (!canUseAutomationBuilder || !canUseAutomationAi) {
+        throw new Error("Permission required: automation.build and automation.ai");
+      }
+      if (!appTypeId || !automationActionTargetIds.length) {
+        throw new Error("Select at least one Automation Case to schedule.");
+      }
+
+      return api.testCases.buildAutomationBatch({
+        app_type_id: appTypeId,
+        test_case_ids: automationActionTargetIds,
+        start_url: startUrl || undefined,
+        additional_context: builderContext || undefined,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined,
+        ai_requested: true
+      });
+    },
+    onSuccess: (response) => {
+      invalidateAutomationData();
+      showSuccess(`AI automation scheduled as ${response.transaction_id.slice(0, 8)} for ${automationActionTargetIds.length} Automation Case${automationActionTargetIds.length === 1 ? "" : "s"}.`);
+    },
+    onError: (error) => showError(error, "Unable to schedule AI automation.")
   });
 
   const createAutomationCase = useMutation({
@@ -3970,6 +4042,26 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 </div>
                 <div className="catalog-toolbar-actions" aria-label="Automation case actions">
                   <button
+                    className="ghost-button automation-ai-catalog-action"
+                    disabled={!automationActionTargetIds.length || !canUseAutomationBuilder || !canUseAutomationAi || mapExistingAutomation.isPending}
+                    onClick={() => mapExistingAutomation.mutate()}
+                    title="Analyze the selected Automation Cases and fill missing step mappings now"
+                    type="button"
+                  >
+                    <SparkIcon />
+                    <span>{mapExistingAutomation.isPending ? "Mapping…" : "AI map existing automation"}</span>
+                  </button>
+                  <button
+                    className="ghost-button automation-ai-catalog-action"
+                    disabled={!automationActionTargetIds.length || !appTypeId || !canUseAutomationBuilder || !canUseAutomationAi || scheduleAiAutomation.isPending}
+                    onClick={() => scheduleAiAutomation.mutate()}
+                    title="Queue the selected Automation Cases for governed background processing"
+                    type="button"
+                  >
+                    <RefreshIcon />
+                    <span>{scheduleAiAutomation.isPending ? "Scheduling…" : "Schedule AI automation"}</span>
+                  </button>
+                  <button
                     className="ghost-button catalog-run-button"
                     disabled={(!selectedAutomationCaseIds.length && !activeAutomatedCase) || !canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
                     onClick={() => runSelectedAutomationCases.mutate("local")}
@@ -4567,7 +4659,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                    {!canViewAutomationCode
 	                      ? <div className="empty-state compact">Automation step details require automation code access for this project.</div>
 	                      : !automatedSteps.length
-	                        ? <div className="empty-state compact">No keyword steps yet. Add them from Test Cases, recorder capture, or AI automation generation.</div>
+	                        ? <div className="empty-state compact">No automation steps yet. Add a keyword here, inspect and record the flow, or generate the first executable version with AI.</div>
 	                        : null}
 	                    {automationStepView === "keyword" ? automationStepGroups.map((group) => (
 	                      <section className={group.isStandalone ? "automation-manual-step-group is-standalone" : "automation-manual-step-group"} key={group.id}>
@@ -4632,7 +4724,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                              <button className="automation-step-tool-button" disabled={reorderAutomationStep.isPending || step.step_order >= automatedSteps.length} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} title="Move down" type="button">↓</button>
 	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "before", stepId: step.id })} title="Insert above" type="button">+↑</button>
 	                              <button className="automation-step-tool-button" onClick={() => setNewStepPlacement({ mode: "after", stepId: step.id })} title="Insert below" type="button">+↓</button>
-	                              <button className="automation-step-tool-button" disabled={!canUseRecorder} onClick={() => { setRecordingTargetStepId(step.id); setExpandedCaseSections((current) => ({ ...current, build: true })); }} title="Record into this step" type="button"><MousePointerIcon size={15} /></button>
+	                              <button className="automation-step-tool-button automation-step-tool-button--labeled" disabled={!canUseRecorder} onClick={() => { setRecordingTargetStepId(step.id); setExpandedCaseSections((current) => ({ ...current, build: true })); }} title="Inspect the live application and record into this step" type="button"><MousePointerIcon size={15} /><span>Inspect &amp; record</span></button>
+	                              <button className="automation-step-tool-button automation-step-tool-button--labeled" onClick={() => toggleAutomationStep(step.id)} title="Edit this step's executable automation" type="button"><PencilIcon size={15} /><span>{isExpanded ? "Close editor" : "Edit automation"}</span></button>
 		                              <button className="automation-step-tool-button" disabled={!canEditAutomationCode || !canUseAutomationAi || rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} title="AI improve step" type="button">AI</button>
 	                              <button className="automation-step-tool-button is-primary" disabled={!canEditAutomationCode || updateAutomationStep.isPending} onClick={() => updateAutomationStep.mutate(step)} title="Save step" type="button">Save</button>
                               {canViewAutomationCode ? <button className="automation-step-tool-button" onClick={() => navigator.clipboard?.writeText(buildAutomationCodeFromDraft(draft))} title="Copy keyword code" type="button"><CopyIcon size={15} /></button> : null}
@@ -5819,53 +5912,100 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             </div>
             <div className="resource-form">
               <div className="resource-form-body">
-                <div className="automation-creation-mode-grid" role="radiogroup" aria-label="Automation creation method">
-                  {([
-                    { id: "ai" as const, title: "AI architect", description: "Copy the source structure, then generate resilient keyword code and repository bindings.", icon: <SparkIcon /> },
-                    { id: "record" as const, title: "Smart recorder", description: "Create the case now, then capture a real flow into steps, objects, and API candidates.", icon: <MousePointerIcon /> },
-                    { id: "blank" as const, title: "Blank canvas", description: "Create a clean automation case and author every keyword, group, and code block directly.", icon: <AddIcon /> }
-                  ]).map((mode) => (
-                    <button aria-checked={automationCreationMode === mode.id} className={`automation-creation-mode-card${automationCreationMode === mode.id ? " is-selected" : ""}`} key={mode.id} onClick={() => setAutomationCreationMode(mode.id)} role="radio" type="button">
-                      {mode.icon}<strong>{mode.title}</strong><span>{mode.description}</span>
-                    </button>
-                  ))}
-                </div>
-                <fieldset className="automation-manual-link-picker">
-                  <legend>Linked manual test cases (optional)</legend>
-                  <p>Link one automation flow to every manual case it covers. The first selection is the primary source used to seed steps and metadata.</p>
-                  <div className="automation-manual-link-options">
-                    {availableManualCases.map((testCase) => {
-                      const isSelected = automationCreateManualCaseIds.includes(testCase.id);
-                      return (
-                        <label className={isSelected ? "is-selected" : ""} key={testCase.id}>
-                          <input
-                            checked={isSelected}
-                            onChange={(event) => {
-                              setAutomationCreateManualCaseIds((current) => event.target.checked
-                                ? [...current, testCase.id]
-                                : current.filter((id) => id !== testCase.id));
-                              if (event.target.checked && !automationCreateTitle.trim()) setAutomationCreateTitle(`${testCase.title} · Automation`);
-                            }}
-                            type="checkbox"
+                <div className="automation-create-layout">
+                  <aside className="automation-create-method-panel">
+                    <div className="automation-create-section-heading">
+                      <span>1</span>
+                      <div><strong>Choose a starting point</strong><small>You can change the implementation method later.</small></div>
+                    </div>
+                    <div className="automation-creation-mode-grid" role="radiogroup" aria-label="Automation creation method">
+                      {([
+                        { id: "ai" as const, title: "Build with AI", description: "Generate keywords, bindings, and assertions.", icon: <SparkIcon /> },
+                        { id: "record" as const, title: "Inspect & record", description: "Capture a real browser or mobile flow.", icon: <MousePointerIcon /> },
+                        { id: "blank" as const, title: "Start blank", description: "Author the executable flow yourself.", icon: <AddIcon /> }
+                      ]).map((mode) => (
+                        <button aria-checked={automationCreationMode === mode.id} className={`automation-creation-mode-card${automationCreationMode === mode.id ? " is-selected" : ""}`} key={mode.id} onClick={() => setAutomationCreationMode(mode.id)} role="radio" type="button">
+                          <span className="automation-creation-mode-icon">{mode.icon}</span>
+                          <span className="automation-creation-mode-copy"><strong>{mode.title}</strong><small>{mode.description}</small></span>
+                          <span className="automation-creation-mode-check" aria-hidden="true">{automationCreationMode === mode.id ? "✓" : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="automation-create-outcome-note">
+                      <strong>Dedicated Automation Case</strong>
+                      <span>Manual Test Cases stay unchanged and remain linked as traceable source coverage.</span>
+                    </div>
+                  </aside>
+
+                  <div className="automation-create-details-panel">
+                    <div className="automation-create-section-heading">
+                      <span>2</span>
+                      <div><strong>Define the Automation Case</strong><small>Use the same clear hierarchy as Test Case creation.</small></div>
+                    </div>
+                    <label className="form-field automation-create-title-field">
+                      <span>Automation Case name</span>
+                      <input autoFocus onChange={(event) => setAutomationCreateTitle(event.target.value)} placeholder="Checkout journey automation" value={automationCreateTitle} />
+                    </label>
+
+                    <details className="automation-create-source-disclosure">
+                      <summary>
+                        <span><strong>Link source Test Cases</strong><small>Optional traceability and step seeding</small></span>
+                        <span className="count-pill">{automationCreateManualCaseIds.length || "None"}</span>
+                      </summary>
+                      <fieldset className="automation-manual-link-picker">
+                        <legend className="sr-only">Linked manual Test Cases</legend>
+                        <p>The first selected Test Case seeds metadata and steps; every selection is retained as coverage traceability.</p>
+                        <div className="automation-manual-link-options">
+                          {availableManualCases.map((testCase) => {
+                            const isSelected = automationCreateManualCaseIds.includes(testCase.id);
+                            return (
+                              <label className={isSelected ? "is-selected" : ""} key={testCase.id}>
+                                <input
+                                  checked={isSelected}
+                                  onChange={(event) => {
+                                    setAutomationCreateManualCaseIds((current) => event.target.checked
+                                      ? [...current, testCase.id]
+                                      : current.filter((id) => id !== testCase.id));
+                                    if (event.target.checked && !automationCreateTitle.trim()) setAutomationCreateTitle(`${testCase.title} · Automation`);
+                                  }}
+                                  type="checkbox"
+                                />
+                                <span><strong>{testCase.display_id || testCase.id}</strong>{testCase.title}</span>
+                              </label>
+                            );
+                          })}
+                          {!availableManualCases.length ? <div className="empty-state compact">No manual Test Cases exist in this application. You can still create standalone automation.</div> : null}
+                        </div>
+                      </fieldset>
+                    </details>
+
+                    {automationCreationMode === "ai" ? (
+                      <details className="automation-create-source-disclosure automation-create-generation-context" open>
+                        <summary><span><strong>AI build context</strong><small>Environment, data, and generation guardrails</small></span></summary>
+                        <div className="automation-create-context-body">
+                          <ExecutionContextSelector
+                            appTypeId={appTypeId}
+                            onConfigurationChange={setSelectedExecutionConfigurationId}
+                            onDataSetChange={setSelectedExecutionDataSetId}
+                            onEnvironmentChange={setSelectedExecutionEnvironmentId}
+                            prefillFirstAvailable
+                            projectId={projectId}
+                            selectedConfigurationId={selectedExecutionConfigurationId}
+                            selectedDataSetId={selectedExecutionDataSetId}
+                            selectedEnvironmentId={selectedExecutionEnvironmentId}
                           />
-                          <span><strong>{testCase.display_id || testCase.id}</strong>{testCase.title}</span>
-                        </label>
-                      );
-                    })}
-                    {!availableManualCases.length ? <div className="empty-state compact">No manual test cases exist in this application. Standalone automation remains available.</div> : null}
+                          <label className="form-field"><span>Start URL</span><input onChange={(event) => setStartUrl(event.target.value)} placeholder="Use the selected environment when blank" value={startUrl} /></label>
+                          <label className="form-field"><span>AI guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Business goal, authentication assumptions, critical assertions, test data, and edge cases." rows={3} value={builderContext} /></label>
+                        </div>
+                      </details>
+                    ) : (
+                      <div className="automation-create-next-step">
+                        {automationCreationMode === "record" ? <MousePointerIcon /> : <PencilIcon />}
+                        <span>{automationCreationMode === "record" ? "After creation, Build Studio opens with the recorder ready for this case." : "After creation, the keyword editor opens with an empty first-step slot."}</span>
+                      </div>
+                    )}
                   </div>
-                  <small>{automationCreateManualCaseIds.length ? `${automationCreateManualCaseIds.length} manual case${automationCreateManualCaseIds.length === 1 ? "" : "s"} selected` : "Standalone automation"}</small>
-                </fieldset>
-                <label className="form-field">
-                  <span>Automation case name</span>
-                  <input onChange={(event) => setAutomationCreateTitle(event.target.value)} placeholder="Checkout journey automation" value={automationCreateTitle} />
-                </label>
-                {automationCreationMode === "ai" ? (
-                  <>
-                    <label className="form-field"><span>Start URL</span><input onChange={(event) => setStartUrl(event.target.value)} placeholder="Optional when an environment is selected" value={startUrl} /></label>
-                    <label className="form-field"><span>AI guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Business goal, auth behavior, critical assertions, test data, and edge cases." rows={4} value={builderContext} /></label>
-                  </>
-                ) : null}
+                </div>
               </div>
               <div className="resource-form-footer">
                 <button className="ghost-button" onClick={closeCreateAutomation} type="button">Cancel</button>

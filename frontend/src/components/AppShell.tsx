@@ -37,6 +37,7 @@ import {
   AGENTIC_WORKFLOW_SECTION_ITEMS,
   AUTOMATION_SECTION_ITEMS,
   DASHBOARD_SECTION_ITEMS,
+  REQUIREMENTS_MANAGEMENT_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
   TEST_RUNS_SECTION_ITEMS,
@@ -61,6 +62,16 @@ const navigation = [
   {
     label: "Create",
     items: [
+      {
+        id: "requirements-management",
+        to: WORKSPACE_ROUTES.requirements,
+        label: "Requirements Management",
+        shortLabel: "Requirements",
+        icon: RequirementsManagementIcon,
+        matchPaths: REQUIREMENTS_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["qaira.manual.requirements"],
+        disabledWhenNoProjects: true
+      },
       {
         id: "authoring",
         to: WORKSPACE_ROUTES.testCases,
@@ -726,6 +737,8 @@ function ReadyAppShell() {
         return t("nav.projects", defaultLabel);
       case "authoring":
         return t("nav.testAuthoring", defaultLabel);
+      case "requirements-management":
+        return defaultLabel;
       case "runs":
         return t("nav.testRuns", defaultLabel);
       case "agentic-workflows":
@@ -765,6 +778,8 @@ function ReadyAppShell() {
   const resolveSidebarSubItems = (item: { id: string }) => {
     const items = item.id === "overview"
       ? DASHBOARD_SECTION_ITEMS
+      : item.id === "requirements-management"
+      ? REQUIREMENTS_MANAGEMENT_SECTION_ITEMS
       : item.id === "authoring"
       ? TEST_AUTHORING_SECTION_ITEMS
       : item.id === "automation"
@@ -938,7 +953,11 @@ function ReadyAppShell() {
                               && subItem.to === "/?view=analytics"
                               && location.pathname === "/"
                               && (!location.search || new URLSearchParams(location.search).get("view") === "analytics");
-                            const isSubActive = isDefaultDashboardView || (subItem.to.includes("?")
+                            const isDefaultAgentView = item.id === "agentic-workflows"
+                              && subItem.to === `${WORKSPACE_ROUTES.agenticWorkflows}?view=agents`
+                              && location.pathname === WORKSPACE_ROUTES.agenticWorkflows
+                              && (!location.search || new URLSearchParams(location.search).get("view") === "agents");
+                            const isSubActive = isDefaultDashboardView || isDefaultAgentView || (subItem.to.includes("?")
                               ? `${location.pathname}${location.search}` === subItem.to
                               : location.pathname === subPath);
                             const SubIcon = getWorkspaceSubItemIcon("icon" in subItem ? subItem.icon : undefined);
@@ -1147,6 +1166,17 @@ function FlaskIcon() {
   return <IconFrame><path d="M10 3v5l-5.5 9a2 2 0 0 0 1.73 3h11.54A2 2 0 0 0 19.5 17L14 8V3" /><path d="M8 3h8" /><path d="M8.5 14h7" /></IconFrame>;
 }
 
+function RequirementsManagementIcon() {
+  return (
+    <IconFrame>
+      <rect x="4" y="4" width="7" height="6" rx="1.5" />
+      <rect x="13" y="14" width="7" height="6" rx="1.5" />
+      <path d="M11 7h2.5A2.5 2.5 0 0 1 16 9.5V14" />
+      <path d="M7.5 10v4.5A2.5 2.5 0 0 0 10 17h3" />
+    </IconFrame>
+  );
+}
+
 function OpenBookIcon() {
   return (
     <IconFrame>
@@ -1186,6 +1216,8 @@ function getWorkspaceSubItemIcon(icon?: string) {
       return RunIcon;
     case "automation":
       return AutomationIcon;
+    case "agents":
+      return WorkflowIcon;
     case "repository":
       return LayersIcon;
     case "playwright":

@@ -36,7 +36,6 @@ export function InfoTooltip({
   const triggerRef = useRef<HTMLButtonElement | HTMLSpanElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
   const [position, setPosition] = useState<TooltipPosition>({ left: 12, top: 12, width: 300 });
 
   const updatePosition = useCallback(() => {
@@ -69,12 +68,10 @@ export function InfoTooltip({
       const node = event.target as Node | null;
       if (node && (triggerRef.current?.contains(node) || popoverRef.current?.contains(node))) return;
       setIsOpen(false);
-      setIsPinned(false);
     };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setIsOpen(false);
-      setIsPinned(false);
       triggerRef.current?.focus();
     };
     window.addEventListener("resize", handleViewportChange);
@@ -91,35 +88,23 @@ export function InfoTooltip({
 
   if (content === undefined && title === undefined) return null;
 
-  const togglePinned = () => {
-    setIsPinned((current) => {
-      const next = !current;
-      setIsOpen(next);
-      return next;
-    });
-  };
+  const toggleOpen = () => setIsOpen((current) => !current);
   const handleKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     event.stopPropagation();
-    togglePinned();
+    toggleOpen();
   };
   const sharedProps = {
+    "aria-controls": tooltipId,
     "aria-describedby": isOpen ? tooltipId : undefined,
+    "aria-expanded": isOpen,
     "aria-label": label,
     className: ["info-tooltip-trigger", className].filter(Boolean).join(" "),
-    onBlur: () => {
-      if (!isPinned) setIsOpen(false);
-    },
     onClick: (event: MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      togglePinned();
-    },
-    onFocus: () => setIsOpen(true),
-    onMouseEnter: () => setIsOpen(true),
-    onMouseLeave: () => {
-      if (!isPinned) setIsOpen(false);
+      toggleOpen();
     }
   };
   const icon = (

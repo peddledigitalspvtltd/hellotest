@@ -18,7 +18,7 @@ import type { AiAuthoredTestCasePreview, AiDesignedTestCaseCandidate, Integratio
 const requirements: Requirement[] = [
   {
     id: "story-142",
-    display_id: "QAIRA-142",
+    display_id: "HELLOTEST-142",
     project_id: "project-1",
     title: "Customers can securely recover a forgotten password",
     description: "A customer needs a secure recovery path that does not expose whether an account exists.",
@@ -27,7 +27,7 @@ const requirements: Requirement[] = [
   },
   {
     id: "story-148",
-    display_id: "QAIRA-148",
+    display_id: "HELLOTEST-148",
     project_id: "project-1",
     title: "Administrators can invalidate compromised sessions",
     description: "Administrators need an audited way to invalidate customer sessions after a security event.",
@@ -200,7 +200,7 @@ function Preview() {
       disablePreview={false}
       disableSchedule={false}
       existingCases={linkedCases}
-      existingCasesSubtitle="Reusable coverage already mapped to the selected Jira Story scope."
+      existingCasesSubtitle="Reusable coverage already mapped to the selected Story scope."
       existingCasesTitle="Linked test cases"
       externalLinksText={links}
       eyebrow="AI Test Case Generation"
@@ -234,8 +234,10 @@ function Preview() {
       previewCases={candidates}
       previewMessage=""
       previewTone="success"
+      promptTemplateAppTypeId="web-project"
+      promptTemplateProjectId="project-1"
       referenceImages={[]}
-      requirementHelpText="Select one or more Jira Stories, then review generated reusable coverage before accepting it."
+      requirementHelpText="Select one or more Stories, then review generated reusable coverage before accepting it."
       requirementLabel="Stories"
       requirements={requirements}
       selectedRequirementIds={requirementIds}

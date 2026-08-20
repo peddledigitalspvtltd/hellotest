@@ -2615,7 +2615,7 @@ export function StepAutomationDialog({
                         <input
                           disabled={(apiRequest.auth?.type || "none") === "none"}
                           onChange={(event) => setApiRequest((current) => ({ ...current, auth: { ...(current.auth || { type: "none" }), credential_reference: event.target.value } }))}
-                          placeholder="QAIRA_API_CREDENTIAL"
+                          placeholder="HELLOTEST_API_CREDENTIAL"
                           value={apiRequest.auth?.credential_reference || ""}
                         />
                       </FormField>

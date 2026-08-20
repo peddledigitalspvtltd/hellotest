@@ -77,6 +77,7 @@ const insertJob = db.prepare(`
     additional_context,
     external_links,
     images,
+    authoring_mode,
     status,
     total_requirements,
     processed_requirements,
@@ -84,7 +85,7 @@ const insertJob = db.prepare(`
     error,
     created_by
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, 0, NULL, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, 0, NULL, ?)
 `);
 
 const markJobRunning = db.prepare(`
@@ -246,6 +247,7 @@ async function hydrateJob(job) {
     requirement_ids: parseJsonValue(job.requirement_ids, []),
     external_links: parseJsonValue(job.external_links, []),
     images: parseJsonValue(job.images, []),
+    authoring_mode: job.authoring_mode === "gherkin" ? "gherkin" : "structured",
     total_requirements: Number(job.total_requirements || 0),
     processed_requirements: Number(job.processed_requirements || 0),
     generated_cases_count: Number(job.generated_cases_count || 0),
@@ -343,6 +345,7 @@ async function generateCasesForRequirement({
     integration_id: job.integration_id || undefined,
     user_id: job.created_by,
     max_cases: job.max_cases_per_requirement,
+    authoring_mode: job.authoring_mode || "structured",
     additional_context: job.additional_context || undefined,
     external_links: job.external_links || [],
     images: job.images || []
@@ -359,6 +362,9 @@ async function generateCasesForRequirement({
       priority: candidate.priority,
       status: "draft",
       requirement_ids: candidate.requirement_ids?.length ? candidate.requirement_ids : [requirement.id],
+      authoring_mode: candidate.authoring_mode || job.authoring_mode || "structured",
+      gherkin_document: candidate.gherkin_document || undefined,
+      parameter_values: candidate.parameter_values || {},
       steps: candidate.steps || [],
       ai_generation_source: "scheduler",
       ai_generation_review_status: "pending",
@@ -735,6 +741,7 @@ exports.createJob = async ({
   additional_context,
   external_links = [],
   images = [],
+  authoring_mode = "structured",
   created_by
 }) => {
   const appType = await selectAppType.get(app_type_id);
@@ -755,6 +762,7 @@ exports.createJob = async ({
 
   const requirements = await resolveScopedRequirements(requirement_ids, appType.project_id);
   const id = uuid();
+  const normalizedAuthoringMode = authoring_mode === "gherkin" ? "gherkin" : "structured";
 
   await insertJob.run(
     id,
@@ -775,6 +783,7 @@ exports.createJob = async ({
     normalizeText(additional_context),
     normalizeTextList(external_links),
     normalizeImageAssets(images),
+    normalizedAuthoringMode,
     requirements.length,
     created_by
   );
@@ -794,6 +803,7 @@ exports.createJob = async ({
       generated_cases_count: 0,
       progress_percent: 0,
       current_phase: "queued",
+      authoring_mode: normalizedAuthoringMode,
       max_cases_per_requirement: clampInteger(max_cases_per_requirement, {
         fallback: DEFAULT_CASES_PER_REQUIREMENT,
         min: 1,

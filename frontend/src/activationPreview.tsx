@@ -152,12 +152,12 @@ const makeSnapshot = (
       project_admin: true,
       project_type: "software",
       blockers: isUnsupportedProject
-        ? ["Full HelloTest activation requires a company-managed Jira project; team-managed projects use a different configuration model."]
+        ? ["Full HelloTest activation requires a company-managed project; team-managed projects use a different configuration model."]
         : isMalformedPolicyRecovery
           ? ["Feature availability override is incomplete and will be replaced with HelloTest defaults during activation."]
           : [],
       warnings: status === "failed"
-        ? ["HelloTest found custom Jira issue types. Confirm the suggested source mapping before setup starts."]
+        ? ["HelloTest found custom work item types. Confirm the suggested source mapping before setup starts."]
         : []
     },
     feature_policy: {
@@ -184,12 +184,12 @@ const makeSnapshot = (
     },
     error: status === "failed" ? {
       code: "NATIVE_ISSUE_TYPE_MAPPING_INVALID",
-      message: "The saved Story or Bug mapping is no longer available. Choose current Jira issue types, then retry setup.",
+      message: "The saved Story or Bug mapping is no longer available. Choose current work item types, then retry setup.",
       retryable: true,
       phase: "validation"
     } : null,
     next_action: status === "inactive"
-      ? "Enable HelloTest to apply the Jira schema and default features."
+      ? "Enable HelloTest to apply the work-item schema and default features."
       : isMalformedPolicyRecovery ? "resolve-feature-policy" : status === "blocked" ? "resolve-blockers" : status === "failed" ? "retry" : null
   };
 };

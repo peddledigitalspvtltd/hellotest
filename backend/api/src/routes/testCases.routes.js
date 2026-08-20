@@ -896,6 +896,7 @@ module.exports = async function (fastify) {
       requirement_ids: { required: true, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
       max_cases: { required: false, type: "number" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array", items: "string" },
       images: { required: false, type: "array" }
@@ -911,6 +912,7 @@ module.exports = async function (fastify) {
       integration_id: req.body.integration_id,
       user_id: req.user.id,
       max_cases: req.body.max_cases,
+      authoring_mode: req.body.authoring_mode,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,
       images: req.body.images
@@ -923,6 +925,7 @@ module.exports = async function (fastify) {
     fastify.validate({
       app_type_id: { required: true, type: "string" },
       requirement_id: { required: true, type: "string" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       integration_id: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array", items: "string", maxItems: 20 },
@@ -939,6 +942,7 @@ module.exports = async function (fastify) {
       appType,
       integration_id: req.body.integration_id,
       user_id: req.user.id,
+      authoring_mode: req.body.authoring_mode,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,
       images: req.body.images,
@@ -1031,7 +1035,8 @@ module.exports = async function (fastify) {
       parallel_requirement_limit: { required: false, type: "number" },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array" },
-      images: { required: false, type: "array" }
+      images: { required: false, type: "array" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] }
     }, req.body);
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);

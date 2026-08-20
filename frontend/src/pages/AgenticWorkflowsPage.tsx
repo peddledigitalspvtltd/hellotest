@@ -23,11 +23,9 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { AddIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import {
   AgentActivityTimeline,
-  AgentCatalog,
   AgenticCommandComposer,
   AgenticOutcomePanel,
   AgenticProcessRail,
-  AgentWorkflowJourney,
   HELLOTEST_AGENT_CATALOG,
   type HelloTestAgent
 } from "../components/AgenticExperience";
@@ -63,6 +61,7 @@ import "./AgenticWorkflowsPage.css";
 
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
+type AgenticPageSurface = "agents" | "workbench" | WorkflowTab;
 type WorkflowNodeKind =
   | "trigger"
   | "agent"
@@ -652,11 +651,18 @@ export function AgenticWorkflowsPage() {
     && hasPermission(session, "agentic_workflow.run");
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
-  const activeTab: WorkflowTab = searchParams.get("view") === "runs" ? "runs" : "workflows";
+  const requestedSurface = searchParams.get("view");
+  const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
+    || requestedSurface === "workflows"
+    || requestedSurface === "runs"
+    ? requestedSurface
+    : "agents";
+  const activeTab: WorkflowTab = activeSurface === "runs" ? "runs" : "workflows";
   const setActiveTab = useCallback((nextTab: WorkflowTab) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("view", nextTab);
+      next.delete("agent");
       return next;
     }, { replace: true });
   }, [setSearchParams]);
@@ -682,6 +688,15 @@ export function AgenticWorkflowsPage() {
   const [toastTone, setToastTone] = useState<"success" | "error" | "info">("success");
   const [nodes, setNodes, onNodesChange] = useNodesState<AgenticWorkflowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<AgenticWorkflowEdge>([]);
+
+  useEffect(() => {
+    if (activeSurface !== "workbench") return;
+    const requestedAgentId = searchParams.get("agent") || "";
+    const requestedAgent = HELLOTEST_AGENT_CATALOG.find((agent) => agent.id === requestedAgentId);
+    if (!requestedAgent || requestedAgent.id === assistantAgentId) return;
+    setAssistantAgentId(requestedAgent.id);
+    setAssistantPrompt(requestedAgent.prompt);
+  }, [activeSurface, assistantAgentId, searchParams]);
 
   useEffect(() => {
     const handoff = window.sessionStorage.getItem("qaira.agentic.handoff");
@@ -1151,6 +1166,27 @@ export function AgenticWorkflowsPage() {
     setAssistantPrompt(agent.prompt);
   };
 
+  const openAgentWorkbench = (agent: HelloTestAgent) => {
+    selectAssistantAgent(agent);
+    setSelectedAssistantSessionId("");
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "workbench");
+      next.set("agent", agent.id);
+      return next;
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const openAgentCatalog = () => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "agents");
+      next.delete("agent");
+      return next;
+    });
+  };
+
   const openAssistantWorkflowDraft = () => {
     const specialist = selectedAssistantAgent;
     const nextNodes: AgenticWorkflowNode[] = [
@@ -1571,25 +1607,99 @@ export function AgenticWorkflowsPage() {
   return (
     <div className="page page-agentic-workflows">
       <PageHeader
-        eyebrow="AI command center"
-        title="Agents & Workflows"
-        description="Chat with a QA specialist, delegate traceable work, inspect guardrails and maturity, or compose governed multi-agent workflows."
-        meta={[
-          { label: "Workflows", value: workflows.length },
-          { label: "Runs", value: runs.length },
-          { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
-        ]}
+        eyebrow={activeSurface === "agents" ? "AI specialists" : activeSurface === "workbench" ? "Agent Workbench" : "Agentic automation"}
+        title={activeSurface === "agents" ? "AI Agents" : activeSurface === "workbench" ? selectedAssistantAgent.name : activeTab === "runs" ? "Workflow Runs" : "Agentic Workflows"}
+        description={activeSurface === "agents"
+          ? "Choose a focused HelloTest specialist, then start a governed task in its dedicated Workbench."
+          : activeSurface === "workbench"
+            ? "Delegate a focused, traceable task with bounded context, visible guardrails, evidence, and a human review gate."
+            : activeTab === "runs"
+              ? "Review workflow execution history and the governed snapshots captured at launch time."
+              : "Compose, manage, and run governed multi-agent workflows without mixing them into specialist task sessions."}
+        meta={activeSurface === "agents"
+          ? [
+              { label: "Specialists", value: HELLOTEST_AGENT_CATALOG.length },
+              { label: "Review gate", value: "Required" },
+              { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
+            ]
+          : activeSurface === "workbench"
+            ? [
+                { label: "Specialist", value: selectedAssistantAgent.shortName },
+                { label: "Sessions", value: assistantSessions.length },
+                { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
+              ]
+            : [
+                { label: "Workflows", value: workflows.length },
+                { label: "Runs", value: runs.length },
+                { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
+              ]}
       />
 
       <div className="agentic-page-stage">
-      {!draft && !selectedRun ? (
+      {!draft && !selectedRun && activeSurface === "agents" ? (
+        <div className="ai-agent-catalog-page">
+          <section className="ai-agent-marketing-banner" aria-labelledby="ai-agent-banner-title">
+            <div className="ai-agent-marketing-banner__copy">
+              <span>HelloTest AI Agents</span>
+              <h2 id="ai-agent-banner-title">Your agent works. You don&apos;t have to.</h2>
+              <p>Set a task once. Your agent keeps going—on the beach, on a hike, or while you sleep.</p>
+              <div className="ai-agent-marketing-banner__assurance" aria-label="Agent operating principles">
+                <span>Persistent tasks</span>
+                <span>Evidence grounded</span>
+                <span>Human review gated</span>
+              </div>
+            </div>
+            <div className="ai-agent-marketing-banner__visual" aria-hidden="true">
+              <span className="ai-agent-orbit ai-agent-orbit--outer" />
+              <span className="ai-agent-orbit ai-agent-orbit--inner" />
+              <span className="ai-agent-core"><SparkIcon size={28} /></span>
+              <span className="ai-agent-pulse ai-agent-pulse--one" />
+              <span className="ai-agent-pulse ai-agent-pulse--two" />
+              <span className="ai-agent-pulse ai-agent-pulse--three" />
+            </div>
+          </section>
+
+          <section className="ai-agent-specialist-catalog" aria-labelledby="ai-agent-specialists-title">
+            <div className="agent-workbench-section-heading">
+              <div><span>Specialists</span><h2 id="ai-agent-specialists-title">Meet your quality engineering team</h2></div>
+              <p>Each specialist starts with a purpose-built task brief. Pick the closest match; you can refine its scope and evidence before running anything.</p>
+            </div>
+            <div className="ai-agent-specialist-grid">
+              {HELLOTEST_AGENT_CATALOG.map((agent) => (
+                <article className="ai-agent-specialist-card" data-agent={agent.id} key={agent.id}>
+                  <header>
+                    <span className="ai-agent-specialist-card__icon">{agent.icon}</span>
+                    <span className="ai-agent-specialist-card__type">AI Specialist</span>
+                  </header>
+                  <div className="ai-agent-specialist-card__copy">
+                    <h3>{agent.name}</h3>
+                    <p>{agent.description}</p>
+                  </div>
+                  <div className="ai-agent-specialist-card__capabilities" aria-label={`${agent.name} capabilities`}>
+                    {agent.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
+                  </div>
+                  <footer>
+                    <small>Governed · review required</small>
+                    <button className="primary-button compact" onClick={() => openAgentWorkbench(agent)} type="button">
+                      <span>Get Started</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {!draft && !selectedRun && activeSurface === "workbench" ? (
         <>
           <section className="agent-workbench-hero" aria-labelledby="agent-workbench-title">
             <div className="agent-workbench-hero__head">
               <div>
+                <button className="agent-workbench-back-link" onClick={openAgentCatalog} type="button">← All AI Agents</button>
                 <span>Agent Workbench</span>
-                <h2 id="agent-workbench-title">Ask for insight or delegate quality work</h2>
-                <p>Choose Chat for a focused review or Agent for a multi-step, traceable task. HelloTest shows the context, specialist, guardrails, evaluation, and human decision boundary for every session.</p>
+                <h2 id="agent-workbench-title">Delegate to {selectedAssistantAgent.name}</h2>
+                <p>Define the task once, choose the evidence it may use, and review the grounded outcome when the specialist finishes.</p>
               </div>
               <div className="agent-workbench-hero__facts">
                 <span><strong>{HELLOTEST_AGENT_CATALOG.length}</strong> specialists</span>
@@ -1604,7 +1714,18 @@ export function AgenticWorkflowsPage() {
               integrationId={assistantIntegrationId}
               integrations={llmIntegrations}
               mode={assistantMode}
-              onAgentChange={setAssistantAgentId}
+              onAgentChange={(agentId) => {
+                const agent = HELLOTEST_AGENT_CATALOG.find((candidate) => candidate.id === agentId);
+                if (agent) {
+                  selectAssistantAgent(agent);
+                  setSearchParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.set("view", "workbench");
+                    next.set("agent", agent.id);
+                    return next;
+                  }, { replace: true });
+                }
+              }}
               onContextScopesChange={setAssistantContextScopes}
               onIntegrationChange={setAssistantIntegrationId}
               onModeChange={setAssistantMode}
@@ -1619,16 +1740,6 @@ export function AgenticWorkflowsPage() {
               status={assistantMutation.isPending ? "running" : assistantMutation.isError ? "failed" : activeAssistantResult ? "completed" : "idle"}
             />
           </section>
-
-          <section className="agent-workbench-specialists" aria-labelledby="agent-specialists-title">
-            <div className="agent-workbench-section-heading">
-              <div><span>Specialists</span><h2 id="agent-specialists-title">Every AI capability is a first-class agent</h2></div>
-              <p>Select any agent to load its mature starting prompt into the Workbench. The same agents can be composed below in visual workflows.</p>
-            </div>
-            <AgentCatalog activeAgentId={assistantAgentId} onSelect={selectAssistantAgent} />
-          </section>
-
-          <AgentWorkflowJourney />
 
           <section className="agent-workbench-evidence-grid" aria-label="Agent activity, outcome, and session history">
             <AgentActivityTimeline
@@ -1675,7 +1786,7 @@ export function AgenticWorkflowsPage() {
           </section>
         </>
       ) : null}
-      {!draft && !selectedRun ? (
+      {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? (
         <Panel
           className="agentic-workflows-panel"
           title={activeTab === "workflows" ? "Agentic workflow catalog" : "Workflow run history"}

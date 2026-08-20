@@ -662,14 +662,14 @@ async function executeQueuedJob(
 
 export function startQueueWorker(logger: Logger, telemetry?: OpsTelemetrySink) {
   if (!isQairaQueueConfigured()) {
-    logger.info("QAira queue pull mode is disabled because QAIRA_API_BASE_URL is not configured.");
+    logger.info("HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.");
     emitTelemetry(telemetry, {
       event_type: "testengine.queue.worker.disabled",
       status: "disabled",
-      summary: "QAira queue pull mode is disabled because QAIRA_API_BASE_URL is not configured.",
+      summary: "HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.",
       configuration: {
-        qaira_api_base_url_configured: Boolean(process.env.QAIRA_API_BASE_URL),
-        qaira_testengine_secret_configured: Boolean(process.env.QAIRA_TESTENGINE_SECRET || process.env.TESTENGINE_SHARED_SECRET)
+        qaira_api_base_url_configured: Boolean(process.env.HELLOTEST_API_BASE_URL || process.env.QAIRA_API_BASE_URL),
+        qaira_testengine_secret_configured: Boolean(process.env.HELLOTEST_TESTENGINE_SECRET || process.env.QAIRA_TESTENGINE_SECRET || process.env.TESTENGINE_SHARED_SECRET)
       }
     });
     return;

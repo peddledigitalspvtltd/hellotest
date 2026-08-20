@@ -144,7 +144,7 @@ function AnalyticsLayoutDialog({
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div aria-labelledby="analytics-layout-title" aria-modal="true" className="modal-card analytics-layout-modal" onClick={(event) => event.stopPropagation()} role="dialog">
         <div className="modal-card-head">
-          <div><span className="eyebrow">Personal view</span><h3 id="analytics-layout-title">Arrange analytics</h3><p>Reorder or hide sections for this project. This browser-only preference creates no Forge or Jira API traffic.</p></div>
+          <div><span className="eyebrow">Personal view</span><h3 id="analytics-layout-title">Arrange analytics</h3><p>Reorder or hide sections for this project. This browser-only preference creates no Forge or integration API traffic.</p></div>
           <DialogCloseButton label="Close analytics arrangement" onClick={onClose} />
         </div>
         <div className="analytics-layout-list">
@@ -788,7 +788,7 @@ function QualityAnalyticsDashboard() {
       severity: insight.severity,
       description: insight.explanation,
       action: insight.recommended_action,
-      meta: `${evidence.length} Jira record${evidence.length === 1 ? "" : "s"} in this signal`,
+      meta: `${evidence.length} work item${evidence.length === 1 ? "" : "s"} in this signal`,
       evidence: evidence.map((item) => item.display_id || item.id).filter(Boolean)
     }); }),
     [qualityInsightItems]
@@ -872,7 +872,7 @@ function QualityAnalyticsDashboard() {
       title: "Open quality risks",
       value: String(openRiskCount),
       verdict: releaseBlockerCount ? "Release-blocking evidence needs attention" : openRiskCount ? "Design and traceability debt remains" : "No dominant quality risk is visible",
-      explanation: "This is an action count across uncovered stories, incomplete test design, failed or blocked results, and failed runs. It is not a count of unique Jira issues.",
+      explanation: "This is an action count across uncovered stories, incomplete test design, failed or blocked results, and failed runs. It is not a count of unique work items.",
       calculation: `${coverageGapCount} coverage gaps + ${casesMissingStepsCount} design gaps + ${resultStatusCounts.failed} failed results + ${resultStatusCounts.blocked} blocked results + ${executionStatusCounts.failed} failed runs`,
       signals: [
         { label: "Coverage gaps", value: String(coverageGapCount), detail: "Tracked stories without linked cases.", tone: coverageGapCount ? "info" : "success" },
@@ -1004,7 +1004,7 @@ function QualityAnalyticsDashboard() {
         error={qualityInsightPreview.error instanceof Error ? qualityInsightPreview.error.message : null}
         eyebrow="Quality command center"
         findings={qualityInsightFindings}
-        gaps={qualityInsightEvidence.length ? [] : ["No Jira evidence reference was available for this preview."]}
+        gaps={qualityInsightEvidence.length ? [] : ["No delivery evidence reference was available for this preview."]}
         limitations={qualityInsightLimitations}
         loading={qualityInsightPreview.isPending}
         onClose={() => setIsQualityInsightPreviewOpen(false)}
@@ -1013,11 +1013,11 @@ function QualityAnalyticsDashboard() {
         response={qualityInsightPreview.data}
         signals={qualityInsightPreview.data ? [
           { label: "Portfolio rules", value: `${qualityInsightItems.length} signal${qualityInsightItems.length === 1 ? "" : "s"}`, tone: qualityInsightItems.some((insight) => insight.severity === "high") ? "warning" : "neutral" },
-          { label: "Jira evidence", value: `${qualityInsightEvidence.length} reference${qualityInsightEvidence.length === 1 ? "" : "s"}`, tone: qualityInsightEvidence.length ? "positive" : "warning" },
+          { label: "delivery evidence", value: `${qualityInsightEvidence.length} reference${qualityInsightEvidence.length === 1 ? "" : "s"}`, tone: qualityInsightEvidence.length ? "positive" : "warning" },
           { label: "Decision", value: "Human owned", tone: "warning" }
         ] : []}
-        subtitle={`Read-only, deterministic signals for ${selectedProject?.name || "the selected Jira project"}.`}
-        summary="Signals are derived from visible Jira issue fields, links, HelloTest properties, and execution results. They prioritize review work; they do not decide release readiness."
+        subtitle={`Read-only, deterministic signals for ${selectedProject?.name || "the selected project"}.`}
+        summary="Signals are derived from visible work item fields, links, HelloTest properties, and execution results. They prioritize review work; they do not decide release readiness."
         title="Explain quality signals"
       />
       <MetricEvidenceDialog evidence={selectedMetricEvidence} onClose={() => setSelectedMetricEvidence(null)} />
@@ -1059,7 +1059,7 @@ export function OverviewPage() {
             projectId={String(projectId)}
           />
         ) : (
-          <div className="empty-state compact">Select a Jira project to build a dashboard.</div>
+          <div className="empty-state compact">Select a project to build a dashboard.</div>
         )}
       </div>
     );

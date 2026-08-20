@@ -1,30 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { IconDatabase, IconSettings, IconX } from "@tabler/icons-react";
-import type { AiAuthoredTestCasePreview, AiDesignImageInput, Integration, Requirement, TestStep } from "../types";
-import { useDialogFocus } from "../hooks/useDialogFocus";
-import { normalizeStepParameterValues } from "../lib/stepParameters";
-import { AiPromptContextPanel } from "./AiPromptContextPanel";
-import { FormField } from "./FormField";
-import { RovoProviderStatus } from "./RovoProviderStatus";
-import { StoryAiDraftQueue, type StoryAiStudioDraft } from "./StoryAiStudioContent";
-import { StoryAiSettingsGroup, StoryAiStudioShell } from "./StoryAiStudioShell";
-import {
-  TestCaseAiStudioDraftInspector,
-  type TestCaseAiStudioDraft,
-  type TestCaseAiStudioStep
-} from "./TestCaseAiStudioContent";
-import { ToastMessage } from "./ToastMessage";
+import { useMemo } from "react";
+import type { AiAuthoredTestCasePreview, AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestStep } from "../types";
+import { AiDesignStudioModal, type AiDesignSourceCase } from "./AiDesignStudioModal";
+
+type AuthoringMode = "structured" | "gherkin";
 
 type SourceDraft = {
+  id?: string;
+  display_id?: string;
   title: string;
   description: string;
+  authoring_mode?: AuthoringMode;
+  gherkin_document?: string;
   parameter_values: Record<string, string>;
-  steps: Array<{
-    step_order: number;
-    step_type?: TestStep["step_type"];
-    action: string | null;
-    expected_result: string | null;
-  }>;
+  steps: Array<{ step_order: number; step_type?: TestStep["step_type"]; action: string | null; expected_result: string | null }>;
 };
 
 type AiCaseAuthoringModalProps = {
@@ -45,7 +33,7 @@ type AiCaseAuthoringModalProps = {
   onExternalLinksTextChange: (value: string) => void;
   onAddImages: (files: FileList | null) => void;
   onRemoveImage: (imageUrl: string) => void;
-  onGenerate: () => void;
+  onGenerate: (authoringMode: AuthoringMode) => void;
   onApply: () => void;
   onClose: () => void;
   onPreviewChange?: (preview: AiAuthoredTestCasePreview | null) => void;
@@ -58,337 +46,113 @@ type AiCaseAuthoringModalProps = {
   applyLabel: string;
   hasAutomationWarning: boolean;
   isCreating: boolean;
+  appTypeName?: string;
   promptTemplateProjectId?: string;
   promptTemplateAppTypeId?: string;
 };
 
-const CURRENT_DRAFT_ID = "current-test-case";
 const IMPROVED_DRAFT_ID = "improved-test-case";
 
-function sourceQueueDraft(sourceDraft: SourceDraft, isCreating: boolean): StoryAiStudioDraft {
+function toCandidate(preview: AiAuthoredTestCasePreview, requirement?: Requirement | null): AiDesignedTestCaseCandidate {
   return {
-    id: CURRENT_DRAFT_ID,
-    displayId: isCreating ? "NEW CASE" : "CURRENT CASE",
-    title: sourceDraft.title.trim() || (isCreating ? "New test case draft" : "Current test case"),
-    description: sourceDraft.description,
-    estimateLabel: `${sourceDraft.steps.length} Step${sourceDraft.steps.length === 1 ? "" : "s"}`,
-    confidenceLabel: "Existing context",
-    generated: false,
-    priority: 3
-  };
-}
-
-function previewQueueDraft(preview: AiAuthoredTestCasePreview): StoryAiStudioDraft {
-  return {
-    id: IMPROVED_DRAFT_ID,
-    sequence: 1,
+    client_id: IMPROVED_DRAFT_ID,
     title: preview.title,
-    description: preview.description || "",
-    estimateLabel: `${preview.step_count} Step${preview.step_count === 1 ? "" : "s"}`,
-    confidenceLabel: `${preview.parameter_count} Data value${preview.parameter_count === 1 ? "" : "s"}`,
-    generated: true,
-    priority: 3
-  };
-}
-
-function sourceInspectorDraft(sourceDraft: SourceDraft, isCreating: boolean, requirement?: Requirement | null): TestCaseAiStudioDraft {
-  return {
-    id: CURRENT_DRAFT_ID,
-    displayId: isCreating ? "NEW CASE" : "CURRENT CASE",
-    generated: false,
-    title: sourceDraft.title.trim() || (isCreating ? "New test case draft" : "Current test case"),
-    description: sourceDraft.description,
+    description: preview.description,
     priority: 3,
-    status: isCreating ? "Unsaved draft" : "Saved case",
-    requirementIds: requirement ? [requirement.id] : [],
-    requirementTitles: requirement ? [requirement.title] : [],
-    parameterValues: sourceDraft.parameter_values,
-    steps: sourceDraft.steps.map((step) => ({
-      stepOrder: step.step_order,
-      stepType: step.step_type,
-      action: step.action || "",
-      expectedResult: step.expected_result || ""
-    }))
+    authoring_mode: preview.authoring_mode || "structured",
+    gherkin_document: preview.gherkin_document,
+    parameter_values: preview.parameter_values,
+    parameter_count: preview.parameter_count,
+    requirement_ids: requirement ? [requirement.id] : [],
+    requirement_titles: requirement ? [requirement.title] : [],
+    steps: preview.steps,
+    step_count: preview.step_count
   };
 }
 
-function previewInspectorDraft(preview: AiAuthoredTestCasePreview, requirement?: Requirement | null): TestCaseAiStudioDraft {
+function fromCandidate(candidate: AiDesignedTestCaseCandidate, current: AiAuthoredTestCasePreview): AiAuthoredTestCasePreview {
   return {
-    id: IMPROVED_DRAFT_ID,
-    sequence: 1,
-    generated: true,
-    title: preview.title,
-    description: preview.description || "",
-    summary: preview.summary || "AI improved this test case using the selected Story and the current authored context.",
-    priority: 3,
-    status: "Review draft",
-    requirementIds: requirement ? [requirement.id] : [],
-    requirementTitles: requirement ? [requirement.title] : [],
-    parameterValues: normalizeStepParameterValues(preview.parameter_values || {}, "t"),
-    steps: preview.steps.map((step) => ({
-      stepOrder: step.step_order,
-      stepType: step.step_type,
-      action: step.action || "",
-      expectedResult: step.expected_result || ""
-    }))
+    ...current,
+    title: candidate.title,
+    description: candidate.description,
+    authoring_mode: candidate.authoring_mode || "structured",
+    gherkin_document: candidate.gherkin_document || "",
+    parameter_values: candidate.parameter_values || {},
+    parameter_count: Object.keys(candidate.parameter_values || {}).length,
+    steps: candidate.steps,
+    step_count: candidate.steps.length
   };
 }
 
-export function AiCaseAuthoringModal({
-  requirementId,
-  requirements,
-  integrationId,
-  integrations,
-  additionalContext,
-  externalLinksText,
-  referenceImages,
-  sourceDraft,
-  preview,
-  previewMessage,
-  previewTone,
-  onRequirementChange,
-  onIntegrationIdChange,
-  onAdditionalContextChange,
-  onExternalLinksTextChange,
-  onAddImages,
-  onRemoveImage,
-  onGenerate,
-  onApply,
-  onClose,
-  onPreviewChange,
-  onPreviewMessageDismiss,
-  isPreviewing,
-  isApplying,
-  closeDisabled,
-  disableGenerate,
-  disableApply,
-  applyLabel,
-  hasAutomationWarning,
-  isCreating,
-  promptTemplateProjectId,
-  promptTemplateAppTypeId
-}: AiCaseAuthoringModalProps) {
-  const [activeDraftId, setActiveDraftId] = useState(preview ? IMPROVED_DRAFT_ID : CURRENT_DRAFT_ID);
-  const [isContextBusy, setIsContextBusy] = useState(false);
-  const [isIntegrationWarningDismissed, setIsIntegrationWarningDismissed] = useState(false);
-  const [isAutomationWarningDismissed, setIsAutomationWarningDismissed] = useState(false);
-  const effectiveCloseDisabled = closeDisabled || isContextBusy;
-  const isBusy = isPreviewing || isApplying || isContextBusy;
-  const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: effectiveCloseDisabled, onClose });
+export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
+  const {
+    requirementId, requirements, integrationId, integrations, additionalContext, externalLinksText, referenceImages,
+    sourceDraft, preview, previewMessage, previewTone, onRequirementChange, onIntegrationIdChange,
+    onAdditionalContextChange, onExternalLinksTextChange, onAddImages, onRemoveImage, onGenerate, onApply, onClose,
+    onPreviewChange, onPreviewMessageDismiss, isPreviewing, isApplying, closeDisabled, disableGenerate, disableApply,
+    applyLabel, hasAutomationWarning, isCreating, appTypeName = "Current application", promptTemplateProjectId, promptTemplateAppTypeId
+  } = props;
   const selectedRequirement = requirements.find((requirement) => requirement.id === requirementId) || null;
-  const sourceCaseLabel = sourceDraft.title.trim() || (isCreating ? "New test case draft" : "Current test case");
-  const integrationWarning = !integrations.length
-    ? "No active direct LLM integrations are available. Configure a model provider before generating this test case; Rovo remains a separate review conversation."
-    : "";
-  const automationWarning = hasAutomationWarning && !isCreating
+  const previewCases = useMemo(() => preview ? [toCandidate(preview, selectedRequirement)] : [], [preview, selectedRequirement]);
+  const sourceCase = useMemo<AiDesignSourceCase>(() => ({
+    id: sourceDraft.id,
+    displayId: sourceDraft.display_id,
+    title: sourceDraft.title,
+    description: sourceDraft.description,
+    authoringMode: sourceDraft.authoring_mode || "structured",
+    gherkinDocument: sourceDraft.gherkin_document,
+    parameterValues: sourceDraft.parameter_values,
+    steps: sourceDraft.steps
+  }), [sourceDraft]);
+  const warning = hasAutomationWarning && !isCreating
     ? "Applying this proposal replaces the saved step set, including existing automation code or API request setup."
     : "";
-  const toasterMessage = previewMessage
-    || (!isIntegrationWarningDismissed ? integrationWarning : "")
-    || (!isAutomationWarningDismissed ? automationWarning : "");
-  const queueDrafts = useMemo(
-    () => [sourceQueueDraft(sourceDraft, isCreating), ...(preview ? [previewQueueDraft(preview)] : [])],
-    [isCreating, preview, sourceDraft]
-  );
-  const activeDraft = activeDraftId === IMPROVED_DRAFT_ID && preview
-    ? previewInspectorDraft(preview, selectedRequirement)
-    : sourceInspectorDraft(sourceDraft, isCreating, selectedRequirement);
-  const isGeneratedActive = activeDraftId === IMPROVED_DRAFT_ID && Boolean(preview);
 
-  useEffect(() => {
-    setIsIntegrationWarningDismissed(false);
-  }, [integrations.length]);
-
-  useEffect(() => {
-    setIsAutomationWarningDismissed(false);
-  }, [hasAutomationWarning, isCreating]);
-
-  useEffect(() => {
-    if (preview) setActiveDraftId(IMPROVED_DRAFT_ID);
-    else setActiveDraftId(CURRENT_DRAFT_ID);
-  }, [preview]);
-
-  const updatePreview = (changes: Partial<AiAuthoredTestCasePreview>) => {
-    if (!preview || !onPreviewChange) return;
-    onPreviewChange({ ...preview, ...changes });
-  };
-  const updatePreviewSteps = (steps: TestCaseAiStudioStep[]) => updatePreview({
-    steps: steps.map((step, index) => ({
-      step_order: index + 1,
-      step_type: step.stepType || "web",
-      action: step.action || null,
-      expected_result: step.expectedResult || null
-    })),
-    step_count: steps.length
-  });
-  const previewHasInvalidTitle = Boolean(preview && (!preview.title.trim() || preview.title.length > 255));
-  const dismissToast = () => {
-    if (previewMessage) {
-      onPreviewMessageDismiss();
-      return;
-    }
-    if (integrationWarning && !isIntegrationWarningDismissed) {
-      setIsIntegrationWarningDismissed(true);
-      return;
-    }
-    setIsAutomationWarningDismissed(true);
-  };
-
-  const settingsPane = (
-    <div className="test-case-studio-settings">
-      <StoryAiSettingsGroup
-        defaultOpen={!selectedRequirement}
-        description={selectedRequirement ? "1 linked Story · governed provider" : "Choose a linked Story"}
-        icon={<IconSettings aria-hidden="true" size={17} stroke={1.9} />}
-        title="Improvement setup"
-      >
-        <FormField label="Story">
-          <select data-autofocus="true" disabled={isBusy} onChange={(event) => onRequirementChange(event.target.value)} value={requirementId}>
-            <option value="">Select a Story</option>
-            {requirements.map((requirement) => <option key={requirement.id} value={requirement.id}>{requirement.title}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Direct LLM provider">
-          <select disabled={isBusy} onChange={(event) => onIntegrationIdChange(event.target.value)} value={integrationId}>
-            <option value="">Configured provider</option>
-            {integrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name}</option>)}
-          </select>
-        </FormField>
-        <RovoProviderStatus
-          className="test-case-studio-rovo-provider"
-          compact
-          prompt={[
-            "Review this test case in the Jira-native HelloTest QA Agent. This is a Rovo conversation, not direct draft generation, and must not change the saved case.",
-            `Test case: ${sourceCaseLabel}.`,
-            selectedRequirement ? `Linked Story: ${selectedRequirement.title}.` : "No linked Story is selected yet."
-          ].join(" ").slice(0, 3_800)}
-        />
-        <div className="test-case-studio-scope-note"><strong>{sourceCaseLabel}</strong><span>{selectedRequirement ? `Linked to ${selectedRequirement.title}` : "Choose the Jira Story this Test Case must satisfy."}</span></div>
-      </StoryAiSettingsGroup>
-      <StoryAiSettingsGroup
-        defaultOpen={Boolean(selectedRequirement)}
-        description={`${referenceImages.length} image${referenceImages.length === 1 ? "" : "s"} · ${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length} link${externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length === 1 ? "" : "s"}`}
-        icon={<IconDatabase aria-hidden="true" size={17} stroke={1.9} />}
-        title="Context sources"
-      >
-        <AiPromptContextPanel
-          additionalContext={additionalContext}
-          appTypeId={promptTemplateAppTypeId}
-          disabled={isBusy}
-          externalLinksText={externalLinksText}
-          onAddImages={onAddImages}
-          onAdditionalContextChange={onAdditionalContextChange}
-          onBusyChange={setIsContextBusy}
-          onExternalLinksTextChange={onExternalLinksTextChange}
-          onRemoveImage={onRemoveImage}
-          promptScope="test_case_steps"
-          projectId={promptTemplateProjectId}
-          referenceImages={referenceImages}
-          referenceUploadPresentation="dropzone"
-          requirements={selectedRequirement ? [selectedRequirement] : []}
-          showPromptEditor={false}
-        />
-      </StoryAiSettingsGroup>
-    </div>
-  );
-
-  return (
-    <div className="modal-backdrop test-case-ai-studio-backdrop" onClick={() => !effectiveCloseDisabled && onClose()} role="presentation">
-      <div
-        aria-describedby="ai-case-authoring-description"
-        aria-labelledby="ai-case-authoring-title"
-        aria-modal="true"
-        className="modal-card test-case-ai-studio-modal test-case-ai-improve-modal"
-        onClick={(event) => event.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <StoryAiStudioShell
-          agentName="Test Design Agent"
-          agentStatus={isPreviewing ? "running" : preview ? "completed" : previewTone === "error" && previewMessage ? "failed" : "idle"}
-          contextLabel={`${selectedRequirement ? "1 Story" : "No Story"} · ${referenceImages.length} visual reference${referenceImages.length === 1 ? "" : "s"}`}
-          closeDisabled={effectiveCloseDisabled}
-          commandBar={preview ? (
-            <>
-              <div className="test-case-studio-command-secondary">
-                {preview && onPreviewChange ? (
-                  <button disabled={isBusy} onClick={() => onPreviewChange(null)} type="button"><IconX size={16} stroke={1.9} />Decline proposal</button>
-                ) : null}
-              </div>
-              <button
-                className="test-case-studio-accept"
-                disabled={disableApply || !isGeneratedActive || previewHasInvalidTitle || isBusy}
-                onClick={onApply}
-                type="button"
-              >
-                {isApplying ? "Applying…" : isGeneratedActive ? applyLabel : "Review the AI proposal to apply"}
-              </button>
-            </>
-          ) : null}
-          descriptionId="ai-case-authoring-description"
-          entityLabel="Test Case"
-          inspectorAriaLabel="Current and improved test case inspector"
-          inspectorContent={(
-            <TestCaseAiStudioDraftInspector
-              draft={activeDraft}
-              editable={isGeneratedActive && Boolean(onPreviewChange) && !isBusy}
-              onDescriptionChange={(value) => updatePreview({ description: value })}
-              onStepChange={(index, next) => updatePreviewSteps(activeDraft.steps.map((step, itemIndex) => itemIndex === index ? next : step))}
-              onStepsChange={updatePreviewSteps}
-              onTitleChange={(value) => updatePreview({ title: value })}
-              requirements={selectedRequirement ? [{ id: selectedRequirement.id, title: selectedRequirement.title }] : []}
-              statusContent={toasterMessage ? <ToastMessage message={toasterMessage} onDismiss={dismissToast} tone={previewMessage ? previewTone : "error"} /> : null}
-            />
-          )}
-          mode="improve"
-          mission={additionalContext}
-          missionPlaceholder="Ask for stronger boundaries, clearer expected results, reusable steps, data coverage, or automation readiness."
-          onIntegrationChange={onIntegrationIdChange}
-          onMissionChange={onAdditionalContextChange}
-          onClose={onClose}
-          onPrimaryGenerate={onGenerate}
-          outputLabel="Editable Test Case completion proposal"
-          approvalLabel="Review the generated version before replacing saved fields"
-          primaryGenerateDisabled={disableGenerate || isBusy}
-          primaryGenerateLabel={isPreviewing ? "Improving test case…" : preview ? "Regenerate proposal" : "Improve test case"}
-          integrationId={integrationId}
-          integrations={integrations}
-          stageEvidence={{
-            intake: additionalContext.trim() ? "The requested improvements define the review boundary." : "The agent will focus on clarity, reusable steps, assertions, data coverage, and automation readiness.",
-            context: `${selectedRequirement ? "The linked Story" : "The current Test Case"}, current reusable steps, ${referenceImages.length} image${referenceImages.length === 1 ? "" : "s"}, and supplied project evidence are bounded to this review.`,
-            guardrails: "The saved Test Case is never replaced during generation; unsupported context is treated as untrusted evidence.",
-            specialist: "Test Design Agent is challenging step clarity, expected results, coverage boundaries, reuse, and automation readiness.",
-            outcome: "The improved Test Case remains an editable proposal beside the current version.",
-            evaluation: "The proposal is checked for title validity, traceability, reusable steps, and review readiness.",
-            review: "The generated version must be selected and explicitly applied before the saved Test Case changes."
-          }}
-          queueAriaLabel="Current and improved test case queue"
-          queuePane={(
-            <StoryAiDraftQueue
-              activeDraftId={activeDraftId}
-              allowSelection={!isBusy}
-              drafts={queueDrafts}
-              emptyMessage="The current Test Case remains available while the improved proposal is generated."
-              isDraftSelectable={(draft) => draft.id === IMPROVED_DRAFT_ID}
-              itemNoun="version"
-              onActivateDraft={setActiveDraftId}
-              onClearSelection={() => setActiveDraftId(CURRENT_DRAFT_ID)}
-              onSelectAll={(selected) => setActiveDraftId(selected && preview ? IMPROVED_DRAFT_ID : CURRENT_DRAFT_ID)}
-              onToggleDraft={(_, selected) => setActiveDraftId(selected ? IMPROVED_DRAFT_ID : CURRENT_DRAFT_ID)}
-              queueTitle="Review Queue"
-              selectAllLabel="Select proposal"
-              selectedDraftIds={isGeneratedActive ? [IMPROVED_DRAFT_ID] : []}
-            />
-          )}
-          settingsAriaLabel="Test case improvement settings"
-          settingsPane={settingsPane}
-          showIncludeGherkin={false}
-          studioDescription="Use the current reusable Test Case and its Jira Story context to produce a reviewable improvement without silently replacing saved content."
-          studioTitle={isCreating ? "AI Draft Test Case" : "AI Improve Test Case"}
-          titleId="ai-case-authoring-title"
-        />
-      </div>
-    </div>
-  );
+  return <AiDesignStudioModal
+    acceptLabel={applyLabel}
+    additionalContext={additionalContext}
+    allowMultipleRequirements={false}
+    appTypeName={appTypeName}
+    closeDisabled={closeDisabled}
+    dialogClassName="ai-test-case-improve-generator ai-feature-dialog"
+    disableAccept={disableApply}
+    disablePreview={disableGenerate}
+    existingCases={[]}
+    existingCasesSubtitle=""
+    existingCasesTitle=""
+    externalLinksText={externalLinksText}
+    eyebrow="AI Improvement"
+    integrationId={integrationId}
+    integrations={integrations}
+    isAccepting={isApplying}
+    isPreviewing={isPreviewing}
+    maxCases={1}
+    onAccept={() => onApply()}
+    onAddImages={onAddImages}
+    onAdditionalContextChange={onAdditionalContextChange}
+    onAuthoringModeChange={() => onPreviewChange?.(null)}
+    onClose={onClose}
+    onExternalLinksTextChange={onExternalLinksTextChange}
+    onIntegrationIdChange={onIntegrationIdChange}
+    onMaxCasesChange={() => undefined}
+    onPreview={onGenerate}
+    onPreviewCaseChange={(_, candidate) => { if (preview) onPreviewChange?.(fromCandidate(candidate, preview)); }}
+    onPreviewMessageDismiss={onPreviewMessageDismiss}
+    onRemoveImage={onRemoveImage}
+    onRemovePreviewCase={() => onPreviewChange?.(null)}
+    onRequirementSelectionChange={(ids) => onRequirementChange(ids[0] || "")}
+    previewCases={previewCases}
+    previewMessage={previewMessage || warning}
+    previewTone={previewMessage ? previewTone : "error"}
+    promptTemplateAppTypeId={promptTemplateAppTypeId}
+    promptTemplateProjectId={promptTemplateProjectId}
+    referenceImages={referenceImages}
+    requirementHelpText="Choose the Story this existing Test Case must continue to satisfy."
+    requirementLabel="Story"
+    requirements={requirements}
+    selectedRequirementIds={requirementId ? [requirementId] : []}
+    sourceCase={sourceCase}
+    studioDescription="Improve the current Test Case using the same structured or Gherkin generation workbench, then explicitly apply the reviewed proposal."
+    studioTitle={isCreating ? "AI Draft Test Case" : "AI Improve Test Case"}
+  />;
 }

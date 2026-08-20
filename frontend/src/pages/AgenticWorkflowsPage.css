@@ -22,6 +22,268 @@
   line-height: 1.42;
 }
 
+.ai-agent-catalog-page,
+.ai-agent-specialist-catalog {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.ai-agent-marketing-banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.6fr);
+  align-items: center;
+  min-height: 270px;
+  overflow: hidden;
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid rgba(119, 174, 255, 0.28);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(116, 192, 252, 0.24), transparent 28%),
+    radial-gradient(circle at 92% 84%, rgba(139, 92, 246, 0.3), transparent 32%),
+    linear-gradient(125deg, #081d42 0%, #0b3a78 52%, #172554 100%);
+  box-shadow: 0 18px 50px rgba(7, 31, 70, 0.2);
+  color: #fff;
+}
+
+.ai-agent-marketing-banner::before {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(90deg, transparent, #000 62%);
+  content: "";
+  pointer-events: none;
+}
+
+.ai-agent-marketing-banner__copy {
+  z-index: 1;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.ai-agent-marketing-banner__copy > span:first-child {
+  padding: 5px 9px;
+  border: 1px solid rgba(191, 219, 254, 0.32);
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.1);
+  color: #bfdbfe;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ai-agent-marketing-banner h2 {
+  max-width: 680px;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2rem, 4.2vw, 3.65rem);
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.ai-agent-marketing-banner p {
+  max-width: 660px;
+  margin: 0;
+  color: #dbeafe;
+  font-size: clamp(0.92rem, 1.45vw, 1.12rem);
+  line-height: 1.55;
+}
+
+.ai-agent-marketing-banner__assurance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.ai-agent-marketing-banner__assurance span {
+  padding: 6px 9px;
+  border: 1px solid rgba(219, 234, 254, 0.2);
+  border-radius: 7px;
+  background: rgba(8, 29, 66, 0.3);
+  color: #dbeafe;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.ai-agent-marketing-banner__visual {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: min(250px, 24vw);
+  min-width: 210px;
+  aspect-ratio: 1;
+}
+
+.ai-agent-orbit,
+.ai-agent-core,
+.ai-agent-pulse {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.ai-agent-orbit {
+  inset: 5%;
+  border: 1px solid rgba(191, 219, 254, 0.24);
+  box-shadow: inset 0 0 30px rgba(96, 165, 250, 0.06);
+}
+
+.ai-agent-orbit--inner {
+  inset: 24%;
+  border-style: dashed;
+  border-color: rgba(196, 181, 253, 0.46);
+}
+
+.ai-agent-core {
+  inset: 37%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #60a5fa, #8b5cf6);
+  box-shadow: 0 0 42px rgba(96, 165, 250, 0.62);
+}
+
+.ai-agent-pulse {
+  width: 13px;
+  height: 13px;
+  border: 3px solid rgba(8, 29, 66, 0.85);
+  background: #93c5fd;
+  box-shadow: 0 0 18px rgba(147, 197, 253, 0.9);
+}
+
+.ai-agent-pulse--one { top: 10%; left: 48%; }
+.ai-agent-pulse--two { right: 12%; bottom: 28%; background: #c4b5fd; }
+.ai-agent-pulse--three { bottom: 16%; left: 20%; background: #67e8f9; }
+
+.ai-agent-specialist-catalog {
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid var(--line, #dcdfe4);
+  border-radius: 14px;
+  background: var(--panel-strong, #fff);
+}
+
+.ai-agent-specialist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 12px;
+}
+
+.ai-agent-specialist-card {
+  display: grid;
+  grid-template-rows: auto minmax(94px, auto) auto auto;
+  gap: 13px;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid var(--line, #dcdfe4);
+  border-radius: 12px;
+  background: var(--panel-strong, #fff);
+  box-shadow: 0 4px 14px rgba(9, 30, 66, 0.04);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.ai-agent-specialist-card:hover {
+  border-color: #579dff;
+  box-shadow: 0 12px 28px rgba(9, 30, 66, 0.1);
+  transform: translateY(-2px);
+}
+
+.ai-agent-specialist-card > header,
+.ai-agent-specialist-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-agent-specialist-card__icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #e9f2ff, #f1eaff);
+  color: #0c66e4;
+}
+
+.ai-agent-specialist-card__icon svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.9;
+}
+
+.ai-agent-specialist-card__type {
+  color: #0c66e4;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-agent-specialist-card__copy {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.ai-agent-specialist-card h3 {
+  margin: 0;
+  color: var(--text-primary, #172b4d);
+  font-size: 0.98rem;
+}
+
+.ai-agent-specialist-card p {
+  margin: 0;
+  color: var(--text-secondary, #626f86);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.ai-agent-specialist-card__capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-agent-specialist-card__capabilities span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--panel, #f1f2f4);
+  color: var(--text-secondary, #626f86);
+  font-size: 0.63rem;
+  font-weight: 700;
+}
+
+.ai-agent-specialist-card > footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #dcdfe4);
+}
+
+.ai-agent-specialist-card > footer small {
+  color: var(--text-secondary, #626f86);
+  font-size: 0.62rem;
+}
+
+.agent-workbench-back-link {
+  justify-self: start;
+  margin: 0 0 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0c66e4;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.agent-workbench-back-link:hover { text-decoration: underline; }
+
 .agent-workbench-hero,
 .agent-workbench-specialists {
   display: grid;
@@ -252,6 +514,7 @@
 
 :root[data-theme="dark"] .agent-workbench-hero__facts span { background: rgba(29, 33, 37, 0.78); }
 :root[data-theme="dark"] .agent-workbench-awaiting > span { background: rgba(12, 102, 228, 0.16); }
+:root[data-theme="dark"] .ai-agent-specialist-card__icon { background: linear-gradient(145deg, rgba(12, 102, 228, 0.18), rgba(139, 92, 246, 0.16)); }
 
 @media (max-width: 1240px) {
   .agent-workbench-evidence-grid { grid-template-columns: minmax(260px, 0.8fr) minmax(380px, 1.2fr); }
@@ -261,6 +524,8 @@
 }
 
 @media (max-width: 900px) {
+  .ai-agent-marketing-banner { grid-template-columns: minmax(0, 1fr); }
+  .ai-agent-marketing-banner__visual { display: none; }
   .agent-workbench-hero__head,
   .agent-workbench-section-heading { display: grid; }
   .agent-workbench-section-heading > p { max-width: none; padding-top: 0; }
@@ -271,9 +536,19 @@
 }
 
 @media (max-width: 620px) {
+  .ai-agent-marketing-banner { min-height: 0; padding: 24px 19px; border-radius: 13px; }
+  .ai-agent-marketing-banner h2 { font-size: clamp(1.85rem, 11vw, 2.6rem); }
+  .ai-agent-specialist-catalog { padding: 14px; }
+  .ai-agent-specialist-card { grid-template-rows: auto auto auto auto; }
+  .ai-agent-specialist-card > footer { align-items: stretch; flex-direction: column; }
+  .ai-agent-specialist-card > footer button { justify-content: center; width: 100%; }
   .agent-workbench-hero,
   .agent-workbench-specialists { padding: 14px; }
   .agent-workbench-hero .agent-process-rail { margin: 0 -14px; }
   .agent-workbench-hero__facts span { flex: 1 1 80px; }
   .agent-workbench-outcome-actions { align-items: stretch; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-agent-specialist-card { transition: none; }
 }

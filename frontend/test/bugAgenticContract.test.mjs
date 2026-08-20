@@ -97,3 +97,20 @@ test("Bug authoring controls expose checkbox semantics, stable pane focus, contr
   assert.match(issueStyles, /:root\[data-theme="dark"\] \.ai-bug-evidence-sources article > span \{\s*color: #85b8ff;/);
   assert.match(modalStyles, /\.ai-authoring-dialog--bugs \.ai-bug-draft-footer \{\s*padding-bottom: max\(10px, env\(safe-area-inset-bottom\)\) !important;/);
 });
+
+test("Bug creation is project scoped and AI review can yield space to findings", async () => {
+  const [issues, insightDialog, insightStyles] = await Promise.all([
+    readSource("../src/pages/IssuesPage.tsx"),
+    readSource("../src/components/AiInsightPreviewDialog.tsx"),
+    readSource("../src/components/AiInsightPreviewDialog.css")
+  ]);
+
+  assert.match(issues, /const buildIssuePayload = \(draft: IssueDraft, userId: string, projectId: string\) => \(\{\s*project_id: projectId,/);
+  assert.match(issues, /buildIssuePayload\(draft, session\.user\.id, projectId\)/);
+  assert.match(issues, /value=\{selectedItem\.display_id \|\| selectedItem\.jira_bug_key \|\| selectedItem\.id\}/);
+  assert.match(issues, /closedIssueIdRef\.current = selectedIssueId/);
+  assert.match(issues, /closedIssueIdRef\.current === requestedIssueId/);
+  assert.match(insightDialog, /isFlowPaneCollapsed/);
+  assert.match(insightDialog, /Collapse AI process and provenance/);
+  assert.match(insightStyles, /\.ai-insight-preview-dialog\.is-flow-pane-collapsed \.ai-insight-preview-workbench/);
+});

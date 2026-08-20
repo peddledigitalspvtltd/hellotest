@@ -9,18 +9,13 @@ module.exports = async function (fastify) {
     return error;
   };
 
-  fastify.post("/users", async (req) => {
+  fastify.post("/users", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
-      password: { required: false, type: "string", minLength: 6 },
-      password_hash: { required: false, type: "string", minLength: 3 },
+      password: { required: true, type: "string", minLength: 6, maxLength: 128 },
       name: { required: false, type: "string" },
       role_id: { required: true, type: "string" }
     }, req.body);
-
-    if (!req.body.password && !req.body.password_hash) {
-      throw createError("Password is required", 400);
-    }
 
     return service.createUser(req.body);
   });
@@ -54,8 +49,7 @@ module.exports = async function (fastify) {
   fastify.put("/users/:id", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       email: { required: false, type: "string", minLength: 3 },
-      password: { required: false, type: "string", minLength: 6 },
-      password_hash: { required: false, type: "string", minLength: 3 },
+      password: { required: false, type: "string", minLength: 6, maxLength: 128 },
       name: { required: false, type: "string" },
       role_id: { required: false, type: "string" },
       avatar_data_url: { required: false, type: "string" }
@@ -68,7 +62,7 @@ module.exports = async function (fastify) {
       throw createError("You can only update your own profile.", 403);
     }
 
-    if (!isPrivilegedUserManager && (req.body?.role_id !== undefined || req.body?.password_hash !== undefined || req.body?.password !== undefined)) {
+    if (!isPrivilegedUserManager && (req.body?.role_id !== undefined || req.body?.password !== undefined)) {
       throw createError("Permission required: user.manage", 403);
     }
 
@@ -78,7 +72,7 @@ module.exports = async function (fastify) {
   fastify.put("/users/:id/password", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       current_password: { required: true, type: "string", minLength: 1 },
-      new_password: { required: true, type: "string", minLength: 6 }
+      new_password: { required: true, type: "string", minLength: 6, maxLength: 128 }
     }, req.body);
 
     if (req.user?.id !== req.params.id) {
@@ -92,7 +86,11 @@ module.exports = async function (fastify) {
     });
   });
 
-  fastify.delete("/users/:id", async (req) => {
+  fastify.delete("/users/:id", { preHandler: [fastify.authenticate] }, async (req) => {
+    if (req.user?.id === req.params.id) {
+      throw createError("You cannot delete your own signed-in account.", 400);
+    }
+
     return service.deleteUser(req.params.id);
   });
 };

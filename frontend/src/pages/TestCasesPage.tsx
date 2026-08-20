@@ -51,6 +51,9 @@ import {
 import { SharedStepsIcon as SharedStepsIconGraphic } from "../components/SharedStepsIcon";
 import { StatusBadge } from "../components/StatusBadge";
 import {
+  TileCardCaseIcon,
+  TileCardFact,
+  TileCardIconFrame,
   TileCardSuiteIcon,
   TileCardStepsIcon,
   formatTileCardLabel
@@ -1765,7 +1768,7 @@ export function TestCasesPage() {
 	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const [projectId] = useCurrentProject();
+  const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const ensureTestCaseDetail = (testCaseId: string) => queryClient.fetchQuery<TestCase>({
     queryKey: testCaseDetailQueryKey(projectId, testCaseId),
@@ -1854,10 +1857,6 @@ export function TestCasesPage() {
   const defaultTestCaseStatus = domainMetadataQuery.data?.test_cases?.default_status || "active";
   const defaultTestCaseAutomated = (domainMetadataQuery.data?.test_cases?.default_automated || "no") as "yes" | "no";
   const testCaseStatusOptions = domainMetadataQuery.data?.test_cases?.statuses || [];
-  const testCaseAutomatedOptions = domainMetadataQuery.data?.test_cases?.automated_options || [
-    { value: "no", label: "No" },
-    { value: "yes", label: "Yes" }
-  ];
   const emptyCaseDraft = useMemo(
     () => createEmptyCaseDraft(defaultTestCaseStatus, defaultTestCaseAutomated),
     [defaultTestCaseAutomated, defaultTestCaseStatus]
@@ -2296,20 +2295,6 @@ export function TestCasesPage() {
         test_data_set_id: selectedExecutionDataSetId || undefined
       })
   });
-  const analyzeAutomationGaps = useMutation({
-    mutationFn: async ({ testCaseId }: { testCaseId: string }) =>
-      api.testCases.buildAutomation(testCaseId, {
-        integration_id: integrationId || undefined,
-        start_url: automationStartUrl.trim() || undefined,
-        additional_context: [
-          automationContext.trim(),
-          getPrompt("ai.automation.gap_analysis")
-        ].filter(Boolean).join("\n\n"),
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined
-      })
-  });
   const buildBatchAutomation = useMutation({
     mutationFn: ({ testCaseIds, aiRequested = false }: { testCaseIds: string[]; aiRequested?: boolean }) =>
       api.testCases.buildAutomationBatch({
@@ -2589,12 +2574,16 @@ export function TestCasesPage() {
       return;
     }
 
+    if (projects.some((project) => String(project.id) === requestedProjectId) && requestedProjectId !== projectId) {
+      setProjectId(requestedProjectId);
+    }
+
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.delete("project");
       return next;
     }, { replace: true });
-  }, [projectsQuery.isPending, searchParams, setSearchParams]);
+  }, [projectId, projects, projectsQuery.isPending, searchParams, setProjectId, setSearchParams]);
 
   useEffect(() => {
     const requestedAppTypeId = searchParams.get("appType");
@@ -3214,10 +3203,6 @@ export function TestCasesPage() {
     },
     [selectedActionTestCaseIds, testCases]
   );
-  const selectedManualAutomationCases = useMemo(
-    () => selectedActionCases.filter((item) => item.automated !== "yes"),
-    [selectedActionCases]
-  );
   const selectedPendingGeneratedCases = useMemo(
     () => selectedActionCases.filter((item) => item.ai_generation_source === "scheduler" && item.ai_generation_review_status === "pending"),
     [selectedActionCases]
@@ -3313,8 +3298,12 @@ export function TestCasesPage() {
   );
   const aiCaseAuthoringSourceDraft = useMemo(
     () => ({
+      id: selectedTestCase?.id,
+      display_id: selectedTestCase?.display_id || undefined,
       title: caseDraft.title,
       description: caseDraft.description,
+      authoring_mode: caseDraft.authoring_mode,
+      gherkin_document: caseDraft.gherkin_document,
       parameter_values: testCaseParameterValues,
       steps: displaySteps.map((step) => ({
         step_order: step.step_order,
@@ -3323,7 +3312,7 @@ export function TestCasesPage() {
         expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result
       }))
     }),
-    [caseDraft.description, caseDraft.title, displaySteps, stepDrafts, testCaseParameterValues]
+    [caseDraft.authoring_mode, caseDraft.description, caseDraft.gherkin_document, caseDraft.title, displaySteps, selectedTestCase?.display_id, selectedTestCase?.id, stepDrafts, testCaseParameterValues]
   );
   const aiCaseAuthoringAutomationStepCount = useMemo(
     () => canViewAutomationCode
@@ -5265,29 +5254,6 @@ export function TestCasesPage() {
     }
   };
 
-	  const handleScheduleSelectedManualAutomation = async () => {
-	    if (!canBuildAutomation || !canUseAutomationAi) {
-	      showError(new Error(`Permission required: ${!canBuildAutomation ? "automation.build" : "automation.ai"}`), "Unable to schedule AI automation");
-	      return;
-	    }
-
-	    if (!appTypeId || !selectedManualAutomationCases.length) {
-	      showError(new Error("Select one or more manual test cases before scheduling AI automation."), "Unable to schedule AI automation");
-      return;
-    }
-
-    try {
-      const response = await buildBatchAutomation.mutateAsync({
-        testCaseIds: selectedManualAutomationCases.map((testCase) => testCase.id),
-        aiRequested: true
-      });
-      showSuccess(`Batch AI automation scheduled as ${response.transaction_id.slice(0, 8)}. TestOps will process the manual cases one by one.`);
-      await refreshCases();
-    } catch (error) {
-      showError(error, "Unable to schedule AI automation");
-    }
-  };
-
 	  const handleStartRecorder = async (options: RecorderStartOptions, targetStepId = inspectingStepId) => {
 	    if (!canUseRecorder) {
 	      showError(new Error("Permission required: automation.recorder"), "Unable to start recorder");
@@ -6604,7 +6570,7 @@ export function TestCasesPage() {
     }
   };
 
-	  const handlePreviewDesignedCases = async () => {
+	  const handlePreviewDesignedCases = async (authoringMode: "structured" | "gherkin" = "structured") => {
 	    if (!canUseTestCaseAi) {
 	      setAiPreviewTone("error");
 	      setAiPreviewMessage("Permission required: testcase.ai");
@@ -6621,6 +6587,7 @@ export function TestCasesPage() {
         requirement_ids: aiRequirementIds,
         integration_id: integrationId || undefined,
         max_cases: maxCases,
+        authoring_mode: authoringMode,
         additional_context: aiAdditionalContext || undefined,
         external_links: parseExternalLinks(aiExternalLinksText),
         images: aiReferenceImages
@@ -6628,7 +6595,7 @@ export function TestCasesPage() {
 
       setAiPreviewCases(response.cases);
       setAiPreviewTone("success");
-      setAiPreviewMessage(`${response.generated} draft cases prepared from the selected story context. Review their traceability and steps before accepting.`);
+      setAiPreviewMessage(`${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
       setAiPreviewTone("error");
       setAiPreviewMessage(formatAiStudioErrorMessage(error, "Unable to preview AI-generated test cases right now."));
@@ -6658,7 +6625,7 @@ export function TestCasesPage() {
     return message;
   };
 
-	  const handlePreviewAiCaseAuthoring = async () => {
+	  const handlePreviewAiCaseAuthoring = async (authoringMode: "structured" | "gherkin" = caseDraft.authoring_mode) => {
 	    if (!canUseTestCaseAi) {
 	      setAiCaseAuthoringTone("error");
 	      setAiCaseAuthoringMessage("Permission required: testcase.ai");
@@ -6675,17 +6642,20 @@ export function TestCasesPage() {
       const response = await previewCaseAuthoring.mutateAsync({
         app_type_id: appTypeId,
         requirement_id: aiCaseAuthoringRequirementId,
+        authoring_mode: authoringMode,
         integration_id: integrationId || undefined,
         additional_context: aiCaseAuthoringAdditionalContext || undefined,
         external_links: parseExternalLinks(aiCaseAuthoringExternalLinksText),
         images: aiCaseAuthoringReferenceImages,
-        test_case: aiCaseAuthoringSourceDraft
+        test_case: { ...aiCaseAuthoringSourceDraft, authoring_mode: authoringMode }
       });
 
       setAiCaseAuthoringPreview(response.case);
       setAiCaseAuthoringTone("success");
       setAiCaseAuthoringMessage(
-        `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the selected story and current draft. Review before applying.`
+        response.case.authoring_mode === "gherkin"
+          ? "Prepared an improved Gherkin specification from the selected Story and current Test Case. Review it before applying."
+          : `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the selected Story and current draft. Review before applying.`
       );
     } catch (error) {
       setAiCaseAuthoringTone("error");
@@ -6718,12 +6688,16 @@ export function TestCasesPage() {
     const normalizedPreviewParameterValues = normalizeTestCaseParameterValues(aiCaseAuthoringPreview.parameter_values);
 
     if (isCreating) {
-      const nextDraftSteps = buildDraftStepsFromAiAuthoringPreview(aiCaseAuthoringPreview);
+      const nextDraftSteps = aiCaseAuthoringPreview.authoring_mode === "gherkin"
+        ? []
+        : buildDraftStepsFromAiAuthoringPreview(aiCaseAuthoringPreview);
 
       setCaseDraft((current) => ({
         ...current,
         title: aiCaseAuthoringPreview.title,
         description: aiCaseAuthoringPreview.description || "",
+        authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
+        gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : "",
         requirement_id: aiCaseAuthoringRequirementId || current.requirement_id
       }));
       setTestCaseParameterValues(normalizedPreviewParameterValues);
@@ -6761,9 +6735,11 @@ export function TestCasesPage() {
         input: {
           title: aiCaseAuthoringPreview.title,
           description: aiCaseAuthoringPreview.description || "",
+          authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
+          gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : null,
           parameter_values: normalizedPreviewParameterValues,
           requirement_ids: aiCaseAuthoringRequirementId ? [aiCaseAuthoringRequirementId] : [],
-          steps: buildPersistedStepsFromAiAuthoringPreview(aiCaseAuthoringPreview)
+          steps: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? [] : buildPersistedStepsFromAiAuthoringPreview(aiCaseAuthoringPreview)
         }
       });
 
@@ -6771,6 +6747,8 @@ export function TestCasesPage() {
         ...current,
         title: aiCaseAuthoringPreview.title,
         description: aiCaseAuthoringPreview.description || "",
+        authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
+        gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : "",
         requirement_id: aiCaseAuthoringRequirementId || current.requirement_id
       }));
       setTestCaseParameterValues(normalizedPreviewParameterValues);
@@ -6822,6 +6800,9 @@ export function TestCasesPage() {
           description: item.description,
           priority: item.priority,
           requirement_ids: item.requirement_ids,
+          authoring_mode: item.authoring_mode,
+          gherkin_document: item.gherkin_document,
+          parameter_values: item.parameter_values,
           steps: item.steps.map((step) => ({
             step_order: step.step_order,
             step_type: step.step_type || "web",
@@ -6839,7 +6820,7 @@ export function TestCasesPage() {
         setSelectedTestCaseId(response.created[0].id);
         setIsCreating(false);
       }
-      showSuccess(`${acceptedPreviewCases.length} AI-designed test case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted into the library as standard steps.`);
+      showSuccess(`${acceptedPreviewCases.length} AI-designed test case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted into the library.`);
       await refreshCases();
     } catch (error) {
       setAiPreviewTone("error");
@@ -6847,7 +6828,7 @@ export function TestCasesPage() {
     }
   };
 
-	  const handleScheduleDesignedCases = async () => {
+	  const handleScheduleDesignedCases = async (authoringMode: "structured" | "gherkin" = "structured") => {
 	    if (!canUseTestCaseAi || !canCreateTestCases) {
 	      setAiPreviewTone("error");
 	      setAiPreviewMessage(`Permission required: ${!canUseTestCaseAi ? "testcase.ai" : "testcase.create"}`);
@@ -6867,6 +6848,7 @@ export function TestCasesPage() {
         integration_id: integrationId || undefined,
         max_cases_per_requirement: maxCases,
         parallel_requirement_limit: parallelRequirementLimit,
+        authoring_mode: authoringMode,
         additional_context: aiAdditionalContext || undefined,
         external_links: parseExternalLinks(aiExternalLinksText),
         images: aiReferenceImages
@@ -7342,7 +7324,7 @@ export function TestCasesPage() {
       title: "Risk signal",
       severity: preview.impact.risk_level,
       description: signal,
-      action: "Verify this signal against the linked Jira records before changing the test case."
+      action: "Verify this signal against the linked work items before changing the test case."
     }));
     return findings;
   }, [canUseAutomationWorkspace, selectedTestCaseImpactPreview]);
@@ -7821,40 +7803,6 @@ export function TestCasesPage() {
     closeCaseWorkspace();
   };
 
-  const handleAnalyzeAutomationGaps = async () => {
-    if (!canBuildAutomation || !canUseAutomationAi) {
-      showError(new Error("Permission and feature access required: automation.build and automation.ai"), "Unable to analyze automation gaps");
-      return;
-    }
-    if (!selectedTestCase?.id) {
-      return;
-    }
-
-    try {
-      const response = await analyzeAutomationGaps.mutateAsync({
-        testCaseId: selectedTestCase.id
-      });
-      const mappedSteps = await api.testSteps.list({ test_case_id: selectedTestCase.id });
-      const mappedAutomation = mappedSteps.some((step) => stepHasAutomation(step));
-
-      if (mappedAutomation) {
-        await api.testCases.update(selectedTestCase.id, {
-          automated: "yes",
-          automation_status: "ready"
-        });
-      }
-
-      await refreshCases();
-      showSuccess(
-        mappedAutomation
-          ? `AI mapped automation onto ${response.generated_step_count || 0} manual step${response.generated_step_count === 1 ? "" : "s"} on this same test case.`
-          : `AI mapped automation onto ${response.generated_step_count || 0} step${response.generated_step_count === 1 ? "" : "s"}.`
-      );
-    } catch (error) {
-      showError(error, "Unable to analyze automation gaps");
-    }
-  };
-
   const isSelectedCaseRunning =
     Boolean(selectedTestCase?.id)
     && schedulerActionCaseId === selectedTestCase?.id
@@ -7900,15 +7848,6 @@ export function TestCasesPage() {
           disabled: !mainSteps.length
         }]
       : []),
-    ...(selectedTestCase && canBuildAutomation && canUseAutomationAi
-      ? [{
-          label: analyzeAutomationGaps.isPending ? "Analyzing automation gaps…" : "AI map existing automation",
-          description: "Analyze current automation, fill missing action code, and map it back to the manual steps.",
-          icon: <StepAiIcon />,
-          onClick: () => void handleAnalyzeAutomationGaps(),
-          disabled: analyzeAutomationGaps.isPending || !selectedTestCase.id
-        }]
-      : [])
   ];
   const caseHeaderActions = (
     <div className="panel-head-actions-row test-case-workspace-commandbar">
@@ -8788,8 +8727,8 @@ export function TestCasesPage() {
     if (isCreating) {
       return (
         <DraftStepCard
-          showAutomationTools={canEditAutomationCode}
-          showRecorderTools={canUseRecorder}
+          showAutomationTools={false}
+          showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
           parameterValues={mergedScopedParameterValues}
           canPaste={Boolean(copiedSteps.length)}
@@ -8841,8 +8780,8 @@ export function TestCasesPage() {
 
       return (
         <EditableStepCard
-          showAutomationTools={canEditAutomationCode}
-          showRecorderTools={canUseRecorder}
+          showAutomationTools={false}
+          showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
           parameterValues={mergedScopedParameterValues}
           canPaste={Boolean(copiedSteps.length)}
@@ -9279,15 +9218,6 @@ export function TestCasesPage() {
                 }] : []}
               />
               <>
-                  {canUseAutomationWorkspace ? <button
-                    className="primary-button catalog-selection-button"
-                    disabled={!canBuildAutomation || !canUseAutomationAi || !appTypeId || !selectedManualAutomationCases.length || buildBatchAutomation.isPending}
-                    onClick={() => void handleScheduleSelectedManualAutomation()}
-                    type="button"
-                  >
-                    <TestCaseSparkIcon />
-                    <span>{buildBatchAutomation.isPending ? "Scheduling AI automation" : `Schedule AI automation${selectedManualAutomationCases.length ? ` (${selectedManualAutomationCases.length})` : ""}`}</span>
-                  </button> : null}
                   <TestCaseSplitActionButton
                     disabled={!selectedActionTestCaseIds.length || !canCreateRuns || !projectId || !appTypeId || !session?.user.id}
                     icon={<TestCaseRunIcon />}
@@ -9982,8 +9912,8 @@ export function TestCasesPage() {
                       activeTab={activeTestCaseDetailTab}
                       ariaLabel="Test case detail sections"
                       items={[
-                        { value: "automation" as const, label: "Automation Cases", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
                         { value: "details", label: "Details", icon: <PencilIcon /> },
+                        { value: "automation" as const, label: "Automation Cases", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
                         { value: "assurance", label: "AI Assurance", icon: <TestCaseSparkIcon /> },
                         { value: "suites", label: "Linked Suites", icon: <TileCardSuiteIcon />, count: selectedCaseSuites.length },
                         { value: "history", label: "History", icon: <ActivityIcon /> },
@@ -10151,26 +10081,11 @@ export function TestCasesPage() {
                             <summary>
                               <span>
                                 <strong>Advanced details</strong>
-                                <small>Automation, parameter preview, and review workflow</small>
+                                <small>Parameter preview, traceability, and review workflow</small>
                               </span>
-                              <span>{caseDraft.automated === "yes" ? "Automated" : "Manual"}</span>
+                              <span>Manual test design</span>
                             </summary>
                             <div className="test-case-details-advanced-body">
-                              {canUseAutomationWorkspace ? (
-                                <FormField className="test-case-automated-field" label="Automated">
-                                  <select
-                                    value={caseDraft.automated}
-                                    onChange={(event) =>
-                                      setCaseDraft((current) => ({ ...current, automated: event.target.value as "yes" | "no" }))
-                                    }
-                                  >
-                                    {testCaseAutomatedOptions.map((option) => (
-                                      <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                  </select>
-                                </FormField>
-                              ) : null}
-
                               {hasReadableCasePreview ? (
                                 <div className="step-parameter-preview">
                                   <span className="step-parameter-preview-label">Readable preview on this screen</span>
@@ -10181,17 +10096,15 @@ export function TestCasesPage() {
 
                               {!isCreating && selectedTestCase && canUseAutomationWorkspace ? (
                           <div className="detail-summary automation-link-summary">
-                            <strong>Automation mapping</strong>
+                            <strong>Automation cases</strong>
                             <span>
-                              Automation keywords and object repository references are stored on this manual test case. No duplicate automation case is created.
+                              Executable keywords, recorder evidence, and repository bindings are maintained in dedicated Automation Cases. This manual case remains the traceable source.
                             </span>
-                            <StatusBadge value={selectedTestCase.automation_status || (selectedTestCase.automated === "yes" ? "ready" : "not automated")} />
-                            {selectedTestCase.automated === "yes" ? (
-                              <button className="ghost-button compact" onClick={() => navigate(`/automation?case=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
-                                <OpenIcon size={16} />
-                                <span>Open automation workspace</span>
-                              </button>
-                            ) : null}
+                            <StatusBadge value={linkedAutomationCases.length ? "linked" : "not linked"} />
+                            <button className="ghost-button compact" onClick={() => setActiveTestCaseDetailTab("automation")} type="button">
+                              <OpenIcon size={16} />
+                              <span>{linkedAutomationCases.length ? `View automation cases (${linkedAutomationCases.length})` : "Create automation case"}</span>
+                            </button>
                           </div>
                               ) : null}
 
@@ -10412,6 +10325,7 @@ export function TestCasesPage() {
                     <GherkinEditor
                       featureTitle={caseDraft.title}
                       onChange={(gherkin_document) => setCaseDraft((current) => ({ ...current, gherkin_document }))}
+                      parameterValues={mergedScopedParameterValues}
                       value={caseDraft.gherkin_document}
                     />
                   )}
@@ -10612,29 +10526,6 @@ export function TestCasesPage() {
                     </div>
                     )}
                   </EditorAccordionSection> : null}
-
-                  {!isCreating && canUseAutomationWorkspace && selectedTestCase && !linkedAutomationCases.length ? (
-                    <EditorAccordionSection
-                      countLabel="Separate case"
-                      isExpanded={expandedSections.automation}
-                      onToggle={() => setExpandedSections((current) => ({ ...current, automation: !current.automation }))}
-                      summary="Create an independent automation case while preserving this manual case as its traceable source."
-                      title="Automation case"
-                    >
-                      <div className="automation-builder-panel">
-                        <div className="detail-summary">
-                          <strong>Build in the Automation workspace</strong>
-                          <span>AI generation, recorder capture, code retrieval, object bindings, local/shared grouping, and run history now live on a dedicated automation case.</span>
-                        </div>
-                        <div className="testops-action-row">
-                          <button className="primary-button" onClick={() => navigate(`/automation?create=1&manual=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
-                            <AutomationCodeIcon />
-                            <span>Create automation case</span>
-                          </button>
-                        </div>
-                      </div>
-                    </EditorAccordionSection>
-                  ) : null}
 
                   {/* Retained temporarily for backward-compatible state handling; authoring has moved to Automation. */}
                   {!isCreating && canUseAutomationWorkspace && isLegacyInlineAutomationBuilderEnabled() ? (
@@ -10837,39 +10728,74 @@ export function TestCasesPage() {
                 </div>
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "automation" && selectedTestCase ? (
-                  <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
-                    <div className="detail-summary test-case-linked-suites-summary">
-                      <strong>Linked automation cases</strong>
-                      <span>One manual case can be covered by multiple automation cases. Open any case to reuse the complete Automation workspace.</span>
-                      <div className="stack-list">
-                        {linkedAutomationCases.map((automationCase) => (
-                          <button
-                            className="stack-item"
-                            key={automationCase.id}
-                            onClick={() => navigate(`/automation?case=${encodeURIComponent(automationCase.display_id || automationCase.id)}`)}
-                            type="button"
-                          >
-                            <div>
-                              <strong>{automationCase.title}</strong>
-                              <span>{automationCase.display_id || automationCase.id} · {automationCase.step_count || 0} steps · {automationCase.automation_status || "incomplete"}</span>
-                            </div>
-                            <div className="testops-action-row">
-                              <StatusBadge value={automationCase.automation_status || "incomplete"} />
-                              <OpenIcon size={16} />
-                            </div>
-                          </button>
-                        ))}
-                        {!automationCaseLinksQuery.isLoading && !linkedAutomationCases.length ? (
-                          <div className="empty-state compact">
-                            <div>No automation case is linked yet.</div>
-                            <button className="primary-button" onClick={() => navigate(`/automation?create=1&manual=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
-                              <AutomationCodeIcon />
-                              <span>Create automation case</span>
-                            </button>
-                          </div>
-                        ) : null}
+                  <div className="detail-section-panel requirement-detail-wide-panel test-case-automation-cases-panel" role="tabpanel">
+                    <div className="test-case-automation-cases-header">
+                      <div className="detail-summary">
+                        <strong>Automation cases</strong>
+                        <span>Dedicated automation records preserve traceability to this manual case and open in the complete Automation workspace.</span>
                       </div>
+                      <button className="primary-button" onClick={() => navigate(`/automation?create=1&manual=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
+                        <AutomationCodeIcon />
+                        <span>Create automation case</span>
+                      </button>
                     </div>
+                    {automationCaseLinksQuery.isLoading ? <TileCardSkeletonGrid count={3} /> : null}
+                    {!automationCaseLinksQuery.isLoading && linkedAutomationCases.length ? (
+                      <div className="tile-browser-grid test-case-linked-automation-grid">
+                        {linkedAutomationCases.map((automationCase) => {
+                          const recentHistory = (historyByCaseId[automationCase.id] || []).slice(0, 10);
+                          const passedRuns = recentHistory.filter((result) => result.status === "passed").length;
+                          const passRate = recentHistory.length ? Math.round((passedRuns / recentHistory.length) * 100) : 0;
+                          return (
+                            <button
+                              className="record-card tile-card test-case-card test-case-catalog-card automation-case-tile test-case-linked-automation-card"
+                              key={automationCase.id}
+                              onClick={() => navigate(`/automation?case=${encodeURIComponent(automationCase.display_id || automationCase.id)}`)}
+                              type="button"
+                            >
+                              <div className="tile-card-main">
+                                <div className="tile-card-select-row test-case-card-header">
+                                  <DisplayIdBadge value={automationCase.display_id || automationCase.id} />
+                                  <div className="catalog-inline-actions test-case-top-actions">
+                                    <StatusBadge value="automated" />
+                                    <StatusBadge value={automationCase.automation_status || "incomplete"} />
+                                  </div>
+                                </div>
+                                <div className="tile-card-header">
+                                  <TileCardIconFrame tone={automationCase.automation_status === "incomplete" ? "neutral" : "success"}>
+                                    <TileCardCaseIcon />
+                                  </TileCardIconFrame>
+                                  <div className="tile-card-title-group test-case-card-title-group">
+                                    <span className="tile-card-kicker">Linked automation</span>
+                                    <strong>{automationCase.title}</strong>
+                                  </div>
+                                </div>
+                                <CatalogCardDescription fallback="Automation is mapped to this manual test case." profile="test-case" value={automationCase.description} />
+                                <div className="tile-card-facts">
+                                  <TileCardFact label={`${automationCase.step_count || 0} steps`} title="Automation steps"><TileCardStepsIcon /></TileCardFact>
+                                  <TileCardFact label={`${recentHistory.length} runs`} title="Recent run history" tone={recentHistory.length ? "info" : "neutral"}><ActivityIcon /></TileCardFact>
+                                  <TileCardFact label={`P${automationCase.priority || 3}`} title="Priority"><TestCaseIcon /></TileCardFact>
+                                </div>
+                                <div className="tile-card-footer">
+                                  <div className="test-case-card-progress-row" aria-label={recentHistory.length ? `${passRate}% recent pass rate` : "No recent run coverage"}>
+                                    <div className="test-case-card-progress-track"><span style={{ width: `${passRate}%` }} /></div>
+                                    <small>{recentHistory.length ? `${passRate}% passed` : "No runs yet"}</small>
+                                  </div>
+                                  <span className="test-case-linked-automation-open">Open workspace <OpenIcon size={16} /></span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    {!automationCaseLinksQuery.isLoading && !linkedAutomationCases.length ? (
+                      <div className="empty-state compact test-case-automation-empty-state">
+                        <AutomationCodeIcon />
+                        <strong>No automation case is linked yet.</strong>
+                        <span>Create one with AI, the smart recorder, or a blank canvas while keeping this manual case unchanged.</span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "assurance" && selectedTestCase ? (
@@ -11551,7 +11477,7 @@ export function TestCasesPage() {
             setAiCaseAuthoringPreview(null);
             setAiCaseAuthoringMessage("");
           }}
-          onGenerate={() => void handlePreviewAiCaseAuthoring()}
+          onGenerate={(authoringMode) => void handlePreviewAiCaseAuthoring(authoringMode)}
           onIntegrationIdChange={(value) => {
             setIntegrationId(value);
             setAiCaseAuthoringPreview(null);
@@ -11577,6 +11503,7 @@ export function TestCasesPage() {
           preview={aiCaseAuthoringPreview}
           previewMessage={aiCaseAuthoringMessage}
           previewTone={aiCaseAuthoringTone}
+          appTypeName={appTypes.find((item) => item.id === appTypeId)?.name || "No app type selected"}
           promptTemplateAppTypeId={appTypeId}
           promptTemplateProjectId={projectId}
           requirementId={aiCaseAuthoringRequirementId}
@@ -11630,9 +11557,13 @@ export function TestCasesPage() {
             setAiPreviewMessage("");
           }}
           onViewExistingCase={openExistingCaseFromAi}
-          onPreview={() => void handlePreviewDesignedCases()}
+          onAuthoringModeChange={() => {
+            setAiPreviewCases([]);
+            setAiPreviewMessage("");
+          }}
+          onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setAiPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
-          onSchedule={() => void handleScheduleDesignedCases()}
+          onSchedule={(authoringMode) => void handleScheduleDesignedCases(authoringMode)}
           onRemoveImage={(imageUrl) => {
             setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
             setAiPreviewCases([]);
@@ -12319,7 +12250,7 @@ function TestCaseSuiteModal({
                 <IconInfoCircle aria-hidden="true" size={17} stroke={1.8} />
                 <div>
                   <strong>Pro Tip</strong>
-                  <p>Suites can be exported to Jira after creation. Ensure the labels match your project tags.</p>
+                  <p>Suites can be exported to the connected workspace after creation. Ensure the labels match your project tags.</p>
                 </div>
               </aside>
             </section>

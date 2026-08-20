@@ -411,7 +411,7 @@ const normalizeCandidate = (candidate, fallback, evidenceSources) => {
 const requestLlmDraft = async (integration, input, context, evidenceSources, images = []) => {
   const allowedRefs = evidenceSources.map((source) => source.ref);
   const prompt = [
-    "Draft a concise, review-ready Jira Bug from bounded evidence.",
+    "Draft a concise, review-ready Bug from bounded evidence.",
     "Return strict JSON with: draft { title, message, steps_to_reproduce, expected_result, actual_result, severity, priority, environment, build, labels, rationale }, field_evidence { each draft field: [evidence ref] }, gaps [{field,reason,question}], assumptions [string].",
     "Every non-empty factual field must cite one or more refs from allowed_evidence_refs. Leave a field empty and add a gap when evidence is missing. Never invent steps, expected behavior, environment, build, impact, telemetry, or root cause.",
     "Severity must be critical|high|medium|low; priority (Highest|High|Medium|Low|Lowest) must use one canonical value.",

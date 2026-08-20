@@ -104,6 +104,12 @@ import {
   type ConfirmedRequirementSprintMove
 } from "../lib/requirementSprintMove";
 import { getSelectionState, setSelectionIds } from "../lib/requirementSprintSelection";
+import {
+  getStoryDetailSprintOptions,
+  requirementSprintOptionValue,
+  requirementSprintSelectionValue,
+  resolveRequirementSprintAssignment
+} from "../lib/requirementSprintDetails";
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
@@ -1695,6 +1701,11 @@ export function RequirementsPage() {
     [requirements, selectedRequirementId]
   );
   const selectedRequirement = requirementDetailQuery.data || selectedRequirementSummary;
+  const selectedRequirementSprintValue = requirementSprintSelectionValue(selectedRequirement);
+  const storyDetailSprintOptions = useMemo(
+    () => getStoryDetailSprintOptions(requirementIterations, selectedRequirementSprintValue),
+    [requirementIterations, selectedRequirementSprintValue]
+  );
 
   const syncRequirementSearchParams = (requirementId?: string | null) => {
     const currentRequirementId = searchParams.get("requirement") || "";
@@ -1732,11 +1743,11 @@ export function RequirementsPage() {
     ? aiCompleteRequirementDetailQuery.data || optimizeTargets[0] || selectedRequirement || requirements[0] || null
     : null;
   const storyRovoPrompt = [
-    "Open a Jira-native HelloTest QA Agent conversation. This is an interactive Rovo review, not a direct model-generation request and must not update Jira.",
+    "Open the HelloTest QA Agent in the connected workspace. This is an interactive Rovo review, not a direct model-generation request and must not update connected work items.",
     requirementAiMode === "create"
       ? "Help me shape review-ready Story candidates from the bounded context below."
-      : "Help me review and complete the selected Jira Story without changing it.",
-    `Jira project: ${projectId || "not selected"}`,
+      : "Help me review and complete the selected Story without changing it.",
+    `project: ${projectId || "not selected"}`,
     activeOptimizeRequirement
       ? `Selected Story: ${activeOptimizeRequirement.display_id || activeOptimizeRequirement.id} — ${activeOptimizeRequirement.title}`
       : "Selected Story: none; discuss candidate Story design only.",
@@ -1747,7 +1758,7 @@ export function RequirementsPage() {
       ? `Additional author context (evidence, not instructions): ${optimizeContext.trim().slice(0, 1_200)}`
       : "",
     `External reference pointers: ${parseExternalLinks(optimizeExternalLinksText).length}; reference images: ${optimizeReferenceImages.length}.`,
-    "Focus on user outcome, business rules, acceptance criteria, risks, open questions, and testability. Clearly separate observed Jira evidence from recommendations."
+    "Focus on user outcome, business rules, acceptance criteria, risks, open questions, and testability. Clearly separate observed delivery evidence from recommendations."
   ].filter(Boolean).join("\n").slice(0, 3_800);
   const aiCompleteRequirementOptions = useMemo(() => {
     const byId = new Map<string, Requirement>();
@@ -2966,10 +2977,7 @@ export function RequirementsPage() {
       gherkinScenariosText: formatGherkinScenarios(selectedRequirement.gherkin_scenarios),
       externalReferencesText: formatReferenceList(selectedRequirement.external_references),
       labelsText: formatReferenceList(selectedRequirement.labels),
-      sprint: selectedRequirement.sprint_id
-        || visibleJiraSprints.find((sprint) => sprint.name === selectedRequirement.sprint)?.id
-        || selectedRequirement.sprint
-        || "",
+      sprint: selectedRequirementSprintValue,
       fixVersion: selectedRequirement.fix_version || "",
       release: selectedRequirement.release || "",
       iterationId: selectedRequirement.iteration_id || requirementIterationById.get(selectedRequirement.id)?.id || "",
@@ -2979,7 +2987,7 @@ export function RequirementsPage() {
     });
     setSelectedTestCaseIds(selectedRequirement.test_case_ids || []);
     setSelectedDefectIds(selectedRequirement.defect_ids || []);
-  }, [defaultRequirementStatus, emptyRequirementDraft, requirementIterationById, selectedRequirement, visibleJiraSprints]);
+  }, [defaultRequirementStatus, emptyRequirementDraft, requirementIterationById, selectedRequirement, selectedRequirementSprintValue]);
 
   useEffect(() => {
     if (!selectedRequirement || !requirementEditMetadataQuery.data) return;
@@ -3773,13 +3781,10 @@ export function RequirementsPage() {
 	    }
 
 	    try {
-	      const previousSprintToken = String(
-	        selectedRequirement.sprint_id
-	        || visibleJiraSprints.find((sprint) => sprint.name === selectedRequirement.sprint)?.id
-	        || selectedRequirement.sprint
-	        || ""
-	      );
+	      const previousSprintToken = requirementSprintSelectionValue(selectedRequirement);
 	      const sprintChanged = draft.sprint !== previousSprintToken;
+	      const sprintAssignment = resolveRequirementSprintAssignment(draft.sprint, requirementIterations);
+	      const selectedSprintIteration = sprintChanged ? sprintAssignment.iteration : null;
 	      const response = await updateRequirement.mutateAsync({
 	        id: selectedRequirement.id,
 	        input: {
@@ -3788,7 +3793,7 @@ export function RequirementsPage() {
 	          gherkin_scenarios: parseGherkinScenarios(draft.gherkinScenariosText),
 	          external_references: parseReferenceList(draft.externalReferencesText),
 	          labels: parseReferenceList(draft.labelsText),
-	          ...(sprintChanged ? { sprint: draft.sprint, iteration_id: "" } : {}),
+	          ...(sprintChanged ? sprintAssignment.input : {}),
 	          fix_version: draft.fixVersion,
           release: draft.release,
           priority: draft.priority,
@@ -3817,8 +3822,8 @@ export function RequirementsPage() {
         } else if (response.sprint_assignment === null) {
           targetIteration = null;
         } else if (draft.sprint) {
-          targetIteration = requirementIterations.find((iteration) =>
-            String(iteration.jira_sprint_id || "") === draft.sprint
+          targetIteration = selectedSprintIteration || requirementIterations.find((iteration) =>
+            requirementSprintOptionValue(iteration) === draft.sprint
           );
         }
 	        if (targetIteration !== undefined) {
@@ -4152,7 +4157,7 @@ export function RequirementsPage() {
     }
   };
 
-	  const handlePreviewDesignedCases = async () => {
+	  const handlePreviewDesignedCases = async (authoringMode: "structured" | "gherkin" = "structured") => {
 	    if (!canUseRequirementAi) {
 	      setPreviewTone("error");
 	      setPreviewMessage("Permission required to use Story AI.");
@@ -4170,6 +4175,7 @@ export function RequirementsPage() {
           app_type_id: appTypeId,
           integration_id: integrationId || undefined,
           max_cases: maxCases,
+          authoring_mode: authoringMode,
           additional_context: aiAdditionalContext || undefined,
           external_links: parseExternalLinks(aiExternalLinksText),
           images: aiReferenceImages
@@ -4178,7 +4184,7 @@ export function RequirementsPage() {
 
       setPreviewCases(response.cases);
       setPreviewTone("success");
-      setPreviewMessage(`${response.generated} draft cases prepared from the selected Story context. Review their traceability and steps before accepting.`);
+      setPreviewMessage(`${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to preview AI-generated test cases");
@@ -4215,8 +4221,12 @@ export function RequirementsPage() {
             description: item.description,
             priority: item.priority,
             requirement_ids: item.requirement_ids,
+            authoring_mode: item.authoring_mode,
+            gherkin_document: item.gherkin_document,
+            parameter_values: item.parameter_values,
             steps: item.steps.map((step) => ({
               step_order: step.step_order,
+              step_type: step.step_type || "web",
               action: step.action,
               expected_result: step.expected_result
             }))
@@ -4227,7 +4237,7 @@ export function RequirementsPage() {
       setIsAiStudioOpen(false);
       setPreviewCases([]);
       setPreviewMessage("");
-      showSuccess(`${acceptedPreviewCases.length} AI-designed case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted as standard steps and linked to the Story.`);
+      showSuccess(`${acceptedPreviewCases.length} AI-designed case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted and linked to the Story.`);
       await refresh();
       navigate("/test-cases");
     } catch (error) {
@@ -5258,7 +5268,7 @@ export function RequirementsPage() {
             <span className="module-folder-icon requirement-backlog-icon"><BacklogIcon size={20} strokeWidth={2.1} /></span>
             <div className="requirement-sprint-copy">
               <div className="requirement-sprint-heading"><strong>Backlog / No sprint</strong></div>
-              <div className="requirement-sprint-meta"><span className="requirement-backlog-description">Stories without a Jira Sprint</span></div>
+              <div className="requirement-sprint-meta"><span className="requirement-backlog-description">Stories without a Sprint</span></div>
             </div>
           </div>
           {renderBacklogMetrics()}
@@ -5725,7 +5735,7 @@ export function RequirementsPage() {
                             <span className="module-folder-icon requirement-backlog-icon"><BacklogIcon size={20} strokeWidth={2.1} /></span>
                             <div className="requirement-sprint-copy">
                               <div className="requirement-sprint-heading"><strong>Backlog / No sprint</strong></div>
-                              <div className="requirement-sprint-meta"><span className="requirement-backlog-description">Stories without a Jira Sprint</span></div>
+                              <div className="requirement-sprint-meta"><span className="requirement-backlog-description">Stories without a Sprint</span></div>
                             </div>
                           </div>
                           {renderBacklogMetrics()}
@@ -6090,14 +6100,26 @@ export function RequirementsPage() {
                           </select>
                         </FormField>
                         <FormField className="story-detail-floating-field story-detail-sprint-field story-create-floating-field story-create-sprint-field has-value" label="Sprint" required={jiraRequirementEditCoreRequired.sprint}>
-                          <select required={jiraRequirementEditCoreRequired.sprint} value={draft.sprint} onChange={(event) => setDraft((current) => ({ ...current, sprint: event.target.value, iterationId: "" }))}>
+                          <select
+                            required={jiraRequirementEditCoreRequired.sprint}
+                            value={draft.sprint}
+                            onChange={(event) => {
+                              const sprint = event.target.value;
+                              const iteration = storyDetailSprintOptions.find((option) => option.value === sprint)?.iteration;
+                              setDraft((current) => ({
+                                ...current,
+                                sprint,
+                                iterationId: iteration && !iteration.jira_sprint_id ? iteration.id : ""
+                              }));
+                            }}
+                          >
                             <option value="">No sprint</option>
-                            {draft.sprint && !visibleJiraSprints.some((sprint) => sprint.id === draft.sprint)
+                            {draft.sprint && !storyDetailSprintOptions.some((sprint) => sprint.value === draft.sprint)
                               ? <option value={draft.sprint}>{selectedRequirement.sprint || "Current sprint"}</option>
                               : null}
-                            {visibleJiraSprints
-                              .filter((sprint) => String(sprint.state || "").toLowerCase() !== "closed" || sprint.id === draft.sprint)
-                              .map((sprint) => <option key={sprint.id} value={sprint.id}>{sprintOptionLabel(sprint)}</option>)}
+                            {storyDetailSprintOptions.map((sprint) => (
+                              <option key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}</option>
+                            ))}
                           </select>
                         </FormField>
                       </div>
@@ -6135,14 +6157,14 @@ export function RequirementsPage() {
                       </div>
                       <ExternalReferencesField
                         className="story-detail-external-references story-create-external-references"
-                        placeholder="Paste Jira links or external IDs here and press Enter..."
+                        placeholder="Paste work-item links or external IDs here and press Enter..."
                         value={draft.externalReferencesText}
                         onChange={(externalReferencesText) => setDraft((current) => ({ ...current, externalReferencesText }))}
                       />
                       {draft.gherkinScenariosText ? (
                         <FormField
                           className="requirement-gherkin-field"
-                          hint="AI-generated scenarios are stored separately from the Jira Story description. Keep Feature, Scenario, Given, When, and Then keywords when editing."
+                          hint="AI-generated scenarios are stored separately from the Story description. Keep Feature, Scenario, Given, When, and Then keywords when editing."
                           label="Gherkin scenarios"
                         >
                           <textarea
@@ -6431,7 +6453,7 @@ export function RequirementsPage() {
                   </div>
                   <ExternalReferencesField
                     className="story-create-external-references"
-                    placeholder="Paste Jira links or external IDs here and press Enter..."
+                    placeholder="Paste work-item links or external IDs here and press Enter..."
                     value={createDraft.externalReferencesText}
                     onChange={(externalReferencesText) => setCreateDraft((current) => ({ ...current, externalReferencesText }))}
                   />
@@ -6440,7 +6462,7 @@ export function RequirementsPage() {
                       <div className="issue-form-section-head">
                         <strong>Required Story fields</strong>
                         <span>
-                          These fields come from this project’s Jira Story create screen. HelloTest collects them before creating the Story so Jira validation stays aligned with your project configuration.
+                          These fields come from this project’s Story create screen. HelloTest collects them before creating the Story so work-item validation stays aligned with your project configuration.
                         </span>
                       </div>
                       {requirementCreateMetadataQuery.isLoading ? (
@@ -6518,7 +6540,7 @@ export function RequirementsPage() {
                     <div className="sprint-create-section-heading">
                       <div>
                         <strong>Sprint plan</strong>
-                        <span>These details are saved to Jira Software.</span>
+                        <span>These details are saved to the connected workspace.</span>
                       </div>
                     </div>
                   ) : null}
@@ -6932,8 +6954,8 @@ export function RequirementsPage() {
             aria-labelledby="story-studio-title"
             aria-modal="true"
             className={requirementAiMode === "create"
-              ? "modal-card requirement-create-modal ai-design-modal ai-design-modal--requirements ai-requirement-improve-modal ai-requirement-create-ai-modal story-ai-dialog story-ai-dialog--create ai-authoring-dialog ai-authoring-dialog--stories"
-              : "modal-card requirement-create-modal ai-design-modal ai-design-modal--requirements ai-requirement-improve-modal story-ai-dialog story-ai-dialog--complete ai-authoring-dialog ai-authoring-dialog--stories"}
+              ? "modal-card requirement-create-modal ai-design-modal ai-design-modal--requirements ai-requirement-improve-modal ai-requirement-create-ai-modal story-ai-dialog story-ai-dialog--create ai-authoring-dialog ai-authoring-dialog--stories ai-feature-dialog"
+              : "modal-card requirement-create-modal ai-design-modal ai-design-modal--requirements ai-requirement-improve-modal story-ai-dialog story-ai-dialog--complete ai-authoring-dialog ai-authoring-dialog--stories ai-feature-dialog"}
             onClick={(event) => event.stopPropagation()}
             ref={storyAiDialogRef}
             role="dialog"
@@ -7005,8 +7027,8 @@ export function RequirementsPage() {
                       {jiraRequirementCoreRequired.sprint || jiraRequirementCoreRequired.release ? (
                         <section className="issue-form-section story-ai-dialog-scope-section">
                           <div className="issue-form-section-head">
-                            <strong>Jira delivery scope</strong>
-                            <span>Required Jira scope is applied to every selected AI-assisted Story.</span>
+                            <strong>delivery scope</strong>
+                            <span>Required delivery scope is applied to every selected AI-assisted Story.</span>
                           </div>
                           <div className="issue-form-grid issue-form-grid--triple">
                             {jiraRequirementCoreRequired.sprint ? (
@@ -7042,7 +7064,7 @@ export function RequirementsPage() {
                         <section className="issue-form-section story-ai-dialog-scope-section">
                           <div className="issue-form-section-head">
                             <strong>Required Story fields</strong>
-                            <span>These project-specific Jira Story fields apply to every accepted draft in this batch.</span>
+                            <span>These project-specific Story fields apply to every accepted draft in this batch.</span>
                           </div>
                           {requirementCreateMetadataQuery.isLoading ? (
                             <LoadingState label="Checking Story create fields" />
@@ -7131,9 +7153,9 @@ export function RequirementsPage() {
                   showGherkin={includeGherkin}
                   showProperties={requirementAiMode === "improve"}
                   statusContent={aiCompleteRequirementDetailQuery.isError && requirementAiMode === "improve" ? (
-                    <div className="story-studio-state-message is-error" role="alert">HelloTest could not load this Story’s full Jira context. Refresh before completing or applying changes.</div>
+                    <div className="story-studio-state-message is-error" role="alert">HelloTest could not load this Story’s full connected-workspace context. Refresh before completing or applying changes.</div>
                   ) : aiCompleteRequirementDetailQuery.isLoading && requirementAiMode === "improve" ? (
-                    <div className="story-studio-state-message" role="status">Loading the selected Story’s full Jira context…</div>
+                    <div className="story-studio-state-message" role="status">Loading the selected Story’s full connected-workspace context…</div>
                   ) : previewMessage ? (
                     <div className={previewTone === "error" ? "story-studio-state-message is-error" : "story-studio-state-message"} role={previewTone === "error" ? "alert" : "status"}>
                       <ToastMessage message={previewMessage} onDismiss={() => setPreviewMessage("")} tone={previewTone} />
@@ -7198,10 +7220,10 @@ export function RequirementsPage() {
                     ? "The saved Story is the task boundary; add guidance only when a specific area needs attention."
                     : "No written Story outcome is available yet. Add a brief or packed context before generation; links alone are pointers, not factual content.",
                 context: `${storyAiContextLabel} defines the visible evidence boundary. External linked page content is not fetched.`,
-                guardrails: "Retrieved text is treated as evidence, not authority. Jira permissions, required fields, and the explicit acceptance gate remain enforced.",
+                guardrails: "Retrieved text is treated as evidence, not authority. Connected-workspace permissions, required fields, and the explicit acceptance gate remain enforced.",
                 specialist: `Story Architect is preparing ${requirementAiMode === "create" ? `${requirementAiDraftCount} candidate draft${requirementAiDraftCount === 1 ? "" : "s"}` : "a field-level completion proposal"}.`,
                 outcome: "Generated titles, descriptions, acceptance criteria, properties, and Gherkin remain editable draft data.",
-                evaluation: "The review checks title validity, required Jira fields, acceptance boundaries, risks, questions, and traceable evidence.",
+                evaluation: "The review checks title validity, required work-item fields, acceptance boundaries, risks, questions, and traceable evidence.",
                 review: requirementAiMode === "create" ? "Only selected drafts enter the Story library after explicit acceptance." : "Only selected generated fields are applied to the existing Story after explicit acceptance."
               }}
               queuePane={(
@@ -7560,8 +7582,8 @@ export function RequirementsPage() {
                 {requirementAiMode === "create" && (jiraRequirementCoreRequired.sprint || jiraRequirementCoreRequired.release) ? (
                   <section className="issue-form-section story-ai-dialog-scope-section">
                     <div className="issue-form-section-head">
-                      <strong>Jira delivery scope</strong>
-                      <span>Required Jira scope is applied to every selected AI-assisted Story.</span>
+                      <strong>delivery scope</strong>
+                      <span>Required delivery scope is applied to every selected AI-assisted Story.</span>
                     </div>
                     <div className="issue-form-grid issue-form-grid--triple">
                       {jiraRequirementCoreRequired.sprint ? (
@@ -7597,7 +7619,7 @@ export function RequirementsPage() {
                     <div className="issue-form-section-head">
                       <strong>Required Story fields</strong>
                       <span>
-                        These project-specific Jira Story fields will be applied to every selected AI draft created from this batch.
+                        These project-specific Story fields will be applied to every selected AI draft created from this batch.
                       </span>
                     </div>
                     {requirementCreateMetadataQuery.isLoading ? (
@@ -7623,7 +7645,7 @@ export function RequirementsPage() {
                       <div className="ai-requirement-generation-toolbar">
                         <div>
                           <strong>{selectedRequirementCreationDraftCount} of {requirementCreationDrafts.length} selected</strong>
-                          <span>Review title, description, priority, acceptance criteria, risks, and questions before creating Jira Stories.</span>
+                          <span>Review title, description, priority, acceptance criteria, risks, and questions before creating Stories.</span>
                         </div>
                       </div>
 
@@ -7839,7 +7861,7 @@ export function RequirementsPage() {
                   </div>
                 ) : (
                   <div className="empty-state compact">
-                    Add prompt context, then generate a draft to review before any Jira Story is created or updated.
+                    Add prompt context, then generate a draft to review before any Story is created or updated.
                   </div>
                 )}
               </main>
@@ -7934,7 +7956,12 @@ export function RequirementsPage() {
             setPreviewMessage("");
           }}
           onViewExistingCase={openTestCaseWorkspace}
-          onPreview={() => void handlePreviewDesignedCases()}
+          onAuthoringModeChange={() => {
+            setPreviewCases([]);
+            setPreviewMessage("");
+          }}
+          onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
+          onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
           onRemoveImage={(imageUrl) => {
             setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
             setPreviewCases([]);
@@ -8028,8 +8055,8 @@ function RequirementRelatedItemsPanel({
     <section className="requirement-related-panel" aria-label="Story related items">
       <div className="requirement-related-head">
         <div>
-          <strong>Jira related items</strong>
-          <span>Bidirectional Jira links, with HelloTest test status and ownership kept visible.</span>
+          <strong>related work items</strong>
+          <span>Bidirectional work-item links, with HelloTest test status and ownership kept visible.</span>
         </div>
         <span className="count-pill">{items.length} linked</span>
       </div>
@@ -8069,7 +8096,7 @@ function RequirementRelatedItemsPanel({
             </article>
           );
         })}
-        {!items.length ? <div className="empty-state compact">No Jira related items are visible for this Story.</div> : null}
+        {!items.length ? <div className="empty-state compact">No related work items are visible for this Story.</div> : null}
       </div>
     </section>
   );

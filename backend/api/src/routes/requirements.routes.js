@@ -316,6 +316,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       integration_id: { required: false, type: "string" },
       max_cases: { required: false, type: "number" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       status: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array", items: "string" },
@@ -337,6 +338,7 @@ module.exports = async function (fastify) {
       integration_id: req.body.integration_id,
       user_id: req.user.id,
       max_cases: req.body.max_cases,
+      authoring_mode: req.body.authoring_mode,
       status: req.body.status,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,
@@ -351,6 +353,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       integration_id: { required: false, type: "string" },
       max_cases: { required: false, type: "number" },
+      authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array", items: "string" },
       images: { required: false, type: "array" }
@@ -371,6 +374,7 @@ module.exports = async function (fastify) {
       integration_id: req.body.integration_id,
       user_id: req.user.id,
       max_cases: req.body.max_cases,
+      authoring_mode: req.body.authoring_mode,
       additional_context: req.body.additional_context,
       external_links: req.body.external_links,
       images: req.body.images

@@ -4146,12 +4146,12 @@ function SuiteModal({
               ) : null}
               <aside className="suite-reference-pro-tip">
                 <InfoTooltip
-                  content="Suites can be exported to Jira after creation. Keep labels aligned with your project tags."
+                  content="Suites can be exported to the connected workspace after creation. Keep labels aligned with your project tags."
                   label="Suite creation tip"
                 />
                 <div>
                   <strong>Pro Tip</strong>
-                  <p>Suites can be exported to Jira after creation. Ensure the labels match your project tags.</p>
+                  <p>Suites can be exported to the connected workspace after creation. Ensure the labels match your project tags.</p>
                 </div>
               </aside>
             </section>

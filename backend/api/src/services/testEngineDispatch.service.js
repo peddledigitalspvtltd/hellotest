@@ -700,7 +700,9 @@ const buildProviderLiveViewUrl = (integration, provider) => {
 };
 
 const resolveDirectCallbackBaseUrl = (integration) =>
-  normalizeText(process.env.QAIRA_LOCAL_CALLBACK_BASE_URL)
+  normalizeText(process.env.HELLOTEST_LOCAL_CALLBACK_BASE_URL)
+  || normalizeText(process.env.QAIRA_LOCAL_CALLBACK_BASE_URL)
+  || normalizeText(process.env.HELLOTEST_PUBLIC_API_BASE_URL)
   || normalizeText(process.env.QAIRA_PUBLIC_API_BASE_URL)
   || normalizeText(integration?.config?.local_callback_base_url)
   || "http://localhost:3000";
@@ -709,6 +711,7 @@ const resolveCallbackSecret = (integration) =>
   normalizeText(integration?.config?.callback_secret)
   || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
   || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
+  || normalizeText(process.env.HELLOTEST_TESTENGINE_SECRET)
   || normalizeText(process.env.QAIRA_TESTENGINE_SECRET)
   || "qaira-testengine-dev-secret";
 

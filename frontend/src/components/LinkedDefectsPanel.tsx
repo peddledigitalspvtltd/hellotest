@@ -100,7 +100,7 @@ export function LinkedDefectsPanel({
                 setSubmittedSearch(searchTerm.trim());
               }
             }}
-            placeholder="Search Jira bugs"
+            placeholder="Search Bugs"
             value={searchTerm}
           />
         </label>
@@ -185,7 +185,7 @@ export function LinkedDefectsPanel({
           ))}
           {!defects.length ? (
             <div className="empty-state compact">
-              {submittedSearch === null ? "No linked bugs. Search Jira to add one." : "No bugs match this search."}
+              {submittedSearch === null ? "No linked bugs. Search connected work items to add one." : "No bugs match this search."}
             </div>
           ) : null}
         </div>

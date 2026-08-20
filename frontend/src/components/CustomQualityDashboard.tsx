@@ -146,7 +146,7 @@ const DASHBOARD_WIDGET_PRESETS: Array<{
   {
     id: "traceability",
     label: "Story traceability",
-    description: "Jira stories with and without linked HelloTest tests.",
+    description: "Stories with and without linked HelloTest tests.",
     gadget: { id: "", title: "Story traceability", data_source: "qaira", type: "metric", jql: "", group_by: "status", metric: "requirementCoverage", accent: "green" }
   },
   {
@@ -268,7 +268,7 @@ function openDashboardDrilldown(result: QualityDashboardGadgetResult, groupLabel
     return;
   }
   const siteUrl = readAtlassianSiteUrl();
-  if (!siteUrl) throw new Error("Jira site context is unavailable. Refresh HelloTest, then open the drill-down again.");
+  if (!siteUrl) throw new Error("connected site context is unavailable. Refresh HelloTest, then open the drill-down again.");
   const jql = addDashboardDrilldownClause(result.jql, dashboardGroupClause(result, groupLabel));
   window.open(`${siteUrl}/issues/?jql=${encodeURIComponent(jql)}`, "_blank", "noopener,noreferrer");
 }
@@ -308,8 +308,17 @@ async function fitDashboardSnapshotToForgePayload(dataUrl: string) {
 }
 
 async function captureDashboardSnapshot(node: HTMLElement, dashboardName: string) {
+  await document.fonts?.ready;
+  await Promise.all(Array.from(node.querySelectorAll("img")).map((image) => image.complete
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        image.addEventListener("load", () => resolve(), { once: true });
+        image.addEventListener("error", () => resolve(), { once: true });
+      })));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+
   const rect = node.getBoundingClientRect();
-  const width = Math.max(760, Math.ceil(rect.width || node.scrollWidth || 1100));
+  const width = Math.max(760, Math.ceil(rect.width || 0), Math.ceil(node.scrollWidth || 0));
   const height = Math.max(420, Math.ceil(node.scrollHeight || rect.height || 720));
   const maxPixels = 7_000_000;
   const pixelRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, 1.6, Math.sqrt(maxPixels / Math.max(1, width * height))));
@@ -582,7 +591,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
     if (!selected) return;
     const confirmed = await confirmDelete({
       title: "Delete quality dashboard?",
-      message: `${selected.name || "This dashboard"} and its gadget configuration will be removed from this Jira project.`,
+      message: `${selected.name || "This dashboard"} and its gadget configuration will be removed from this project.`,
       confirmLabel: "Delete dashboard"
     });
     if (confirmed) remove.mutate(selected.id);
@@ -590,13 +599,14 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
   const handleDownloadReport = async () => {
     if (!selected) return;
     try {
+      if (isDashboardRefreshPending) throw new Error("Wait for every dashboard widget to finish refreshing before exporting.");
       if (!reportSurfaceRef.current) throw new Error("The live custom dashboard is not ready to export. Refresh and retry.");
       const snapshot = await captureDashboardSnapshot(reportSurfaceRef.current, selected.name);
       const blob = await downloadReport.mutateAsync({ dashboardId: selected.id, snapshot });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(selected.name || "qaira-dashboard-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
+      link.download = `${(selected.name || "HelloTest-dashboard-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -622,6 +632,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
       return;
     }
     try {
+      if (isDashboardRefreshPending) throw new Error("Wait for every dashboard widget to finish refreshing before emailing the report.");
       if (!reportSurfaceRef.current) throw new Error("The live custom dashboard is not ready to email. Refresh and retry.");
       const snapshot = await captureDashboardSnapshot(reportSurfaceRef.current, selected.name);
       const response = await shareReport.mutateAsync({ dashboardId: selected.id, recipients, snapshot });
@@ -699,8 +710,8 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
           <button className="primary-button" disabled={!canManage} onClick={openCreateEditor} type="button">Create dashboard</button>
           <button className="ghost-button" disabled={!canManage || !selected} onClick={openEditEditor} type="button">Edit</button>
           <button className="ghost-button danger" disabled={!canManage || !selected || remove.isPending} onClick={() => void deleteSelectedDashboard()} type="button">{remove.isPending ? "Deleting…" : "Delete"}</button>
-          <button className="ghost-button" disabled={!selected || downloadReport.isPending} onClick={() => void handleDownloadReport()} type="button">{downloadReport.isPending ? "Exporting…" : "Export PDF"}</button>
-          <button className="ghost-button" disabled={!canManage || !selected || shareReport.isPending} onClick={handleOpenReportEmailModal} type="button">Email report</button>
+          <button className="ghost-button" disabled={!selected || downloadReport.isPending || isDashboardRefreshPending} onClick={() => void handleDownloadReport()} type="button">{downloadReport.isPending ? "Exporting…" : "Export PDF"}</button>
+          <button className="ghost-button" disabled={!canManage || !selected || shareReport.isPending || isDashboardRefreshPending} onClick={handleOpenReportEmailModal} type="button">Email report</button>
           <button
             aria-busy={isDashboardRefreshPending}
             aria-label={isDashboardRefreshPending ? "Refreshing dashboards" : "Refresh dashboards"}
@@ -750,7 +761,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
             tabIndex={-1}
           >
             <div className="modal-card-head custom-dashboard-modal-head">
-              <div><span className="eyebrow">Quality intelligence</span><h3 id="custom-dashboard-dialog-title">{editorMode === "create" ? "Create dashboard" : "Edit dashboard"}</h3><p>Build a Jira-project-scoped decision surface and validate every JQL gadget before saving.</p></div>
+              <div><span className="eyebrow">Quality intelligence</span><h3 id="custom-dashboard-dialog-title">{editorMode === "create" ? "Create dashboard" : "Edit dashboard"}</h3><p>Build a project-scoped decision surface and validate every JQL gadget before saving.</p></div>
               <DialogCloseButton disabled={isEditorBusy} label={`Close ${editorMode} dashboard dialog`} onClick={closeEditor} />
             </div>
 
@@ -823,7 +834,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                               });
                             }}
                           >
-                            <option value="jira">Jira issues · JQL</option>
+                            <option value="jira">Work items · JQL</option>
                             <option value="qaira">HelloTest derived quality</option>
                           </select>
                         </FormField>
@@ -842,13 +853,13 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                               }));
                             }}
                           >
-                            <optgroup label="Jira issue metrics"><option value="count">Count</option><option value="resolved">Resolved</option><option value="unresolved">Unresolved</option><option value="highPriority">High priority</option><option value="unassigned">Unassigned</option><option value="overdue">Overdue</option><option value="stale30d">Stale 30+ days</option><option value="created30d">Created in 30 days</option><option value="resolved30d">Resolved in 30 days</option><option value="resolutionRate">Resolution rate</option><option value="averageAgeDays">Average age</option><option value="averageResolutionDays">Average resolution time</option></optgroup>
+                            <optgroup label="Work item metrics"><option value="count">Count</option><option value="resolved">Resolved</option><option value="unresolved">Unresolved</option><option value="highPriority">High priority</option><option value="unassigned">Unassigned</option><option value="overdue">Overdue</option><option value="stale30d">Stale 30+ days</option><option value="created30d">Created in 30 days</option><option value="resolved30d">Resolved in 30 days</option><option value="resolutionRate">Resolution rate</option><option value="averageAgeDays">Average age</option><option value="averageResolutionDays">Average resolution time</option></optgroup>
                             <optgroup label="HelloTest derived metrics"><option value="releaseConfidence">Release confidence</option><option value="requirementCoverage">Story coverage</option><option value="coverageGaps">Coverage gaps</option><option value="automationCoverage">Automation coverage</option><option value="openDefects">Open defects</option><option value="failedRuns">Failed runs</option><option value="executionCycleHours">Execution cycle time</option><option value="completedRuns30d">QA throughput · 30 days</option><option value="testCases">Test cases</option><option value="testSuites">Test suites</option><option value="testRuns">Test runs</option><option value="moduleCaseCount">Cases by module</option></optgroup>
                           </select>
                         </FormField>
                         <FormField label="Accent"><select value={gadgetDraft.accent || "blue"} onChange={(event) => setGadgetDraft((current) => ({ ...current, accent: event.target.value as QualityDashboardGadget["accent"] }))}>{DASHBOARD_ACCENTS.map((accent) => <option key={accent.id} value={accent.id}>{accent.label}</option>)}</select></FormField>
                       </div>
-                      {gadgetDraft.data_source !== "qaira" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active Jira project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>Derived HelloTest signal</strong><span>Computed from bounded Jira-native stories, tests, suites, modules, runs, and Bugs. No free-form query is executed.</span></div>}
+                      {gadgetDraft.data_source !== "qaira" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>Derived HelloTest signal</strong><span>Computed from bounded project stories, tests, suites, modules, runs, and Bugs. No free-form query is executed.</span></div>}
                       <div className="action-row"><button className="ghost-button" disabled={preview.isPending} onClick={() => preview.mutate({ ...gadgetDraft, id: gadgetDraft.id || "preview" })} type="button">{preview.isPending ? "Running…" : "Preview"}</button><button className="primary-button" disabled={!gadgetDraft.title.trim() || (!editingGadgetId && draft.gadgets.length >= 12)} onClick={addGadget} type="button">{editingGadgetId ? "Update gadget" : "Add gadget"}</button>{editingGadgetId ? <button className="ghost-button" onClick={() => { setEditingGadgetId(""); setGadgetDraft({ ...EMPTY_GADGET, title: "" }); setIsGadgetJqlDirty(false); }} type="button">Cancel edit</button> : null}</div>
                     </div>
                     {preview.data ? <QualityGadget onDrilldown={(groupLabel) => handleGadgetDrilldown(preview.data!, groupLabel)} result={preview.data} /> : null}
@@ -886,16 +897,16 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
             <div className="modal-card-head">
               <div>
                 <h3 id="dashboard-report-email-title">Email dashboard report</h3>
-                <p>Send {selected.name} through Jira notifications to visible Jira users.</p>
+                <p>Send {selected.name} as a PDF attachment to the specified recipients.</p>
               </div>
               <DialogCloseButton disabled={shareReport.isPending} label="Close report email dialog" onClick={closeReportEmailModal} />
             </div>
-            <FormField label="Recipients" hint="Use Jira account IDs or Jira-visible email addresses, separated by comma, semicolon, or new line.">
+            <FormField label="Recipients" hint="Use workspace account IDs or visible email addresses, separated by comma, semicolon, or new line.">
               <textarea data-autofocus="true" rows={4} value={reportEmailDraft} onChange={(event) => setReportEmailDraft(event.target.value)} />
             </FormField>
             <div className="action-row">
               <button className="ghost-button" disabled={shareReport.isPending} onClick={closeReportEmailModal} type="button">Cancel</button>
-              <button className="primary-button" disabled={shareReport.isPending || !reportEmailDraft.trim()} type="submit">{shareReport.isPending ? "Sending…" : "Send report"}</button>
+              <button className="primary-button" disabled={shareReport.isPending || isDashboardRefreshPending || !reportEmailDraft.trim()} type="submit">{shareReport.isPending ? "Sending…" : "Send report"}</button>
             </div>
           </form>
         </div>
@@ -986,7 +997,7 @@ function QualityGadget({
       {gadget.type === "table" ? (
         <div className="quality-table-wrap"><table><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th></tr></thead><tbody>{rows.map((row) => { const issueUrl = gadget.data_source !== "qaira" ? getJiraBrowseUrl(row.key) : null; return <tr key={row.id}><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.key}</a> : row.key}</td><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.title}</a> : <button className="quality-table-drilldown" onClick={() => onDrilldown?.()} type="button">{row.title}</button>}</td><td>{row.type || "—"}</td><td>{row.priority || "—"}</td><td>{row.status || "—"}</td><td>{row.assignee || "Unassigned"}</td></tr>; })}</tbody></table></div>
       ) : null}
-      <small className="quality-gadget-foot">{gadget.data_source === "qaira" ? "HelloTest derived · bounded project portfolio" : "Jira JQL · project scoped"} · {Number(result.returned) || 0} inspected</small>
+      <small className="quality-gadget-foot">{gadget.data_source === "qaira" ? "HelloTest derived · bounded project portfolio" : "JQL · project scoped"} · {Number(result.returned) || 0} inspected</small>
     </article>
   );
 }

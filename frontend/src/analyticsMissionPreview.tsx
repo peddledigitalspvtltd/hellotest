@@ -93,9 +93,9 @@ function Preview() {
           ]}
           isExplainingSignals={false}
           lanes={[
-            { id: "web", name: "Web", projectName: "QAIRA", type: "web", cases: 14, suites: 2, executableCases: 8, failedSignals: 1, releaseScore: 53, label: "At risk", tone: "error", destination: "#" },
-            { id: "api", name: "API", projectName: "QAIRA", type: "api", cases: 0, suites: 0, executableCases: 0, failedSignals: 0, releaseScore: 0, label: "No design yet", tone: "neutral", destination: "#" },
-            { id: "mobile", name: "Mobile", projectName: "QAIRA", type: "android", cases: 0, suites: 0, executableCases: 0, failedSignals: 0, releaseScore: 0, label: "No design yet", tone: "neutral", destination: "#" }
+            { id: "web", name: "Web", projectName: "HELLOTEST", type: "web", cases: 14, suites: 2, executableCases: 8, failedSignals: 1, releaseScore: 53, label: "At risk", tone: "error", destination: "#" },
+            { id: "api", name: "API", projectName: "HELLOTEST", type: "api", cases: 0, suites: 0, executableCases: 0, failedSignals: 0, releaseScore: 0, label: "No design yet", tone: "neutral", destination: "#" },
+            { id: "mobile", name: "Mobile", projectName: "HELLOTEST", type: "android", cases: 0, suites: 0, executableCases: 0, failedSignals: 0, releaseScore: 0, label: "No design yet", tone: "neutral", destination: "#" }
           ]}
           latestFailedSignals={0}
           latestPassRate={100}
@@ -116,8 +116,8 @@ function Preview() {
           projectName="HelloTest"
           provisional
           recentExecutions={[
-            { id: "1", name: "Release confidence run", projectName: "QAIRA", appTypeName: "Web", trigger: "manual", status: "failed", summary: { running: 0, passed: 1, failed: 1, blocked: 0, total: 2, percent: 50 } },
-            { id: "2", name: "Smoke check", projectName: "QAIRA", appTypeName: "Web", trigger: "ci", status: "completed", summary: { running: 0, passed: 2, failed: 0, blocked: 0, total: 2, percent: 100 } }
+            { id: "1", name: "Release confidence run", projectName: "HELLOTEST", appTypeName: "Web", trigger: "manual", status: "failed", summary: { running: 0, passed: 1, failed: 1, blocked: 0, total: 2, percent: 50 } },
+            { id: "2", name: "Smoke check", projectName: "HELLOTEST", appTypeName: "Web", trigger: "ci", status: "completed", summary: { running: 0, passed: 2, failed: 0, blocked: 0, total: 2, percent: 100 } }
           ]}
           releaseBlockerCount={2}
           releaseHeadline="Production readiness needs hardening"

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import type { AiPromptTemplate } from "../types";
@@ -147,7 +148,7 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     searchPlaceholder: "Failure type, evidence style, domain, or tag...",
     emptyMessage: "No Bug templates matched. Create one for this screen on the right.",
     createTitle: "Add Bug template",
-    createHelp: "Capture Jira-ready reproduction and evidence guidance. It will not appear in Story or Test Case dialogs.",
+    createHelp: "Capture ready-to-file reproduction and evidence guidance. It will not appear in Story or Test Case dialogs.",
     appliesTo: ["bugs"],
     domainLabel: "Affected domain",
     domainPlaceholder: "Checkout, identity, reporting...",
@@ -161,7 +162,7 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     countUnit: "drafts",
     showCount: false,
     promptLabel: "Bug guidance",
-    promptPlaceholder: "Describe the reproduction detail, evidence, impact, and wording required for a Jira-ready Bug."
+    promptPlaceholder: "Describe the reproduction detail, evidence, impact, and wording required for a ready-to-file Bug."
   }
 };
 
@@ -322,8 +323,16 @@ export function AiPromptTemplatePicker({
         <span>{scopeConfig.triggerLabel}</span>
       </button>
 
-      {isOpen ? (
-        <div className="modal-backdrop" onClick={closePicker} role="presentation">
+      {isOpen ? createPortal(
+        <div
+          className="modal-backdrop ai-prompt-template-backdrop"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (event.target === event.currentTarget) closePicker();
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          role="presentation"
+        >
           <div
             aria-labelledby="ai-prompt-template-title"
             aria-modal="true"
@@ -427,7 +436,8 @@ export function AiPromptTemplatePicker({
               </section>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </>
   );

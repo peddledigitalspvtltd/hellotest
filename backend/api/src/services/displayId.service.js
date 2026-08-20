@@ -35,6 +35,11 @@ const DISPLAY_ID_CONFIG = {
     table: "requirement_iterations",
     prefix: "ITER-",
     minDigits: 1
+  },
+  issue: {
+    table: "feedback",
+    prefix: "BUG-",
+    minDigits: 1
   }
 };
 

@@ -9,13 +9,15 @@ test("automation authoring is a dedicated case workflow with complete build surf
 
   for (const capability of [
     "Create automation case",
-    "AI architect",
-    "Smart recorder",
-    "Blank canvas",
+    "AI map existing automation",
+    "Schedule AI automation",
+    "Build with AI",
+    "Inspect & record",
+    "Start blank",
     "Build studio",
     "Retrieve automation code",
     "Insert shared group",
-    "Record into step"
+    "Edit automation"
   ]) {
     assert.match(page, new RegExp(capability));
   }
@@ -34,4 +36,8 @@ test("manual cases expose linked automation without merging the records", async 
   assert.match(page, /label: "Automation Cases"/);
   assert.match(page, /`\/automation\?case=\$\{encodeURIComponent\(automationCase\.display_id \|\| automationCase\.id\)\}`/);
   assert.match(page, /`\/automation\?create=1&manual=\$\{encodeURIComponent\(selectedTestCase\.id\)\}`/);
+  assert.doesNotMatch(page, /AI map existing automation/);
+  assert.doesNotMatch(page, /Schedule AI automation/);
+  assert.match(page, /showAutomationTools=\{false\}/);
+  assert.match(page, /showRecorderTools=\{false\}/);
 });

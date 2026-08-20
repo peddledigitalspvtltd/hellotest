@@ -9,7 +9,8 @@ export function DisplayIdBadge({
   href?: string | null;
   title?: string;
 }) {
-  const content = <code>{formatDisplayId(value)}</code>;
+  const formattedValue = formatDisplayId(value);
+  const content = <code>{formattedValue}</code>;
 
   if (href) {
     return (
@@ -19,7 +20,7 @@ export function DisplayIdBadge({
         onClick={(event) => event.stopPropagation()}
         rel="noreferrer"
         target="_blank"
-        title={title || `Open ${formatDisplayId(value)}`}
+        title={title || `Open ${formattedValue}`}
       >
         {content}
       </a>
@@ -27,7 +28,7 @@ export function DisplayIdBadge({
   }
 
   return (
-    <span className="display-id-badge">
+    <span className="display-id-badge" title={title || formattedValue}>
       {content}
     </span>
   );

@@ -5,6 +5,10 @@ import { DialogCloseButton } from "./DialogCloseButton";
 import { InfoTooltip } from "./InfoTooltip";
 import { discoverRowColumns, formatDiscoveredValue } from "../lib/tablePreferences/columnDiscovery";
 import {
+  resolveColumnConfigPanelPosition,
+  type ColumnConfigPanelPosition
+} from "../lib/tablePreferences/columnConfigPosition";
+import {
   getColumnPreferenceLabel,
   isSelectionColumnKey,
   loadWorkspacePreferenceCache,
@@ -146,7 +150,7 @@ export function DataTable<T>({
   const lastSavedPreferenceFingerprintRef = useRef<string>("");
   const hydrationStorageKeyRef = useRef(storageKey || "");
   const hasLocalPreferenceChangeRef = useRef(false);
-  const [columnConfigPanelPosition, setColumnConfigPanelPosition] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
+  const [columnConfigPanelPosition, setColumnConfigPanelPosition] = useState<ColumnConfigPanelPosition | null>(null);
 
   useEffect(() => {
     setColumnPreference((current) => normalizeColumnPreference(resolvedColumns, current));
@@ -268,7 +272,7 @@ export function DataTable<T>({
     return () => window.cancelAnimationFrame(animationFrame);
   }, [isColumnConfigOpen]);
 
-  const updateColumnConfigPanelPosition = () => {
+  const updateColumnConfigPanelPosition = useCallback(() => {
     const trigger = columnConfigTriggerRef.current;
     if (!trigger) {
       setColumnConfigPanelPosition(null);
@@ -276,27 +280,16 @@ export function DataTable<T>({
     }
 
     const rect = trigger.getBoundingClientRect();
-    const viewportPadding = 12;
-    const triggerGap = 8;
-    const preferredMaxHeight = 544;
-    const minimumUsefulHeight = 260;
-    const availableBelow = window.innerHeight - rect.bottom - triggerGap - viewportPadding;
-    const availableAbove = rect.top - triggerGap - viewportPadding;
-    const shouldOpenAbove = availableBelow < minimumUsefulHeight && availableAbove > availableBelow;
-    const maxHeight = Math.max(
-      minimumUsefulHeight,
-      Math.min(preferredMaxHeight, shouldOpenAbove ? availableAbove : availableBelow)
-    );
-    const top = shouldOpenAbove
-      ? Math.max(viewportPadding, rect.top - triggerGap - maxHeight)
-      : Math.min(rect.bottom + triggerGap, window.innerHeight - viewportPadding - maxHeight);
-
-    setColumnConfigPanelPosition({
-      top,
-      right: Math.max(window.innerWidth - rect.right, viewportPadding),
-      maxHeight
-    });
-  };
+    const visualViewport = window.visualViewport;
+    setColumnConfigPanelPosition(resolveColumnConfigPanelPosition(rect, {
+      height: visualViewport?.height || window.innerHeight,
+      width: visualViewport?.width || window.innerWidth,
+      offsetLeft: visualViewport?.offsetLeft || 0,
+      offsetTop: visualViewport?.offsetTop || 0,
+      layoutHeight: window.innerHeight,
+      layoutWidth: window.innerWidth
+    }));
+  }, []);
 
   useEffect(() => {
     if (!isColumnConfigOpen) {
@@ -306,12 +299,16 @@ export function DataTable<T>({
     updateColumnConfigPanelPosition();
     window.addEventListener("resize", updateColumnConfigPanelPosition);
     window.addEventListener("scroll", updateColumnConfigPanelPosition, true);
+    window.visualViewport?.addEventListener("resize", updateColumnConfigPanelPosition);
+    window.visualViewport?.addEventListener("scroll", updateColumnConfigPanelPosition);
 
     return () => {
       window.removeEventListener("resize", updateColumnConfigPanelPosition);
       window.removeEventListener("scroll", updateColumnConfigPanelPosition, true);
+      window.visualViewport?.removeEventListener("resize", updateColumnConfigPanelPosition);
+      window.visualViewport?.removeEventListener("scroll", updateColumnConfigPanelPosition);
     };
-  }, [isColumnConfigOpen]);
+  }, [isColumnConfigOpen, updateColumnConfigPanelPosition]);
 
   const columnByKey = useMemo(
     () =>
@@ -709,11 +706,13 @@ export function DataTable<T>({
     <div
       aria-labelledby={columnConfigTitleId}
       className="data-table-config-panel"
+      data-placement={columnConfigPanelPosition?.placement || "below"}
       id={columnConfigId}
       ref={columnConfigPanelRef}
       role="dialog"
       style={columnConfigPanelPosition ? {
         top: columnConfigPanelPosition.top,
+        bottom: columnConfigPanelPosition.bottom,
         right: columnConfigPanelPosition.right,
         maxHeight: columnConfigPanelPosition.maxHeight
       } : undefined}

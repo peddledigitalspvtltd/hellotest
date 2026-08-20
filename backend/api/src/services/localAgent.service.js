@@ -81,14 +81,17 @@ const probeCandidates = async (kind, candidates) => {
 };
 
 const resolveLocalRunRoot = () =>
-  path.resolve(process.env.QAIRA_LOCAL_RUN_ROOT || path.join(__dirname, "../../../../local-run"));
+  path.resolve(process.env.HELLOTEST_LOCAL_RUN_ROOT || process.env.QAIRA_LOCAL_RUN_ROOT || path.join(__dirname, "../../../../local-run"));
+
+const localAgentLaunchEnabled = () =>
+  (process.env.HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH || process.env.QAIRA_ALLOW_LOCAL_AGENT_LAUNCH) === "true";
 
 const launchHostRecorder = () => {
-  if (process.env.QAIRA_ALLOW_LOCAL_AGENT_LAUNCH !== "true") {
+  if (!localAgentLaunchEnabled()) {
     return {
       started: false,
       launch_supported: false,
-      message: "One-click local agent launch is disabled. Set QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true on the API process to allow HelloTest to run the fixed local runner script."
+      message: "One-click local agent launch is disabled. Set HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH=true on the API process to allow HelloTest to run the fixed local runner script."
     };
   }
 
@@ -111,7 +114,8 @@ const launchHostRecorder = () => {
     stdio: "ignore",
     env: {
       ...process.env,
-      QAIRA_HOST_RECORDER_PORT: process.env.QAIRA_HOST_RECORDER_PORT || "4311"
+      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || process.env.QAIRA_HOST_RECORDER_PORT || "4311",
+      QAIRA_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || process.env.QAIRA_HOST_RECORDER_PORT || "4311"
     }
   });
 
@@ -135,7 +139,7 @@ exports.getStatus = async () => {
   ]);
 
   return {
-    launch_supported: process.env.QAIRA_ALLOW_LOCAL_AGENT_LAUNCH === "true",
+    launch_supported: localAgentLaunchEnabled(),
     web,
     mobile,
     appium,

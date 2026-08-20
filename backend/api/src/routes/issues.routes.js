@@ -93,7 +93,7 @@ function registerFeedbackRoutes(fastify, basePath) {
   fastify.post(basePath, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({
-      project_id: { required: false, type: "string" },
+      project_id: { required: true, type: "string" },
       user_id: { required: true, type: "string" },
       title: { required: true, type: "string", minLength: 2 },
       message: { required: true, type: "string", minLength: 2 },
@@ -133,7 +133,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       viewer_id: req.user.id,
       viewer_is_admin: req.user.role === "admin" || req.user.is_workspace_admin
     });
-    const searched = req.query.q ? items.filter((item) => `${item.title || ""} ${item.message || ""} ${item.jira_bug_key || ""}`.toLowerCase().includes(String(req.query.q).toLowerCase())) : items;
+    const searched = req.query.q ? items.filter((item) => `${item.display_id || ""} ${item.title || ""} ${item.message || ""} ${item.jira_bug_key || ""}`.toLowerCase().includes(String(req.query.q).toLowerCase())) : items;
     return shouldPaginate(req.query) ? paginate(searched, req.query) : searched;
   });
 

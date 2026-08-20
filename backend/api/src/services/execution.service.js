@@ -355,6 +355,7 @@ async function canReachLocalEngine(baseUrl) {
 async function resolveLocalEngineBaseUrl(preferredUrl) {
   const candidates = [
     preferredUrl,
+    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
     process.env.QAIRA_LOCAL_RUN_ENGINE_URL,
     "http://localhost:4311",
     "http://127.0.0.1:4311",

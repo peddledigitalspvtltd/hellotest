@@ -98,3 +98,16 @@ test("Smart Run labels direct impacted scope without inventing a Default suite",
   assert.match(modal, /no existing suite membership is invented or changed/);
   assert.doesNotMatch(modal, /staged under (?:the built-in )?Default/);
 });
+
+test("Test Run tile tracks and identifiers stay bounded", async () => {
+  const [page, styles, badge] = await Promise.all([
+    readSource("../src/pages/ExecutionsPage.tsx"),
+    readSource("../src/styles.css"),
+    readSource("../src/components/DisplayIdBadge.tsx")
+  ]);
+
+  assert.match(page, /tile-browser-grid execution-run-tile-grid/);
+  assert.match(styles, /\.execution-run-tile-grid \{[\s\S]*?repeat\(auto-fill,/);
+  assert.match(styles, /\.execution-run-tile-grid \.tile-card-select-row \.display-id-badge code \{[\s\S]*?text-overflow: ellipsis/);
+  assert.match(badge, /title=\{title \|\| formattedValue\}/);
+});

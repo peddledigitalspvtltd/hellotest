@@ -557,10 +557,10 @@ INSERT INTO execution_results (id, execution_id, test_case_id, test_case_title, 
 -- FEEDBACK
 -- =========================
 
-INSERT INTO feedback (id, user_id, title, message, status) VALUES
-('fb1', 'u1', 'Bulk import flow', 'Would love a CSV import for requirements and test cases.', 'open'),
-('fb2', 'u2', 'Execution notes', 'A dedicated notes area during execution would help triage faster.', 'reviewed'),
-('fb3', 'u1', 'Mobile sync optimization', 'Sync performance needs improvement for large datasets.', 'open');
+INSERT INTO feedback (id, project_id, user_id, title, message, status) VALUES
+('fb1', 'p1', 'u1', 'Bulk import flow', 'Would love a CSV import for requirements and test cases.', 'open'),
+('fb2', 'p1', 'u2', 'Execution notes', 'A dedicated notes area during execution would help triage faster.', 'reviewed'),
+('fb3', 'p1', 'u1', 'Mobile sync optimization', 'Sync performance needs improvement for large datasets.', 'open');
 
 -- =========================
 -- RUNTIME SEED ENHANCEMENTS
@@ -631,7 +631,7 @@ VALUES
 (
   '382a96b2-fbed-4e1a-9a7a-50c0b399df60',
   'google_auth',
-  'QAira',
+  'HelloTest',
   'https://api.openai.com/v1',
   NULL,
   NULL,
@@ -643,7 +643,7 @@ VALUES
 (
   '08f12517-6229-4e4c-a6d2-4f88145fbff1',
   'ops',
-  'Qaira',
+  'HelloTest',
   'http://localhost:4301',
   NULL,
   NULL,
@@ -680,7 +680,7 @@ VALUES
 (
   'df45e7d9-5167-4b30-a766-3c92a2a27a99',
   'email',
-  'QAira',
+  'HelloTest',
   'https://api.openai.com/v1',
   NULL,
   NULL,
@@ -692,7 +692,7 @@ VALUES
     "secure":false,
     "password":"********",
     "sender_email":"contact@qualipal.in",
-    "sender_name":"QAira Support"
+    "sender_name":"HelloTest Support"
   }'::jsonb,
   TRUE
 ),

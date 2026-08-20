@@ -44,7 +44,6 @@ import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles 
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { safeBugReportReturnRoute } from "../lib/bugReportNavigation";
 import { hasPermission } from "../lib/permissions";
-import { getJiraBrowseUrl } from "../lib/jiraBrowseUrl";
 import { asArray } from "../lib/collectionGuards";
 import { downloadCsvRecords } from "../lib/csvExport";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
@@ -264,7 +263,8 @@ const optionalDraftValue = (value: string) => {
   return value.trim();
 };
 
-const buildIssuePayload = (draft: IssueDraft, userId: string) => ({
+const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string) => ({
+  project_id: projectId,
   user_id: userId,
   title: draft.title,
   message: draft.message,
@@ -502,6 +502,7 @@ export function IssuesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
   const seededIssueDraftKeyRef = useRef("");
+  const closedIssueIdRef = useRef("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
@@ -718,6 +719,7 @@ export function IssuesPage() {
     return items.filter((item) =>
       [
         item.id,
+        item.display_id,
         item.title,
         item.message,
         item.status,
@@ -914,7 +916,7 @@ export function IssuesPage() {
       render: (item) => (
         <label className="data-table-row-checkbox">
           <input
-            aria-label={`Select Bug ${item.jira_bug_key || item.id}: ${item.title}`}
+            aria-label={`Select Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
             checked={selectedActionIssueIdSet.has(item.id)}
             onChange={(event) => toggleIssueSelection(item.id, event.target.checked)}
             type="checkbox"
@@ -931,7 +933,7 @@ export function IssuesPage() {
       render: (item) => (
         <span className="issue-list-id issue-bug-identity" onClick={(event) => event.stopPropagation()}>
           <BugIcon size={16} strokeWidth={1.8} />
-          <DisplayIdBadge value={item.jira_bug_key || item.id} href={getJiraBrowseUrl(item.jira_bug_key, item.jira_url)} />
+          <DisplayIdBadge value={item.display_id || item.jira_bug_key || item.id} />
         </span>
       )
     },
@@ -945,7 +947,7 @@ export function IssuesPage() {
       render: (item) => (
         <div className="data-table-multiline">
           <button
-            aria-label={`Open Bug ${item.jira_bug_key || item.id}: ${item.title}`}
+            aria-label={`Open Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
             className="issue-record-open-button"
             onClick={(event) => {
               event.stopPropagation();
@@ -1126,6 +1128,12 @@ export function IssuesPage() {
     }
 
     const requestedIssueId = searchParams.get("issue");
+
+    if (!requestedIssueId) {
+      closedIssueIdRef.current = "";
+    } else if (closedIssueIdRef.current === requestedIssueId) {
+      return;
+    }
 
     const requestedIssue = requestedIssueId
       ? items.find((item) => item.id === requestedIssueId || item.jira_bug_key === requestedIssueId)
@@ -1603,7 +1611,7 @@ export function IssuesPage() {
     }
 
     if (isCreating || !selectedItem) {
-      const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id));
+      const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id, projectId));
       syncIssueSearchParams(response.id);
       setSelectedIssueId(response.id);
       setIsCreating(false);
@@ -1612,20 +1620,21 @@ export function IssuesPage() {
 
     await updateIssue.mutateAsync({
       id: selectedItem.id,
-      input: { ...buildIssuePayload(draft, selectedItem.user_id), expected_revision: selectedItem.revision }
+      input: { ...buildIssuePayload(draft, selectedItem.user_id, projectId), expected_revision: selectedItem.revision }
     });
   };
 
   const closeIssueWorkspace = () => {
     if (isCreating) setMessage("");
+    closedIssueIdRef.current = selectedIssueId;
+    setSelectedIssueId("");
+    setIsCreating(false);
+    setDraft(emptyDraft);
     if (bugReturnTo) {
       navigate(bugReturnTo);
       return;
     }
     syncIssueSearchParams(null);
-    setSelectedIssueId("");
-    setIsCreating(false);
-    setDraft(emptyDraft);
   };
 
   const closeAiBugReport = () => {
@@ -1709,7 +1718,7 @@ export function IssuesPage() {
           <div
             aria-labelledby="ai-bug-draft-title"
             aria-modal="true"
-            className="modal-card ai-design-modal ai-bug-draft-modal ai-authoring-dialog ai-authoring-dialog--bugs"
+            className="modal-card ai-design-modal ai-bug-draft-modal ai-authoring-dialog ai-authoring-dialog--bugs ai-feature-dialog"
             onClick={(event) => event.stopPropagation()}
             ref={aiBugDialogRef}
             role="dialog"
@@ -2099,7 +2108,7 @@ export function IssuesPage() {
                   stageEvidence={{
                     intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Bug drafting boundary." : "Add the observed failure and expected behavior before delegating a Bug draft.",
                     context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, ${aiBugExternalLinks.length} external link pointer${aiBugExternalLinks.length === 1 ? "" : "s"}, ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}, and ${aiEvidence.trim() || aiAdditionalContext.trim() ? "reporter notes" : "no reporter notes"} form the evidence pack.`,
-                    guardrails: "The agent cannot create a Bug, change Jira, or treat reference text as trusted instructions.",
+                    guardrails: "The agent cannot create a Bug, change connected work items, or treat reference text as trusted instructions.",
                     specialist: "Bug Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
                     outcome: "Title, severity, priority, description, reproduction, expected/actual result, environment, build, and labels remain editable proposal fields.",
                     evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
@@ -2254,7 +2263,7 @@ export function IssuesPage() {
 
                 return (
                   <article
-                    aria-label={`Open Bug ${item.jira_bug_key || item.id}: ${item.title}`}
+                    aria-label={`Open Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
                     key={item.id}
                     className={[
                       "record-card tile-card",
@@ -2278,7 +2287,7 @@ export function IssuesPage() {
                       <div className="tile-card-select-row issue-tile-top-row">
                         <label className="checkbox-field" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                           <input
-                            aria-label={`Select Bug ${item.jira_bug_key || item.id}: ${item.title}`}
+                            aria-label={`Select Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
                             checked={selectedActionIssueIdSet.has(item.id)}
                             onChange={(event) => toggleIssueSelection(item.id, event.target.checked)}
                             type="checkbox"
@@ -2287,7 +2296,7 @@ export function IssuesPage() {
                         </label>
                         <span className="issue-bug-identity">
                           <BugIcon size={16} strokeWidth={1.8} />
-                          <DisplayIdBadge value={item.jira_bug_key || item.id} href={getJiraBrowseUrl(item.jira_bug_key, item.jira_url)} />
+                          <DisplayIdBadge value={item.display_id || item.jira_bug_key || item.id} />
                         </span>
                       </div>
                       <div className="tile-card-header">
@@ -2359,10 +2368,12 @@ export function IssuesPage() {
                 {isCreating && message ? (
                   <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p>
                 ) : null}
-                {!isCreating && selectedItem?.jira_bug_key ? (
+                {!isCreating && selectedItem ? (
                   <div className="requirement-detail-id-row">
                     <span>Bug ID</span>
-                    <DisplayIdBadge value={selectedItem.jira_bug_key} href={getJiraBrowseUrl(selectedItem.jira_bug_key, selectedItem.jira_url)} />
+                    <DisplayIdBadge
+                      value={selectedItem.display_id || selectedItem.jira_bug_key || selectedItem.id}
+                    />
                   </div>
                 ) : null}
                 {!isCreating && selectedItem ? (

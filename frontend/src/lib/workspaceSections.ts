@@ -14,6 +14,7 @@ export type WorkspaceSectionItem = {
     | "suites"
     | "executions"
     | "automation"
+    | "agents"
     | "repository"
     | "playwright"
     | "ops"
@@ -30,8 +31,11 @@ export const DASHBOARD_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: "/?view=custom", label: "Custom dashboards", shortLabel: "Custom", icon: "dashboard" }
 ];
 
+export const REQUIREMENTS_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: WORKSPACE_ROUTES.requirements, label: "Stories", shortLabel: "Stories", icon: "requirements", featureKeys: ["qaira.manual.requirements"] }
+];
+
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: WORKSPACE_ROUTES.requirements, label: "Stories", shortLabel: "Stories", icon: "requirements", featureKeys: ["qaira.manual.requirements"] },
   { to: WORKSPACE_ROUTES.testCases, label: "Cases", shortLabel: "Cases", icon: "cases", featureKeys: ["qaira.manual.test_cases"] },
   { to: WORKSPACE_ROUTES.sharedSteps, label: "Shared Steps", shortLabel: "Shared", icon: "shared", featureKeys: ["qaira.manual.suites"] },
   { to: WORKSPACE_ROUTES.design, label: "Suites", shortLabel: "Suites", icon: "suites", featureKeys: ["qaira.manual.suites"] }
@@ -55,6 +59,7 @@ export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const AGENTIC_WORKFLOW_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=agents`, label: "AI Agents", shortLabel: "Agents", icon: "agents", featureKeys: ["qaira.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=workflows`, label: "Workflows", shortLabel: "Flows", icon: "traces", featureKeys: ["qaira.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=runs`, label: "Workflow Runs", shortLabel: "Runs", icon: "executions", featureKeys: ["qaira.ai.agentic_workflows"] }
 ];
@@ -112,6 +117,7 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
 };
 
 export const WORKSPACE_LIBRARY_PATHS = new Set([
+  ...REQUIREMENTS_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
   ...TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
   "/executions",
   ...AUTOMATION_SECTION_ITEMS.map((item) => item.to),

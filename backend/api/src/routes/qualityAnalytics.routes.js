@@ -50,8 +50,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const dashboard = await dashboards.get(req.params.id);
     await requireProject(req, dashboard.project_id);
-    const { pdf } = await reports.renderPdf(dashboard);
-    const fileName = `${String(dashboard.name || "qaira-quality-report").replace(/[^A-Za-z0-9._-]+/g, "-") || "qaira-quality-report"}.pdf`;
+    const { pdf } = await reports.renderPdf(dashboard, req.body || {});
+    const fileName = `${String(dashboard.name || "HelloTest-quality-report").replace(/[^A-Za-z0-9._-]+/g, "-") || "HelloTest-quality-report"}.pdf`;
     reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${fileName}"`);
     return reply.send(pdf);
   };
@@ -63,7 +63,7 @@ module.exports = async function (fastify) {
     fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
     const dashboard = await dashboards.get(req.params.id);
     await requireProject(req, dashboard.project_id);
-    return reports.share({ dashboard, recipients: req.body.recipients, requestedBy: req.user.id });
+    return reports.share({ dashboard, recipients: req.body.recipients, requestedBy: req.user.id, snapshotPayload: req.body || {} });
   });
 
   const evaluateOne = async (req) => {

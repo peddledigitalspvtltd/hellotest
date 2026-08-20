@@ -395,7 +395,7 @@ export function KnowledgeRepoPage() {
             <div className="agent-context-cockpit">
               <div>
                 <h2>Build an application-aware RAG pack</h2>
-                <p>Package selected stories, manual cases, automated keyword steps, object repository fields, API notes, and document guidance into one active knowledge item. Direct LLM integrations can then use the same context to mature stories, design manual cases, generate automation, and repair locators; Rovo remains a separate Jira conversation.</p>
+                <p>Package selected stories, manual cases, automated keyword steps, object repository fields, API notes, and document guidance into one active knowledge item. Direct LLM integrations can then use the same context to mature stories, design manual cases, generate automation, and repair locators; Rovo remains a separate connected workspace conversation.</p>
                 <div className="agent-context-metrics metric-strip page-metric-strip" aria-label="Available application context" role="group">
                   <div className="mini-card">
                     <strong>{requirements.length}</strong>
@@ -422,8 +422,8 @@ export function KnowledgeRepoPage() {
                   className="knowledge-rovo-provider"
                   compact
                   prompt={[
-                    "Open a Jira-native HelloTest QA Agent conversation. This is a Rovo knowledge-design review, not a direct model invocation and must not create or update knowledge items.",
-                    `Review the knowledge context for Jira project ${projectId || "not selected"} and app type ${appTypeId || "not selected"}.`,
+                    "Open the HelloTest QA Agent in the connected workspace. This is a Rovo knowledge-design review, not a direct model invocation and must not create or update knowledge items.",
+                    `Review the knowledge context for project ${projectId || "not selected"} and app type ${appTypeId || "not selected"}.`,
                     `Available evidence counts: ${requirements.length} Stories, ${manualCases.length} manual cases, ${automatedCases.length} automated cases, and ${objectRepository.length} object-repository records.`,
                     `Selected context families: ${Object.entries(contextSources).filter(([, enabled]) => enabled).map(([key]) => key).join(", ") || "none"}.`,
                     "Identify missing product knowledge, safe retrieval boundaries, stale-source risks, and the smallest useful additions. Clearly separate observed counts from recommendations."

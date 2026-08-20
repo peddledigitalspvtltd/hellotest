@@ -14,11 +14,14 @@ CREATE TABLE users (
   name TEXT,
   avatar_data_url TEXT,
   is_workspace_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  default_role_id TEXT REFERENCES roles(id),
   auth_provider TEXT NOT NULL DEFAULT 'local',
   google_sub TEXT UNIQUE,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS default_role_id TEXT REFERENCES roles(id);
 
 CREATE TABLE password_reset_tokens (
   id TEXT PRIMARY KEY,
@@ -142,7 +145,8 @@ CREATE TABLE requirements (
 
 CREATE TABLE feedback (
   id TEXT PRIMARY KEY,
-  project_id TEXT,
+  display_id TEXT UNIQUE,
+  project_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -175,6 +179,7 @@ CREATE TABLE feedback (
 );
 
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS steps_to_reproduce TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS display_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS expected_result TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS actual_result TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS severity TEXT;
@@ -193,6 +198,7 @@ ALTER TABLE feedback ADD COLUMN IF NOT EXISTS sprint TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS fix_version TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS release TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_display_id ON feedback (display_id) WHERE display_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS requirement_iterations (
   id TEXT PRIMARY KEY,
@@ -201,9 +207,11 @@ CREATE TABLE IF NOT EXISTS requirement_iterations (
   name TEXT NOT NULL,
   description TEXT,
   goal TEXT,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   state TEXT NOT NULL DEFAULT 'future' CHECK (state IN ('future', 'active', 'closed')),
-  start_date DATE,
-  end_date DATE,
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
   created_by TEXT,
   updated_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -211,9 +219,11 @@ CREATE TABLE IF NOT EXISTS requirement_iterations (
 );
 
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS goal TEXT;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'future';
-ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date DATE;
-ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date DATE;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
@@ -1022,6 +1032,7 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   additional_context TEXT,
   external_links JSONB NOT NULL DEFAULT '[]'::jsonb,
   images JSONB NOT NULL DEFAULT '[]'::jsonb,
+  authoring_mode TEXT NOT NULL DEFAULT 'structured',
   status TEXT NOT NULL DEFAULT 'queued',
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 5,
@@ -1036,6 +1047,14 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   completed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE ai_test_case_generation_jobs
+  ADD COLUMN IF NOT EXISTS authoring_mode TEXT NOT NULL DEFAULT 'structured';
+
+ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_authoring_mode_check;
+ALTER TABLE ai_test_case_generation_jobs
+  ADD CONSTRAINT ai_test_case_generation_jobs_authoring_mode_check
+  CHECK (authoring_mode IN ('structured', 'gherkin'));
 
 ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_status_check;
 ALTER TABLE ai_test_case_generation_jobs

@@ -27,7 +27,7 @@ queryClient.setQueryData(["test-data-sets", "project-1", "app-1"], []);
 
 const projects: Project[] = [{
   id: "project-1",
-  name: "HelloTest Jira Cloud",
+  name: "HelloTest connected workspace",
   description: "Customer identity and access platform",
   created_by: "user-1"
 }];
@@ -301,14 +301,14 @@ function Preview() {
       selectedDataSetId=""
       selectedEnvironmentId=""
       selectedExecutionAssigneeIds={[]}
-      selectedProject="HelloTest Jira Cloud"
+      selectedProject="HelloTest connected workspace"
       selectedSmartExecutionCaseIds={selectedCaseIds}
       selectedSmartRequirementIds={selectedRequirementIds}
       selectedSuiteIds={[]}
       smartExecutionAdditionalContext={additionalContext}
       smartExecutionIntegrationId="provider-1"
       smartExecutionPreview={preview}
-      smartExecutionPreviewMessage="Plan generated from current Jira and HelloTest evidence. Review every selected case before creation."
+      smartExecutionPreviewMessage="Plan generated from current connected workspace and HelloTest evidence. Review every selected case before creation."
       smartExecutionPreviewTone="success"
       smartExecutionReleaseScope={releaseScope}
       smartExecutionRequirementOptions={[

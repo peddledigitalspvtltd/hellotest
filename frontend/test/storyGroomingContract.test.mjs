@@ -84,7 +84,7 @@ test("Story grooming prompt requires an evidence-grounded end-to-end walkthrough
   assert.ok(start >= 0 && end > start, "Story grooming prompt should be registered");
   for (const requirement of [
     /decision-ready, end-to-end feature walkthrough/i,
-    /only the selected Story and bounded Jira evidence/i,
+    /only the selected Story and bounded delivery evidence/i,
     /plain-language purpose and why the feature is needed/i,
     /actors, trigger, ordered user journey/i,
     /business impact, stakeholders, value outcomes, and measurable success/i,

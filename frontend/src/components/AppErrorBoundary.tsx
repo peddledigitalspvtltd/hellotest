@@ -61,7 +61,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, AppErro
         <div className="splash-screen">
           <AppErrorState
             error={this.state.error}
-            fallbackMessage="HelloTest hit an unexpected interface error. Retry once; reload Jira if the problem continues."
+            fallbackMessage="HelloTest hit an unexpected interface error. Retry once; reload the connected workspace if the problem continues."
             onRetry={this.retry}
             title="The workspace could not be rendered"
           />

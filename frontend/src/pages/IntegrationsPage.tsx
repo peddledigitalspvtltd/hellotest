@@ -142,7 +142,7 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
   description: string;
   defaultProvider: Integration["type"];
 }> = [
-  { value: "ai", label: "AI Providers", description: "Direct LLM providers and Jira-native Rovo agent access used by HelloTest AI flows.", defaultProvider: "llm" },
+  { value: "ai", label: "AI Providers", description: "Direct LLM providers and connected workspace Rovo agent access used by HelloTest AI flows.", defaultProvider: "llm" },
   { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
   { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },
   { value: "sso", label: "SSO", description: "Single sign-on identity providers.", defaultProvider: "google_auth" },
@@ -848,8 +848,8 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
 
   if (isRovoIntegrationId(integration.id)) {
     return {
-      primary: "Jira-native QA Agent conversation",
-      secondary: "Availability is checked in Jira · not a direct model call"
+      primary: "connected workspace QA Agent conversation",
+      secondary: "Availability is checked in the connected workspace · not a direct model call"
     };
   }
 
@@ -957,11 +957,11 @@ function IntegrationReadOnlyDetails({
     <div className="detail-stack">
       <div className="empty-state compact integration-helper">
         {isRovo
-          ? "This is HelloTest's built-in Jira-native Rovo entry point. Availability is user/site specific, and it is not editable, deletable, credential-tested, or invoked as a direct Forge LLM model."
+          ? "This is HelloTest's built-in connected workspace Rovo entry point. Availability is user/site specific, and it is not editable, deletable, credential-tested, or invoked as a direct Forge LLM model."
           : "Members can use this active integration from HelloTest workflows. Secrets are masked and connection changes stay with admins."}
       </div>
       {isRovo ? (
-        <RovoProviderStatus prompt="Help me review how the Jira-native HelloTest QA Agent can support this project's quality-engineering workflow. Do not change Jira records." />
+        <RovoProviderStatus prompt="Help me review how the HelloTest QA Agent in the connected workspace can support this project's quality-engineering workflow. Do not change work items." />
       ) : null}
       <div className="integration-readable-grid">
         <article className="integration-readable-card">
@@ -1138,7 +1138,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       minWidth: 128,
       sortValue: (integration) => getIntegrationTypeLabel(integration.type, integrationTypeDefinitions),
       render: (integration) => isRovoIntegrationId(integration.id)
-        ? "Jira-native agent"
+        ? "connected workspace agent"
         : getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)
     },
     {
@@ -1176,7 +1176,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       {section.value === "ai" ? (
         <RovoProviderStatus
           compact
-          prompt="Help me review HelloTest's Jira-native Rovo QA Agent availability and where a conversational review is useful alongside direct AI generation. Do not change Jira records."
+          prompt="Help me review HelloTest's connected workspace Rovo QA Agent availability and where a conversational review is useful alongside direct AI generation. Do not change work items."
         />
       ) : null}
     </div>
@@ -1335,7 +1335,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     event.preventDefault();
 
     if (!isCreating && isSelectedIntegrationRovo) {
-      showError(new Error("The built-in Rovo QA Agent entry is managed by the Jira app and cannot be edited."), "Unable to save integration");
+      showError(new Error("The built-in Rovo QA Agent entry is managed by the connected app and cannot be edited."), "Unable to save integration");
       return;
     }
 
@@ -1442,7 +1442,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       const skippedBuiltInCount = integrationsToImport.length - importableIntegrations.length;
       if (!importableIntegrations.length) {
         showSuccess(skippedBuiltInCount
-          ? "Skipped the built-in Rovo QA Agent entry; Jira app provisioning owns it. No integrations were imported."
+          ? "Skipped the built-in Rovo QA Agent entry; connected app provisioning owns it. No integrations were imported."
           : "No integrations were available to import.");
         return;
       }
@@ -1482,7 +1482,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
   const handleTestConnection = async () => {
     if (isSelectedIntegrationRovo) {
-      showError(new Error("Rovo availability is checked through the Jira bridge, not through the Forge LLM connection test."), "Unable to test integration");
+      showError(new Error("Rovo availability is checked through the connected workspace bridge, not through the Forge LLM connection test."), "Unable to test integration");
       return;
     }
     try {
@@ -1581,7 +1581,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
             <span className="integration-type-badge">{getIntegrationBadgeIcon(integration.type)}</span>
             <div className="tile-card-title-group">
               <strong>{integration.name}</strong>
-              <span className="tile-card-kicker">{isRovo ? "Jira-native agent conversation" : getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
+              <span className="tile-card-kicker">{isRovo ? "connected workspace agent conversation" : getIntegrationTypeLabel(integration.type, integrationTypeDefinitions)}</span>
             </div>
             <TileCardStatusIndicator title={isRovo ? "Built-in" : integration.is_active ? "Active" : "Inactive"} tone={isRovo ? "neutral" : integration.is_active ? "success" : "neutral"} />
           </div>
@@ -1604,7 +1604,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         <PageHeader
           eyebrow="Administration"
           title="Integrations"
-          description="Manage the external systems HelloTest uses for AI generation, Jira sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
+          description="Manage the external systems HelloTest uses for AI generation, connected workspace sync, Test Engine run handoff, OPS telemetry, backup automation, Google sign-in, and email verification delivery."
           meta={[
             { label: "Configured", value: integrations.length },
             { label: "Active", value: activeIntegrationCount },
@@ -2202,7 +2202,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       <div className="empty-state compact integration-helper">
                         {canUseMobileAppium
                           ? "The standalone Test Engine uses this cadence when split API, Web, and Android workers pull queued automation jobs from HelloTest."
-                          : "The standalone Test Engine uses this cadence when API and Web workers pull queued automation jobs from HelloTest."} Set the engine container's QAIRA_API_BASE_URL to the HelloTest API URL above, or to the public HelloTest URL when /api proxying is available.
+                          : "The standalone Test Engine uses this cadence when API and Web workers pull queued automation jobs from HelloTest."} Set the engine container's HELLOTEST_API_BASE_URL to the HelloTest API URL above, or to the public HelloTest URL when /api proxying is available.
                       </div>
                     </div>
 

@@ -360,7 +360,7 @@ export function buildTestCaseAssuranceAnalysis(input: {
     limitations: [
       "Practice alignment is guidance, not standards certification.",
       "Automation and parameterization are supporting evidence, not prerequisites for a strong manual case.",
-      "Execution evidence uses the latest case result from at most 25 affected runs; without Jira run links, analysis scans the newest 100 runs."
+      "Execution evidence uses the latest case result from at most 25 affected runs; without connected workspace run links, analysis scans the newest 100 runs."
     ],
     evidence_count: dimensions.reduce((total, item) => total + item.evidence.length, 0) + finalizedRunCount,
     benchmark: {

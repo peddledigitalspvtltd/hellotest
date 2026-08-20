@@ -28,10 +28,29 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
   assert.match(component, /aria-label="AI interaction mode"/);
   assert.match(component, /\/>\s*Chat\s*</);
   assert.match(component, /\/>\s*Agent\s*</);
-  assert.match(page, /<AgentCatalog/);
+  assert.match(page, /HELLOTEST_AGENT_CATALOG\.map/);
+  assert.match(page, />Get Started</);
+  assert.match(page, /openAgentWorkbench\(agent\)/);
   assert.match(page, /<AgentActivityTimeline/);
   assert.match(page, /<AgenticOutcomePanel/);
   assert.match(page, /Turn into workflow/);
+});
+
+test("AI Agents has a dedicated sidebar catalog and opens a focused specialist Workbench", async () => {
+  const [page, sections, shell] = await Promise.all([
+    readSource("../src/pages/AgenticWorkflowsPage.tsx"),
+    readSource("../src/lib/workspaceSections.ts"),
+    readSource("../src/components/AppShell.tsx")
+  ]);
+
+  assert.match(sections, /view=agents`, label: "AI Agents"/);
+  assert.match(shell, /isDefaultAgentView/);
+  assert.match(page, /Your agent works\. You don&apos;t have to\./);
+  assert.match(page, /on the beach, on a hike, or while you sleep/);
+  assert.match(page, /activeSurface === "agents"/);
+  assert.match(page, /activeSurface === "workbench"/);
+  assert.match(page, /next\.set\("agent", agent\.id\)/);
+  assert.doesNotMatch(page, /<AgentWorkflowJourney/);
 });
 
 test("agent traces expose evidence and evaluation without hidden reasoning", async () => {
@@ -106,7 +125,12 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   assert.match(storyShell, /Human gate/);
 
   for (const source of [bugs, automation, executions]) assert.match(source, /briefItems=/);
-  for (const source of [storyPage, testCreate, testImprove]) assert.match(source, /showPromptEditor=\{false\}/);
+  assert.match(storyPage, /showPromptEditor=\{false\}/);
+  assert.match(testImprove, /<AiDesignStudioModal/);
+  assert.match(testImprove, /allowMultipleRequirements=\{false\}/);
+  assert.match(testImprove, /sourceCase=\{sourceCase\}/);
+  assert.match(testCreate, /showPromptEditor\s*\/>/);
+  assert.match(testCreate, /Generation Context/);
   assert.match(contextPanel, /showPromptEditor \? \(/);
 });
 
@@ -194,13 +218,15 @@ test("AI authoring settings are grouped into progressive disclosures", async () 
   assert.match(shell, /<summary>/);
   assert.match(shell, /story-studio-settings-group__body/);
 
-  for (const source of [stories, testCreate]) {
-    assert.match(source, /<StoryAiSettingsGroup/);
-    assert.match(source, /title="Generation setup"/);
-    assert.match(source, /title="Context sources"/);
-  }
-  assert.match(testImprove, /title="Improvement setup"/);
-  assert.match(testImprove, /title="Context sources"/);
+  assert.match(stories, /<StoryAiSettingsGroup/);
+  assert.match(stories, /title="Generation setup"/);
+  assert.match(stories, /title="Context sources"/);
+  assert.match(testCreate, /ai-test-generator-context/);
+  assert.match(testCreate, /ai-test-generator-workspace/);
+  assert.match(testCreate, /ai-test-generator-intelligence/);
+  assert.match(testImprove, /<AiDesignStudioModal/);
+  assert.match(testImprove, /studioTitle=\{isCreating \? "AI Draft Test Case" : "AI Improve Test Case"\}/);
+  assert.match(testImprove, /sourceCase=\{sourceCase\}/);
 });
 
 test("draft browsing is opt-in and opens as an overlay instead of a permanent column", async () => {

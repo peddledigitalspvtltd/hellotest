@@ -1775,7 +1775,7 @@ export function ProjectsPage() {
 
           <section className="projects-stats-grid metric-strip page-metric-strip" aria-label="Portfolio summary">
             <PortfolioMetricCard
-              caption="Jira projects in portfolio"
+              caption="projects in portfolio"
               evidence={[
                 `${projectPortfolioItems.filter((item) => item.appTypeCount > 0).length} with app types`,
                 `${portfolioSummary.assessedProjects} with assessable QA scope`
@@ -2216,7 +2216,7 @@ export function ProjectsPage() {
                   isTraceabilityLoading ? <LoadingState label="Loading app-type traceability" /> : isTraceabilityError ? (
                     <div className="empty-state compact">
                       <strong>Traceability data could not be loaded.</strong>
-                      <span>Retry the Jira Story, module, test case, and Bug queries without leaving this project.</span>
+                      <span>Retry the Story, module, test case, and Bug queries without leaving this project.</span>
                       <button className="ghost-button compact" onClick={() => {
                         void traceabilityRequirementsQuery.refetch();
                         void traceabilityCasesQuery.refetch();
@@ -2304,7 +2304,7 @@ export function ProjectsPage() {
                         value={member.role_id}
                       >
                         {!assignableProjectRoles.some((roleOption) => roleOption.id === member.role_id) ? (
-                          <option value={member.role_id}>{role?.name || member.role_id} · Jira-derived</option>
+                          <option value={member.role_id}>{role?.name || member.role_id} · workspace-derived</option>
                         ) : null}
                         {assignableProjectRoles.map((roleOption) => (
                           <option key={roleOption.id} value={roleOption.id}>{roleOption.name}</option>
@@ -2653,7 +2653,7 @@ export function ProjectsPage() {
 
                 <div className="detail-summary">
                   <strong>Project-scoped access from the first save</strong>
-                  <span>The creator receives the Jira administrator role when Jira grants Administer Jira; otherwise the creator receives QA lead. Every selected member must have a HelloTest role.</span>
+                  <span>The creator receives the workspace administrator role when the connected workspace grants administrative access; otherwise the creator receives QA lead. Every selected member must have a HelloTest role.</span>
                 </div>
 
                 <section className="project-create-section">
@@ -2701,7 +2701,7 @@ export function ProjectsPage() {
                   <div className="project-create-section-head">
                     <div>
                       <h4>Project members</h4>
-                      <p>Select Jira users and assign a HelloTest role. The creator is added as QA lead, and every other selection defaults to QA member.</p>
+                      <p>Select workspace users and assign a HelloTest role. The creator is added as QA lead, and every other selection defaults to QA member.</p>
                     </div>
                     <div className="panel-head-actions">
                       <span className="status-pill tone-neutral">{projectDraft.memberIds.length} selected</span>
@@ -2743,12 +2743,12 @@ export function ProjectsPage() {
                                 <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
                                 <span>{visibleUserEmail(user.email)}</span>
                                 <span className="project-member-option-meta">
-                                  {isAutoIncluded ? `Project creator · ${hasJiraAdministration ? "Jira administrator" : "QA lead"}` : isSelected ? "Role required" : "Not added"}
+                                  {isAutoIncluded ? `Project creator · ${hasJiraAdministration ? "workspace administrator" : "QA lead"}` : isSelected ? "Role required" : "Not added"}
                                 </span>
                               </span>
                             </label>
                             {isAutoIncluded ? (
-                              <span className="status-pill tone-info">{hasJiraAdministration ? "Jira administrator" : "QA lead"}</span>
+                              <span className="status-pill tone-info">{hasJiraAdministration ? "workspace administrator" : "QA lead"}</span>
                             ) : isSelected ? (
                               <select
                                 aria-label={`HelloTest role for ${user.name || visibleUserEmail(user.email) || "selected user"}`}

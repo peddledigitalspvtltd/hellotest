@@ -1,11 +1,12 @@
 import type { EngineQueuedJob } from "../contracts/qaira.js";
 
-const QAIRA_API_BASE_URL = String(process.env.QAIRA_API_BASE_URL || "").trim().replace(/\/+$/, "");
+const QAIRA_API_BASE_URL = String(process.env.HELLOTEST_API_BASE_URL || process.env.QAIRA_API_BASE_URL || "").trim().replace(/\/+$/, "");
 const QAIRA_API_PATH_PREFIX = String(process.env.QAIRA_API_PATH_PREFIX || process.env.QAIRA_API_PREFIX || "")
   .trim()
   .replace(/^\/+|\/+$/g, "");
 const QAIRA_TESTENGINE_SECRET = String(
-  process.env.QAIRA_TESTENGINE_SECRET
+  process.env.HELLOTEST_TESTENGINE_SECRET
+  || process.env.QAIRA_TESTENGINE_SECRET
   || process.env.TESTENGINE_SHARED_SECRET
   || "qaira-testengine-dev-secret"
 ).trim();
@@ -15,11 +16,11 @@ const ENGINE_PUBLIC_URL = String(process.env.ENGINE_PUBLIC_URL || process.env.EN
 
 function ensureConfigured() {
   if (!QAIRA_API_BASE_URL) {
-    throw new Error("QAIRA_API_BASE_URL is required for queue-pull mode");
+    throw new Error("HELLOTEST_API_BASE_URL is required for queue-pull mode");
   }
 
   if (!QAIRA_TESTENGINE_SECRET) {
-    throw new Error("QAIRA_TESTENGINE_SECRET is required for queue-pull mode");
+    throw new Error("HELLOTEST_TESTENGINE_SECRET is required for queue-pull mode");
   }
 }
 
@@ -71,7 +72,7 @@ async function requestOnce<T>(baseUrl: string, path: string, init?: RequestInit)
     const message = payload && typeof payload === "object" && "message" in payload
       ? String((payload as { message?: unknown }).message || "")
       : "";
-    throw new Error(message || `QAira internal API returned ${response.status}`);
+    throw new Error(message || `HelloTest internal API returned ${response.status}`);
   }
 
   return payload as T;
@@ -87,15 +88,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       return await requestOnce<T>(baseUrl, path, init);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error || "QAira internal API request failed"));
+      lastError = error instanceof Error ? error : new Error(String(error || "HelloTest internal API request failed"));
 
-      if (index === candidates.length - 1 || !/QAira internal API returned (404|405)\b/.test(lastError.message)) {
+      if (index === candidates.length - 1 || !/HelloTest internal API returned (404|405)\b/.test(lastError.message)) {
         throw lastError;
       }
     }
   }
 
-  throw lastError || new Error("QAira internal API request failed");
+  throw lastError || new Error("HelloTest internal API request failed");
 }
 
 export function isQairaQueueConfigured() {

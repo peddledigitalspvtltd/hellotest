@@ -4,6 +4,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { normalizeTestStepType } = require("../utils/testStepAutomation");
 
 const DEFAULT_CASE_LIMIT = 8;
 
@@ -22,6 +23,17 @@ const normalizeTextList = (values = []) => {
 };
 
 const uniqueById = (items = []) => Array.from(new Map(items.filter(Boolean).map((item) => [item.id, item])).values());
+const normalizeAuthoringMode = (value) => String(value || "").trim().toLowerCase() === "gherkin" ? "gherkin" : "structured";
+
+const normalizeParameterValues = (values = {}) => {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+
+  return Object.entries(values).reduce((normalized, [name, value]) => {
+    const rawName = String(name || "").trim().replace(/^@+/, "").replace(/^[tsr]\./i, "").toLowerCase();
+    if (rawName) normalized[rawName] = value === null || value === undefined ? "" : String(value);
+    return normalized;
+  }, {});
+};
 
 const normalizeImageAssets = (images = []) => {
   if (!Array.isArray(images)) {
@@ -77,6 +89,7 @@ const normalizeSteps = (steps = []) => {
   return steps
     .map((step, index) => ({
       step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : index + 1,
+      step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
       action: normalizeText(step?.action),
       expected_result: normalizeText(step?.expected_result || step?.expectedResult)
     }))
@@ -151,7 +164,25 @@ const resolveCaseRequirements = (item, requirements = []) => {
   return [];
 };
 
-const normalizeCaseDraft = (item, index, { requirements = [], requireRequirementMapping = false, applicableDomain = null } = {}) => {
+const buildGherkinDocument = ({ title, steps }) => {
+  const lines = [`Feature: ${title}`, "", `  Scenario: ${title}`];
+  steps.forEach((step) => {
+    if (step.action) lines.push(`    When ${step.action}`);
+    if (step.expected_result) lines.push(`    Then ${step.expected_result}`);
+  });
+  return lines.join("\n");
+};
+
+const isValidGherkinDocument = (value) =>
+  /^\s*Feature\s*:/im.test(String(value || ""))
+  && /^\s*Scenario(?: Outline| Template)?\s*:/im.test(String(value || ""));
+
+const normalizeCaseDraft = (item, index, {
+  requirements = [],
+  requireRequirementMapping = false,
+  applicableDomain = null,
+  authoringMode = "structured"
+} = {}) => {
   const title = normalizeText(item?.title);
 
   if (!title) {
@@ -164,6 +195,16 @@ const normalizeCaseDraft = (item, index, { requirements = [], requireRequirement
     throw new Error(`Generated test case ${index + 1} must be linked to at least one requirement`);
   }
 
+  const steps = normalizeSteps(item?.steps);
+  const resolvedAuthoringMode = normalizeAuthoringMode(authoringMode || item?.authoring_mode || item?.authoringMode);
+  const gherkinDocument = resolvedAuthoringMode === "gherkin"
+    ? normalizeText(item?.gherkin_document || item?.gherkinDocument || item?.gherkin) || buildGherkinDocument({ title, steps })
+    : null;
+
+  if (resolvedAuthoringMode === "gherkin" && !isValidGherkinDocument(gherkinDocument)) {
+    throw new Error(`Generated test case ${index + 1} must include a Feature and at least one Scenario`);
+  }
+
   return {
     title,
     description: normalizeText(item?.description),
@@ -171,11 +212,14 @@ const normalizeCaseDraft = (item, index, { requirements = [], requireRequirement
     applicable_domain: normalizeText(item?.applicable_domain || item?.applicableDomain || item?.domain) || applicableDomain,
     requirement_ids: resolvedRequirements.map((requirement) => requirement.id),
     requirement_titles: resolvedRequirements.map((requirement) => requirement.title),
-    steps: normalizeSteps(item?.steps)
+    authoring_mode: resolvedAuthoringMode,
+    gherkin_document: gherkinDocument,
+    parameter_values: normalizeParameterValues(item?.parameter_values || item?.parameterValues || item?.test_data || item?.testData),
+    steps
   };
 };
 
-const normalizeGeneratedCases = (payload, maxCases, requirements) => {
+const normalizeGeneratedCases = (payload, maxCases, requirements, authoringMode) => {
   const applicableDomain = normalizeText(payload?.applicable_domain || payload?.applicableDomain || payload?.domain);
   const collection = Array.isArray(payload)
     ? payload
@@ -189,10 +233,14 @@ const normalizeGeneratedCases = (payload, maxCases, requirements) => {
     throw new Error("LLM did not return any test cases");
   }
 
-  return collection.slice(0, maxCases).map((item, index) => normalizeCaseDraft(item, index, { requirements, applicableDomain }));
+  return collection.slice(0, maxCases).map((item, index) => normalizeCaseDraft(item, index, {
+    requirements,
+    applicableDomain,
+    authoringMode
+  }));
 };
 
-const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge }) => {
+const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode }) => {
   const references = buildRequirementReferenceMap(requirements);
   const prompt = [
     "Design high-quality QA test cases for the following product requirements.",
@@ -253,6 +301,11 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
   prompt.push('      "priority": 1,');
   prompt.push('      "applicable_domain": "string",');
   prompt.push('      "requirement_refs": ["R1"],');
+  prompt.push(`      "authoring_mode": "${authoringMode}",`);
+  prompt.push('      "parameter_values": { "variable_name": "example value" },');
+  if (authoringMode === "gherkin") {
+    prompt.push('      "gherkin_document": "Feature: ...\\n\\n  Background: ...\\n\\n  Scenario: ...",');
+  }
   prompt.push('      "steps": [');
   prompt.push("        {");
   prompt.push('          "action": "string",');
@@ -274,6 +327,16 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
   prompt.push("- Use 1-5 priority where 1 is most critical.");
   prompt.push("- Each generated case must include one or more requirement_refs from the provided requirement list.");
   prompt.push("- Multiple requirements can appear on the same case only when the scenario genuinely covers them together.");
+  prompt.push("- Return reusable data in parameter_values using raw variable names without @t. prefixes.");
+  if (authoringMode === "gherkin") {
+    prompt.push("- authoring_mode must be gherkin and gherkin_document must be a complete executable Gherkin document.");
+    prompt.push("- Use Feature, Background when shared setup exists, Scenario or Scenario Outline, Given/When/Then/And/But, and Examples when the scenario is data-driven.");
+    prompt.push("- Use <variable_name> in Scenario Outlines and Examples tables; keep matching example values in parameter_values.");
+    prompt.push("- Also return equivalent structured steps so execution and review remain compatible.");
+  } else {
+    prompt.push("- authoring_mode must be structured and gherkin_document must be omitted.");
+    prompt.push("- Use @t.variable_name tokens in structured actions or expected results that consume reusable test data.");
+  }
   prompt.push("- Do not include markdown or commentary outside the JSON.");
 
   return prompt.join("\n");
@@ -355,7 +418,8 @@ const requestGeneratedCases = async ({
   additionalContext,
   externalLinks,
   images,
-  knowledge
+  knowledge,
+  authoringMode
 }) => {
   const prompt = buildPrompt({
     requirements,
@@ -364,7 +428,8 @@ const requestGeneratedCases = async ({
     additionalContext,
     externalLinks,
     images,
-    knowledge
+    knowledge,
+    authoringMode
   });
 
   try {
@@ -383,7 +448,7 @@ const requestGeneratedCases = async ({
         })
       : await requestChatCompletion({ integration, content: prompt });
 
-    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements);
+    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   } catch (error) {
     if (!images.length || ![400, 415, 422].includes(Number(error?.statusCode || 0))) {
       throw error;
@@ -397,7 +462,7 @@ const requestGeneratedCases = async ({
     ].join("\n");
 
     const content = await requestChatCompletion({ integration, content: fallbackPrompt });
-    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements);
+    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   }
 };
 
@@ -406,7 +471,11 @@ const normalizeAcceptedCases = (cases = [], requirements = []) => {
     throw new Error("At least one generated test case is required");
   }
 
-  return cases.map((item, index) => normalizeCaseDraft(item, index, { requirements, requireRequirementMapping: true }));
+  return cases.map((item, index) => normalizeCaseDraft(item, index, {
+    requirements,
+    requireRequirementMapping: true,
+    authoringMode: item?.authoring_mode || item?.authoringMode
+  }));
 };
 
 exports.previewRequirementsTestCases = async ({
@@ -417,7 +486,8 @@ exports.previewRequirementsTestCases = async ({
   max_cases,
   additional_context,
   external_links,
-  images
+  images,
+  authoring_mode
 }) => {
   const scopedRequirements = uniqueById(requirements);
 
@@ -431,6 +501,7 @@ exports.previewRequirementsTestCases = async ({
   const additionalContext = normalizeText(additional_context);
   const externalLinks = normalizeTextList(external_links);
   const normalizedImages = normalizeImageAssets(images);
+  const authoringMode = normalizeAuthoringMode(authoring_mode);
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     usageKey: "ai.case_authoring.full_case"
@@ -450,7 +521,8 @@ exports.previewRequirementsTestCases = async ({
     additionalContext,
     externalLinks,
     images: normalizedImages,
-    knowledge
+    knowledge,
+    authoringMode
   });
 
   return {
@@ -472,7 +544,8 @@ exports.previewRequirementsTestCases = async ({
     cases: generatedCases.map((candidate, index) => ({
       ...candidate,
       client_id: `draft-${index + 1}`,
-      step_count: candidate.steps.length
+      step_count: candidate.steps.length,
+      parameter_count: Object.keys(candidate.parameter_values).length
     }))
   };
 };
@@ -485,7 +558,8 @@ exports.previewRequirementTestCases = async ({
   max_cases,
   additional_context,
   external_links,
-  images
+  images,
+  authoring_mode
 }) => {
   const preview = await exports.previewRequirementsTestCases({
     requirements: [requirement],
@@ -495,7 +569,8 @@ exports.previewRequirementTestCases = async ({
     max_cases,
     additional_context,
     external_links,
-    images
+    images,
+    authoring_mode
   });
 
   return {
@@ -530,6 +605,9 @@ exports.acceptGeneratedTestCases = async ({
       priority: candidate.priority,
       status,
       requirement_ids: candidate.requirement_ids,
+      authoring_mode: candidate.authoring_mode,
+      gherkin_document: candidate.gherkin_document,
+      parameter_values: candidate.parameter_values,
       steps: candidate.steps
     });
 
@@ -573,7 +651,8 @@ exports.generateRequirementTestCases = async ({
   status = "draft",
   additional_context,
   external_links,
-  images
+  images,
+  authoring_mode
 }) => {
   const preview = await exports.previewRequirementTestCases({
     requirement,
@@ -583,7 +662,8 @@ exports.generateRequirementTestCases = async ({
     max_cases,
     additional_context,
     external_links,
-    images
+    images,
+    authoring_mode
   });
 
   const accepted = await exports.acceptRequirementTestCases({

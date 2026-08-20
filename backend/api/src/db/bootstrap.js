@@ -316,6 +316,17 @@ const statements = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data_url TEXT`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_workspace_admin BOOLEAN NOT NULL DEFAULT FALSE`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS default_role_id TEXT REFERENCES roles(id)`,
+  `UPDATE users
+    SET default_role_id = (
+      SELECT project_members.role_id
+      FROM project_members
+      JOIN roles ON roles.id = project_members.role_id
+      WHERE project_members.user_id = users.id
+      ORDER BY CASE WHEN LOWER(roles.name) = 'admin' THEN 0 ELSE 1 END, roles.name ASC
+      LIMIT 1
+    )
+    WHERE users.default_role_id IS NULL`,
   `UPDATE users SET auth_provider = 'local' WHERE auth_provider IS NULL OR TRIM(auth_provider) = ''`,
   `
     UPDATE users
@@ -332,6 +343,23 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub_unique ON users (google_sub) WHERE google_sub IS NOT NULL`,
   `ALTER TABLE feedback DROP CONSTRAINT IF EXISTS feedback_user_id_fkey`,
   `ALTER TABLE feedback ADD CONSTRAINT feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS display_id TEXT`,
+  `
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '\\D', '', 'g'), '')::INTEGER), 0) AS max_sequence
+      FROM feedback
+      WHERE display_id IS NOT NULL
+    ), missing AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS sequence
+      FROM feedback
+      WHERE display_id IS NULL
+    )
+    UPDATE feedback
+    SET display_id = 'BUG-' || (existing.max_sequence + missing.sequence)
+    FROM existing, missing
+    WHERE feedback.id = missing.id
+  `,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_display_id ON feedback (display_id) WHERE display_id IS NOT NULL`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS steps_to_reproduce TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS expected_result TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS actual_result TEXT`,
@@ -342,6 +370,20 @@ const statements = [
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS project_id TEXT`,
+  `
+    UPDATE feedback
+    SET project_id = (
+      SELECT MIN(project_members.project_id)
+      FROM project_members
+      WHERE project_members.user_id = feedback.user_id
+    )
+    WHERE feedback.project_id IS NULL
+      AND (
+        SELECT COUNT(DISTINCT project_members.project_id)
+        FROM project_members
+        WHERE project_members.user_id = feedback.user_id
+      ) = 1
+  `,
   `ALTER TABLE feedback DROP CONSTRAINT IF EXISTS feedback_project_id_fkey`,
   `ALTER TABLE feedback ADD CONSTRAINT feedback_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
@@ -556,6 +598,12 @@ const statements = [
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
+      goal TEXT,
+      labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+      external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+      state TEXT NOT NULL DEFAULT 'future',
+      start_date TIMESTAMPTZ,
+      end_date TIMESTAMPTZ,
       created_by TEXT,
       updated_by TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -565,9 +613,36 @@ const statements = [
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS display_id TEXT`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS description TEXT`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS goal TEXT`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'future'`,
-  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date DATE`,
-  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date DATE`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ`,
+  `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ`,
+  `DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'requirement_iterations'
+          AND column_name = 'start_date'
+          AND data_type = 'date'
+      ) THEN
+        ALTER TABLE requirement_iterations
+          ALTER COLUMN start_date TYPE TIMESTAMPTZ USING start_date::timestamp AT TIME ZONE 'UTC';
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'requirement_iterations'
+          AND column_name = 'end_date'
+          AND data_type = 'date'
+      ) THEN
+        ALTER TABLE requirement_iterations
+          ALTER COLUMN end_date TYPE TIMESTAMPTZ USING end_date::timestamp AT TIME ZONE 'UTC';
+      END IF;
+    END $$`,
+  `UPDATE requirement_iterations SET labels = '[]'::jsonb WHERE labels IS NULL`,
+  `UPDATE requirement_iterations SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
   `ALTER TABLE requirement_iterations DROP CONSTRAINT IF EXISTS requirement_iterations_state_check`,
   `ALTER TABLE requirement_iterations ADD CONSTRAINT requirement_iterations_state_check CHECK (state IN ('future', 'active', 'closed'))`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS created_by TEXT`,
@@ -604,6 +679,7 @@ const statements = [
       additional_context TEXT,
       external_links JSONB NOT NULL DEFAULT '[]'::jsonb,
       images JSONB NOT NULL DEFAULT '[]'::jsonb,
+      authoring_mode TEXT NOT NULL DEFAULT 'structured',
       status TEXT NOT NULL DEFAULT 'queued',
       total_requirements INTEGER NOT NULL DEFAULT 0,
       processed_requirements INTEGER NOT NULL DEFAULT 0,
@@ -625,6 +701,7 @@ const statements = [
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS additional_context TEXT`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS external_links JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS authoring_mode TEXT NOT NULL DEFAULT 'structured'`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued'`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5`,
@@ -644,6 +721,8 @@ const statements = [
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN attempts SET NOT NULL`,
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN max_attempts SET DEFAULT 5`,
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN max_attempts SET NOT NULL`,
+  `ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_authoring_mode_check`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD CONSTRAINT ai_test_case_generation_jobs_authoring_mode_check CHECK (authoring_mode IN ('structured', 'gherkin'))`,
   `ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_status_check`,
   `ALTER TABLE ai_test_case_generation_jobs ADD CONSTRAINT ai_test_case_generation_jobs_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed'))`,
   `

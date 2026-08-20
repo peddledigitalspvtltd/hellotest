@@ -222,7 +222,7 @@ exports.createUser = async ({ email, password, password_hash, name, role_id }) =
   if (existing) throw new Error("User already exists");
 
   const role = await db.prepare(`
-    SELECT id FROM roles WHERE id = ?
+    SELECT id, name FROM roles WHERE id = ?
   `).get(role_id);
 
   if (!role) throw new Error("Role not found");
@@ -230,8 +230,8 @@ exports.createUser = async ({ email, password, password_hash, name, role_id }) =
   const id = uuid();
 
   const createUserStatement = db.prepare(`
-    INSERT INTO users (id, email, password_hash, name, is_workspace_admin)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO users (id, email, password_hash, name, is_workspace_admin, default_role_id)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
   const projects = await db.prepare(`SELECT id FROM projects`).all();
   const createMembership = db.prepare(`
@@ -240,7 +240,7 @@ exports.createUser = async ({ email, password, password_hash, name, role_id }) =
   `);
 
   const transaction = db.transaction(async () => {
-    await createUserStatement.run(id, normalizedEmail, resolvedPasswordHash, normalizeName(name), isAdminRole(role));
+    await createUserStatement.run(id, normalizedEmail, resolvedPasswordHash, normalizeName(name), isAdminRole(role), role_id);
 
     for (const project of projects) {
       await createMembership.run(uuid(), project.id, id, role_id);
@@ -254,38 +254,48 @@ exports.createUser = async ({ email, password, password_hash, name, role_id }) =
 
 exports.getUsers = async () => {
   return db.prepare(`
-    SELECT users.id, users.email, users.name, users.avatar_data_url, users.created_at,
+    SELECT users.id, users.email, users.name, users.avatar_data_url, users.auth_provider,
+      users.email_verified, users.created_at,
+      COALESCE(representative_role.id, default_role.id) AS role_id,
+      COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
         WHEN COALESCE(users.is_workspace_admin, FALSE) THEN 'admin'
-        ELSE COALESCE((
-          SELECT roles.name
-          FROM project_members
-          JOIN roles ON roles.id = project_members.role_id
-          WHERE project_members.user_id = users.id
-          ORDER BY CASE roles.name WHEN 'admin' THEN 0 ELSE 1 END
-          LIMIT 1
-        ), 'member')
+        ELSE 'member'
       END AS role
     FROM users
+    LEFT JOIN LATERAL (
+      SELECT roles.id, roles.name
+      FROM project_members
+      JOIN roles ON roles.id = project_members.role_id
+      WHERE project_members.user_id = users.id
+      ORDER BY CASE WHEN LOWER(roles.name) = 'admin' THEN 0 ELSE 1 END, roles.name ASC
+      LIMIT 1
+    ) representative_role ON TRUE
+    LEFT JOIN roles default_role ON default_role.id = users.default_role_id
     ORDER BY created_at DESC
   `).all();
 };
 
 exports.getUser = async (id) => {
   const user = await db.prepare(`
-    SELECT users.id, users.email, users.name, users.avatar_data_url, users.created_at,
+    SELECT users.id, users.email, users.name, users.avatar_data_url, users.auth_provider,
+      users.email_verified, users.created_at,
+      COALESCE(representative_role.id, default_role.id) AS role_id,
+      COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
         WHEN COALESCE(users.is_workspace_admin, FALSE) THEN 'admin'
-        ELSE COALESCE((
-          SELECT roles.name
-          FROM project_members
-          JOIN roles ON roles.id = project_members.role_id
-          WHERE project_members.user_id = users.id
-          ORDER BY CASE roles.name WHEN 'admin' THEN 0 ELSE 1 END
-          LIMIT 1
-        ), 'member')
+        ELSE 'member'
       END AS role
     FROM users
+    LEFT JOIN LATERAL (
+      SELECT roles.id, roles.name
+      FROM project_members
+      JOIN roles ON roles.id = project_members.role_id
+      WHERE project_members.user_id = users.id
+      ORDER BY CASE WHEN LOWER(roles.name) = 'admin' THEN 0 ELSE 1 END, roles.name ASC
+      LIMIT 1
+    ) representative_role ON TRUE
+    LEFT JOIN roles default_role ON default_role.id = users.default_role_id
     WHERE users.id = ?
   `).get(id);
 
@@ -336,7 +346,7 @@ exports.updateUser = async (id, data) => {
 
   const updateUserStatement = db.prepare(`
     UPDATE users
-    SET email = ?, password_hash = ?, name = ?, avatar_data_url = ?, is_workspace_admin = ?
+    SET email = ?, password_hash = ?, name = ?, avatar_data_url = ?, is_workspace_admin = ?, default_role_id = ?
     WHERE id = ?
   `);
   const updateMembershipRoles = db.prepare(`
@@ -353,6 +363,7 @@ exports.updateUser = async (id, data) => {
       nextName,
       nextAvatarDataUrl,
       nextRole ? isAdminRole(nextRole) : existing.is_workspace_admin,
+      nextRole?.id || existing.default_role_id || null,
       id
     );
 
@@ -377,6 +388,10 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
 
   if (new_password.length < 6) {
     throw new Error("New password must be at least 6 characters");
+  }
+
+  if (new_password.length > 128) {
+    throw new Error("New password must be no more than 128 characters");
   }
 
   const user = await selectUserPasswordById.get(id);

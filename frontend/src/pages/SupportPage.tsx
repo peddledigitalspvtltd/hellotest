@@ -15,7 +15,7 @@ const supportChannels = [
   },
   {
     title: "Integration help",
-    description: "Contact the integration desk for LLM keys, Jira connectivity, or webhook troubleshooting.",
+    description: "Contact the integration desk for LLM keys, work-tracker connectivity, or webhook troubleshooting.",
     value: "integrations@qaira.local"
   }
 ];
@@ -82,7 +82,7 @@ export function SupportPage() {
             <div className="stack-item">
               <div>
                 <strong>Integrations</strong>
-                <span>LLM and Jira connectivity should be reviewed when API keys or endpoint policies change.</span>
+                <span>LLM and work-tracker connectivity should be reviewed when API keys or endpoint policies change.</span>
               </div>
               <span className="status-badge queued">Review</span>
             </div>

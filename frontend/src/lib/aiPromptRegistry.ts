@@ -87,14 +87,14 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.requirement.creation",
     label: "Story creation",
     surface: "Create Story with AI",
-    value: "Draft reviewable Stories from the supplied intent and bounded Jira evidence. Preserve source facts, identify assumptions, and include measurable acceptance, risk, and open-question coverage without inventing delivery scope."
+    value: "Draft reviewable Stories from the supplied intent and bounded delivery evidence. Preserve source facts, identify assumptions, and include measurable acceptance, risk, and open-question coverage without inventing delivery scope."
   },
   {
     key: "ai.requirement.grooming",
     label: "Story grooming",
     surface: "Story details AI Grooming",
     maxLength: 4_000,
-    value: "Produce a decision-ready, end-to-end feature walkthrough from only the selected Story and bounded Jira evidence. Start with a plain-language purpose and why the feature is needed; then walk through actors, trigger, ordered user journey, and evidenced alternate paths. Explain business impact, stakeholders, value outcomes, and measurable success. Keep solution design (behaviors, rules, boundaries, dependencies) distinct from implementation (components, data, integrations, and quality requirements). Cover validation with acceptance criteria, test scenarios, and linked coverage. Finish with what remains: gaps, questions, decisions, actions, risks, and an evidence-based Definition of Ready status. Every asserted fact must cite a supplied source; label inferences for confirmation, return empty content when a topic is unsupported, never repeat the Story description as filler, never invent controls, architecture, components, or delivery scope, and keep each section concise, distinct, and ordered by review importance."
+    value: "Produce a decision-ready, end-to-end feature walkthrough from only the selected Story and bounded delivery evidence. Start with a plain-language purpose and why the feature is needed; then walk through actors, trigger, ordered user journey, and evidenced alternate paths. Explain business impact, stakeholders, value outcomes, and measurable success. Keep solution design (behaviors, rules, boundaries, dependencies) distinct from implementation (components, data, integrations, and quality requirements). Cover validation with acceptance criteria, test scenarios, and linked coverage. Finish with what remains: gaps, questions, decisions, actions, risks, and an evidence-based Definition of Ready status. Every asserted fact must cite a supplied source; label inferences for confirmation, return empty content when a topic is unsupported, never repeat the Story description as filler, never invent controls, architecture, components, or delivery scope, and keep each section concise, distinct, and ordered by review importance."
   },
   {
     key: "ai.requirement.gherkin",
@@ -112,7 +112,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.requirement.change_impact",
     label: "Story change impact",
     surface: "Story AI Assurance",
-    value: "Explain change impact only from current Jira traceability, linked cases, suites, runs, Bugs, delivery context, and supplied proposal evidence. Separate observed impact from assumptions and require human review."
+    value: "Explain change impact only from current connected workspace traceability, linked cases, suites, runs, Bugs, delivery context, and supplied proposal evidence. Separate observed impact from assumptions and require human review."
   },
   {
     key: "ai.test_case.design",
@@ -148,7 +148,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.quality.portfolio_insights",
     label: "Portfolio quality insights",
     surface: "Quality analytics",
-    value: "Summarize project or release quality from exact Jira-scoped metrics and traceability evidence. Never promote a bounded sample to an exact metric or make a release decision for the user."
+    value: "Summarize project or release quality from exact project-scoped metrics and traceability evidence. Never promote a bounded sample to an exact metric or make a release decision for the user."
   },
   {
     key: "ai.quality.dashboard_design",
@@ -160,13 +160,13 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.bug.draft",
     label: "Bug drafting",
     surface: "AI Bug creation",
-    value: "Draft a concise Jira Bug only from selected failed or blocked evidence. Preserve expected-versus-actual behavior, reproducible steps, environment, build, impact, and uncertainty; never save automatically."
+    value: "Draft a concise Bug only from selected failed or blocked evidence. Preserve expected-versus-actual behavior, reproducible steps, environment, build, impact, and uncertainty; never save automatically."
   },
   {
     key: "ai.bug.triage",
     label: "Bug triage",
     surface: "AI Bug triage",
-    value: "Classify and prioritize selected Bugs from current Jira fields and traceability. Explain evidence for each recommendation, keep unsupported telemetry explicit, and require human approval."
+    value: "Classify and prioritize selected Bugs from current work-item fields and traceability. Explain evidence for each recommendation, keep unsupported telemetry explicit, and require human approval."
   },
   {
     key: "ai.execution.failure_clustering",
@@ -190,7 +190,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.content.rephrase",
     label: "Rich-text rephrase",
     surface: "AI-assisted rich-text fields",
-    value: "Rewrite supplied content into concise semantic HTML while preserving facts, identifiers, constraints, expected outcomes, and uncertainty. Do not invent Jira records, evidence, links, or approvals."
+    value: "Rewrite supplied content into concise semantic HTML while preserving facts, identifiers, constraints, expected outcomes, and uncertainty. Do not invent work items, evidence, links, or approvals."
   },
   {
     key: "ai.agentic.workflow",
@@ -220,7 +220,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Stories, projects, quality analytics",
     aliases: ["story coverage", "test coverage", "covered stories"],
     formula: "Stories linked to at least one reusable Test Case ÷ exact scoped Stories × 100. An unknown or partial denominator remains unknown.",
-    criteria: "Treat a Story as covered only when a current project-scoped Jira relationship points to a reusable Test Case. Do not infer coverage from labels, title similarity, or locally loaded rows."
+    criteria: "Treat a Story as covered only when a current project-scoped work-item relationship points to a reusable Test Case. Do not infer coverage from labels, title similarity, or locally loaded rows."
   },
   {
     key: "metric.test.design_completeness",
@@ -268,7 +268,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Stories, projects, and quality analytics",
     aliases: ["defect density", "bug density"],
     formula: "Distinct open project-scoped Bugs ÷ exact scoped Stories. The UI must disclose both numerator and denominator.",
-    criteria: "Use current Jira workflow state and immutable project scope. Deduplicate the same Bug linked through more than one Test Case or Story."
+    criteria: "Use current work-item workflow state and immutable project scope. Deduplicate the same Bug linked through more than one Test Case or Story."
   },
   {
     key: "metric.assurance.story",
@@ -364,7 +364,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Quality analytics mission control",
     aliases: ["open quality risks", "quality risk actions"],
     formula: "Uncovered Stories + cases without persisted steps + failed latest results + blocked latest results + failed runs.",
-    criteria: "This is an action-signal total, not a deduplicated Jira Bug count. Preserve each category so one unstable artifact is not misrepresented as one unique risk."
+    criteria: "This is an action-signal total, not a deduplicated Bug count. Preserve each category so one unstable artifact is not misrepresented as one unique risk."
   },
   {
     key: "metric.release.readiness",
@@ -388,7 +388,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Release readiness decision room",
     aliases: ["blocking signals", "release blocking signals"],
     formula: "Open critical Bugs + latest blocked Test Case outcomes + uncovered P1/P2 Stories in the exact release scope.",
-    criteria: "Show the three components independently in evidence. This is an action total across signal types, not a count of unique Jira records."
+    criteria: "Show the three components independently in evidence. This is an action total across signal types, not a count of unique work items."
   },
   {
     key: "metric.story.release_risk",
@@ -416,26 +416,26 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
   },
   {
     key: "metric.jira.resolution_rate",
-    label: "Jira resolution rate",
+    label: "work-item resolution rate",
     surface: "Custom quality dashboards",
     aliases: ["resolution rate", "percent resolved in the inspected set"],
-    formula: "Jira items with a non-empty resolution ÷ all project-scoped JQL items in the inspected set × 100.",
+    formula: "work items with a non-empty resolution ÷ all project-scoped JQL items in the inspected set × 100.",
     criteria: "Use the exact validated JQL scope and disclose truncation. A resolution value indicates workflow closure, not necessarily defect correctness."
   },
   {
     key: "metric.jira.average_age",
-    label: "Average Jira item age",
+    label: "Average work item age",
     surface: "Custom quality dashboards",
     aliases: ["average age", "average age in days"],
-    formula: "Mean of current time − created time in whole days across inspected Jira items with a valid creation timestamp.",
+    formula: "Mean of current time − created time in whole days across inspected work items with a valid creation timestamp.",
     criteria: "Exclude missing or invalid timestamps and disclose the inspected JQL sample. Do not combine unresolved age with resolution duration."
   },
   {
     key: "metric.jira.average_resolution_time",
-    label: "Average Jira resolution time",
+    label: "Average work-item resolution time",
     surface: "Custom quality dashboards",
     aliases: ["average resolution time", "average resolution time in days"],
-    formula: "Mean of resolution time − creation time in whole days across inspected Jira items with valid, non-negative timestamps.",
+    formula: "Mean of resolution time − creation time in whole days across inspected work items with valid, non-negative timestamps.",
     criteria: "Exclude unresolved items and invalid or negative durations. Disclose the inspected JQL sample and avoid treating the mean as a service-level percentile."
   },
   {

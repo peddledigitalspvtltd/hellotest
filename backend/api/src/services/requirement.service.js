@@ -393,7 +393,7 @@ const buildJiraAuthHeader = (integration) => {
   const username = normalizeText(integration.username);
 
   if (!token) {
-    throw new Error("Jira integration is missing an API token");
+    throw new Error("work-tracker integration is missing an API token");
   }
 
   return username
@@ -405,7 +405,7 @@ const jiraFetch = async (integration, path, options = {}) => {
   const baseUrl = toJiraBaseUrl(integration);
 
   if (!baseUrl) {
-    throw new Error("Jira integration is missing a base URL");
+    throw new Error("work-tracker integration is missing a base URL");
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
@@ -420,7 +420,7 @@ const jiraFetch = async (integration, path, options = {}) => {
 
   if (!response.ok) {
     const raw = await response.text();
-    throw new Error(`Jira request failed (${response.status}): ${raw.slice(0, 500)}`);
+    throw new Error(`Connected workspace request failed (${response.status}): ${raw.slice(0, 500)}`);
   }
 
   return response.json();
@@ -430,11 +430,11 @@ const assertActiveJiraIntegration = async (integrationId) => {
   const integration = await integrationService.getIntegration(integrationId);
 
   if (integration.type !== "jira") {
-    throw new Error("Selected ALM integration must be Jira");
+    throw new Error("Select a compatible work-tracker integration.");
   }
 
   if (!integration.is_active) {
-    throw new Error("Selected Jira integration is inactive");
+    throw new Error("Selected work-tracker integration is inactive");
   }
 
   return integration;

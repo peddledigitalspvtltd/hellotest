@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import type { AiAssistedPreviewBase, AiEvidenceSource, AiProcessingSnapshot } from "../types";
 import type { AiAssuranceSignal } from "../lib/aiAssurance";
 import { useDialogFocus } from "../hooks/useDialogFocus";
@@ -106,6 +107,7 @@ export function AiInsightPreviewDialog({
   const [activeReviewView, setActiveReviewView] = useState<ReviewView>("findings");
   const [evidenceFindingId, setEvidenceFindingId] = useState("");
   const [isRunEvidenceOpen, setIsRunEvidenceOpen] = useState(false);
+  const [isFlowPaneCollapsed, setIsFlowPaneCollapsed] = useState(false);
   const reviewTabsId = useId();
   const doneButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -118,6 +120,7 @@ export function AiInsightPreviewDialog({
     setActiveReviewView("findings");
     setEvidenceFindingId("");
     setIsRunEvidenceOpen(false);
+    setIsFlowPaneCollapsed(false);
   }, [open, response?.request_id]);
 
   if (!open) {
@@ -132,7 +135,7 @@ export function AiInsightPreviewDialog({
   const evidenceFinding = findings.find((finding) => finding.id === evidenceFindingId) || null;
   const findingEvidenceSources = (evidenceFinding?.evidence || []).map((ref) => evidenceByRef.get(ref)).filter(Boolean) as AiEvidenceSource[];
   const generationMode = provenance?.generation_mode || response?.generation_mode || "deterministic";
-  const provider = provenance?.provider || response?.integration?.name || "HelloTest Jira-native assist";
+  const provider = provenance?.provider || response?.integration?.name || "HelloTest workspace assist";
   const provenanceLabel = `${provider} · ${generationMode} mode · ${evidence.length} evidence reference${evidence.length === 1 ? "" : "s"}`;
   const effectiveSignals = signals.length ? signals : [
     { label: "Generation", value: generationMode === "deterministic" ? "Deterministic" : generationMode, tone: "neutral" },
@@ -141,7 +144,7 @@ export function AiInsightPreviewDialog({
   ] satisfies AiAssuranceSignal[];
   const effectiveGaps = [...new Set([
     ...gaps,
-    ...(response?.requires_human_review ? ["A person must verify the evidence and own the final Jira or release decision."] : [])
+    ...(response?.requires_human_review ? ["A person must verify the evidence and own the final connected workspace or release decision."] : [])
   ])];
   const reviewedProcessing = accepted && processing ? {
     ...processing,
@@ -181,7 +184,7 @@ export function AiInsightPreviewDialog({
       <div
         aria-labelledby="ai-insight-preview-title"
         aria-modal="true"
-        className="modal-card ai-insight-preview-dialog"
+        className={`modal-card ai-insight-preview-dialog ai-feature-dialog${isFlowPaneCollapsed ? " is-flow-pane-collapsed" : ""}`}
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -213,7 +216,7 @@ export function AiInsightPreviewDialog({
             <div className="ai-insight-preview-state" role="status">
               <span className="ai-insight-preview-state-icon" aria-hidden="true"><SparkIcon /></span>
               <div>
-                <strong>Reviewing Jira-native evidence…</strong>
+                <strong>Reviewing connected workspace evidence…</strong>
                 <span>HelloTest is assessing bounded evidence. Nothing is being changed.</span>
               </div>
             </div>
@@ -228,7 +231,7 @@ export function AiInsightPreviewDialog({
             <>
               <div className="ai-insight-preview-boundary">
                 <SparkIcon />
-                <span><strong>Preview only.</strong> No Jira issue, link, property, attachment, test, run, or quality gate was changed.</span>
+                <span><strong>Preview only.</strong> No work item, link, property, attachment, test, run, or quality gate was changed.</span>
               </div>
 
               <div aria-label="Review content" className="ai-insight-preview-tabs" role="tablist">
@@ -329,7 +332,7 @@ export function AiInsightPreviewDialog({
                     score={confidence}
                     scoreLabel={scoreLabel}
                     signals={effectiveSignals}
-                    summary={summary || "This read-only preview explains signals found in current Jira issues, links, properties, and result evidence."}
+                    summary={summary || "This read-only preview explains signals found in current work items, links, properties, and result evidence."}
                     title={assuranceTitle}
                   />
                   <div className="ai-insight-preview-details ai-insight-preview-details--launch">
@@ -343,14 +346,25 @@ export function AiInsightPreviewDialog({
             </>
           ) : (
             <div className="ai-insight-preview-state">
-              <span>Run the preview to inspect current Jira-native evidence.</span>
+              <span>Run the preview to inspect current connected workspace evidence.</span>
             </div>
           )}
             </div>
           </section>
 
           <aside aria-label="AI run and review" className="ai-insight-preview-flow-pane">
-            <AgenticProcessRail
+            <button
+              aria-expanded={!isFlowPaneCollapsed}
+              aria-label={isFlowPaneCollapsed ? "Expand AI process and provenance" : "Collapse AI process and provenance"}
+              className="ai-insight-preview-flow-toggle"
+              onClick={() => setIsFlowPaneCollapsed((current) => !current)}
+              title={isFlowPaneCollapsed ? "Expand process rail" : "Collapse process rail"}
+              type="button"
+            >
+              {isFlowPaneCollapsed ? <IconChevronLeft aria-hidden="true" size={17} /> : <IconChevronRight aria-hidden="true" size={17} />}
+              {isFlowPaneCollapsed ? <span>Process</span> : null}
+            </button>
+            {!isFlowPaneCollapsed ? <AgenticProcessRail
               agentName={eyebrow.toLowerCase().includes("bug") ? "Bug Triage Agent" : title.toLowerCase().includes("run") || title.toLowerCase().includes("execution") ? "Failure Analyst" : "Quality Evaluator"}
               compact
               orientation="vertical"
@@ -359,12 +373,12 @@ export function AiInsightPreviewDialog({
               processing={reviewedProcessing}
               stageEvidence={{
                 context: `${evidence.length} cited evidence reference${evidence.length === 1 ? "" : "s"} and ${findings.length} explainable finding${findings.length === 1 ? "" : "s"} are bounded to this preview.`,
-                guardrails: "This preview cannot change Jira issues, links, properties, tests, runs, or release decisions.",
+                guardrails: "This preview cannot change work items, links, properties, tests, runs, or release decisions.",
                 outcome: `${findings.length} finding${findings.length === 1 ? "" : "s"} and ${recommendedActions.length} review action${recommendedActions.length === 1 ? "" : "s"} are available.`,
                 review: onAccept ? "A person selects the findings and action sequence, then explicitly accepts the review plan for this session." : "A person reviews and acknowledges the recommendations. No Bug field is changed from this preview."
               }}
               status={loading ? "running" : error ? "failed" : response ? "completed" : "idle"}
-            />
+            /> : null}
           </aside>
         </div>
 

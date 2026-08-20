@@ -169,6 +169,8 @@ module.exports = async function (fastify) {
       name: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       goal: { required: false, type: "string" },
+      labels: { required: false, type: "array", items: "string" },
+      external_references: { required: false, type: "array", items: "string" },
       state: { required: false, type: "string", enum: ["future", "active", "closed"] },
       start_date: { required: false, type: "string" },
       end_date: { required: false, type: "string" },
@@ -195,6 +197,8 @@ module.exports = async function (fastify) {
       name: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
       goal: { required: false, type: "string" },
+      labels: { required: false, type: "array", items: "string" },
+      external_references: { required: false, type: "array", items: "string" },
       state: { required: false, type: "string", enum: ["future", "active", "closed"] },
       start_date: { required: false, type: "string" },
       end_date: { required: false, type: "string" },
@@ -242,9 +246,7 @@ module.exports = async function (fastify) {
     });
     return {
       ...result,
-      assigned_issue_ids: req.body.requirement_ids,
-      assigned_issue_keys: req.body.requirement_ids,
-      sprint: { id: iteration.id, name: iteration.name, state: iteration.state }
+      sprint: result.sprint || { id: iteration.id, name: iteration.name, state: iteration.state }
     };
   });
 

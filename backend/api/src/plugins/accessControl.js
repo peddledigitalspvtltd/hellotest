@@ -236,6 +236,7 @@ async function accessControlPlugin(fastify) {
         : "");
     const expected =
       process.env.TESTENGINE_SHARED_SECRET
+      || process.env.HELLOTEST_TESTENGINE_SECRET
       || process.env.QAIRA_TESTENGINE_SECRET
       || "qaira-testengine-dev-secret";
 

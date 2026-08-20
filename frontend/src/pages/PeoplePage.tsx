@@ -30,18 +30,23 @@ import type { Permission, PermissionGroup, Role, User } from "../types";
 type PeopleView = "users" | "roles";
 type FeedbackTone = "success" | "error";
 
+type UserDraft = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role_id: string;
+};
+
+const createEmptyUserDraft = (roleId = ""): UserDraft => ({
+  name: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+  role_id: roleId
+});
 const EMPTY_ROLE_DRAFT = { name: "" };
-const displayUserRoleName = (user: User) => user.role_name || (user.role === "admin" ? "HelloTest administrator" : "Viewer");
-const JIRA_DERIVED_PERMISSION_CODES = new Set([
-  "settings.manage",
-  "feature_flag.manage",
-  "project.manage",
-  "project.delete",
-  "role.manage",
-  "project_member.manage",
-  "integration.manage",
-  "ops.manage"
-]);
+const displayUserRoleName = (user: User) => user.role_name || (user.role === "admin" ? "Administrator" : "Member");
 const formatPermissionLabel = (code: string) =>
   code
     .split(".")
@@ -89,6 +94,9 @@ export function PeoplePage({
   const [view, setView] = useState<PeopleView>(forcedView || (searchParams.get("view") === "roles" ? "roles" : "users"));
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
+  const [userDraft, setUserDraft] = useState<UserDraft>(() => createEmptyUserDraft());
+  const [createUserDraft, setCreateUserDraft] = useState<UserDraft>(() => createEmptyUserDraft());
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [roleDraft, setRoleDraft] = useState(EMPTY_ROLE_DRAFT);
   const [rolePermissionDraft, setRolePermissionDraft] = useState<string[]>([]);
   const [createRolePermissionDraft, setCreateRolePermissionDraft] = useState<string[]>([]);
@@ -122,9 +130,14 @@ export function PeoplePage({
     [selectedRoleId, roleItems]
   );
   const isAdmin = session?.user.role === "admin";
-  const canManageRoles = isAdmin && hasPermission(session, "role.manage");
+  const canManageUsers = hasPermission(session, "user.manage");
+  const canManageRoles = hasPermission(session, "role.manage");
   const canViewUsers = hasPermission(session, "user.view");
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canViewUsers);
+  const defaultMemberRoleId = useMemo(
+    () => roleItems.find((role) => role.name.toLowerCase() === "member")?.id || roleItems[0]?.id || "",
+    [roleItems]
+  );
   const permissionGroups = asArray(permissions.data);
   const allPermissionCodes = useMemo(
     () => permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
@@ -247,6 +260,20 @@ export function PeoplePage({
       render: (role) => userCountByRoleName[role.name] || 0
     }
   ], [userCountByRoleName]);
+  useEffect(() => {
+    if (!selectedUser) {
+      setUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+      return;
+    }
+
+    setUserDraft({
+      name: selectedUser.name || "",
+      email: selectedUser.email,
+      password: "",
+      confirmPassword: "",
+      role_id: selectedUser.role_id || roleItems.find((role) => role.name === selectedUser.role_name)?.id || defaultMemberRoleId
+    });
+  }, [defaultMemberRoleId, roleItems, selectedUser]);
   useEffect(() => {
     if (selectedRole) {
       setRoleDraft({ name: selectedRole.name });
@@ -389,6 +416,90 @@ export function PeoplePage({
     syncPeopleSearchParams("roles", null, selectedRoleId || null);
   };
 
+  const openCreateUserModal = () => {
+    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+    setIsCreateUserModalOpen(true);
+  };
+
+  const closeCreateUserModal = () => {
+    if (createUser.isPending) return;
+    setIsCreateUserModalOpen(false);
+    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+  };
+
+  const createUser = useMutation({
+    mutationFn: api.users.create,
+    onSuccess: async (response) => {
+      showFeedback("User created and ready to sign in.", "success");
+      setIsCreateUserModalOpen(false);
+      setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+      await invalidate();
+      openUserWorkspace(response.id);
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to create user", "error")
+  });
+
+  const updateUser = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.users.update>[1] }) => api.users.update(id, input),
+    onSuccess: async () => {
+      showFeedback("User updated.", "success");
+      setUserDraft((current) => ({ ...current, password: "", confirmPassword: "" }));
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update user", "error")
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: api.users.delete,
+    onSuccess: async () => {
+      showFeedback("User removed.", "success");
+      closeUserWorkspace();
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete user", "error")
+  });
+
+  const validatePasswordPair = (draft: Pick<UserDraft, "password" | "confirmPassword">, required: boolean) => {
+    if (required && draft.password.length < 6) return "Password must be at least 6 characters.";
+    if (!required && draft.password && draft.password.length < 6) return "New password must be at least 6 characters.";
+    if (draft.password !== draft.confirmPassword) return "Passwords do not match.";
+    return "";
+  };
+
+  const handleUserCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const passwordError = validatePasswordPair(createUserDraft, true);
+    if (passwordError) {
+      showFeedback(passwordError, "error");
+      return;
+    }
+    createUser.mutate({
+      name: createUserDraft.name.trim() || undefined,
+      email: createUserDraft.email.trim(),
+      password: createUserDraft.password,
+      role_id: createUserDraft.role_id || defaultMemberRoleId
+    });
+  };
+
+  const handleUserUpdate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedUser) return;
+    const passwordError = validatePasswordPair(userDraft, false);
+    if (passwordError) {
+      showFeedback(passwordError, "error");
+      return;
+    }
+    updateUser.mutate({
+      id: selectedUser.id,
+      input: {
+        name: userDraft.name.trim(),
+        email: userDraft.email.trim(),
+        role_id: userDraft.role_id,
+        ...(userDraft.password ? { password: userDraft.password } : {})
+      }
+    });
+  };
+
   const openCreateRoleModal = () => {
     setCreateRoleDraft(EMPTY_ROLE_DRAFT);
     setCreateRolePermissionDraft(memberDefaultPermissionCodes);
@@ -425,6 +536,11 @@ export function PeoplePage({
     active: isCreateRoleModalOpen,
     closeDisabled: createRole.isPending,
     onClose: closeCreateRoleModal
+  });
+  const createUserDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isCreateUserModalOpen,
+    closeDisabled: createUser.isPending,
+    onClose: closeCreateUserModal
   });
 
   const updateRole = useMutation({
@@ -485,13 +601,7 @@ export function PeoplePage({
   };
 
   const renderPermissionMatrix = (selectedCodes: string[], target: "create" | "edit") => {
-    const isJiraAdministratorProfile = target === "edit" && selectedRole?.id === "jira-admin";
-    const matrixPermissionGroups = permissionGroups.map((group) => ({
-      ...group,
-      permissions: isJiraAdministratorProfile
-        ? group.permissions
-        : group.permissions.filter((permission) => !JIRA_DERIVED_PERMISSION_CODES.has(permission.code))
-    })).filter((group) => group.permissions.length);
+    const matrixPermissionGroups = permissionGroups;
     const selectedSet = new Set(selectedCodes);
     const selectedPermissions = matrixPermissionGroups.flatMap((group) =>
       group.permissions
@@ -527,6 +637,7 @@ export function PeoplePage({
                   autoFocus
                   name="name"
                   placeholder="qa-manager"
+                  required
                   value={createRoleDraft.name}
                   onChange={(event) => setCreateRoleDraft({ name: event.target.value })}
                 />
@@ -542,10 +653,10 @@ export function PeoplePage({
             <span>{availablePermissions.length} available to add</span>
           </div>
           <div className="permission-designer-actions">
-            <button className="ghost-button compact-button" disabled={isJiraAdministratorProfile} onClick={() => setAllPermissions(true)} type="button">
+            <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
               Add All
             </button>
-            <button className="ghost-button compact-button danger" disabled={isJiraAdministratorProfile} onClick={() => setAllPermissions(false)} type="button">
+            <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
               Clear
             </button>
           </div>
@@ -554,13 +665,6 @@ export function PeoplePage({
           <strong>{selectedPermissions.length} of {totalPermissionCount} permissions selected</strong>
           <span aria-hidden="true"><i style={{ width: `${selectedPercent}%` }} /></span>
         </div>
-
-        {!isJiraAdministratorProfile ? (
-          <div className="jira-authority-note" role="note">
-            <strong>Jira administration stays Jira-derived</strong>
-            <span>Project, role, integration, feature, and operations administration cannot be granted through a HelloTest membership role.</span>
-          </div>
-        ) : null}
 
         <div className="permission-group-strip permission-group-strip--accordion">
           {matrixPermissionGroups.map((group) => {
@@ -587,7 +691,6 @@ export function PeoplePage({
                   <label className="permission-toggle-all">
                     <input
                       checked={isAllSelected}
-                      disabled={isJiraAdministratorProfile}
                       onChange={(event) => setPermissionGroup(group, event.target.checked, target)}
                       type="checkbox"
                     />
@@ -600,7 +703,6 @@ export function PeoplePage({
                       <label className="permission-option" key={permission.code}>
                         <input
                           checked={selectedCodes.includes(permission.code)}
-                          disabled={isJiraAdministratorProfile}
                           onChange={() => togglePermission(permission.code, target)}
                           type="checkbox"
                         />
@@ -632,6 +734,17 @@ export function PeoplePage({
     }
 
     deleteRole.mutate(role.id);
+  };
+
+  const confirmDeleteUser = async (user: User) => {
+    if (user.id === session?.user.id) {
+      showFeedback("You cannot delete your own signed-in account.", "error");
+      return;
+    }
+    if (!(await confirmDelete({ message: `Delete user "${user.name || user.email}"? Their project access and active assignments will be removed.` }))) {
+      return;
+    }
+    deleteUser.mutate(user.id);
   };
 
   const closeUserWorkspace = () => {
@@ -670,9 +783,9 @@ export function PeoplePage({
         name: user.name,
         email: user.email,
         visible_email: visibleUserEmail(user.email),
-        jira_access: user.role,
-        qaira_role_id: user.role_id,
-        qaira_role_name: displayUserRoleName(user)
+        access_level: user.role,
+        role_id: user.role_id,
+        role_name: displayUserRoleName(user)
       }))
     });
   };
@@ -778,7 +891,10 @@ export function PeoplePage({
   };
 
   const accessActions = view === "users" ? (
-    <button className="ghost-button" disabled={!userItems.length} onClick={handleExportUsers} type="button"><ExportIcon />Export user directory</button>
+    <>
+      <button className="ghost-button" disabled={!userItems.length} onClick={handleExportUsers} type="button"><ExportIcon />Export user directory</button>
+      {canManageUsers ? <button className="primary-button" onClick={openCreateUserModal} type="button"><AddIcon />Create user</button> : null}
+    </>
   ) : canManageRoles ? (
       <>
         <button className="ghost-button" disabled={!roleItems.length || isExportingRoles} onClick={() => void handleExportRoles()} type="button">
@@ -911,12 +1027,92 @@ export function PeoplePage({
                   <div className="detail-summary">
                     <strong>{selectedUser.name || "Unnamed user"}</strong>
                     <span>{visibleUserEmail(selectedUser.email)}</span>
-                    <span>{displayUserRoleName(selectedUser)} · {selectedUser.role_id || "viewer"}</span>
+                    <span>{displayUserRoleName(selectedUser)} · {selectedUser.auth_provider === "google" ? "Google Sign-In" : "Password sign-in"}</span>
                   </div>
-                  <div className="jira-authority-note" role="note">
-                    <strong>Managed by HelloTest</strong>
-                    <span>Workspace administrators govern account access, project membership, roles, permissions, and credential recovery through HelloTest.</span>
-                  </div>
+                  {canManageUsers ? (
+                    <form className="form-grid people-user-details-form" onSubmit={handleUserUpdate}>
+                      <div className="record-grid">
+                        <FormField label="Name">
+                          <input
+                            autoComplete="name"
+                            name="name"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="Full name"
+                            value={userDraft.name}
+                          />
+                        </FormField>
+                        <FormField label="Email" required>
+                          <input
+                            autoComplete="email"
+                            name="email"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, email: event.target.value }))}
+                            required
+                            type="email"
+                            value={userDraft.email}
+                          />
+                        </FormField>
+                        <FormField label="Role" required>
+                          <select
+                            name="role_id"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, role_id: event.target.value }))}
+                            required
+                            value={userDraft.role_id}
+                          >
+                            <option value="">Select a role</option>
+                            {roleItems.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                          </select>
+                        </FormField>
+                      </div>
+                      {selectedUser.auth_provider !== "google" ? (
+                        <section className="people-password-section" aria-labelledby="user-password-reset-title">
+                          <div className="detail-summary">
+                            <strong id="user-password-reset-title">Set a new password</strong>
+                            <span>Leave both fields blank to keep the current password.</span>
+                          </div>
+                          <div className="record-grid">
+                            <FormField label="New password">
+                              <input
+                                autoComplete="new-password"
+                                maxLength={128}
+                                minLength={6}
+                                name="password"
+                                onChange={(event) => setUserDraft((current) => ({ ...current, password: event.target.value }))}
+                                placeholder="At least 6 characters"
+                                type="password"
+                                value={userDraft.password}
+                              />
+                            </FormField>
+                            <FormField label="Confirm new password">
+                              <input
+                                autoComplete="new-password"
+                                maxLength={128}
+                                minLength={6}
+                                name="confirm_password"
+                                onChange={(event) => setUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
+                                type="password"
+                                value={userDraft.confirmPassword}
+                              />
+                            </FormField>
+                          </div>
+                        </section>
+                      ) : null}
+                      <div className="action-row">
+                        <button className="primary-button" disabled={updateUser.isPending || !userDraft.email.trim() || !userDraft.role_id} type="submit">
+                          {updateUser.isPending ? "Saving…" : "Save user"}
+                        </button>
+                        <button
+                          className="ghost-button danger"
+                          disabled={deleteUser.isPending || selectedUser.id === session?.user.id}
+                          onClick={() => void confirmDeleteUser(selectedUser)}
+                          type="button"
+                        >
+                          <TrashIcon />{deleteUser.isPending ? "Deleting…" : "Delete user"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="empty-state compact">Read-only access. Ask an administrator to update this account.</div>
+                  )}
                 </div>
               ) : (
                 <div className="empty-state compact">No user selected.</div>
@@ -1094,14 +1290,14 @@ export function PeoplePage({
                         >
                           <FormField label="Role name">
                             <input
-                              disabled={selectedRole.id === "jira-admin"}
                               name="name"
+                              required
                               value={roleDraft.name}
                               onChange={(event) => setRoleDraft({ name: event.target.value })}
                             />
                           </FormField>
                           <div className="action-row">
-                            <button className="primary-button" disabled={updateRole.isPending || selectedRole.id === "jira-admin"} type="submit">
+                            <button className="primary-button" disabled={updateRole.isPending || roleDraft.name.trim().length < 2} type="submit">
                               {updateRole.isPending ? "Saving…" : "Save role"}
                             </button>
                             <button className="ghost-button danger" disabled={Boolean(selectedRole.system) || deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
@@ -1121,7 +1317,7 @@ export function PeoplePage({
                           <div className="action-row people-role-drawer-save-row">
                             <button
                               className="primary-button"
-                              disabled={selectedRole.id === "jira-admin" || replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
+                              disabled={replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
                               onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
                               type="button"
                             >
@@ -1129,7 +1325,7 @@ export function PeoplePage({
                             </button>
                             <button
                               className="ghost-button"
-                              disabled={selectedRole.id === "jira-admin" || replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                              disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
                               onClick={() => setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code))}
                               type="button"
                             >
@@ -1148,6 +1344,102 @@ export function PeoplePage({
           ) : null}
         </>
       )}
+
+      {isCreateUserModalOpen ? (
+        <div className="modal-backdrop" onClick={closeCreateUserModal} role="presentation">
+          <div
+            aria-labelledby="create-user-title"
+            aria-modal="true"
+            className="modal-card people-modal-card people-create-user-card"
+            onClick={(event) => event.stopPropagation()}
+            ref={createUserDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <div className="people-modal-header">
+              <div className="people-modal-title">
+                <p className="dialog-context-label">People &amp; access</p>
+                <h2 className="dialog-title" id="create-user-title">Create user</h2>
+                <p>Create a sign-in, choose its workspace role, and set the initial password.</p>
+              </div>
+              <DialogCloseButton disabled={createUser.isPending} label="Close create user dialog" onClick={closeCreateUserModal} />
+            </div>
+            <form className="people-modal-form" onSubmit={handleUserCreate}>
+              <div className="people-modal-body">
+                <div className="record-grid">
+                  <FormField label="Name">
+                    <input
+                      autoComplete="name"
+                      autoFocus
+                      name="name"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Quality lead"
+                      value={createUserDraft.name}
+                    />
+                  </FormField>
+                  <FormField label="Email" required>
+                    <input
+                      autoComplete="email"
+                      name="email"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, email: event.target.value }))}
+                      placeholder="name@company.com"
+                      required
+                      type="email"
+                      value={createUserDraft.email}
+                    />
+                  </FormField>
+                  <FormField label="Role" required>
+                    <select
+                      name="role_id"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, role_id: event.target.value }))}
+                      required
+                      value={createUserDraft.role_id}
+                    >
+                      <option value="">Select a role</option>
+                      {roleItems.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Initial password" required>
+                    <input
+                      autoComplete="new-password"
+                      maxLength={128}
+                      minLength={6}
+                      name="password"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, password: event.target.value }))}
+                      placeholder="At least 6 characters"
+                      required
+                      type="password"
+                      value={createUserDraft.password}
+                    />
+                  </FormField>
+                  <FormField label="Confirm password" required>
+                    <input
+                      autoComplete="new-password"
+                      maxLength={128}
+                      minLength={6}
+                      name="confirm_password"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
+                      required
+                      type="password"
+                      value={createUserDraft.confirmPassword}
+                    />
+                  </FormField>
+                </div>
+              </div>
+              <div className="action-row people-modal-actions">
+                <button className="ghost-button" disabled={createUser.isPending} onClick={closeCreateUserModal} type="button">Cancel</button>
+                <button
+                  className="primary-button"
+                  disabled={createUser.isPending || !createUserDraft.email.trim() || !createUserDraft.role_id || createUserDraft.password.length < 6 || createUserDraft.password !== createUserDraft.confirmPassword}
+                  type="submit"
+                >
+                  {createUser.isPending ? "Creating…" : "Create user"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {isCreateRoleModalOpen ? (
         <div className="modal-backdrop" onClick={closeCreateRoleModal} role="presentation">
@@ -1185,7 +1477,7 @@ export function PeoplePage({
               </div>
 
               <div className="action-row people-modal-actions">
-                <button className="primary-button" disabled={createRole.isPending} type="submit">
+                <button className="primary-button" disabled={createRole.isPending || createRoleDraft.name.trim().length < 2} type="submit">
                   {createRole.isPending ? "Creating…" : "Create role"}
                 </button>
                 <button className="ghost-button" disabled={createRole.isPending} onClick={closeCreateRoleModal} type="button">

@@ -5727,3 +5727,55 @@ body > .sprint-create-backdrop {
     flex: 0 0 auto !important;
   }
 }
+
+/* One modal frame for every governed AI workflow. Feature workbenches retain
+   their purpose-built column layouts while sharing depth, clipping, and a
+   predictable viewport boundary with the Test Case generation studio. */
+.modal-backdrop:has(> .ai-feature-dialog) {
+  padding: 16px !important;
+  background: rgba(9, 30, 66, 0.42) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(0.92);
+  backdrop-filter: blur(4px) saturate(0.92);
+}
+
+.modal-backdrop > .ai-feature-dialog {
+  position: relative;
+  isolation: isolate;
+  max-height: calc(100dvh - 32px) !important;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent, #0c66e4) 18%, var(--line, #d0d7de)) !important;
+  border-radius: 16px !important;
+  background: var(--panel-strong, #ffffff);
+  box-shadow: 0 28px 80px rgba(9, 30, 66, 0.28), 0 4px 14px rgba(9, 30, 66, 0.16) !important;
+}
+
+.modal-backdrop > .ai-feature-dialog::before {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  content: "";
+  background: linear-gradient(90deg, #0c66e4 0%, #6554c0 48%, #22a06b 100%);
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .modal-backdrop > .ai-feature-dialog {
+  border-color: color-mix(in srgb, var(--accent, #579dff) 28%, var(--line, #30363d)) !important;
+  background: var(--panel-strong, #161b22);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58), 0 4px 18px rgba(0, 0, 0, 0.34) !important;
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop:has(> .ai-feature-dialog) {
+    padding: 0 !important;
+  }
+
+  .modal-backdrop > .ai-feature-dialog {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+}

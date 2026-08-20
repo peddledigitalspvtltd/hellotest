@@ -156,7 +156,7 @@ function decisionFor(metrics: ReleaseReadinessModel["metrics"]) {
       label: "Insufficient evidence",
       summary: "The selected scope does not yet have enough linked and executed evidence for a defensible release review.",
       primaryAction: !metrics.requirementCount
-        ? "Map Jira stories to this release or sprint."
+        ? "Map Stories to this release or sprint."
         : !metrics.plannedCaseCount
           ? "Link test cases to the scoped stories."
           : "Execute the planned release scope and capture results."
@@ -334,7 +334,7 @@ export function deriveReleaseReadiness(input: ReleaseReadinessInput): ReleaseRea
       state: highPriorityUncoveredCount ? "block" : requirements.length ? "pass" : "warning",
       actual: highPriorityUncoveredCount ? `${highPriorityUncoveredCount} uncovered` : `${coverage}% covered`,
       expectation: "No P1/P2 story uncovered",
-      detail: "Protects the highest business-priority Jira stories from silent test gaps."
+      detail: "Protects the highest business-priority Stories from silent test gaps."
     },
     {
       id: "execution-completion",
@@ -358,7 +358,7 @@ export function deriveReleaseReadiness(input: ReleaseReadinessInput): ReleaseRea
       state: openCriticalIssues.length ? "block" : "pass",
       actual: `${openCriticalIssues.length} open`,
       expectation: "Zero open critical defects",
-      detail: "Includes scoped or trace-linked Jira bugs still outside a resolved status."
+      detail: "Includes scoped or trace-linked Bugs still outside a resolved status."
     },
     {
       id: "blocked-tests",

@@ -7,7 +7,7 @@ import { FormField } from "./FormField";
 export function ExternalReferencesField({
   className = "",
   disabled = false,
-  placeholder = "Paste Jira links, docs, IDs; press ; to add",
+  placeholder = "Paste work-item links, docs, IDs; press ; to add",
   value,
   onChange
 }: {

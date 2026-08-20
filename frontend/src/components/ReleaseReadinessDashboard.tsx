@@ -270,7 +270,7 @@ export function ReleaseReadinessDashboard() {
       ? "legacy Test Case summary metadata is unknown"
       : "",
     ambiguousSprintNames.length
-      ? `duplicate Jira Sprint names require Fix Version disambiguation (${ambiguousSprintNames.join(", ")})`
+      ? `duplicate Sprint names require Fix Version disambiguation (${ambiguousSprintNames.join(", ")})`
       : "",
     executions.some((execution) => Number(execution.scope_case_count || 0) > new Set([
       ...(execution.test_case_ids || []),
@@ -325,7 +325,7 @@ export function ReleaseReadinessDashboard() {
     severity: insight.severity,
     description: insight.explanation,
     action: insight.recommended_action,
-    meta: `${insight.evidence.length} linked Jira record${insight.evidence.length === 1 ? "" : "s"}`,
+    meta: `${insight.evidence.length} linked work item${insight.evidence.length === 1 ? "" : "s"}`,
     evidence: insight.evidence.map((item) => item.display_id || item.id).filter(Boolean)
   })), [qualityInsightPreview.data]);
   const runResultMap = useMemo(() => latestResultMap(model.executionResults), [model.executionResults]);
@@ -431,7 +431,7 @@ export function ReleaseReadinessDashboard() {
   };
 
   if (!activeProjectId) {
-    return <div className="page-content page-content--overview"><div className="empty-state compact">Select a Jira project to review release readiness.</div></div>;
+    return <div className="page-content page-content--overview"><div className="empty-state compact">Select a project to review release readiness.</div></div>;
   }
 
   return (
@@ -444,7 +444,7 @@ export function ReleaseReadinessDashboard() {
           <div>
             <p>Release decision room</p>
             <h1>Release readiness</h1>
-            <span>{selectedProject?.name || "Selected Jira project"} · {release || "All Fix Versions"}</span>
+            <span>{selectedProject?.name || "Selected project"} · {release || "All Fix Versions"}</span>
           </div>
         </div>
 
@@ -570,14 +570,14 @@ export function ReleaseReadinessDashboard() {
       {evidenceLoadFailed ? (
         <div className="readiness-command-notice is-error" role="alert">
           <IconAlertTriangle aria-hidden="true" size={17} stroke={2} />
-          <span>Some Jira evidence could not be refreshed. Visible metrics remain provisional until every evidence source loads successfully.</span>
+          <span>Some delivery evidence could not be refreshed. Visible metrics remain provisional until every evidence source loads successfully.</span>
           <button disabled={isRefreshing} onClick={() => void refreshEvidence()} type="button">Retry</button>
         </div>
       ) : null}
 
       {loading ? (
         <div className="readiness-command-loading">
-          <LoadingState label="Building the release evidence graph" description="Connecting Jira scope, traceability, latest results, and linked Bugs." />
+          <LoadingState label="Building the release evidence graph" description="Connecting delivery scope, traceability, latest results, and linked Bugs." />
         </div>
       ) : (
         <>
@@ -637,7 +637,7 @@ export function ReleaseReadinessDashboard() {
 
           <section aria-label="Readiness evidence context" className="readiness-command-context-bar">
             <div>
-              <span>Jira release scope</span>
+              <span>connected release scope</span>
               <strong>{scopeLabel}</strong>
               <small>{completedStoryCount}/{model.metrics.requirementCount} Stories Done · Fix Version and Sprint are authoritative.</small>
             </div>
@@ -709,7 +709,7 @@ export function ReleaseReadinessDashboard() {
 
               <div className="readiness-command-ai-card">
                 <div><IconSparkles aria-hidden="true" size={18} stroke={1.9} /><strong>Explainable assist</strong></div>
-                <p>Summarize release-scoped Jira evidence with cited records and human-owned actions.</p>
+                <p>Summarize release-scoped delivery evidence with cited records and human-owned actions.</p>
                 {canUseAi ? (
                   <button disabled={qualityInsightPreview.isPending} onClick={openAiBrief} type="button">
                     {qualityInsightPreview.isPending ? "Building evidence brief…" : "Open evidence brief"}
@@ -729,7 +729,7 @@ export function ReleaseReadinessDashboard() {
                     {activeView === "brief"
                       ? "Ranked by coverage gaps, latest failures, blockers, and open linked Bugs."
                       : activeView === "traceability"
-                        ? "One row per Jira Story, ranked by explainable risk."
+                        ? "One row per Story, ranked by explainable risk."
                         : "Latest result per case within each run; reruns do not inflate progress."}
                   </span>
                 </div>
@@ -750,7 +750,7 @@ export function ReleaseReadinessDashboard() {
                   <>
                     <section className="readiness-command-trace-path" aria-label="Release traceability path">
                       {[
-                        { label: "Stories", value: model.metrics.requirementCount, detail: "Jira scope", to: "/requirements", enabled: canViewStories, icon: <IconFlag size={17} stroke={1.9} /> },
+                        { label: "Stories", value: model.metrics.requirementCount, detail: "delivery scope", to: "/requirements", enabled: canViewStories, icon: <IconFlag size={17} stroke={1.9} /> },
                         { label: "Covered", value: model.metrics.coveredRequirementCount, detail: `${model.metrics.coverage}% mapped`, to: "/test-cases", enabled: canViewStories && canViewCases, icon: <IconGitBranch size={17} stroke={1.9} /> },
                         { label: "Scoped tests", value: model.metrics.plannedCaseCount, detail: "Linked cases", to: "/test-cases", enabled: canViewCases, icon: <IconTestPipe size={17} stroke={1.9} /> },
                         { label: "Executed", value: model.metrics.executedCaseCount, detail: `${model.metrics.completion}% complete`, to: "/executions", enabled: canViewRuns && canViewResults, icon: <IconListCheck size={17} stroke={1.9} /> },
@@ -990,7 +990,7 @@ export function ReleaseReadinessDashboard() {
                 : evidenceFooterState === "error"
                   ? <IconAlertTriangle aria-hidden="true" size={15} stroke={2} />
                   : <IconClock aria-hidden="true" size={15} stroke={2} />}
-              {evidenceFooterState === "current" ? "Current Jira evidence" : evidenceFooterState === "error" ? "Evidence source error" : "Provisional Jira evidence"}
+              {evidenceFooterState === "current" ? "Current delivery evidence" : evidenceFooterState === "error" ? "Evidence source error" : "Provisional delivery evidence"}
             </span>
             <span>{model.metrics.requirementCount} Stories · {model.metrics.plannedCaseCount} cases · {model.executions.length} runs · {model.metrics.openBugCount} open Bugs</span>
             <span>{evidenceIsProvisional ? "Review scope, permissions, and source notices" : `Latest evidence ${latestEvidenceLabel}`}</span>
@@ -1005,7 +1005,7 @@ export function ReleaseReadinessDashboard() {
         eyebrow="Release readiness"
         findings={aiFindings}
         gaps={[
-          ...(sprint ? ["The AI endpoint evaluates Jira release scope; the Sprint filter remains visible in the deterministic page metrics."] : []),
+          ...(sprint ? ["The AI endpoint evaluates connected release scope; the Sprint filter remains visible in the deterministic page metrics."] : []),
           ...(!release && scopeOptions.releases.length ? ["Select a Fix Version for a release-specific AI evidence brief."] : [])
         ]}
         limitations={qualityInsightPreview.data?.limitations || []}
@@ -1019,8 +1019,8 @@ export function ReleaseReadinessDashboard() {
           { label: "Evidence", value: `${qualityInsightPreview.data.provenance.evidence.length} references`, tone: qualityInsightPreview.data.provenance.evidence.length ? "positive" : "warning" },
           { label: "Decision", value: "Human owned", tone: "warning" }
         ] : []}
-        subtitle={`Read-only review for ${selectedProject?.name || "the selected Jira project"}${release ? ` · ${release}` : ""}.`}
-        summary="HelloTest applies transparent rules to visible Jira fields, issue links, properties, and execution evidence. It explains risk and suggests review work; it does not decide release readiness."
+        subtitle={`Read-only review for ${selectedProject?.name || "the selected project"}${release ? ` · ${release}` : ""}.`}
+        summary="HelloTest applies transparent rules to visible work-item fields, issue links, properties, and execution evidence. It explains risk and suggests review work; it does not decide release readiness."
         title="AI release evidence brief"
       />
     </div>

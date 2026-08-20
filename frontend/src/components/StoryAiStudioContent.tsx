@@ -386,7 +386,7 @@ export function StoryAiDraftInspector({
         <section className="story-studio-card story-studio-field-review">
           <div className="story-studio-card__section-heading">
             <h2><IconChecklist size={20} stroke={1.9} />Apply reviewed fields</h2>
-            <span>Only checked changes will update the selected Jira Story.</span>
+            <span>Only checked changes will update the selected Story.</span>
           </div>
           <div className="story-studio-field-review__grid">
             {fieldSelection.map((field) => (

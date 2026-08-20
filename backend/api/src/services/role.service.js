@@ -55,13 +55,13 @@ const assignRolePermissions = async (id, permissions) => {
 };
 
 exports.createRole = async ({ name, permission_codes }) => {
-  if (!name) {
-    throw new Error("Missing required fields");
+  const normalizedName = normalizeRoleName(name);
+  if (normalizedName.length < 2) {
+    throw new Error("Role name must contain at least 2 characters");
   }
 
-  const normalizedName = normalizeRoleName(name);
   const existing = await db.prepare(`
-    SELECT id FROM roles WHERE name = ?
+    SELECT id FROM roles WHERE LOWER(name) = LOWER(?)
   `).get(normalizedName);
 
   if (existing) throw new Error("Role already exists");
@@ -153,11 +153,16 @@ exports.replaceRolePermissions = async (id, permissionCodes = []) => {
 
 exports.updateRole = async (id, data) => {
   const existing = await exports.getRole(id);
+  const normalizedName = data.name !== undefined ? normalizeRoleName(data.name) : existing.name;
 
-  if (data.name && data.name !== existing.name) {
+  if (normalizedName.length < 2) {
+    throw new Error("Role name must contain at least 2 characters");
+  }
+
+  if (normalizedName.toLowerCase() !== existing.name.toLowerCase()) {
     const duplicate = await db.prepare(`
-      SELECT id FROM roles WHERE name = ? AND id != ?
-    `).get(data.name, id);
+      SELECT id FROM roles WHERE LOWER(name) = LOWER(?) AND id != ?
+    `).get(normalizedName, id);
 
     if (duplicate) throw new Error("Role already exists");
   }
@@ -167,7 +172,7 @@ exports.updateRole = async (id, data) => {
       UPDATE roles
       SET name = ?
       WHERE id = ?
-    `).run(data.name ?? existing.name, id);
+    `).run(normalizedName, id);
 
     if (Array.isArray(data.permission_codes)) {
       const permissions = await resolvePermissionsByCode(data.permission_codes);
@@ -183,10 +188,13 @@ exports.deleteRole = async (id) => {
 
   const used = await db.prepare(`
     SELECT id FROM project_members WHERE role_id = ?
-  `).get(id);
+    UNION ALL
+    SELECT id FROM users WHERE default_role_id = ?
+    LIMIT 1
+  `).get(id, id);
 
   if (used) {
-    throw new Error("Cannot delete role assigned to project members");
+    throw new Error("Cannot delete a role while it is assigned to users or project members");
   }
 
   await db.prepare(`

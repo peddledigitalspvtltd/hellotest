@@ -23,8 +23,9 @@ const normalizeState = (value, fallback = "future") => {
 const normalizeDate = (value) => {
   const normalized = normalizeText(value);
   if (!normalized) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(Date.parse(`${normalized}T00:00:00Z`))) throw new Error("Invalid iteration date");
-  return normalized;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Invalid iteration date");
+  return parsed.toISOString();
 };
 
 const validateDateRange = (startDate, endDate) => {
@@ -143,13 +144,20 @@ exports.listRequirements = async (id, { limit } = {}) => {
   `).all(...(boundedLimit ? [id, boundedLimit] : [id]));
 };
 
-exports.createIteration = async ({ project_id, name, description, goal, state, start_date, end_date, requirement_ids = [], created_by } = {}) => {
+exports.createIteration = async ({ project_id, name, description, goal, labels, external_references, state, start_date, end_date, requirement_ids = [], created_by } = {}) => {
   const project = await ensureProjectExists(project_id);
   const normalizedName = normalizeText(name);
 
   if (!normalizedName) {
     throw new Error("Iteration name is required");
   }
+
+  const duplicate = await db.prepare(`
+    SELECT id FROM requirement_iterations
+    WHERE project_id = ? AND LOWER(name) = LOWER(?)
+    LIMIT 1
+  `).get(project.id, normalizedName);
+  if (duplicate) throw new Error("A Sprint with this name already exists in the project");
 
   const requirementIds = normalizeTextList(requirement_ids);
   await ensureRequirementsMatchProject(requirementIds, project.id);
@@ -163,9 +171,23 @@ exports.createIteration = async ({ project_id, name, description, goal, state, s
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
-      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, state, start_date, end_date, created_by, updated_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(id, displayId, project.id, normalizedName, normalizeText(description), normalizeText(goal) || normalizeText(description), normalizeState(state), startDate, endDate, actorId, actorId);
+      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, labels, external_references, state, start_date, end_date, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      id,
+      displayId,
+      project.id,
+      normalizedName,
+      normalizeText(description),
+      normalizeText(goal) || normalizeText(description),
+      JSON.stringify(normalizeTextList(labels)),
+      JSON.stringify(normalizeTextList(external_references)),
+      normalizeState(state),
+      startDate,
+      endDate,
+      actorId,
+      actorId
+    );
 
     for (const requirementId of requirementIds) {
       await db.prepare(`
@@ -178,7 +200,23 @@ exports.createIteration = async ({ project_id, name, description, goal, state, s
 
   await transaction();
 
-  return { id };
+  const sprint = await exports.getIteration(id);
+  const assignedRows = requirementIds.length ? await db.prepare(`
+    SELECT id, display_id
+    FROM requirements
+    WHERE iteration_id = ? AND id IN (${requirementIds.map(() => "?").join(",")})
+    ORDER BY id ASC
+  `).all(id, ...requirementIds) : [];
+
+  return {
+    id,
+    sprint,
+    assignment: requirementIds.length ? {
+      assigned: assignedRows.length,
+      assigned_issue_ids: assignedRows.map((row) => row.id),
+      assigned_issue_keys: assignedRows.map((row) => row.display_id || row.id)
+    } : null
+  };
 };
 
 exports.updateIteration = async (id, data = {}) => {
@@ -188,6 +226,13 @@ exports.updateIteration = async (id, data = {}) => {
   if (!nextName) {
     throw new Error("Iteration name is required");
   }
+
+  const duplicate = await db.prepare(`
+    SELECT id FROM requirement_iterations
+    WHERE project_id = ? AND LOWER(name) = LOWER(?) AND id != ?
+    LIMIT 1
+  `).get(existing.project_id, nextName, id);
+  if (duplicate) throw new Error("A Sprint with this name already exists in the project");
 
   const requirementIds = data.requirement_ids !== undefined ? normalizeTextList(data.requirement_ids) : null;
   const startDate = data.start_date !== undefined ? normalizeDate(data.start_date) : existing.start_date;
@@ -201,12 +246,14 @@ exports.updateIteration = async (id, data = {}) => {
   const transaction = db.transaction(async () => {
     await db.prepare(`
       UPDATE requirement_iterations
-      SET name = ?, description = ?, goal = ?, state = ?, start_date = ?, end_date = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      SET name = ?, description = ?, goal = ?, labels = ?, external_references = ?, state = ?, start_date = ?, end_date = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
       nextName,
       data.description !== undefined ? normalizeText(data.description) : existing.description,
       data.goal !== undefined ? normalizeText(data.goal) : existing.goal,
+      data.labels !== undefined ? JSON.stringify(normalizeTextList(data.labels)) : JSON.stringify(existing.labels || []),
+      data.external_references !== undefined ? JSON.stringify(normalizeTextList(data.external_references)) : JSON.stringify(existing.external_references || []),
       data.state !== undefined ? normalizeState(data.state, existing.state) : normalizeState(existing.state),
       startDate,
       endDate,
@@ -233,7 +280,7 @@ exports.updateIteration = async (id, data = {}) => {
 
   await transaction();
 
-  return { updated: true };
+  return { updated: true, sprint: await exports.getIteration(id) };
 };
 
 exports.assignRequirements = async (id, requirementIds = [], { append = true } = {}) => {
@@ -241,6 +288,7 @@ exports.assignRequirements = async (id, requirementIds = [], { append = true } =
   const normalizedRequirementIds = normalizeTextList(requirementIds);
   await ensureRequirementsMatchProject(normalizedRequirementIds, iteration.project_id);
 
+  let assigned = 0;
   const transaction = db.transaction(async () => {
     if (!append) {
       await db.prepare(`
@@ -251,17 +299,31 @@ exports.assignRequirements = async (id, requirementIds = [], { append = true } =
     }
 
     for (const requirementId of normalizedRequirementIds) {
-      await db.prepare(`
+      const result = await db.prepare(`
         UPDATE requirements
         SET iteration_id = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id, requirementId);
+      assigned += result.changes || 0;
     }
   });
 
   await transaction();
 
-  return { updated: true, assigned: normalizedRequirementIds.length };
+  const assignedRows = normalizedRequirementIds.length ? await db.prepare(`
+    SELECT id, display_id
+    FROM requirements
+    WHERE iteration_id = ? AND id IN (${normalizedRequirementIds.map(() => "?").join(",")})
+    ORDER BY id ASC
+  `).all(id, ...normalizedRequirementIds) : [];
+  return {
+    updated: true,
+    assigned: assignedRows.length || assigned,
+    total: (await exports.getIteration(id)).requirement_count,
+    assigned_issue_ids: assignedRows.map((row) => row.id),
+    assigned_issue_keys: assignedRows.map((row) => row.display_id || row.id),
+    sprint: await exports.getIteration(id)
+  };
 };
 
 exports.removeRequirements = async (id, requirementIds = []) => {
@@ -272,24 +334,26 @@ exports.removeRequirements = async (id, requirementIds = []) => {
     return { updated: true, removed: 0 };
   }
 
-  await db.prepare(`
+  const result = await db.prepare(`
     UPDATE requirements
     SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
     WHERE iteration_id = ? AND id IN (${normalizedRequirementIds.map(() => "?").join(",")})
   `).run(id, ...normalizedRequirementIds);
 
-  return { updated: true, removed: normalizedRequirementIds.length };
+  return { updated: true, removed: result.changes || 0 };
 };
 
 exports.deleteIteration = async (id) => {
   await exports.getIteration(id);
 
+  let unassigned = 0;
   const transaction = db.transaction(async () => {
-    await db.prepare(`
+    const result = await db.prepare(`
       UPDATE requirements
       SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
       WHERE iteration_id = ?
     `).run(id);
+    unassigned = result.changes || 0;
 
     await db.prepare(`
       DELETE FROM requirement_iterations
@@ -299,5 +363,5 @@ exports.deleteIteration = async (id) => {
 
   await transaction();
 
-  return { deleted: true };
+  return { deleted: true, id, unassigned };
 };

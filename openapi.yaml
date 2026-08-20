@@ -1646,12 +1646,27 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
-        "200": { description: Iterations with lifecycle dates, state, goal, and requirement membership }
+        "200":
+          description: Iterations with lifecycle dates, state, goal, and requirement membership
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RequirementIteration" }
     post:
       tags: [Requirements]
-      summary: Create a requirement iteration
+      summary: Create a Sprint, optionally without assigning any Stories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRequirementIterationRequest" }
       responses:
-        "200": { description: Created iteration }
+        "200":
+          description: Canonical created Sprint and exact optional Story assignment receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateRequirementIterationResponse" }
   /requirement-iterations/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1663,6 +1678,11 @@ paths:
     put:
       tags: [Requirements]
       summary: Update iteration name, goal, lifecycle state, dates, or membership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRequirementIterationRequest" }
       responses:
         "200": { description: Updated iteration }
     delete:
@@ -2000,7 +2020,20 @@ paths:
               schema: { type: string, format: binary }
     post:
       tags: [Quality Analytics]
-      summary: Generate and download a dashboard report PDF using supplied scope
+      summary: Generate and download a dashboard report PDF from the rendered dashboard view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rendered_snapshot_data_url]
+              properties:
+                rendered_snapshot_data_url:
+                  type: string
+                  description: JPEG data URL captured from the complete rendered dashboard surface
+                rendered_snapshot_name: { type: string }
+                rendered_snapshot_captured_at: { type: string, format: date-time }
       responses:
         "200":
           description: PDF report
@@ -2172,7 +2205,13 @@ components:
         id: { type: string }
         email: { type: string, format: email }
         name: { type: string, nullable: true }
-        created_at: { type: string }
+        avatar_data_url: { type: string, nullable: true }
+        auth_provider: { type: string, enum: [local, google] }
+        email_verified: { type: boolean }
+        role: { type: string, enum: [admin, member] }
+        role_id: { type: string, nullable: true }
+        role_name: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
     SessionResponse:
       type: object
       properties:
@@ -2185,27 +2224,109 @@ components:
       required: [email, password]
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6 }
+        password: { type: string, minLength: 6, maxLength: 128 }
         name: { type: string }
     LoginRequest:
       type: object
       required: [email, password]
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6 }
+        password: { type: string, minLength: 6, maxLength: 128 }
     CreateUserRequest:
       type: object
-      required: [email, password_hash]
+      required: [email, password, role_id]
       properties:
         email: { type: string, format: email }
-        password_hash: { type: string }
+        password: { type: string, minLength: 6, maxLength: 128 }
         name: { type: string }
+        role_id: { type: string }
     UpdateUserRequest:
       type: object
       properties:
         email: { type: string, format: email }
-        password_hash: { type: string }
+        password: { type: string, minLength: 6, maxLength: 128 }
         name: { type: string }
+        role_id: { type: string }
+        avatar_data_url: { type: string, nullable: true }
+    RequirementIteration:
+      type: object
+      required: [id, project_id, name, state]
+      properties:
+        id: { type: string }
+        display_id: { type: string, nullable: true }
+        project_id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        goal: { type: string, nullable: true }
+        labels:
+          type: array
+          items: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        state: { type: string, enum: [future, active, closed] }
+        start_date: { type: string, format: date-time, nullable: true }
+        end_date: { type: string, format: date-time, nullable: true }
+        requirement_count: { type: integer, minimum: 0 }
+        requirement_ids:
+          type: array
+          items: { type: string }
+    CreateRequirementIterationRequest:
+      type: object
+      required: [project_id, name]
+      properties:
+        project_id: { type: string }
+        name: { type: string, minLength: 2 }
+        description: { type: string }
+        goal: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        state: { type: string, enum: [future, active] }
+        start_date: { type: string, format: date-time }
+        end_date: { type: string, format: date-time }
+        requirement_ids:
+          type: array
+          default: []
+          items: { type: string }
+    UpdateRequirementIterationRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2 }
+        description: { type: string }
+        goal: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        external_references:
+          type: array
+          items: { type: string }
+        state: { type: string, enum: [future, active, closed] }
+        start_date: { type: string, format: date-time }
+        end_date: { type: string, format: date-time }
+        requirement_ids:
+          type: array
+          items: { type: string }
+    CreateRequirementIterationResponse:
+      type: object
+      required: [id, sprint]
+      properties:
+        id: { type: string }
+        sprint: { $ref: "#/components/schemas/RequirementIteration" }
+        assignment:
+          type: object
+          nullable: true
+          properties:
+            assigned: { type: integer, minimum: 0 }
+            assigned_issue_ids:
+              type: array
+              items: { type: string }
+            assigned_issue_keys:
+              type: array
+              items: { type: string }
     Role:
       type: object
       properties:

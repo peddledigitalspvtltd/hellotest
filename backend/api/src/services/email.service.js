@@ -7,6 +7,10 @@ const createError = (message, statusCode) => {
   return error;
 };
 
+const normalizeSenderName = (value) => /^qaira(?: support)?$/i.test(String(value || "").trim())
+  ? "HelloTest Support"
+  : String(value || "").trim() || "HelloTest Support";
+
 const resolveEmailIntegration = async () => {
   const integration = await integrationService.getActiveIntegrationByType("email");
 
@@ -39,7 +43,7 @@ exports.getEmailSenderProfile = async () => {
     return {
       enabled: true,
       senderEmail: config.sender_email || "support@qualipal.in",
-      senderName: config.sender_name || "HelloTest Support"
+      senderName: normalizeSenderName(config.sender_name)
     };
   } catch (error) {
     if (error.statusCode === 503) {
@@ -54,7 +58,7 @@ exports.getEmailSenderProfile = async () => {
   }
 };
 
-exports.sendMail = async ({ to, subject, text, html }) => {
+exports.sendMail = async ({ to, subject, text, html, attachments }) => {
   const { integration, config } = await resolveEmailIntegration();
 
   const transporter = nodemailer.createTransport({
@@ -70,13 +74,14 @@ exports.sendMail = async ({ to, subject, text, html }) => {
   await transporter.sendMail({
     from: {
       address: config.sender_email || "support@qualipal.in",
-      name: config.sender_name || "HelloTest Support"
+      name: normalizeSenderName(config.sender_name)
     },
     replyTo: config.sender_email || "support@qualipal.in",
     to,
     subject,
     text,
-    html
+    html,
+    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {})
   });
 
   return { sent: true };

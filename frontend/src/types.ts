@@ -675,6 +675,7 @@ export type TestCaseReviewEvent = {
 
 export type Issue = {
   id: string;
+  display_id?: string | null;
   jira_url?: string | null;
   user_id: string;
   user_name?: string | null;
@@ -1430,6 +1431,10 @@ export type AiDesignedTestCaseCandidate = {
   title: string;
   description: string | null;
   priority: number;
+  authoring_mode?: "structured" | "gherkin";
+  gherkin_document?: string | null;
+  parameter_values?: Record<string, string>;
+  parameter_count?: number;
   applicable_domain?: string | null;
   requirement_ids: string[];
   requirement_titles: string[];
@@ -1465,6 +1470,8 @@ export type AiAuthoredTestCasePreview = {
   summary?: string | null;
   title: string;
   description: string | null;
+  authoring_mode?: "structured" | "gherkin";
+  gherkin_document?: string | null;
   parameter_values: Record<string, string>;
   steps: Array<{
     step_order: number;
@@ -1546,6 +1553,7 @@ export type AiTestCaseGenerationJob = {
   additional_context?: string | null;
   external_links: string[];
   images: AiDesignImageInput[];
+  authoring_mode?: "structured" | "gherkin";
   status: "queued" | "running" | "completed" | "failed" | string;
   total_requirements: number;
   processed_requirements: number;

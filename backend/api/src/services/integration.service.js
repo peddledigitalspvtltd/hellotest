@@ -591,10 +591,16 @@ const normalizeIntegration = (integration) => {
     return integration;
   }
 
+  const config = isPlainObject(integration.config) ? { ...integration.config } : {};
+  if (/^qaira support$/i.test(String(config.sender_name || "").trim())) {
+    config.sender_name = "HelloTest Support";
+  }
+
   return {
     ...integration,
+    name: /^qaira$/i.test(String(integration.name || "").trim()) ? "HelloTest" : integration.name,
     is_active: Boolean(integration.is_active),
-    config: isPlainObject(integration.config) ? integration.config : {}
+    config
   };
 };
 
@@ -632,11 +638,11 @@ const validatePayload = (payload) => {
 
   if (type === "jira") {
     if (!base_url) {
-      throw new Error("Jira integrations require a base URL");
+      throw new Error("work-tracker integrations require a base URL");
     }
 
     if (!api_key) {
-      throw new Error("Jira integrations require an API key");
+      throw new Error("work-tracker integrations require an API key");
     }
   }
 

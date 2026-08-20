@@ -25,7 +25,7 @@ jobs:
       - name: Trigger HelloTest Execution
         run: |
           curl -X POST "https://api.qaira.io/v1/executions/trigger" \\
-               -H "Authorization: Bearer \${{ secrets.QAIRA_API_KEY }}" \\
+               -H "Authorization: Bearer \${{ secrets.HELLOTEST_API_KEY }}" \\
                -H "Content-Type: application/json" \\
                -d '{
                  "projectId": "${projectId}",

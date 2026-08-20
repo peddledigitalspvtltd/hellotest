@@ -261,7 +261,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [] }) => {
   return messageContent;
 };
 
-const buildPrompt = ({ requirement, appType, currentCase, additionalContext, externalLinks, images }) => {
+const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additionalContext, externalLinks, images }) => {
   const prompt = [
     "Complete and improve the following QA test case draft.",
     "",
@@ -273,8 +273,16 @@ const buildPrompt = ({ requirement, appType, currentCase, additionalContext, ext
     "",
     "Current test case draft:",
     `- Title: ${currentCase.title || "Untitled draft"}`,
-    `- Description: ${currentCase.description || "No description yet."}`
+    `- Description: ${currentCase.description || "No description yet."}`,
+    `- Current format: ${currentCase.authoring_mode === "gherkin" ? "Gherkin" : "Structured steps"}`,
+    `- Requested output format: ${authoringMode === "gherkin" ? "Gherkin" : "Structured steps"}`
   ];
+
+  if (currentCase.gherkin_document) {
+    prompt.push("");
+    prompt.push("Current Gherkin specification:");
+    prompt.push(currentCase.gherkin_document);
+  }
 
   if (Object.keys(currentCase.parameter_values).length) {
     prompt.push("");
@@ -327,6 +335,8 @@ const buildPrompt = ({ requirement, appType, currentCase, additionalContext, ext
   prompt.push('  "summary": "string",');
   prompt.push('  "title": "string",');
   prompt.push('  "description": "string",');
+  prompt.push(`  "authoring_mode": "${authoringMode}",`);
+  prompt.push(`  "gherkin_document": ${authoringMode === "gherkin" ? '"Feature: ...\\n\\nBackground: ...\\n  Given ...\\n\\nScenario Outline: ...\\n  When ...\\n  Then ...\\n\\nExamples:\\n  | variable |\\n  | value |"' : "null"},`);
   prompt.push('  "parameter_values": {');
   prompt.push('    "variable_name": "example or declaration"');
   prompt.push("  },");
@@ -347,6 +357,14 @@ const buildPrompt = ({ requirement, appType, currentCase, additionalContext, ext
   prompt.push("- Add missing steps only when needed to complete the case against the requirement.");
   prompt.push("- Use @t.variable_name tokens anywhere reusable test data appears in the title, description, or steps.");
   prompt.push("- In parameter_values, return only raw variable names without the @t. prefix.");
+  if (authoringMode === "gherkin") {
+    prompt.push("- Return one complete, valid Gherkin document in gherkin_document with Feature and at least one Scenario or Scenario Outline.");
+    prompt.push("- Keep Background, each Scenario, and Examples structurally distinct. Use Given, When, Then, And, But, Background, Scenario Outline, and Examples correctly.");
+    prompt.push("- Use <variable_name> placeholders in Scenario Outline steps and matching Examples columns when scenario data varies.");
+    prompt.push("- Return an empty steps array because gherkin_document is the editable source of truth.");
+  } else {
+    prompt.push("- Return a null gherkin_document and provide complete structured steps.");
+  }
   prompt.push("- Prefer intelligent, realistic test data declarations over placeholders like value1 or test123 unless the requirement truly gives no better clue.");
   prompt.push("- Keep the case reusable, avoid redundant steps, and preserve the likely platform context with step_type values from web, api, android, or ios.");
   prompt.push("- Do not include markdown or commentary outside the JSON.");
@@ -413,11 +431,36 @@ const buildStepRephrasePrompt = ({ requirement, appType, currentCase, step, addi
   return prompt.join("\n");
 };
 
-const normalizePreview = (payload, currentCase, fallbackStepType) => {
+const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode = "structured") => {
   const title = normalizeText(payload?.title) || currentCase.title || null;
 
   if (!title) {
     throw new Error("AI authoring response is missing a title");
+  }
+
+  const parameter_values = normalizeParameterValues(
+    payload?.parameter_values || payload?.parameterValues || payload?.test_data || payload?.testData
+  );
+
+  if (authoringMode === "gherkin") {
+    const gherkin_document = normalizeText(payload?.gherkin_document || payload?.gherkinDocument);
+
+    if (!gherkin_document || !/^\s*Feature\s*:/im.test(gherkin_document) || !/^\s*Scenario(?: Outline| Template)?\s*:/im.test(gherkin_document)) {
+      throw new Error("AI authoring response did not include a valid Gherkin Feature and Scenario");
+    }
+
+    const stepCount = (gherkin_document.match(/^\s*(?:Given|When|Then|And|But|\*)\b/gim) || []).length;
+    return {
+      summary: normalizeRichText(payload?.summary),
+      title,
+      description: normalizeRichText(payload?.description),
+      authoring_mode: "gherkin",
+      gherkin_document,
+      parameter_values,
+      steps: [],
+      step_count: stepCount,
+      parameter_count: Object.keys(parameter_values).length
+    };
   }
 
   const steps = normalizeSteps(payload?.steps, fallbackStepType);
@@ -426,14 +469,12 @@ const normalizePreview = (payload, currentCase, fallbackStepType) => {
     throw new Error("AI authoring response did not include any usable test steps");
   }
 
-  const parameter_values = normalizeParameterValues(
-    payload?.parameter_values || payload?.parameterValues || payload?.test_data || payload?.testData
-  );
-
   return {
     summary: normalizeRichText(payload?.summary),
     title,
     description: normalizeRichText(payload?.description),
+    authoring_mode: "structured",
+    gherkin_document: null,
     parameter_values,
     steps,
     step_count: steps.length,
@@ -463,6 +504,7 @@ exports.previewCaseAuthoring = async ({
   appType,
   integration_id,
   user_id,
+  authoring_mode,
   test_case,
   additional_context,
   external_links,
@@ -477,9 +519,12 @@ exports.previewCaseAuthoring = async ({
   }
 
   const fallbackStepType = DEFAULT_STEP_TYPE_BY_APP_TYPE[appType.type] || "web";
+  const authoringMode = authoring_mode === "gherkin" ? "gherkin" : "structured";
   const currentCase = {
     title: normalizeText(test_case?.title) || "",
     description: normalizeRichText(test_case?.description) || "",
+    authoring_mode: test_case?.authoring_mode === "gherkin" ? "gherkin" : "structured",
+    gherkin_document: normalizeText(test_case?.gherkin_document) || "",
     parameter_values: normalizeParameterValues(test_case?.parameter_values),
     steps: normalizeSteps(test_case?.steps, fallbackStepType)
   };
@@ -494,12 +539,13 @@ exports.previewCaseAuthoring = async ({
     requirement,
     appType,
     currentCase,
+    authoringMode,
     additionalContext,
     externalLinks,
     images: safeImages
   });
   const content = await requestChatCompletion({ integration, prompt, images: safeImages });
-  const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType);
+  const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType, authoringMode);
 
   return {
     integration: {

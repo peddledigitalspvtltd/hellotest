@@ -97,7 +97,7 @@ const resourceKindLabel = (kind: ProjectActivationResourceKind | null) => {
     case "linkTypes": return "Link type";
     case "fields": return "Custom field";
     case "screenSchemes": return "Screen resource";
-    default: return "Jira resource";
+    default: return "work-tracker resource";
   }
 };
 
@@ -224,7 +224,7 @@ const sitePhaseLabel = (phase?: string | null) => {
     registry: "Saving the canonical schema registry",
     complete: "Finalizing site readiness"
   };
-  return labels[String(phase || "")] || String(phase || "Preparing the Jira site")
+  return labels[String(phase || "")] || String(phase || "Preparing the connected site")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 };
@@ -234,19 +234,19 @@ const projectStatusCopy = (project: ProjectActivationProject) => {
   switch (status) {
     case "ready": return { label: "Enabled", detail: "Using the shared HelloTest schema" };
     case "queued": return { label: "Queued", detail: "Waiting for project setup" };
-    case "provisioning": return { label: "Setting up", detail: "Project setup is continuing in Jira" };
+    case "provisioning": return { label: "Setting up", detail: "Project setup is continuing in the connected workspace" };
     case "reconcilable": return { label: "Safe to resume", detail: "Existing screen fields will be verified and reused" };
     case "global-context-reconcilable": return { label: "Safe to recheck", detail: "Compatible global context fallback will be reused read-only" };
-    case "context-review": return { label: "Jira review", detail: "Field context ownership or scope must be reviewed before retrying" };
-    case "installation-upgrade": return { label: "App update required", detail: "Approve HelloTest’s requested Jira access before resuming this project" };
+    case "context-review": return { label: "workspace review", detail: "Field context ownership or scope must be reviewed before retrying" };
+    case "installation-upgrade": return { label: "App update required", detail: "Approve HelloTest’s requested connected workspace access before resuming this project" };
     case "failed": return { label: "Needs attention", detail: projectErrorMessage(project) || "Safe to retry after reviewing the error" };
-    case "mapping": return { label: "Mapping required", detail: "Choose the Jira Story and Bug sources in this project" };
+    case "mapping": return { label: "Mapping required", detail: "Choose the Story and Bug sources in this project" };
     case "unsupported": return {
       label: project.archived ? "Archived" : project.configuration_model === "team-managed" || project.simplified ? "Team-managed" : "Unavailable",
       detail: project.archived
         ? "Archived projects cannot be enrolled"
         : project.configuration_model === "team-managed" || project.simplified
-          ? "Full Jira-native setup currently requires company-managed projects"
+          ? "Full connected workspace setup currently requires company-managed projects"
           : "This project type could not be safely verified"
     };
     default: return { label: "Not enabled", detail: "Ready for bulk enrollment" };
@@ -455,7 +455,7 @@ export function ProjectActivationAdminScreen({
   return (
     <div className="project-activation-shell">
       <header className="project-activation-topbar">
-        <BrandWordmark className="project-activation-brand" subtitle="Jira administration" />
+        <BrandWordmark className="project-activation-brand" subtitle="Workspace administration" />
         <div className="project-activation-topbar-meta">
           <IconShieldCheck aria-hidden="true" size={16} stroke={1.9} />
           <span>Site schema once · projects enabled in safe batches</span>
@@ -471,7 +471,7 @@ export function ProjectActivationAdminScreen({
             <p className="project-activation-kicker">HelloTest administration</p>
             <h1 id="project-activation-admin-title">Prepare once. Enable every project.</h1>
             <p>
-              HelloTest reconciles one canonical Jira schema for this site, then enrolls selected company-managed projects without recreating fields.
+              HelloTest reconciles one canonical work-item schema for this site, then enrolls selected company-managed projects without recreating fields.
             </p>
           </div>
         </aside>
@@ -491,7 +491,7 @@ export function ProjectActivationAdminScreen({
 
             {isLoadingSite && !site ? (
               <div className="activation-site-state">
-                <LoadingState label="Checking the Jira site" description="Looking for the HelloTest schema registry and managed resources." />
+                <LoadingState label="Checking the connected site" description="Looking for the HelloTest schema registry and managed resources." />
               </div>
             ) : siteError && !site ? (
               <div className="activation-site-state is-error" role="alert">
@@ -512,7 +512,7 @@ export function ProjectActivationAdminScreen({
                 </span>
                 <div>
                   <h3>Starting safe schema reconciliation</h3>
-                  <p>HelloTest is asking Jira to verify existing resources before background preparation begins.</p>
+                  <p>HelloTest is asking connected workspace to verify existing resources before background preparation begins.</p>
                 </div>
               </div>
             ) : siteInProgress ? (
@@ -547,7 +547,7 @@ export function ProjectActivationAdminScreen({
                   <h3>{siteReconciliationEvidence.length ? "Shared schema reconciled and ready" : "Shared schema is ready"}</h3>
                   <p>
                     {siteReconciliationEvidence.length
-                      ? "Existing Jira resources and screen placements were adopted after exact-ID verification; no duplicate field was created."
+                      ? "Existing work-tracker resources and screen placements were adopted after exact-ID verification; no duplicate field was created."
                       : "Project enrollment now links verified HelloTest resources instead of finding or creating fields by name."}
                   </p>
                 </div>
@@ -566,9 +566,9 @@ export function ProjectActivationAdminScreen({
                 <div>
                   <h3>
                     {siteScopeUpgradeRequired
-                      ? "Approve HelloTest’s updated Jira access"
+                      ? "Approve HelloTest’s updated connected workspace access"
                       : siteReconciliationRecovery
-                      ? "Existing Jira screen assignment found"
+                      ? "Existing work-item screen assignment found"
                       : site?.status === "needs-review"
                       ? "Schema reconciliation needs review"
                       : site?.status === "failed"
@@ -577,7 +577,7 @@ export function ProjectActivationAdminScreen({
                   </h3>
                   <p>
                     {siteScopeUpgradeRequired
-                      ? "Jira rejected a configuration write because this installation has not been granted the access requested by the current deployment. Repeated setup retries cannot grant app access."
+                      ? "Connected workspace rejected a configuration write because this installation has not been granted the access requested by the current deployment. Repeated setup retries cannot grant app access."
                       : siteReconciliationRecovery
                       ? "HelloTest can verify and adopt the existing field placement, then continue from the saved checkpoint without adding the field again."
                       : siteVisibleError || "HelloTest will create or adopt verified resources, record their canonical IDs, and leave ambiguous customer-owned resources unchanged."}
@@ -608,9 +608,9 @@ export function ProjectActivationAdminScreen({
                 <div className="activation-conflict-head">
                   <div>
                     <span className="project-activation-card-label">Canonical resource resolution</span>
-                    <h3 id="activation-conflict-title">Choose the Jira ID HelloTest should keep using</h3>
+                    <h3 id="activation-conflict-title">Choose the work item ID HelloTest should keep using</h3>
                     <p>
-                      Existing HelloTest records reference different resources. Select one canonical ID for each item; unselected Jira resources are not changed or deleted.
+                      Existing HelloTest records reference different resources. Select one canonical ID for each item; unselected work-tracker resources are not changed or deleted.
                     </p>
                   </div>
                   <span>{conflicts.length} conflict{conflicts.length === 1 ? "" : "s"}</span>
@@ -629,9 +629,9 @@ export function ProjectActivationAdminScreen({
                           <p>{conflict.message}</p>
                         </div>
                         <label>
-                          <span>Canonical Jira ID</span>
+                          <span>Canonical work item ID</span>
                           <select
-                            aria-label={`Canonical Jira ID for ${humanizeLogicalKey(conflict.logical_key)}`}
+                            aria-label={`Canonical work item ID for ${humanizeLogicalKey(conflict.logical_key)}`}
                             disabled={!canResolve || isPreparing}
                             onChange={(event) => setConflictSelections((current) => ({
                               ...current,
@@ -703,7 +703,7 @@ export function ProjectActivationAdminScreen({
             <div className="project-activation-card-head activation-projects-head">
               <div>
                 <span className="project-activation-card-label">Project enrollment</span>
-                <h2 id="activation-projects-title">Enable Jira projects</h2>
+                <h2 id="activation-projects-title">Enable projects</h2>
                 <p>Choose all eligible projects once. Already-ready projects are preserved and safe retries resume incomplete work.</p>
               </div>
               <div className="activation-project-summary" aria-label="Project activation summary">
@@ -721,7 +721,7 @@ export function ProjectActivationAdminScreen({
                 <div>
                   <strong>{siteScopeUpgradeRequired ? "Update app access before enrolling projects" : "Site preparation is included"}</strong>
                   <span>{siteScopeUpgradeRequired
-                    ? "Deployment owner: publish the current manifest. Jira site admin: update HelloTest in Apps → Manage your apps and approve the requested access. Existing checkpoints are preserved."
+                    ? "Deployment owner: publish the current manifest. connected site admin: update HelloTest in Apps → Manage your apps and approve the requested access. Existing checkpoints are preserved."
                     : "Select projects and choose Enable. HelloTest prepares the shared foundation first, then enrolls your selection automatically."}</span>
                 </div>
               </div>
@@ -752,7 +752,7 @@ export function ProjectActivationAdminScreen({
             <div className="activation-project-toolbar">
               <label className="activation-project-search">
                 <IconSearch aria-hidden="true" size={17} />
-                <span className="sr-only">Search Jira projects</span>
+                <span className="sr-only">Search projects</span>
                 <input
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search by project name or key"
@@ -799,13 +799,13 @@ export function ProjectActivationAdminScreen({
 
             {isLoadingProjects ? (
               <div className="activation-projects-loading">
-                <LoadingState label="Loading Jira projects" description="Checking configuration model and activation status." />
+                <LoadingState label="Loading projects" description="Checking configuration model and activation status." />
               </div>
             ) : projectsError ? (
               <div className="activation-projects-empty" role="alert">
                 <IconAlertTriangle aria-hidden="true" size={25} />
                 <h3>Projects could not be loaded</h3>
-                <p>{errorMessage(projectsError) || "Refresh the page or verify Jira project access."}</p>
+                <p>{errorMessage(projectsError) || "Refresh the page or verify project access."}</p>
                 <button className="ghost-button" disabled={isRefreshing} onClick={onRefresh} type="button">
                   <IconRefresh aria-hidden="true" size={16} />
                   Try again
@@ -814,8 +814,8 @@ export function ProjectActivationAdminScreen({
             ) : !projects.length ? (
               <div className="activation-projects-empty" role="status">
                 <IconLayoutDashboard aria-hidden="true" size={25} />
-                <h3>No accessible Jira projects</h3>
-                <p>Ask a Jira administrator to grant project access, then refresh this page.</p>
+                <h3>No accessible projects</h3>
+                <p>Ask a workspace administrator to grant project access, then refresh this page.</p>
               </div>
             ) : !visibleProjects.length ? (
               <div className="activation-projects-empty" role="status">
@@ -933,7 +933,7 @@ export function ProjectActivationAdminScreen({
             <IconShieldCheck aria-hidden="true" size={20} stroke={1.8} />
             <div>
               <strong>Safe by default</strong>
-              <span>HelloTest reuses verified resources and already-enabled projects, resumes partial setup, and stops for review instead of modifying ambiguous or customer-owned Jira resources.</span>
+              <span>HelloTest reuses verified resources and already-enabled projects, resumes partial setup, and stops for review instead of modifying ambiguous or customer-owned work-tracker resources.</span>
             </div>
           </div>
         </div>

@@ -870,10 +870,14 @@ export const api = {
   },
   users: {
     list: () => request<User[]>("/users"),
-    update: (id: string, input: Partial<{ email: string; name: string; avatar_data_url: string | null }>) =>
+    get: (id: string) => request<User>(`/users/${id}`),
+    create: (input: { email: string; password: string; name?: string; role_id: string }) =>
+      request<{ id: string }>("/users", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: Partial<{ email: string; password: string; name: string; role_id: string; avatar_data_url: string | null }>) =>
       request<{ updated: boolean }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     changePassword: (id: string, input: { current_password: string; new_password: string }) =>
-      request<{ updated: boolean }>(`/users/${id}/password`, { method: "PUT", body: JSON.stringify(input) })
+      request<{ updated: boolean }>(`/users/${id}/password`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" })
   },
   notifications: {
     list: (query?: { status?: "unread" | "read" | string; cursor?: string; limit?: number }) =>
@@ -1085,12 +1089,12 @@ export const api = {
       request<AiRequirementGenerationJobResponse>(`/requirements/ai-create-jobs/${id}${toQueryString(query)}`),
     listGenerationJobs: (query?: { project_id?: string; status?: string; limit?: number }) =>
       request<AiRequirementGenerationJobResponse[]>(`/requirements/ai-create-jobs${toQueryString(query)}`),
-    previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
+    previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
       request<AiDesignPreviewResponse>(`/requirements/${id}/design-test-cases-preview`, {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    acceptDesignedTestCases: (id: string, input: { app_type_id: string; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
+    acceptDesignedTestCases: (id: string, input: { app_type_id: string; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
       request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[] }> }>(`/requirements/${id}/design-test-cases-accept`, {
         method: "POST",
         body: JSON.stringify(input)
@@ -1167,7 +1171,7 @@ export const api = {
         } | null;
       }>("/requirement-iterations", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ name: string; description: string; goal: string; labels: string[]; external_references: string[]; state: "future" | "active" | "closed"; start_date: string; end_date: string; requirement_ids: string[]; jira_sprint_id: string; jira_sprint_name: string }>) =>
-      request<{ updated: boolean }>(`/requirement-iterations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+      request<{ updated: boolean; sprint: RequirementIteration }>(`/requirement-iterations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignRequirements: (id: string, requirement_ids: string[], append = true) =>
       request<{
         updated: boolean;
@@ -1185,7 +1189,7 @@ export const api = {
         method: "DELETE",
         body: JSON.stringify({ requirement_ids })
       }),
-    delete: (id: string) => request<{ deleted: boolean }>(`/requirement-iterations/${id}`, { method: "DELETE" })
+    delete: (id: string) => request<{ deleted: boolean; id: string; unassigned: number }>(`/requirement-iterations/${id}`, { method: "DELETE" })
   },
   knowledgeRepo: {
     list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
@@ -1209,7 +1213,7 @@ export const api = {
     editMetadata: (id: string, query?: { project_id?: string }) =>
       request<JiraBugCreateMetadata>(`/feedback/${id}/edit-metadata${toQueryString(query)}`),
     create: (input: IssuePayload) =>
-      request<{ id: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
+      request<{ id: string; display_id?: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
     previewAiDraft: (input: {
       project_id: string;
       intent: string;
@@ -1380,6 +1384,7 @@ export const api = {
     previewCaseAuthoring: (input: {
       app_type_id: string;
       requirement_id: string;
+      authoring_mode?: "structured" | "gherkin";
       integration_id?: string;
       additional_context?: string;
       external_links?: string[];
@@ -1387,6 +1392,8 @@ export const api = {
       test_case?: {
         title?: string;
         description?: string;
+        authoring_mode?: "structured" | "gherkin";
+        gherkin_document?: string | null;
         parameter_values?: Record<string, string>;
         steps?: Array<{
           step_order?: number;
@@ -1421,12 +1428,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; integration_id?: string; max_cases?: number; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
+    previewDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
       request<AiDesignPreviewResponse>("/test-cases/design-test-cases-preview", {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
+    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
       request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[] }> }>("/test-cases/design-test-cases-accept", {
         method: "POST",
         body: JSON.stringify(input)
@@ -1442,6 +1449,7 @@ export const api = {
       additional_context?: string;
       external_links?: string[];
       images?: AiDesignImageInput[];
+      authoring_mode?: "structured" | "gherkin";
     }) =>
       request<{ id: string }>("/test-cases/ai-generation-jobs", {
         method: "POST",

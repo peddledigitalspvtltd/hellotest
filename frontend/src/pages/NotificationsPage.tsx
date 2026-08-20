@@ -166,7 +166,7 @@ export function NotificationsPage() {
     try {
       const confirmed = await confirmDelete({
         title: "Delete notification?",
-        message: `Delete “${item.title}”? This removes it only from your notification center in this Jira project.`,
+        message: `Delete “${item.title}”? This removes it only from your notification center in this project.`,
         confirmLabel: "Delete notification"
       });
       if (!confirmed) return;
@@ -196,7 +196,7 @@ export function NotificationsPage() {
     try {
       const confirmed = await confirmDelete({
         title: "Delete all notifications?",
-        message: `Delete all ${count} notification${count === 1 ? "" : "s"} currently in your notification center for this Jira project? New notifications that arrive during cleanup will be kept.`,
+        message: `Delete all ${count} notification${count === 1 ? "" : "s"} currently in your notification center for this project? New notifications that arrive during cleanup will be kept.`,
         confirmLabel: "Delete all"
       });
       if (!confirmed) return;

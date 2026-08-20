@@ -3,6 +3,7 @@ const emailService = require("./email.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 
 const normalizeRecipients = (value) => [...new Set((Array.isArray(value) ? value : []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))];
+const MAX_RENDERED_SNAPSHOT_BYTES = 6 * 1024 * 1024;
 const escapePdf = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/[^\x20-\x7e]/g, "?");
 const wrap = (value, width = 88) => {
   const words = String(value || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
@@ -34,6 +35,89 @@ const simplePdf = (title, lines) => {
   return Buffer.concat(chunks);
 };
 
+const pdfFromObjects = (objects) => {
+  const chunks = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary")];
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.concat(chunks).length);
+    chunks.push(Buffer.from(`${index + 1} 0 obj\n`), object, Buffer.from("\nendobj\n"));
+  });
+  const xref = Buffer.concat(chunks).length;
+  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`));
+  return Buffer.concat(chunks);
+};
+
+const readJpegDimensions = (jpeg) => {
+  if (!Buffer.isBuffer(jpeg) || jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) {
+    throw new Error("Dashboard snapshot must be a valid JPEG image.");
+  }
+  const startOfFrameMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+  let offset = 2;
+  while (offset + 3 < jpeg.length) {
+    if (jpeg[offset] !== 0xff) { offset += 1; continue; }
+    while (offset < jpeg.length && jpeg[offset] === 0xff) offset += 1;
+    const marker = jpeg[offset];
+    offset += 1;
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 1 >= jpeg.length) break;
+    const segmentLength = jpeg.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > jpeg.length) break;
+    if (startOfFrameMarkers.has(marker) && segmentLength >= 7) {
+      const height = jpeg.readUInt16BE(offset + 3);
+      const width = jpeg.readUInt16BE(offset + 5);
+      if (width > 0 && height > 0) return { width, height };
+    }
+    offset += segmentLength;
+  }
+  throw new Error("Dashboard snapshot dimensions could not be read.");
+};
+
+const decodeRenderedSnapshot = (payload = {}) => {
+  const dataUrl = String(payload.rendered_snapshot_data_url || "");
+  if (!dataUrl) return null;
+  const match = dataUrl.match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) throw new Error("Dashboard snapshot must use JPEG data URL encoding.");
+  const jpeg = Buffer.from(match[1].replace(/\s+/g, ""), "base64");
+  if (!jpeg.length || jpeg.length > MAX_RENDERED_SNAPSHOT_BYTES) {
+    throw new Error(`Dashboard snapshot must be no larger than ${Math.floor(MAX_RENDERED_SNAPSHOT_BYTES / 1024 / 1024)} MB.`);
+  }
+  return { jpeg, ...readJpegDimensions(jpeg) };
+};
+
+const renderedSnapshotPdf = (payload = {}) => {
+  const snapshot = decodeRenderedSnapshot(payload);
+  if (!snapshot) return null;
+
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const margin = 30;
+  const contentWidth = pageWidth - margin * 2;
+  const contentHeight = pageHeight - margin * 2;
+  const renderedHeight = snapshot.height * (contentWidth / snapshot.width);
+  const pageCount = Math.max(1, Math.ceil(renderedHeight / contentHeight));
+  const imageObjectId = 3;
+  const pageObjectIds = Array.from({ length: pageCount }, (_value, index) => 4 + index * 2);
+  const objects = [
+    Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
+    Buffer.from(`<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageCount} >>`),
+    Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${snapshot.width} /Height ${snapshot.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${snapshot.jpeg.length} >>\nstream\n`),
+      snapshot.jpeg,
+      Buffer.from("\nendstream")
+    ])
+  ];
+
+  pageObjectIds.forEach((pageObjectId, pageIndex) => {
+    const contentObjectId = pageObjectId + 1;
+    const imageY = pageHeight - margin + pageIndex * contentHeight - renderedHeight;
+    const stream = `q\n${margin} ${margin} ${contentWidth} ${contentHeight} re W n\n${contentWidth} 0 0 ${renderedHeight.toFixed(3)} ${margin} ${imageY.toFixed(3)} cm\n/Im0 Do\nQ`;
+    objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 ${imageObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`));
+    objects.push(Buffer.from(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`));
+  });
+
+  return pdfFromObjects(objects);
+};
+
 const collect = async (dashboard) => {
   const evaluation = await dashboards.evaluateBatch({ projectId: dashboard.project_id, gadgets: dashboard.gadgets || [] });
   const lines = [dashboard.description || "HelloTest quality dashboard", `Project: ${evaluation.project?.name || evaluation.project?.key || dashboard.project_id}`, `Evaluated: ${evaluation.evaluated_at}`];
@@ -45,18 +129,28 @@ const collect = async (dashboard) => {
   return { evaluation, lines };
 };
 
-exports.renderPdf = async (dashboard) => {
+exports.renderPdf = async (dashboard, snapshotPayload = {}) => {
+  const styledPdf = renderedSnapshotPdf(snapshotPayload);
+  if (styledPdf) return { pdf: styledPdf, report: null, source: "rendered-dashboard" };
   const report = await collect(dashboard);
-  return { pdf: simplePdf(`HelloTest Quality Report - ${dashboard.name}`, report.lines), report };
+  return { pdf: simplePdf(`HelloTest Quality Report - ${dashboard.name}`, report.lines), report, source: "server-summary" };
 };
 
-exports.share = async ({ dashboard, recipients, requestedBy }) => {
+exports.share = async ({ dashboard, recipients, requestedBy, snapshotPayload = {} }) => {
   const normalized = normalizeRecipients(recipients);
   if (!normalized.length) throw new Error("At least one report recipient is required");
   const { lines } = await collect(dashboard);
+  const styledPdf = renderedSnapshotPdf(snapshotPayload);
+  const pdf = styledPdf || simplePdf(`HelloTest Quality Report - ${dashboard.name}`, lines);
   const text = [`HelloTest Quality Report - ${dashboard.name}`, "", ...lines].join("\n");
   const html = `<main style="font-family:Inter,Arial,sans-serif;color:#172b4d"><h1>${dashboard.name.replace(/[<>&]/g, "")}</h1>${lines.map((line) => `<p>${String(line).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`).join("")}</main>`;
-  await emailService.sendMail({ to: normalized, subject: `HelloTest quality report: ${dashboard.name}`, text, html });
+  await emailService.sendMail({
+    to: normalized,
+    subject: `HelloTest quality report: ${dashboard.name}`,
+    text,
+    html,
+    attachments: [{ filename: `${String(dashboard.name || "HelloTest-quality-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`, content: pdf, contentType: "application/pdf" }]
+  });
   try {
     await workspaceTransactionService.createTransaction({ project_id: dashboard.project_id, category: "reporting", action: "quality_dashboard_share", status: "completed", title: `Shared quality dashboard ${dashboard.name}`, description: `Sent quality report to ${normalized.length} recipient${normalized.length === 1 ? "" : "s"}.`, metadata: { dashboard_id: dashboard.id, recipient_count: normalized.length, channel: "email" }, related_kind: "quality_dashboard", related_id: dashboard.id, created_by: requestedBy, started_at: new Date().toISOString(), completed_at: new Date().toISOString() });
   } catch {
@@ -64,3 +158,5 @@ exports.share = async ({ dashboard, recipients, requestedBy }) => {
   }
   return { sent: true, recipients: normalized.length };
 };
+
+exports.renderedSnapshotPdf = renderedSnapshotPdf;

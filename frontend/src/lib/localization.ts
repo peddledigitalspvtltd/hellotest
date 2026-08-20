@@ -2,7 +2,7 @@ export type LocalizationStrings = Record<string, string>;
 
 export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "nav.section.main": "Main",
-  "nav.section.testManagement": "Test Management",
+  "nav.section.testManagement": "Product Management",
   "nav.section.administration": "Administration",
   "nav.section.settings": "Settings",
   "nav.dashboard": "Dashboard",

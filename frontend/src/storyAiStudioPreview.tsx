@@ -102,8 +102,8 @@ const createDrafts: StoryAiStudioDraft[] = [
 ];
 
 const existingStory: StoryAiStudioDraft = {
-  id: "QAIRA-142:existing",
-  displayId: "QAIRA-142",
+  id: "HELLOTEST-142:existing",
+  displayId: "HELLOTEST-142",
   title: "Customers can recover access after forgetting their password",
   description: "A customer who cannot remember their password needs a secure recovery flow so they can regain account access without contacting support.",
   gherkinScenarios: [
@@ -122,7 +122,7 @@ const existingStory: StoryAiStudioDraft = {
 
 const completedStory: StoryAiStudioDraft = {
   ...existingStory,
-  id: "QAIRA-142:generated",
+  id: "HELLOTEST-142:generated",
   sequence: 1,
   title: "As a customer, I can securely reset my forgotten password",
   description: "A customer who forgets their password can verify their identity through their registered email address and create a new password without exposing whether an account exists.",

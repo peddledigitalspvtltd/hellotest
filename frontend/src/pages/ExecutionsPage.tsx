@@ -648,7 +648,7 @@ const readExecutionEvidenceFile = (file: File) =>
     }
 
     if (file.size > MAX_EXECUTION_EVIDENCE_SOURCE_BYTES) {
-      reject(new Error("Evidence files must be 25 MB or smaller and within the Jira attachment limit."));
+      reject(new Error("Evidence files must be 25 MB or smaller and within the attachment limit."));
       return;
     }
 
@@ -695,7 +695,7 @@ const readExecutionEvidenceFile = (file: File) =>
           }
 
           if (blob.size > MAX_EXECUTION_EVIDENCE_IMAGE_BYTES) {
-            reject(new Error("Evidence images must compress to 3 MB or smaller before Jira upload."));
+            reject(new Error("Evidence images must compress to 3 MB or smaller before upload to the connected workspace."));
             return;
           }
 
@@ -4233,13 +4233,13 @@ export function ExecutionsPage() {
 
     try {
       if (!selectedExecution.display_id) {
-        throw new Error("This run does not have a Jira issue key, so evidence cannot be attached yet.");
+        throw new Error("This run does not have a work item key, so evidence cannot be attached yet.");
       }
 
       const attachmentMeta = await api.attachments.meta();
-      if (!attachmentMeta.enabled) throw new Error("Jira attachments are disabled for this site.");
+      if (!attachmentMeta.enabled) throw new Error("attachments are disabled for this site.");
       if (attachmentMeta.uploadLimit && file.size > attachmentMeta.uploadLimit) {
-        throw new Error(`This file exceeds the Jira attachment limit of ${Math.max(1, Math.floor(attachmentMeta.uploadLimit / 1024 / 1024))} MB.`);
+        throw new Error(`This file exceeds the attachment limit of ${Math.max(1, Math.floor(attachmentMeta.uploadLimit / 1024 / 1024))} MB.`);
       }
       const prepared = await readExecutionEvidenceFile(file);
       const jiraFile = new File([prepared.blob], prepared.fileName, {
@@ -4268,7 +4268,7 @@ export function ExecutionsPage() {
       }
 
       showSuccess(previousAttachmentCleanupFailed
-        ? "Evidence replaced. The previous Jira attachment could not be removed and may require administrator cleanup."
+        ? "Evidence replaced. The previous attachment could not be removed and may require administrator cleanup."
         : hasExecutionEvidence(previousEvidence) ? "Evidence replaced." : "Evidence saved.");
     } catch (error) {
       if (uploadedAttachmentId) {
@@ -4307,15 +4307,15 @@ export function ExecutionsPage() {
           try {
             await persistCaseResult(selectedTestCaseId, { stepEvidencePatch: { [step.id]: evidence } });
           } catch {
-            throw new Error(`${deleteError instanceof Error ? deleteError.message : "Jira attachment deletion failed"} The metadata reference could not be restored.`);
+            throw new Error(`${deleteError instanceof Error ? deleteError.message : "attachment deletion failed"} The metadata reference could not be restored.`);
           }
-          throw new Error(`${deleteError instanceof Error ? deleteError.message : "Jira attachment deletion failed"} The evidence reference was restored.`);
+          throw new Error(`${deleteError instanceof Error ? deleteError.message : "attachment deletion failed"} The evidence reference was restored.`);
         }
       }
       if (executionEvidencePreview?.attachmentId === evidence.attachmentId || executionEvidencePreview?.sourceUrl === evidence.dataUrl) {
         closeExecutionEvidence();
       }
-      showSuccess("Evidence removed from Jira.");
+      showSuccess("Evidence removed from the connected workspace.");
     } catch (error) {
       showError(error, "Unable to delete evidence");
     }
@@ -7618,7 +7618,7 @@ export function ExecutionsPage() {
             ) : null}
 
             {!(isExecutionRunsView(testRunsView) ? executionsQuery.isLoading : testRunsView === "scheduled-runs" ? executionSchedulesQuery.isLoading : workspaceTransactionsQuery.isLoading) ? (
-              <div className={catalogViewMode === "tile" ? `tile-browser-grid${testRunsView === "batch-process" ? " batch-process-browser-grid" : ""}` : ""}>
+              <div className={catalogViewMode === "tile" ? `tile-browser-grid execution-run-tile-grid${testRunsView === "batch-process" ? " batch-process-browser-grid" : ""}` : ""}>
                 {isExecutionRunsView(testRunsView) && catalogViewMode === "tile"
                   ? activeExecutionCatalogRows.map((execution) => (
                       <ExecutionListCard
@@ -8607,7 +8607,7 @@ export function ExecutionsPage() {
                           <ExternalReferencesField
                             className="execution-case-run-reference-field"
                             disabled={!canManageRunResults || updateResult.isPending || createResult.isPending}
-                            placeholder="Paste Jira links, docs, or IDs..."
+                            placeholder="Paste work-item links, docs, or IDs..."
                             value={caseReferenceDraft}
                             onChange={setCaseReferenceDraft}
                           />
@@ -12223,7 +12223,7 @@ export function ExecutionCreateModal({
   );
   const activeSmartEvidenceContext = smartExecutionPreview?.context || null;
   const smartRunRovoPrompt = [
-    "Open a Jira-native HelloTest QA Agent conversation. This is an interactive Rovo review, not a direct Forge LLM model invocation and must not create or update a run.",
+    "Open the HelloTest QA Agent in the connected workspace. This is an interactive Rovo review, not a direct Forge LLM model invocation and must not create or update a run.",
     `Review an AI Smart Run scope for project ${selectedProject || projectId || "not selected"} and app type ${selectedAppType || appTypeId || "not selected"}.`,
     executionRelease.trim() ? `Release: ${executionRelease.trim()}` : "",
     executionSprint.trim() ? `Sprint: ${executionSprint.trim()}` : "",
@@ -12237,7 +12237,7 @@ export function ExecutionCreateModal({
     selectedSmartRovoRequirements.length
       ? `Impacted Stories: ${selectedSmartRovoRequirements.map((requirement) => `${requirement.id} — ${requirement.title}`).join("; ")}`
       : "Impacted Stories: none explicitly selected.",
-    "Discuss risk signals, missing scope evidence, prioritization questions, and candidate coverage. Clearly separate Jira evidence from recommendations."
+    "Discuss risk signals, missing scope evidence, prioritization questions, and candidate coverage. Clearly separate delivery evidence from recommendations."
   ].filter(Boolean).join("\n").slice(0, 3_800);
   const normalizedSuiteSearch = suiteSearch.trim().toLowerCase();
   const filteredScopeSuites = normalizedSuiteSearch
@@ -12293,7 +12293,7 @@ export function ExecutionCreateModal({
         aria-modal="true"
         className={[
           "modal-card execution-create-modal execution-run-builder-modal",
-          isSmartMode ? "execution-smart-studio-modal" : ""
+          isSmartMode ? "execution-smart-studio-modal ai-feature-dialog" : ""
         ].filter(Boolean).join(" ")}
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
@@ -12391,7 +12391,7 @@ export function ExecutionCreateModal({
               ) : null}
 
               <div className="execution-run-config-pair">
-                <FormField label="Release" hint={isSmartMode ? "Exact Jira Fix Version evidence key." : undefined}>
+                <FormField label="Release" hint={isSmartMode ? "Exact Fix Version evidence key." : undefined}>
                   <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
                     <option value="">No release filter</option>
                     {executionRelease && !releaseOptions.some((option) => option.value === executionRelease) ? (
@@ -12400,7 +12400,7 @@ export function ExecutionCreateModal({
                     {releaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </FormField>
-                <FormField label="Sprint" hint={isSmartMode ? "Exact Jira Sprint evidence key." : undefined}>
+                <FormField label="Sprint" hint={isSmartMode ? "Exact Sprint evidence key." : undefined}>
                   <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
                     <option value="">No Sprint filter</option>
                     {executionSprint && !sprintOptions.some((option) => option.value === executionSprint) ? (

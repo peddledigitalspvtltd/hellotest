@@ -223,7 +223,7 @@ export function ArtifactAssuranceWorkspace({
         <div>
           <p><b>{analysis.benchmark.label}:</b> {analysis.benchmark.disclosure}</p>
           <ul>{analysis.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-          <p>Numeric scores and evidence are rules-based anchors. AI can refine concise explanations and recommendations, but cannot approve the artifact or change Jira.</p>
+          <p>Numeric scores and evidence are rules-based anchors. AI can refine concise explanations and recommendations, but cannot approve the artifact or change connected work items.</p>
         </div>
       </details>
     </section>

@@ -349,7 +349,7 @@ export function RecorderStartControls({
                 <span className="recorder-setup-copy-title-row">
                   <strong>Local setup</strong>
                   <InfoTooltip
-                    content="Use Start local runner when HelloTest API is installed on this machine with QAIRA_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed HelloTest script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
+                    content="Use Start local runner when HelloTest API is installed on this machine with HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed HelloTest script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
                     label="Local setup information"
                   />
                 </span>
