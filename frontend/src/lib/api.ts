@@ -40,6 +40,7 @@ import type {
   Permission,
   PermissionGroup,
   Project,
+  ProjectPortfolioAnalytics,
   ProjectActivationBatchResult,
   ProjectActivationCatalog,
   ProjectActivationResourceResolutions,
@@ -137,7 +138,7 @@ type AiRequirementCreationSuggestion = {
 
 export type QairaEntityScope = {
   project_id: string;
-  entity_type: "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
+  entity_type: "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
   entity_id: string;
 };
 
@@ -272,6 +273,9 @@ function normalizeJiraAttachment(value: unknown): JiraAttachment {
     id: String(attachment.id || ""),
     filename: String(attachment.filename || "attachment"),
     size: Number(attachment.size || 0),
+    storedSize: Number(attachment.storedSize || attachment.stored_size || attachment.size || 0),
+    compression: typeof attachment.compression === "string" ? attachment.compression : "none",
+    savedBytes: Number(attachment.savedBytes || attachment.saved_bytes || 0),
     mimeType: String(attachment.mimeType || attachment.mime_type || "application/octet-stream"),
     created: typeof attachment.created === "string" ? attachment.created : null,
     content: typeof attachment.content === "string" ? attachment.content : null,
@@ -565,6 +569,9 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers(init?.headers);
   const token = getStoredToken();
+  if (!headers.has("Content-Type") && init?.body && !(init.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   if (token) headers.set("Authorization", `Bearer ${token}`);
   let response: Response;
   try {
@@ -763,7 +770,7 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/quality-dashboards/${id}`, { method: "DELETE" })
   },
   attachments: {
-    meta: () => request<{ enabled: boolean; provider: string; uploadLimit: number }>("/attachments/meta"),
+    meta: () => request<{ enabled: boolean; provider: string; uploadLimit: number; compression: "gzip" | "none" | string }>("/attachments/meta"),
     list: (scopeInput: QairaEntityScope | string) => {
       const scope = normalizeEntityScope(scopeInput);
       return request<JiraAttachment[]>(`/attachments${toQueryString(scope)}`);
@@ -963,8 +970,14 @@ export const api = {
   },
   projects: {
     list: () => request<Project[]>("/projects"),
-    create: (input: { name: string; description?: string; created_by?: string; members?: Array<{ user_id: string; role_id: string }>; app_types?: Array<{ name: string; type: AppType["type"]; is_unified?: boolean }> }) =>
-      request<{ id: string; key?: string; members_added: number; app_types_created: number; provisioning_errors?: Array<{ area: string; reference?: string; code?: string; message: string }> }>("/projects", { method: "POST", body: JSON.stringify(input) }),
+    catalog: () => request<Project[]>("/projects/catalog"),
+    portfolioAnalytics: () => request<ProjectPortfolioAnalytics>("/projects/portfolio-analytics"),
+    downloadPortfolioAttentionPdf: (input: DashboardStyledReportPayload) =>
+      requestBlob("/projects/portfolio-attention-report.pdf", { method: "POST", body: JSON.stringify(input) }),
+    create: (input: { name: string; description?: string; visibility: "private" | "public"; created_by?: string; members?: Array<{ user_id: string; role_id: string }>; app_types?: Array<{ name: string; type: AppType["type"]; is_unified?: boolean }> }) =>
+      request<{ id: string; display_id?: string; name: string; description: string | null; visibility: "private" | "public"; created_by: string; members_added: number; app_types_created: number; provisioning_errors?: Array<{ area: string; reference?: string; code?: string; message: string }> }>("/projects", { method: "POST", body: JSON.stringify(input) }),
+    favorite: (id: string) => request<{ updated: boolean; is_favorite: boolean }>(`/projects/${id}/favorite`, { method: "PUT" }),
+    unfavorite: (id: string) => request<{ updated: boolean; is_favorite: boolean }>(`/projects/${id}/favorite`, { method: "DELETE" }),
     sync: (id: string, provider: "google_drive" | "github") =>
       request<{ id: string; duplicate?: boolean }>(`/projects/${id}/sync/${provider}`, { method: "POST" }),
     update: (id: string, input: Partial<{ name: string; description: string }>) =>

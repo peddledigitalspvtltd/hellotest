@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useLocalization } from "../context/LocalizationContext";
@@ -13,10 +13,12 @@ import { api } from "../lib/api";
 import {
   AI_METRIC_CRITERIA_OVERRIDES_KEY,
   AI_METRIC_CRITERIA_REGISTRY,
+  AI_METRIC_FORMULA_VALUES_KEY,
   AI_PROMPT_LLM_OVERRIDES_KEY,
   AI_PROMPT_OVERRIDES_KEY,
   AI_PROMPT_REGISTRY,
   normalizeAiMetricCriteriaOverrides,
+  normalizeAiMetricFormulaValues,
   normalizeAiPromptLlmOverrides,
   normalizeAiPromptOverrides,
   resolveAiPromptRegistryValue
@@ -109,6 +111,7 @@ function readProjectAutomationSettings(): ProjectAutomationSettings {
 }
 
 export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const queryClient = useQueryClient();
   const { session } = useAuth();
   const { strings, setWorkspaceStrings, t } = useLocalization();
   const [theme, setTheme] = useState<WorkspaceTheme>("light");
@@ -124,6 +127,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [metricCriteriaDrafts, setMetricCriteriaDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metric.criteria]))
   );
+  const [metricFormulaDrafts, setMetricFormulaDrafts] = useState(() => normalizeAiMetricFormulaValues({}));
   const [apiKeyName, setApiKeyName] = useState("");
   const [apiKeyScope, setApiKeyScope] = useState<ApiKeyScope>("user");
   const [createdApiKey, setCreatedApiKey] = useState("");
@@ -202,6 +206,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     const overrides = normalizeAiPromptOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_OVERRIDES_KEY]);
     const llmOverrides = normalizeAiPromptLlmOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY]);
     const metricCriteriaOverrides = normalizeAiMetricCriteriaOverrides(workspacePreferencesQuery.data?.preferences?.[AI_METRIC_CRITERIA_OVERRIDES_KEY]);
+    const metricFormulaValues = normalizeAiMetricFormulaValues(workspacePreferencesQuery.data?.preferences?.[AI_METRIC_FORMULA_VALUES_KEY]);
     setPromptDrafts(
       Object.fromEntries(
         AI_PROMPT_REGISTRY.map((prompt) => [
@@ -218,12 +223,22 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     setMetricCriteriaDrafts(Object.fromEntries(
       AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaOverrides[metric.key] || metric.criteria])
     ));
+    setMetricFormulaDrafts(metricFormulaValues);
   }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
     if (promptWithLengthError) {
       setMessageTone("error");
       setMessage(`${promptWithLengthError.label} guidance must be ${promptWithLengthError.maxLength?.toLocaleString()} characters or fewer.`);
+      return;
+    }
+    const portfolioWeights = metricFormulaDrafts["metric.project.portfolio_health"] || {};
+    const portfolioWeightTotal = Number(portfolioWeights.story_weight || 0)
+      + Number(portfolioWeights.automation_weight || 0)
+      + Number(portfolioWeights.pass_weight || 0);
+    if (portfolioWeightTotal !== 100) {
+      setMessageTone("error");
+      setMessage(`Project portfolio readiness weights must total 100%. They currently total ${portfolioWeightTotal}%.`);
       return;
     }
     setIsSavingSettings(true);
@@ -252,12 +267,19 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           ),
           [AI_METRIC_CRITERIA_OVERRIDES_KEY]: Object.fromEntries(
             AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaDrafts[metric.key] || metric.criteria])
-          )
+          ),
+          [AI_METRIC_FORMULA_VALUES_KEY]: normalizeAiMetricFormulaValues(metricFormulaDrafts)
         }
-        : (workspacePreferencesQuery.data?.preferences || {});
+        : Object.fromEntries(Object.entries(workspacePreferencesQuery.data?.preferences || {}).filter(([key]) => ![
+          AI_PROMPT_OVERRIDES_KEY,
+          AI_PROMPT_LLM_OVERRIDES_KEY,
+          AI_METRIC_CRITERIA_OVERRIDES_KEY,
+          AI_METRIC_FORMULA_VALUES_KEY
+        ].includes(key)));
 
       await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
       await workspacePreferencesQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["projects", "portfolio-analytics"] });
       emitWorkspacePreferenceUpdate({ sidebarMode });
       setMessageTone("success");
       setMessage("Settings changes saved.");
@@ -830,8 +852,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             </div>
             <div className="settings-governance-heading">
               <div>
-                <strong>Metric criteria registry</strong>
-                <span>Formulae stay deterministic; these review criteria shape AI explanations, ranking rationale, and recommendations.</span>
+                <strong>Metric prompts & formula values</strong>
+                <span>Workspace-wide numeric rules drive deterministic calculations; bounded criteria shape explanations, ranking rationale, and recommendations.</span>
               </div>
               <span className="count-pill">{visibleAiMetricCriteriaRegistry.length} governed metrics</span>
             </div>
@@ -847,6 +869,36 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <strong>Deterministic formula</strong>
                     <p>{metric.formula}</p>
                   </div>
+                  {metric.parameters?.length ? (
+                    <fieldset className="settings-metric-parameter-grid">
+                      <legend>Formula values</legend>
+                      {metric.parameters.map((parameter) => (
+                        <label className="settings-input-field" key={parameter.key}>
+                          <span>{parameter.label}</span>
+                          <div className="settings-metric-number-input">
+                            <input
+                              aria-label={`${metric.label} ${parameter.label}`}
+                              disabled={!canManageAiPrompts}
+                              max={parameter.max}
+                              min={parameter.min}
+                              onChange={(event) => setMetricFormulaDrafts((current) => ({
+                                ...current,
+                                [metric.key]: {
+                                  ...(current[metric.key] || {}),
+                                  [parameter.key]: Number(event.target.value)
+                                }
+                              }))}
+                              step={parameter.step || 1}
+                              type="number"
+                              value={metricFormulaDrafts[metric.key]?.[parameter.key] ?? parameter.defaultValue}
+                            />
+                            {parameter.suffix ? <span>{parameter.suffix}</span> : null}
+                          </div>
+                          <small>{parameter.help}</small>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : null}
                   <label className="settings-input-field">
                     <span>Organization review criteria</span>
                     <textarea
@@ -860,11 +912,20 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                   </label>
                   <button
                     className="ghost-button compact"
-                    disabled={!canManageAiPrompts || (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria}
-                    onClick={() => setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }))}
+                    disabled={!canManageAiPrompts || (
+                      (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria
+                      && (metric.parameters || []).every((parameter) => metricFormulaDrafts[metric.key]?.[parameter.key] === parameter.defaultValue)
+                    )}
+                    onClick={() => {
+                      setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }));
+                      setMetricFormulaDrafts((current) => ({
+                        ...current,
+                        [metric.key]: Object.fromEntries((metric.parameters || []).map((parameter) => [parameter.key, parameter.defaultValue]))
+                      }));
+                    }}
                     type="button"
                   >
-                    Reset criteria
+                    Reset metric
                   </button>
                 </article>
               ))}

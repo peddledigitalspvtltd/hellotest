@@ -1,8 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { CSSProperties } from "react";
 import type { AppType } from "../types";
 import { LayersIcon } from "./AppIcons";
-import { StepTypeIcon } from "./StepAutomationEditor";
 
 export type AppTypeDropdownOption = {
   value: string;
@@ -20,6 +19,7 @@ type AppTypeDropdownProps = {
   placeholder?: string;
   emptyLabel?: string;
   disabled?: boolean;
+  inlineMenu?: boolean;
   name?: string;
   id?: string;
   "aria-describedby"?: string;
@@ -52,6 +52,7 @@ export function UnifiedAppTypeIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
       aria-hidden="true"
+      className="platform-type-icon platform-type-icon--unified"
       fill="none"
       height={size}
       stroke="currentColor"
@@ -70,6 +71,72 @@ export function UnifiedAppTypeIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function PlatformIconFrame({ children, kind, size }: { children: ReactNode; kind: AppType["type"]; size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={`platform-type-icon platform-type-icon--${kind}`}
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.75"
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      {children}
+    </svg>
+  );
+}
+
+function WebPlatformIcon({ size }: { size: number }) {
+  return (
+    <PlatformIconFrame kind="web" size={size}>
+      <rect height="15" rx="2.6" width="19" x="2.5" y="4.5" />
+      <path d="M2.5 8.5h19" />
+      <circle cx="6" cy="6.5" fill="currentColor" r=".65" stroke="none" />
+      <circle cx="8.7" cy="6.5" fill="currentColor" r=".65" stroke="none" />
+      <path d="M8.2 14h7.6M12 10.8v6.4" opacity=".78" />
+      <ellipse cx="12" cy="14" rx="3.8" ry="3.25" />
+    </PlatformIconFrame>
+  );
+}
+
+function ApiPlatformIcon({ size }: { size: number }) {
+  return (
+    <PlatformIconFrame kind="api" size={size}>
+      <circle cx="5" cy="12" fill="currentColor" r="2" stroke="none" />
+      <circle cx="19" cy="6" fill="currentColor" r="2" stroke="none" />
+      <circle cx="19" cy="18" fill="currentColor" r="2" stroke="none" />
+      <path d="m7 11 9.8-4M7 13l9.8 4" />
+      <path d="m11 9-2.2 3 2.2 3" opacity=".72" />
+    </PlatformIconFrame>
+  );
+}
+
+function AndroidPlatformIcon({ size }: { size: number }) {
+  return (
+    <PlatformIconFrame kind="android" size={size}>
+      <path d="M7 9.5h10a2 2 0 0 1 2 2v5.5H5v-5.5a2 2 0 0 1 2-2Z" />
+      <path d="M8.2 9.5a3.8 3.8 0 0 1 7.6 0M8.8 5.7 7.2 3.8M15.2 5.7l1.6-1.9" />
+      <circle cx="9.4" cy="12.4" fill="currentColor" r=".72" stroke="none" />
+      <circle cx="14.6" cy="12.4" fill="currentColor" r=".72" stroke="none" />
+      <path d="M8 17v3M16 17v3M5 12v4M19 12v4" />
+    </PlatformIconFrame>
+  );
+}
+
+function IosPlatformIcon({ size }: { size: number }) {
+  return (
+    <PlatformIconFrame kind="ios" size={size}>
+      <rect height="19" rx="3.4" width="12" x="6" y="2.5" />
+      <path d="M10 5h4M10.3 18.7h3.4" />
+      <path d="M12 8.2c-2 0-3.2 1.4-3.2 3.2s1.35 3.4 3.2 3.4 3.2-1.55 3.2-3.4S14 8.2 12 8.2Z" opacity=".78" />
+    </PlatformIconFrame>
+  );
+}
+
 export function AppTypeIcon({
   type,
   isUnified,
@@ -85,7 +152,10 @@ export function AppTypeIcon({
     return <UnifiedAppTypeIcon size={size} />;
   }
 
-  return <StepTypeIcon size={size} type={kind} />;
+  if (kind === "api") return <ApiPlatformIcon size={size} />;
+  if (kind === "android") return <AndroidPlatformIcon size={size} />;
+  if (kind === "ios") return <IosPlatformIcon size={size} />;
+  return <WebPlatformIcon size={size} />;
 }
 
 export function AppTypeInlineValue({
@@ -103,7 +173,7 @@ export function AppTypeInlineValue({
 
   return (
     <span className={["app-type-inline-value", className].filter(Boolean).join(" ")}>
-      <span aria-hidden="true" className="app-type-inline-icon">
+      <span aria-hidden="true" className="app-type-inline-icon" data-platform-type={normalizeAppTypeKind(type, isUnified)}>
         {hasSpecificIcon ? <AppTypeIcon isUnified={isUnified} size={16} type={type} /> : <LayersIcon size={16} />}
       </span>
       <span className="app-type-inline-text">{label}</span>
@@ -119,6 +189,7 @@ export function AppTypeDropdown({
   placeholder = "Select app type",
   emptyLabel = "No app types available",
   disabled = false,
+  inlineMenu = false,
   name,
   id,
   "aria-describedby": ariaDescribedBy,
@@ -275,15 +346,21 @@ export function AppTypeDropdown({
     }
   };
 
-  const menuStyle: CSSProperties | undefined = menuPosition
+  const menuStyle: CSSProperties | undefined = inlineMenu
     ? {
+        position: "static",
+        width: "100%",
+        maxHeight: "none"
+      }
+    : menuPosition
+      ? {
         position: "absolute",
         top: "calc(100% + 0.35rem)",
         left: 0,
         width: `${menuPosition.width}px`,
         maxHeight: `${menuPosition.maxHeight}px`
       }
-    : undefined;
+      : undefined;
   const triggerLabel = selectedOption?.label || (options.length ? placeholder : emptyLabel);
   const isPlaceholder = !selectedOption;
 
@@ -306,7 +383,7 @@ export function AppTypeDropdown({
         type="button"
       >
         <span className="app-type-dropdown-selection">
-          <span aria-hidden="true" className="app-type-inline-icon">
+          <span aria-hidden="true" className="app-type-inline-icon" data-platform-type={selectedOption ? normalizeAppTypeKind(selectedOption.type, selectedOption.isUnified) : undefined}>
             {selectedOption ? (
               <AppTypeIcon isUnified={selectedOption.isUnified} size={16} type={selectedOption.type} />
             ) : (
@@ -326,7 +403,7 @@ export function AppTypeDropdown({
         <div
           ref={menuRef}
           aria-label={ariaLabel}
-          className="app-type-dropdown-menu"
+          className={inlineMenu ? "app-type-dropdown-menu is-inline" : "app-type-dropdown-menu"}
           id={listboxId}
           role="listbox"
           style={menuStyle}
@@ -356,7 +433,7 @@ export function AppTypeDropdown({
                 type="button"
               >
                 <span className="app-type-dropdown-option-main">
-                  <span aria-hidden="true" className="app-type-inline-icon">
+                  <span aria-hidden="true" className="app-type-inline-icon" data-platform-type={normalizeAppTypeKind(option.type, option.isUnified)}>
                     <AppTypeIcon isUnified={option.isUnified} size={16} type={option.type} />
                   </span>
                   <span className="app-type-dropdown-option-copy">

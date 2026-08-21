@@ -75,6 +75,25 @@ const sanitizeAllowedHtml = (value) => {
   return output.join("").trim();
 };
 
+const ensureBulletListHtml = (value, fallbackText = "") => {
+  const safeHtml = sanitizeAllowedHtml(value || plainTextHtml(fallbackText));
+  if (/<ul>/i.test(safeHtml)) return safeHtml;
+  if (/<ol>/i.test(safeHtml)) {
+    return safeHtml.replace(/<ol>/gi, "<ul>").replace(/<\/ol>/gi, "</ul>");
+  }
+
+  const plainText = safeHtml
+    .replace(/<br>/gi, "\n")
+    .replace(/<\/(?:p|blockquote)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .split(/\n+/)
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const items = plainText.length ? plainText : [normalizeText(fallbackText, 20_000)].filter(Boolean);
+
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+};
+
 const resolveChatCompletionsUrl = (baseUrl) => {
   const normalized = normalizeText(baseUrl, 2_000) || "https://api.openai.com/v1";
   return /\/chat\/completions\/?$/i.test(normalized)
@@ -106,6 +125,9 @@ const requestRephrase = async ({ integration, input }) => {
               "Rephrase the supplied content into concise, professional, semantically faithful HTML.",
               "Preserve all facts, identifiers, outcomes, constraints, and testability.",
               "Never invent records, results, evidence, links, or approvals.",
+              input.entityType.toLowerCase() === "project"
+                ? "For a project description, return a scannable summary containing at least one semantic unordered list with concise bullet items."
+                : "Use semantic lists whenever they make the content easier to scan.",
               "Return HTML only using p, ul, ol, li, strong, em, code, blockquote, and br tags; do not include attributes."
             ].join(" ")
           },
@@ -146,6 +168,7 @@ const requestRephrase = async ({ integration, input }) => {
 };
 
 exports.sanitizeAllowedHtml = sanitizeAllowedHtml;
+exports.ensureBulletListHtml = ensureBulletListHtml;
 
 exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, entityTitle, fieldLabel, ariaLabel } = {}) => {
   const normalizedContent = normalizeText(content, 20_000);
@@ -187,6 +210,11 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
     generated = safeOriginal;
   }
 
+  const requiresStructuredBullets = input.entityType.toLowerCase() === "project";
+  if (requiresStructuredBullets) {
+    generated = ensureBulletListHtml(generated, input.content);
+  }
+
   return {
     content: generated,
     integration: integration ? {
@@ -202,7 +230,7 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
     },
     provenance: {
       capability: "rich-text-authoring-rephrase",
-      generation_mode: integration && !fallbackReason ? "llm" : "safe-original",
+      generation_mode: integration && !fallbackReason ? "llm" : requiresStructuredBullets ? "safe-structured-fallback" : "safe-original",
       provider: integration?.name || null,
       model: integration?.model || null,
       input_fingerprint: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 20),

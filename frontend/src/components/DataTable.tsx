@@ -430,7 +430,7 @@ export function DataTable<T>({
     }
 
     if (isSelectionColumn(column)) {
-      return SELECTION_COLUMN_WIDTH;
+      return Math.max(SELECTION_COLUMN_WIDTH, Math.round(column.width || 0));
     }
 
     const storedWidth = columnWidths[column.key];
@@ -950,6 +950,11 @@ export function DataTable<T>({
             className={isSelectionColumn(column) ? "data-table-select-cell" : undefined}
             key={column.key}
             onClick={isSelectionColumn(column) ? (event) => event.stopPropagation() : undefined}
+            style={enableColumnResize && isSelectionColumn(column) ? {
+              width: `${getColumnWidth(column)}px`,
+              minWidth: `${getColumnWidth(column)}px`,
+              maxWidth: `${getColumnWidth(column)}px`
+            } : undefined}
           >
             {column.render(row)}
           </td>
@@ -1062,7 +1067,13 @@ export function DataTable<T>({
                         ? (sortState.direction === "asc" ? "ascending" : "descending")
                         : undefined
                     }
-                    style={enableColumnResize ? { width: `${getColumnWidth(column)}px` } : undefined}
+                    style={enableColumnResize ? {
+                      width: `${getColumnWidth(column)}px`,
+                      ...(isSelectionColumn(column) ? {
+                        minWidth: `${getColumnWidth(column)}px`,
+                        maxWidth: `${getColumnWidth(column)}px`
+                      } : {})
+                    } : undefined}
                   >
                     <div className="data-table-column-header">
                       <div

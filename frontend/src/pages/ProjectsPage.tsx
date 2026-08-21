@@ -1,16 +1,29 @@
-import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
 import {
   IconActivity,
   IconAlertTriangle,
   IconChartBar,
+  IconChevronDown,
+  IconChevronUp,
   IconCircleCheck,
+  IconInfoCircle,
+  IconBug,
+  IconDownload,
+  IconLock,
+  IconPaperclip,
+  IconPencil,
+  IconSearch,
+  IconStar,
+  IconUpload,
+  IconX,
   IconShieldCheck
 } from "@tabler/icons-react";
+import { toJpeg } from "html-to-image";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
-import { AppTypeDropdown, AppTypeInlineValue } from "../components/AppTypeDropdown";
+import { AppTypeDropdown, AppTypeIcon, AppTypeInlineValue, normalizeAppTypeKind } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -22,14 +35,13 @@ import { DialogCloseButton } from "../components/DialogCloseButton";
 import { EvidenceFlipCard } from "../components/EvidenceFlipCard";
 import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
 import { FormField } from "../components/FormField";
-import { InfoTooltip } from "../components/InfoTooltip";
 import { LoadingState } from "../components/LoadingState";
+import { JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import { ProjectTraceabilityMap } from "../components/ProjectTraceabilityMap";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
-  TileCardAppTypesIcon,
   TileCardCaseIcon,
   TileCardFact,
   TileCardIconFrame,
@@ -55,7 +67,7 @@ import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { hasPermission } from "../lib/permissions";
 import { resolveVisibleEmail } from "../lib/userDisplay";
-import type { AppType, Execution, ExecutionResult, Issue, Project, Requirement, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
+import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioImpact, Requirement, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
 import "./ProjectsPage.css";
 
 type ProjectSection = "traceability" | "members" | "appTypes";
@@ -70,9 +82,27 @@ type ProjectAppTypeDraft = {
 type ProjectCreateDraft = {
   name: string;
   description: string;
+  visibility: "private" | "public";
   memberIds: string[];
   memberRoleIds: Record<string, string>;
   appTypes: ProjectAppTypeDraft[];
+  attachments: File[];
+};
+
+type ProjectCreateMutationInput = {
+  project: {
+    name: string;
+    description?: string;
+    visibility: "private" | "public";
+    members: Array<{ user_id: string; role_id: string }>;
+    app_types: Array<{ name: string; type: AppType["type"]; is_unified?: boolean }>;
+  };
+  attachments: File[];
+};
+
+type ProjectDetailsDraft = {
+  name: string;
+  description: string;
 };
 
 const NEW_PROJECT_ROLE_DEFAULTS = [
@@ -81,6 +111,14 @@ const NEW_PROJECT_ROLE_DEFAULTS = [
   { id: "viewer", name: "Viewer" }
 ] as const;
 const DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID = "qa-member";
+const MAX_PROJECT_ATTACHMENTS = 10;
+
+const formatProjectAttachmentBytes = (value: number) => {
+  if (!value) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+};
 
 type ProjectRequirementCoverage = {
   totalRequirements: number;
@@ -106,11 +144,14 @@ type ProjectPortfolioItem = {
   project: Project;
   memberCount: number;
   memberNames: string[];
+  memberUserIds: string[];
   appTypes: AppType[];
   appTypeCount: number;
   appTypeSummary: string;
   requirementCount: number;
+  moduleCount: number;
   testCaseCount: number;
+  bugCount: number;
   suiteCount: number;
   coverage: ProjectRequirementCoverage;
   automationCoverage: ProjectAutomationCoverage;
@@ -119,6 +160,11 @@ type ProjectPortfolioItem = {
   latestExecutionResults: ExecutionResult[];
   latestFailedCount: number;
   latestBlockedCount: number;
+  executionEvidence: { total: number; evidenced: number; missing: number; coveragePercent: number; threshold: number; violates: boolean };
+  failureImpacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+  bugImpacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+  openBugCount: number;
+  attentionReasons: string[];
   latestDurationLabel: string;
   latestRunLabel: string;
   readinessScore: number;
@@ -127,6 +173,8 @@ type ProjectPortfolioItem = {
   readinessLabel: string;
   insight: string;
 };
+
+const emptyPortfolioImpact: ProjectPortfolioImpact = { total: 0, top: [] };
 
 const createDraftId = () =>
   globalThis.crypto?.randomUUID?.() || `project-draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -141,9 +189,11 @@ const createProjectAppTypeDraft = (defaultType: string): ProjectAppTypeDraft => 
 const createInitialProjectDraft = (defaultType: string): ProjectCreateDraft => ({
   name: "",
   description: "",
+  visibility: "private",
   memberIds: [],
   memberRoleIds: {},
-  appTypes: [createProjectAppTypeDraft(defaultType)]
+  appTypes: [createProjectAppTypeDraft(defaultType)],
+  attachments: []
 });
 
 const emptyRequirementCoverage: ProjectRequirementCoverage = {
@@ -184,6 +234,47 @@ const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(val
 
 const formatCompactCount = (value: number, singular: string, plural = `${singular}s`) =>
   `${value} ${value === 1 ? singular : plural}`;
+
+const compactImpactEvidence = (label: string, impact: ProjectPortfolioImpact) => {
+  if (!impact.total) return `No impacted ${label.toLowerCase()} linked`;
+  const highlighted = impact.top.map((item) => `${item.name} (${item.count})`);
+  const remaining = Math.max(0, impact.total - impact.top.length);
+  return highlighted.length
+    ? `${highlighted.join(" · ")}${remaining ? ` · ${remaining} more ${label}` : ""}`
+    : `${impact.total} impacted ${label}`;
+};
+
+async function captureProjectAttentionSnapshot(node: HTMLElement) {
+  await document.fonts?.ready;
+  node.classList.add("is-exporting-snapshot");
+  try {
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+    const reportHeader = node.querySelector<HTMLElement>(".project-risk-evidence-header");
+    const reportBody = node.querySelector<HTMLElement>(".project-risk-evidence-body");
+    const width = Math.max(760, Math.ceil(node.scrollWidth || node.getBoundingClientRect().width));
+    const expandedContentHeight = (reportHeader?.scrollHeight || 0) + (reportBody?.scrollHeight || 0);
+    const height = Math.max(520, Math.ceil(node.scrollHeight || node.getBoundingClientRect().height), expandedContentHeight);
+    const pixelRatio = Math.max(1, Math.min(1.5, Math.sqrt(7_000_000 / Math.max(1, width * height))));
+    const dataUrl = await toJpeg(node, {
+      backgroundColor: window.getComputedStyle(node).backgroundColor || "#f7f9ff",
+      cacheBust: true,
+      filter: (candidate) => !(candidate instanceof HTMLElement) || !candidate.matches(".dialog-close-button, .metric-methodology-info"),
+      height,
+      pixelRatio,
+      quality: 0.9,
+      style: { boxSizing: "border-box", height: `${height}px`, overflow: "visible", width: `${width}px` },
+      width
+    });
+    if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("Portfolio attention snapshot could not be encoded.");
+    return {
+      rendered_snapshot_data_url: dataUrl,
+      rendered_snapshot_name: "Projects needing attention",
+      rendered_snapshot_captured_at: new Date().toISOString()
+    };
+  } finally {
+    node.classList.remove("is-exporting-snapshot");
+  }
+}
 
 const formatProjectTimeAgo = (value?: string | null) => {
   if (!value) {
@@ -331,6 +422,24 @@ const getProjectRiskSignals = (item: ProjectPortfolioItem) => {
     });
   }
 
+  if (item.executionEvidence.violates) {
+    signals.push({
+      label: "Execution evidence below policy",
+      detail: item.executionEvidence.total
+        ? `${item.executionEvidence.evidenced}/${item.executionEvidence.total} latest finalized outcomes have screenshot, video, or comment evidence; ${item.executionEvidence.threshold}% is required.`
+        : "No finalized latest-run outcomes are available to demonstrate execution evidence.",
+      tone: "warning"
+    });
+  }
+
+  if (item.openBugCount > 0) {
+    signals.push({
+      label: "Open Bug exposure",
+      detail: `${formatCompactCount(item.openBugCount, "open Bug")} currently affects the project scope.`,
+      tone: "warning"
+    });
+  }
+
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60) {
     signals.push({
       label: "Pass confidence below threshold",
@@ -440,15 +549,21 @@ export function ProjectsPage() {
   const { getMetricCriteria } = useAiPromptRegistry();
   const hasJiraAdministration = session?.user.role === "admin";
   const canManageUsers = hasPermission(session, "user.view");
-  const canCreateProjects = hasJiraAdministration && hasPermission(session, "project.manage");
+  const canManageProjects = hasJiraAdministration && hasPermission(session, "project.manage");
+  const canCreateProjects = canManageProjects;
   const canDeleteProjects = hasJiraAdministration && hasPermission(session, "project.delete");
   const canSyncProjects = hasPermission(session, "project.sync");
+  const canExportPortfolioAttention = hasPermission(session, "run.report.export");
   const canManageProjectMembers = hasJiraAdministration && hasPermission(session, "project_member.manage");
   const canManageAppTypes = hasJiraAdministration && hasPermission(session, "project.manage");
+  const canViewAttachments = hasPermission(session, "attachment.view");
+  const canCreateAttachments = hasPermission(session, "attachment.create");
+  const canDeleteAttachments = hasPermission(session, "attachment.delete");
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
   const [loadProjectMetrics, setLoadProjectMetrics] = useState(false);
-  const { projects, users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData({
+  const { users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData({
+    projects: false,
     issues: false,
     requirements: loadProjectMetrics,
     testSuites: loadProjectMetrics,
@@ -467,7 +582,13 @@ export function ProjectsPage() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [expandedProjectAppTypeId, setExpandedProjectAppTypeId] = useState("");
+  const [projectMemberSearch, setProjectMemberSearch] = useState("");
+  const [isProjectAttachmentDragging, setIsProjectAttachmentDragging] = useState(false);
+  const projectAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [isRiskEvidenceOpen, setIsRiskEvidenceOpen] = useState(false);
+  const [isExportingRiskPdf, setIsExportingRiskPdf] = useState(false);
+  const riskEvidenceReportRef = useRef<HTMLDivElement | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const deferredProjectSearch = useDeferredValue(projectSearch);
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
@@ -487,7 +608,39 @@ export function ProjectsPage() {
     [appTypeTypeOptions]
   );
   const [projectDraft, setProjectDraft] = useState<ProjectCreateDraft>(() => createInitialProjectDraft(defaultAppTypeValue));
+  const [isEditingProjectDetails, setIsEditingProjectDetails] = useState(false);
+  const [projectDetailsDraft, setProjectDetailsDraft] = useState<ProjectDetailsDraft>({ name: "", description: "" });
   const [quickAddAppTypeType, setQuickAddAppTypeType] = useState(defaultAppTypeValue);
+  const projectAttachmentMetaQuery = useQuery({
+    queryKey: ["project-attachment-meta"],
+    queryFn: api.attachments.meta,
+    enabled: Boolean(session && canCreateAttachments),
+    staleTime: 5 * 60_000
+  });
+  const projectCatalogQuery = useQuery({
+    queryKey: ["projects", "catalog"],
+    queryFn: api.projects.catalog,
+    enabled: Boolean(session),
+    staleTime: 30_000
+  });
+  const portfolioAnalyticsQuery = useQuery({
+    queryKey: ["projects", "portfolio-analytics"],
+    queryFn: api.projects.portfolioAnalytics,
+    enabled: Boolean(session),
+    staleTime: 30_000
+  });
+  const projectCreationUsersQuery = useQuery({
+    queryKey: ["project-create", "users"],
+    queryFn: api.users.list,
+    enabled: isCreateModalOpen && canCreateProjects,
+    staleTime: 30_000
+  });
+  const projectCreationRolesQuery = useQuery({
+    queryKey: ["project-create", "roles"],
+    queryFn: api.roles.list,
+    enabled: isCreateModalOpen && canCreateProjects,
+    staleTime: 30_000
+  });
   const integrationsQuery = useQuery({
     queryKey: ["integrations", selectedProjectId],
     queryFn: () => api.integrations.list(),
@@ -503,14 +656,14 @@ export function ProjectsPage() {
     enabled: Boolean((focusedProjectId || selectedProjectId) && session)
   });
 
-  const projectItems = asArray(projects.data);
-  const isProjectCatalogLoading = projects.isPending;
+  const projectItems = asArray(projectCatalogQuery.data);
+  const isProjectCatalogLoading = projectCatalogQuery.isPending || portfolioAnalyticsQuery.isPending;
 
   useEffect(() => {
-    if (!projects.data?.length || loadProjectMetrics) return;
+    if (!projectCatalogQuery.data?.some((project) => project.has_access !== false) || loadProjectMetrics) return;
     const timer = window.setTimeout(() => setLoadProjectMetrics(true), 120);
     return () => window.clearTimeout(timer);
-  }, [loadProjectMetrics, projects.data?.length]);
+  }, [loadProjectMetrics, projectCatalogQuery.data]);
 
   useEffect(() => {
     if (!appTypeDropdownOptions.length) {
@@ -528,15 +681,16 @@ export function ProjectsPage() {
   }, [appTypeDropdownOptions, defaultAppTypeValue, quickAddAppTypeType]);
 
   const selectedProject = useMemo(
-    () => projectItems.find((project) => String(project.id) === String(selectedProjectId)) || projectItems[0],
+    () => projectItems.find((project) => project.has_access !== false && String(project.id) === String(selectedProjectId))
+      || projectItems.find((project) => project.has_access !== false),
     [projectItems, selectedProjectId]
   );
   const focusedProject = useMemo(
-    () => projectItems.find((project) => String(project.id) === String(focusedProjectId)) || null,
+    () => projectItems.find((project) => project.has_access !== false && String(project.id) === String(focusedProjectId)) || null,
     [focusedProjectId, projectItems]
   );
   const scopedProject = focusedProject || selectedProject;
-  const projectId = scopedProject?.id;
+  const projectId = scopedProject?.id || "";
   const [, setCurrentAppTypeId] = useCurrentAppType(projectId);
 
   useEffect(() => {
@@ -809,25 +963,47 @@ export function ProjectsPage() {
     return coverageByProjectId;
   }, [latestExecutionResultByCaseId, projectIdByAppTypeId, projectItems, testCases.data]);
 
+  const portfolioAnalyticsByProjectId = useMemo(
+    () => new Map((portfolioAnalyticsQuery.data?.projects || []).map((item) => [item.project_id, item])),
+    [portfolioAnalyticsQuery.data]
+  );
+
   const projectPortfolioItems = useMemo<ProjectPortfolioItem[]>(() => {
     return projectItems.map((project) => {
-      const projectAppTypes = appTypesByProjectId[project.id] || [];
+      const exactMetric = portfolioAnalyticsByProjectId.get(project.id);
+      const projectAppTypes = exactMetric?.app_types || appTypesByProjectId[project.id] || [];
       const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
-      const memberNames = Array.from(projectMemberUserIds)
+      const memberNames = exactMetric?.members.map((member) => member.name) || Array.from(projectMemberUserIds)
         .map((userId) => users.data?.find((user) => user.id === userId))
         .map((user) => user?.name || visibleUserEmail(user?.email) || "")
         .filter(Boolean);
-      const coverage = requirementCoverageByProjectId[project.id] || emptyRequirementCoverage;
-      const automationCoverage = automationCoverageByProjectId[project.id] || emptyAutomationCoverage;
-      const passCoverage = passCoverageByProjectId[project.id] || emptyPassCoverage;
-      const latestExecution = latestExecutionByProjectId[project.id] || null;
+      const coverage = exactMetric ? {
+        totalRequirements: exactMetric.story_coverage.total,
+        coveredRequirements: exactMetric.story_coverage.covered,
+        coveragePercent: exactMetric.story_coverage.percent
+      } : requirementCoverageByProjectId[project.id] || emptyRequirementCoverage;
+      const automationCoverage = exactMetric ? {
+        totalCases: exactMetric.automation_coverage.total,
+        automatedCases: exactMetric.automation_coverage.automated,
+        coveragePercent: exactMetric.automation_coverage.percent
+      } : automationCoverageByProjectId[project.id] || emptyAutomationCoverage;
+      const passCoverage = exactMetric ? {
+        totalCases: exactMetric.pass_confidence.total,
+        passedCases: exactMetric.pass_confidence.passed,
+        coveragePercent: exactMetric.pass_confidence.percent
+      } : passCoverageByProjectId[project.id] || emptyPassCoverage;
+      const latestExecution = exactMetric?.latest_execution || latestExecutionByProjectId[project.id] || null;
       const latestExecutionResults = latestExecution ? executionResultsByExecutionId[latestExecution.id] || [] : [];
-      const latestFailedCount = latestExecutionResults.filter((result) => result.status === "failed").length;
-      const latestBlockedCount = latestExecutionResults.filter((result) => result.status === "blocked").length;
-      const readinessScore = clampPercent(
+      const latestFailedCount = exactMetric?.latest_failed_count ?? latestExecutionResults.filter((result) => result.status === "failed").length;
+      const latestBlockedCount = exactMetric?.latest_blocked_count ?? latestExecutionResults.filter((result) => result.status === "blocked").length;
+      const readinessScore = exactMetric?.readiness_score ?? clampPercent(
         Math.round((coverage.coveragePercent * 0.35) + (automationCoverage.coveragePercent * 0.25) + (passCoverage.coveragePercent * 0.4))
       );
-      const health = resolveProjectHealth({
+      const health = exactMetric ? {
+        healthTone: exactMetric.health_tone,
+        healthLabel: exactMetric.health_label,
+        readinessLabel: exactMetric.readiness_label
+      } : resolveProjectHealth({
         readinessScore,
         requirementCount: requirementCountByProjectId[project.id] || 0,
         testCaseCount: testCaseCountByProjectId[project.id] || 0,
@@ -840,13 +1016,17 @@ export function ProjectsPage() {
         : "No app types";
       const baseItem = {
         project,
-        memberCount: memberCountByProjectId[project.id] || 0,
+        memberCount: exactMetric?.counts.members ?? memberCountByProjectId[project.id] ?? 0,
         memberNames,
+        memberUserIds: exactMetric?.members.map((member) => member.user_id) || Array.from(projectMemberUserIds),
         appTypes: projectAppTypes,
         appTypeCount: projectAppTypes.length,
         appTypeSummary,
-        requirementCount: requirementCountByProjectId[project.id] || 0,
-        testCaseCount: testCaseCountByProjectId[project.id] || 0,
+        requirementCount: exactMetric?.counts.stories ?? project.story_count ?? requirementCountByProjectId[project.id] ?? 0,
+        moduleCount: exactMetric?.counts.modules ?? project.module_count ?? 0,
+        testCaseCount: exactMetric?.counts.cases ?? project.case_count ?? testCaseCountByProjectId[project.id] ?? 0,
+        bugCount: exactMetric?.bug_count ?? project.bug_count ?? 0,
+        openBugCount: exactMetric?.open_bug_count ?? 0,
         suiteCount: testSuiteCountByProjectId[project.id] || 0,
         coverage,
         automationCoverage,
@@ -855,6 +1035,17 @@ export function ProjectsPage() {
         latestExecutionResults,
         latestFailedCount,
         latestBlockedCount,
+        executionEvidence: exactMetric ? {
+          total: exactMetric.execution_evidence.total,
+          evidenced: exactMetric.execution_evidence.evidenced,
+          missing: exactMetric.execution_evidence.missing,
+          coveragePercent: exactMetric.execution_evidence.percent,
+          threshold: exactMetric.execution_evidence.threshold,
+          violates: exactMetric.execution_evidence.violates
+        } : { total: 0, evidenced: 0, missing: 0, coveragePercent: 0, threshold: 80, violates: false },
+        failureImpacts: exactMetric?.failure_impacts || { modules: emptyPortfolioImpact, requirements: emptyPortfolioImpact },
+        bugImpacts: exactMetric?.bug_impacts || { modules: emptyPortfolioImpact, requirements: emptyPortfolioImpact },
+        attentionReasons: exactMetric?.attention_reasons || [],
         latestDurationLabel: formatProjectDuration(latestExecution),
         latestRunLabel: formatProjectTimeAgo(latestExecution?.created_at || latestExecution?.started_at),
         readinessScore,
@@ -863,7 +1054,7 @@ export function ProjectsPage() {
 
       return {
         ...baseItem,
-        insight: getProjectInsight(baseItem)
+        insight: exactMetric?.insight || getProjectInsight(baseItem)
       };
     });
   }, [
@@ -873,6 +1064,7 @@ export function ProjectsPage() {
     latestExecutionByProjectId,
     memberCountByProjectId,
     passCoverageByProjectId,
+    portfolioAnalyticsByProjectId,
     projectItems,
     projectMemberUserIdsByProjectId,
     requirementCountByProjectId,
@@ -883,43 +1075,48 @@ export function ProjectsPage() {
   ]);
 
   const portfolioSummary = useMemo(() => {
+    const exactSummary = portfolioAnalyticsQuery.data?.summary;
     const totalProjects = projectPortfolioItems.length;
-    const riskyItems = projectPortfolioItems.filter((item) => item.healthTone === "danger");
-    const watchItems = projectPortfolioItems.filter((item) => item.healthTone === "warning");
-    const releaseReadyItems = projectPortfolioItems.filter((item) => item.healthTone === "success");
-    const assessedItems = projectPortfolioItems.filter((item) => item.healthTone !== "neutral");
+    const accessibleItems = projectPortfolioItems.filter((item) => item.project.has_access !== false);
+    const riskyItems = accessibleItems.filter((item) => item.healthTone === "danger");
+    const watchItems = accessibleItems.filter((item) => item.healthTone === "warning");
+    const releaseReadyItems = accessibleItems.filter((item) => item.healthTone === "success");
+    const assessedItems = accessibleItems.filter((item) => item.healthTone !== "neutral");
     const riskyProjects = riskyItems.length;
     const watchProjects = watchItems.length;
     const releaseReadyProjects = releaseReadyItems.length;
     const attentionProjects = riskyProjects + watchProjects;
-    const averageRequirementCoverage = totalProjects
-      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.coverage.coveragePercent, 0) / totalProjects)
+    const averageRequirementCoverage = accessibleItems.length
+      ? Math.round(accessibleItems.reduce((sum, item) => sum + item.coverage.coveragePercent, 0) / accessibleItems.length)
       : 0;
-    const averageAutomationCoverage = totalProjects
-      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.coveragePercent, 0) / totalProjects)
+    const averageAutomationCoverage = accessibleItems.length
+      ? Math.round(accessibleItems.reduce((sum, item) => sum + item.automationCoverage.coveragePercent, 0) / accessibleItems.length)
       : 0;
-    const overallHealth = totalProjects
-      ? Math.round(projectPortfolioItems.reduce((sum, item) => sum + item.readinessScore, 0) / totalProjects)
+    const overallHealth = accessibleItems.length
+      ? Math.round(accessibleItems.reduce((sum, item) => sum + item.readinessScore, 0) / accessibleItems.length)
       : 0;
-    const totalStories = projectPortfolioItems.reduce((sum, item) => sum + item.coverage.totalRequirements, 0);
-    const coveredStories = projectPortfolioItems.reduce((sum, item) => sum + item.coverage.coveredRequirements, 0);
-    const totalCases = projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.totalCases, 0);
-    const automatedCases = projectPortfolioItems.reduce((sum, item) => sum + item.automationCoverage.automatedCases, 0);
+    const totalStories = accessibleItems.reduce((sum, item) => sum + item.coverage.totalRequirements, 0);
+    const coveredStories = accessibleItems.reduce((sum, item) => sum + item.coverage.coveredRequirements, 0);
+    const totalCases = accessibleItems.reduce((sum, item) => sum + item.automationCoverage.totalCases, 0);
+    const automatedCases = accessibleItems.reduce((sum, item) => sum + item.automationCoverage.automatedCases, 0);
     const riskyLatestFailed = riskyItems.reduce((sum, item) => sum + item.latestFailedCount, 0);
     const riskyLatestBlocked = riskyItems.reduce((sum, item) => sum + item.latestBlockedCount, 0);
-    const riskyLowPassProjects = riskyItems.filter((item) => item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60).length;
+    const riskPassThreshold = portfolioAnalyticsQuery.data?.configuration["metric.project.risky_classification"]?.pass_confidence_threshold ?? 60;
+    const riskyLowPassProjects = riskyItems.filter((item) => item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < riskPassThreshold).length;
     const readyWithExecutionEvidence = releaseReadyItems.filter((item) => Boolean(item.latestExecution)).length;
     const releaseReadyAverage = releaseReadyItems.length
       ? Math.round(releaseReadyItems.reduce((sum, item) => sum + item.readinessScore, 0) / releaseReadyItems.length)
       : 0;
-    const passAssessedItems = projectPortfolioItems.filter((item) => item.passCoverage.totalCases > 0);
+    const passAssessedItems = accessibleItems.filter((item) => item.passCoverage.totalCases > 0);
     const averagePassCoverage = passAssessedItems.length
       ? Math.round(passAssessedItems.reduce((sum, item) => sum + item.passCoverage.coveragePercent, 0) / passAssessedItems.length)
       : 0;
     const attentionWithoutExecution = [...riskyItems, ...watchItems].filter((item) => !item.latestExecution).length;
 
     return {
-      totalProjects,
+      totalProjects: exactSummary?.total_projects ?? totalProjects,
+      accessibleProjects: exactSummary?.accessible_projects ?? accessibleItems.length,
+      lockedProjects: exactSummary?.locked_projects ?? totalProjects - accessibleItems.length,
       riskyProjects,
       watchProjects,
       attentionProjects,
@@ -937,21 +1134,37 @@ export function ProjectsPage() {
       riskyLowPassProjects,
       readyWithExecutionEvidence,
       releaseReadyAverage,
-      averagePassCoverage,
-      attentionWithoutExecution
+      averagePassCoverage: exactSummary?.average_pass_confidence ?? averagePassCoverage,
+      attentionWithoutExecution,
+      evidenceMissingProjects: exactSummary?.evidence_missing_projects ?? accessibleItems.filter((item) => item.executionEvidence.violates).length,
+      executionFailureCases: exactSummary?.execution_failure_cases ?? accessibleItems.reduce((sum, item) => sum + item.latestFailedCount, 0),
+      executionBlockedCases: exactSummary?.execution_blocked_cases ?? accessibleItems.reduce((sum, item) => sum + item.latestBlockedCount, 0),
+      bugCount: exactSummary?.bug_count ?? accessibleItems.reduce((sum, item) => sum + item.bugCount, 0),
+      openBugCount: exactSummary?.open_bug_count ?? accessibleItems.reduce((sum, item) => sum + item.openBugCount, 0),
+      failureImpacts: exactSummary?.failure_impacts || { modules: emptyPortfolioImpact, requirements: emptyPortfolioImpact },
+      bugImpacts: exactSummary?.bug_impacts || { modules: emptyPortfolioImpact, requirements: emptyPortfolioImpact },
+      riskPassThreshold
     };
-  }, [projectPortfolioItems]);
+  }, [portfolioAnalyticsQuery.data, projectPortfolioItems]);
 
   const projectRiskEvidenceItems = useMemo(
     () =>
       projectPortfolioItems
-        .filter((item) => item.healthTone === "danger" || item.healthTone === "warning")
+        .filter((item) => item.project.has_access !== false && (item.healthTone === "danger" || item.healthTone === "warning"))
         .sort((left, right) => {
           const toneRank = { danger: 0, warning: 1, success: 2, neutral: 3 } as const;
           return toneRank[left.healthTone] - toneRank[right.healthTone] || left.readinessScore - right.readinessScore;
         }),
     [projectPortfolioItems]
   );
+  const compactAttentionEvidence = useMemo(() => {
+    const limit = Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.needs_attention"]?.priority_project_limit ?? 3);
+    const priority = projectRiskEvidenceItems.slice(0, limit).map((item) =>
+      `${item.project.name} · ${item.healthLabel} · ${item.attentionReasons.slice(0, 2).join(" + ") || `${item.readinessScore}% readiness`}`
+    );
+    const remaining = Math.max(0, projectRiskEvidenceItems.length - priority.length);
+    return remaining ? [...priority, `${remaining} more attention project${remaining === 1 ? "" : "s"}`] : priority;
+  }, [portfolioAnalyticsQuery.data, projectRiskEvidenceItems]);
 
   const filteredProjectItems = useMemo(() => {
     const normalizedSearch = deferredProjectSearch.trim().toLowerCase();
@@ -959,7 +1172,7 @@ export function ProjectsPage() {
     return projectPortfolioItems.filter((item) => {
       const { project } = item;
       const projectAppTypes = item.appTypes;
-      const projectMemberUserIds = projectMemberUserIdsByProjectId.get(project.id) || new Set<string>();
+      const projectMemberUserIds = new Set(item.memberUserIds);
       const searchContent = [
         project.id,
         project.name,
@@ -1015,6 +1228,21 @@ export function ProjectsPage() {
       }
 
       return true;
+    }).sort((left, right) => {
+      const leftLocked = left.project.has_access === false;
+      const rightLocked = right.project.has_access === false;
+
+      if (leftLocked !== rightLocked) {
+        return leftLocked ? 1 : -1;
+      }
+
+      const leftFavorite = Boolean(left.project.is_favorite);
+      const rightFavorite = Boolean(right.project.is_favorite);
+      if (leftFavorite !== rightFavorite) {
+        return leftFavorite ? -1 : 1;
+      }
+
+      return 0;
     });
   }, [
     projectAppTypeFilter,
@@ -1025,8 +1253,9 @@ export function ProjectsPage() {
     userSearchValueById
   ]);
 
+  const selectableFilteredProjectItems = filteredProjectItems.filter((item) => item.project.has_access !== false);
   const areAllFilteredProjectsSelected =
-    Boolean(filteredProjectItems.length) && filteredProjectItems.every((item) => selectedActionProjectIds.includes(item.project.id));
+    Boolean(selectableFilteredProjectItems.length) && selectableFilteredProjectItems.every((item) => selectedActionProjectIds.includes(item.project.id));
 
   useEffect(() => {
     setSelectedActionProjectIds((current) =>
@@ -1132,15 +1361,15 @@ export function ProjectsPage() {
   );
   const newProjectRoleOptions = useMemo(
     () => NEW_PROJECT_ROLE_DEFAULTS.map((fallback) => {
-      const configured = (roles.data || []).find((role) => role.id === fallback.id);
+      const configured = (projectCreationRolesQuery.data || roles.data || []).find((role) => role.id === fallback.id);
       return { id: fallback.id, name: configured?.name || fallback.name };
     }),
-    [roles.data]
+    [projectCreationRolesQuery.data, roles.data]
   );
 
   const projectMemberOptions = useMemo(
     () =>
-      [...(users.data || [])].sort((left, right) => {
+      [...(projectCreationUsersQuery.data || users.data || [])].sort((left, right) => {
         const leftAuto = left.id === session?.user.id;
         const rightAuto = right.id === session?.user.id;
 
@@ -1150,8 +1379,23 @@ export function ProjectsPage() {
 
         return String(left.name || left.email).localeCompare(String(right.name || right.email));
       }),
-    [session?.user.id, users.data]
+    [projectCreationUsersQuery.data, session?.user.id, users.data]
   );
+  const filteredProjectMemberOptions = useMemo(() => {
+    const query = projectMemberSearch.trim().toLowerCase();
+
+    if (!query) {
+      return projectMemberOptions;
+    }
+
+    return projectMemberOptions.filter((user) =>
+      [user.name, resolveVisibleEmail(user.email, canManageUsers)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [canManageUsers, projectMemberOptions, projectMemberSearch]);
   const selectableProjectMemberIds = useMemo(
     () =>
       projectMemberOptions
@@ -1163,10 +1407,15 @@ export function ProjectsPage() {
     Boolean(selectableProjectMemberIds.length) &&
     selectableProjectMemberIds.every((userId) => projectDraft.memberIds.includes(userId));
 
-  const selectedProjectRequirementCount = projectId ? requirementCountByProjectId[projectId] || 0 : 0;
-  const selectedProjectTestCaseCount = projectId ? testCaseCountByProjectId[projectId] || 0 : 0;
-  const selectedProjectAppTypeCount = projectId ? appTypeCountByProjectId[projectId] || 0 : 0;
-  const selectedProjectPassCoverage = projectId ? passCoverageByProjectId[projectId] || emptyPassCoverage : emptyPassCoverage;
+  const selectedPortfolioMetric = projectId ? portfolioAnalyticsByProjectId.get(projectId) : null;
+  const selectedProjectRequirementCount = selectedPortfolioMetric?.counts.stories ?? (projectId ? requirementCountByProjectId[projectId] || 0 : 0);
+  const selectedProjectTestCaseCount = selectedPortfolioMetric?.counts.cases ?? (projectId ? testCaseCountByProjectId[projectId] || 0 : 0);
+  const selectedProjectAppTypeCount = selectedPortfolioMetric?.counts.app_types ?? (projectId ? appTypeCountByProjectId[projectId] || 0 : 0);
+  const selectedProjectPassCoverage = selectedPortfolioMetric ? {
+    totalCases: selectedPortfolioMetric.pass_confidence.total,
+    passedCases: selectedPortfolioMetric.pass_confidence.passed,
+    coveragePercent: selectedPortfolioMetric.pass_confidence.percent
+  } : projectId ? passCoverageByProjectId[projectId] || emptyPassCoverage : emptyPassCoverage;
   const focusedProjectSyncIntegrations = useMemo(
     () =>
       (integrationsQuery.data || []).filter(
@@ -1223,22 +1472,93 @@ export function ProjectsPage() {
   };
 
   const createProject = useMutation({
-    mutationFn: api.projects.create,
+    mutationFn: async ({ project, attachments }: ProjectCreateMutationInput) => {
+      const response = await api.projects.create(project);
+      const uploaded: JiraAttachment[] = [];
+      const attachmentErrors: string[] = [];
+      const scope = { project_id: response.id, entity_type: "project" as const, entity_id: response.id };
+
+      for (let offset = 0; offset < attachments.length; offset += 2) {
+        const batch = attachments.slice(offset, offset + 2);
+        const results = await Promise.allSettled(batch.map((file) => api.attachments.upload(scope, file)));
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") uploaded.push(result.value);
+          else attachmentErrors.push(`${batch[index].name}: ${result.reason instanceof Error ? result.reason.message : "upload failed"}`);
+        });
+      }
+
+      return {
+        ...response,
+        attachments_uploaded: uploaded.length,
+        attachment_errors: attachmentErrors
+      };
+    },
     onSuccess: async (response) => {
       const provisioningErrorCount = response.provisioning_errors?.length || 0;
-      setMessageTone(provisioningErrorCount ? "error" : "success");
+      const attachmentErrorCount = response.attachment_errors.length;
+      const hasWarnings = Boolean(provisioningErrorCount || attachmentErrorCount);
+      setMessageTone(hasWarnings ? "error" : "success");
       setMessage(provisioningErrorCount
         ? `Project created, but ${provisioningErrorCount} access or app-type item${provisioningErrorCount === 1 ? " needs" : "s need"} attention. Open the project and retry the missing setup.`
-        : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"} and ${response.app_types_created} app type${response.app_types_created === 1 ? "" : "s"} are ready.`);
+        : attachmentErrorCount
+          ? `Project created with ${response.attachments_uploaded} attachment${response.attachments_uploaded === 1 ? "" : "s"}. ${attachmentErrorCount} file${attachmentErrorCount === 1 ? " needs" : "s need"} to be retried from Project Details.`
+          : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"}, ${response.app_types_created} app type${response.app_types_created === 1 ? "" : "s"}, and ${response.attachments_uploaded} compressed attachment${response.attachments_uploaded === 1 ? "" : "s"} are ready.`);
+      queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) => {
+        const createdProject: Project = {
+          id: response.id,
+          display_id: response.display_id || null,
+          name: response.name,
+          description: response.description,
+          visibility: response.visibility,
+          created_by: response.created_by,
+          has_access: true,
+          is_favorite: false,
+          story_count: 0,
+          module_count: 0,
+          case_count: 0,
+          bug_count: 0
+        };
+        return [...asArray(current).filter((project) => project.id !== response.id), createdProject];
+      });
       setSelectedProjectId(response.id);
       setFocusedProjectId(response.id);
       setIsCreateModalOpen(false);
+      setExpandedProjectAppTypeId("");
       setProjectDraft(createInitialProjectDraft(defaultAppTypeValue));
       await invalidate();
     },
     onError: (error) => {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Unable to create project");
+    }
+  });
+  const updateProjectFavorite = useMutation({
+    mutationFn: ({ id, favorite }: { id: string; favorite: boolean }) =>
+      favorite ? api.projects.favorite(id) : api.projects.unfavorite(id),
+    onSuccess: (_response, input) => {
+      queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) =>
+        asArray(current).map((project) =>
+          project.id === input.id ? { ...project, is_favorite: input.favorite } : project
+        )
+      );
+    },
+    onError: (error) => {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to update project favorite");
+    }
+  });
+  const updateProjectDetails = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: { name: string; description: string } }) =>
+      api.projects.update(id, input),
+    onSuccess: async () => {
+      setMessageTone("success");
+      setMessage("Project details updated.");
+      setIsEditingProjectDetails(false);
+      await invalidate();
+    },
+    onError: (error) => {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to update project details");
     }
   });
 
@@ -1318,7 +1638,11 @@ export function ProjectsPage() {
       return;
     }
 
-    setProjectDraft(createInitialProjectDraft(defaultAppTypeValue));
+    const nextDraft = createInitialProjectDraft(defaultAppTypeValue);
+    setProjectDraft(nextDraft);
+    setExpandedProjectAppTypeId(nextDraft.appTypes[0]?.id || "");
+    setProjectMemberSearch("");
+    setIsProjectAttachmentDragging(false);
     setIsCreateModalOpen(true);
   };
 
@@ -1328,6 +1652,9 @@ export function ProjectsPage() {
     }
 
     setIsCreateModalOpen(false);
+    setExpandedProjectAppTypeId("");
+    setProjectMemberSearch("");
+    setIsProjectAttachmentDragging(false);
   };
   const createProjectDialogRef = useDialogFocus<HTMLDivElement>({
     active: isCreateModalOpen,
@@ -1341,6 +1668,29 @@ export function ProjectsPage() {
     active: isRiskEvidenceOpen,
     onClose: closeRiskEvidenceDialog
   });
+  const exportRiskEvidencePdf = async () => {
+    if (!riskEvidenceReportRef.current || isExportingRiskPdf || !canExportPortfolioAttention) return;
+    setIsExportingRiskPdf(true);
+    try {
+      const snapshot = await captureProjectAttentionSnapshot(riskEvidenceReportRef.current);
+      const blob = await api.projects.downloadPortfolioAttentionPdf(snapshot);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "HelloTest-projects-needing-attention.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessageTone("success");
+      setMessage("Projects needing attention PDF exported.");
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to export the attention report.");
+    } finally {
+      setIsExportingRiskPdf(false);
+    }
+  };
 
   const handleDeleteProject = async () => {
     if (!focusedProject || deleteProject.isPending || !canDeleteProjects) {
@@ -1379,6 +1729,85 @@ export function ProjectsPage() {
 
   const updateProjectDraft = (input: Partial<ProjectCreateDraft>) => {
     setProjectDraft((current) => ({ ...current, ...input }));
+  };
+
+  const stageProjectAttachments = (files: FileList | File[]) => {
+    if (!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false) {
+      setMessageTone("error");
+      setMessage(projectAttachmentMetaQuery.data?.enabled === false
+        ? "Attachments are disabled for this workspace."
+        : "Permission required: attachment.create");
+      return;
+    }
+
+    const candidates = Array.from(files);
+    const uploadLimit = Number(projectAttachmentMetaQuery.data?.uploadLimit || 0);
+    const invalid = candidates.find((file) => file.size <= 0 || (uploadLimit > 0 && file.size > uploadLimit));
+    if (invalid) {
+      setMessageTone("error");
+      setMessage(invalid.size <= 0
+        ? `${invalid.name} is empty and cannot be attached.`
+        : `${invalid.name} exceeds the ${formatProjectAttachmentBytes(uploadLimit)} attachment limit.`);
+      return;
+    }
+
+    const existingKeys = new Set(projectDraft.attachments.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+    const unique = candidates.filter((file) => !existingKeys.has(`${file.name}:${file.size}:${file.lastModified}`));
+    const availableSlots = Math.max(0, MAX_PROJECT_ATTACHMENTS - projectDraft.attachments.length);
+    if (unique.length > availableSlots) {
+      setMessageTone("error");
+      setMessage(`Attach up to ${MAX_PROJECT_ATTACHMENTS} files to a project.`);
+    }
+    setProjectDraft((current) => ({
+      ...current,
+      attachments: [...current.attachments, ...unique.slice(0, availableSlots)]
+    }));
+
+    if (projectAttachmentInputRef.current) projectAttachmentInputRef.current.value = "";
+  };
+
+  const removeProjectAttachment = (fileToRemove: File) => {
+    setProjectDraft((current) => ({
+      ...current,
+      attachments: current.attachments.filter((file) => file !== fileToRemove)
+    }));
+  };
+
+  const handleProjectAttachmentDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsProjectAttachmentDragging(false);
+    if (event.dataTransfer.files.length) stageProjectAttachments(event.dataTransfer.files);
+  };
+
+  const openProjectDetailsEditor = () => {
+    if (!focusedProject || !canManageProjects) return;
+    setProjectDetailsDraft({
+      name: focusedProject.name,
+      description: focusedProject.description || ""
+    });
+    setIsEditingProjectDetails(true);
+  };
+
+  const closeProjectDetailsEditor = () => {
+    if (updateProjectDetails.isPending) return;
+    setIsEditingProjectDetails(false);
+  };
+
+  const handleProjectDetailsSave = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!focusedProject || !canManageProjects || updateProjectDetails.isPending) return;
+
+    const name = projectDetailsDraft.name.trim();
+    if (!name) {
+      setMessageTone("error");
+      setMessage("Project name is required.");
+      return;
+    }
+
+    updateProjectDetails.mutate({
+      id: focusedProject.id,
+      input: { name, description: projectDetailsDraft.description.trim() }
+    });
   };
 
   const toggleProjectDraftMember = (userId: string) => {
@@ -1423,10 +1852,12 @@ export function ProjectsPage() {
   };
 
   const addProjectAppTypeRow = () => {
+    const nextAppType = createProjectAppTypeDraft(defaultAppTypeValue);
     setProjectDraft((current) => ({
       ...current,
-      appTypes: [...current.appTypes, createProjectAppTypeDraft(defaultAppTypeValue)]
+      appTypes: [...current.appTypes, nextAppType]
     }));
+    setExpandedProjectAppTypeId(nextAppType.id);
   };
 
   const updateProjectAppType = (draftId: string, input: Partial<Omit<ProjectAppTypeDraft, "id">>) => {
@@ -1437,19 +1868,21 @@ export function ProjectsPage() {
   };
 
   const removeProjectAppType = (draftId: string) => {
-    setProjectDraft((current) => {
-      if (current.appTypes.length === 1) {
-        return {
-          ...current,
-          appTypes: [createProjectAppTypeDraft(defaultAppTypeValue)]
-        };
-      }
+    if (projectDraft.appTypes.length === 1) {
+      const replacement = createProjectAppTypeDraft(defaultAppTypeValue);
+      setProjectDraft((current) => ({ ...current, appTypes: [replacement] }));
+      setExpandedProjectAppTypeId(replacement.id);
+      return;
+    }
 
-      return {
-        ...current,
-        appTypes: current.appTypes.filter((appType) => appType.id !== draftId)
-      };
-    });
+    const remainingAppTypes = projectDraft.appTypes.filter((appType) => appType.id !== draftId);
+    setProjectDraft((current) => ({
+      ...current,
+      appTypes: current.appTypes.filter((appType) => appType.id !== draftId)
+    }));
+    if (expandedProjectAppTypeId === draftId) {
+      setExpandedProjectAppTypeId(remainingAppTypes[0]?.id || "");
+    }
   };
 
   const handleProjectCreate = (event: FormEvent<HTMLFormElement>) => {
@@ -1489,13 +1922,17 @@ export function ProjectsPage() {
     }
 
     createProject.mutate({
-      name: normalizedName,
-      description: projectDraft.description.trim() || undefined,
-      members: projectDraft.memberIds.map((userId) => ({
-        user_id: userId,
-        role_id: projectDraft.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
-      })),
-      app_types: normalizedAppTypes
+      project: {
+        name: normalizedName,
+        description: projectDraft.description.trim() || undefined,
+        visibility: projectDraft.visibility,
+        members: (projectDraft.visibility === "public" ? projectDraft.memberIds : []).map((userId) => ({
+          user_id: userId,
+          role_id: projectDraft.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
+        })),
+        app_types: normalizedAppTypes
+      },
+      attachments: projectDraft.attachments
     });
   };
 
@@ -1535,15 +1972,23 @@ export function ProjectsPage() {
   };
 
   const openPortfolioProject = useCallback((item: ProjectPortfolioItem) => {
+    if (item.project.has_access === false) return;
+    setIsEditingProjectDetails(false);
     setSelectedProjectId(item.project.id);
     setFocusedProjectId(item.project.id);
   }, [setSelectedProjectId]);
 
   const openPortfolioProjectPath = useCallback((item: ProjectPortfolioItem, path: string) => {
+    if (item.project.has_access === false) return;
     setSelectedProjectId(item.project.id);
     setFocusedProjectId(item.project.id);
     navigate(path);
   }, [navigate, setSelectedProjectId]);
+
+  const toggleProjectFavorite = useCallback((item: ProjectPortfolioItem) => {
+    if (updateProjectFavorite.isPending) return;
+    updateProjectFavorite.mutate({ id: item.project.id, favorite: !item.project.is_favorite });
+  }, [updateProjectFavorite]);
 
   const getProjectActionItems = useCallback((item: ProjectPortfolioItem) => [
     {
@@ -1612,8 +2057,8 @@ export function ProjectsPage() {
             onChange={(event) =>
               setSelectedActionProjectIds((current) =>
                 event.target.checked
-                  ? [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])]
-                  : current.filter((projectId) => !filteredProjectItems.some((item) => item.project.id === projectId))
+                  ? [...new Set([...current, ...selectableFilteredProjectItems.map((item) => item.project.id)])]
+                  : current.filter((projectId) => !selectableFilteredProjectItems.some((item) => item.project.id === projectId))
               )
             }
             type="checkbox"
@@ -1625,6 +2070,7 @@ export function ProjectsPage() {
           <input
             aria-label={`Select ${item.project.name}`}
             checked={selectedActionProjectIds.includes(item.project.id)}
+            disabled={item.project.has_access === false}
             onChange={(event) =>
               setSelectedActionProjectIds((current) =>
                 event.target.checked
@@ -1635,6 +2081,36 @@ export function ProjectsPage() {
             type="checkbox"
           />
         </div>
+      )
+    },
+    {
+      key: "select-favorite",
+      label: "Favorite",
+      headerRender: () => (
+        <span className="project-favorite-column-label" title="Favorites">
+          <IconStar aria-hidden="true" size={16} stroke={2} />
+          <span className="sr-only">Favorite</span>
+        </span>
+      ),
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 88,
+      render: (item) => (
+        <button
+          aria-label={`${item.project.is_favorite ? "Remove" : "Add"} ${item.project.name} ${item.project.is_favorite ? "from" : "to"} favorites`}
+          aria-pressed={Boolean(item.project.is_favorite)}
+          className={item.project.is_favorite ? "project-favorite-button is-favorite" : "project-favorite-button"}
+          disabled={updateProjectFavorite.isPending}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleProjectFavorite(item);
+          }}
+          title={item.project.is_favorite ? "Remove from favorites" : "Add to favorites"}
+          type="button"
+        >
+          <IconStar aria-hidden="true" fill={item.project.is_favorite ? "currentColor" : "none"} size={18} stroke={2} />
+        </button>
       )
     },
     {
@@ -1653,9 +2129,14 @@ export function ProjectsPage() {
       minWidth: 180,
       sortValue: (item) => item.project.name,
       render: (item) => (
-        <div className="projects-list-primary-cell">
-          <strong>{item.project.name}</strong>
-          <span>{richTextToPlainText(item.project.description) || "No description yet."}</span>
+        <div className="projects-list-project-cell">
+          <TileCardIconFrame className={item.project.has_access === false ? "projects-list-project-icon is-locked" : "projects-list-project-icon"} tone={item.project.has_access === false ? "neutral" : "info"}>
+            {item.project.has_access === false ? <IconLock size={16} stroke={2.2} /> : <TileCardProjectIcon />}
+          </TileCardIconFrame>
+          <div className="projects-list-primary-cell">
+            <strong>{item.project.name}</strong>
+            <span>{item.project.has_access === false ? "Access required" : richTextToPlainText(item.project.description) || "No description yet."}</span>
+          </div>
         </div>
       )
     },
@@ -1665,7 +2146,9 @@ export function ProjectsPage() {
       width: 180,
       minWidth: 140,
       sortValue: (item) => item.readinessScore,
-      render: (item) => (
+      render: (item) => item.project.has_access === false ? (
+        <span className="project-locked-list-label"><IconLock aria-hidden="true" size={14} /> Locked</span>
+      ) : (
         <div className="projects-list-status-cell">
           <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
           <strong>{item.readinessScore}%</strong>
@@ -1679,7 +2162,7 @@ export function ProjectsPage() {
       width: 240,
       minWidth: 164,
       sortValue: (item) => item.appTypeCount,
-      render: (item) => (
+      render: (item) => item.project.has_access === false ? "—" : (
         <div className="projects-list-meta-cell">
           <strong>{item.appTypeCount} app types</strong>
           <span>{item.suiteCount} suites / {item.requirementCount} stories / {item.testCaseCount} cases</span>
@@ -1693,7 +2176,7 @@ export function ProjectsPage() {
       width: 260,
       minWidth: 180,
       sortValue: (item) => item.memberCount,
-      render: (item) => item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"
+      render: (item) => item.project.has_access === false ? "—" : item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"
     },
     {
       key: "coverage",
@@ -1701,7 +2184,7 @@ export function ProjectsPage() {
       width: 220,
       minWidth: 160,
       sortValue: (item) => item.coverage.coveragePercent,
-      render: (item) => (
+      render: (item) => item.project.has_access === false ? "—" : (
         <div className="projects-list-meta-cell">
           <span>Story {item.coverage.coveragePercent}%</span>
           <span>Auto {item.automationCoverage.coveragePercent}%</span>
@@ -1715,7 +2198,7 @@ export function ProjectsPage() {
       width: 220,
       minWidth: 160,
       sortValue: (item) => item.latestExecution?.created_at || item.latestExecution?.started_at || "",
-      render: (item) => (
+      render: (item) => item.project.has_access === false ? "—" : (
         <div className="projects-list-meta-cell">
           <strong>{item.latestRunLabel}</strong>
           <span>{item.latestExecution?.status || "No execution"} / {item.latestFailedCount} failed</span>
@@ -1723,7 +2206,25 @@ export function ProjectsPage() {
         </div>
       )
     }
-  ], [areAllFilteredProjectsSelected, filteredProjectItems, selectedActionProjectIds]);
+  ], [areAllFilteredProjectsSelected, selectableFilteredProjectItems, selectedActionProjectIds, toggleProjectFavorite, updateProjectFavorite.isPending]);
+
+  const projectListRowGroups = useMemo(() => [
+    {
+      key: "favorites",
+      header: <span className="project-list-group-label"><IconStar aria-hidden="true" fill="currentColor" size={14} /> Favorites</span>,
+      rows: filteredProjectItems.filter((item) => item.project.has_access !== false && item.project.is_favorite)
+    },
+    {
+      key: "projects",
+      header: <span className="project-list-group-label"><TileCardProjectIcon /> Projects</span>,
+      rows: filteredProjectItems.filter((item) => item.project.has_access !== false && !item.project.is_favorite)
+    },
+    {
+      key: "locked",
+      header: <span className="project-list-group-label is-locked"><IconLock aria-hidden="true" size={14} /> Locked</span>,
+      rows: filteredProjectItems.filter((item) => item.project.has_access === false)
+    }
+  ].filter((group) => group.rows.length), [filteredProjectItems]);
 
   return (
     <div className="page-content projects-page">
@@ -1741,35 +2242,29 @@ export function ProjectsPage() {
               <h2 className="page-header-title">Projects</h2>
             </div>
             <div className="projects-command-insight">
-              <div className="projects-command-insight-copy">
-                <div className="projects-command-insight-topline">
-                  <span className="projects-ai-chip">AI Insight</span>
-                  <button
-                    aria-haspopup="dialog"
-                    className="projects-view-evidence-button"
-                    onClick={() => setIsRiskEvidenceOpen(true)}
-                    type="button"
-                  >
-                    View evidence
-                  </button>
-                </div>
-                <h3>{portfolioSummary.attentionProjects || "No"} project{portfolioSummary.attentionProjects === 1 ? "" : "s"} {portfolioSummary.attentionProjects === 1 ? "needs" : "need"} attention</h3>
-                <div className="projects-command-evidence" aria-label="Portfolio attention evidence">
-                  <span><strong>{portfolioSummary.riskyProjects}</strong> risky</span>
-                  <span><strong>{portfolioSummary.watchProjects}</strong> watch</span>
-                  <span><strong>{portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked}</strong> failed or blocked</span>
-                </div>
-                <p>
-                  {portfolioSummary.attentionProjects
-                    ? "Latest execution outcomes, Story traceability, and pass confidence explain the signal."
-                    : "No project crosses the current watch or risk threshold."}
-                </p>
-              </div>
+              <EvidenceFlipCard
+                autoResetMs={12_000}
+                caption={`${portfolioSummary.riskyProjects} risky · ${portfolioSummary.watchProjects} watch · accessible portfolio`}
+                className="projects-attention-flip-card"
+                evidence={compactAttentionEvidence.length ? compactAttentionEvidence : ["No accessible project crosses the configured attention rules."]}
+                label="Projects need attention"
+                maxEvidenceItems={4}
+                tone={portfolioSummary.attentionProjects ? "warning" : "success"}
+                value={`${portfolioSummary.attentionProjects}/${portfolioSummary.accessibleProjects}`}
+              />
               <div className="projects-health-ring" style={{ "--score": `${portfolioSummary.overallHealth}%` } as CSSProperties}>
                 <strong>{portfolioSummary.overallHealth}%</strong>
                 <span>Overall health</span>
-                <MetricMethodologyInfo criteriaKey="metric.project.portfolio_health" evidence={`${projectPortfolioItems.length} equally weighted visible project readiness scores.`} organizationCriteria={getMetricCriteria("metric.project.portfolio_health")} />
+                <MetricMethodologyInfo criteriaKey="metric.project.portfolio_health" evidence={`${projectPortfolioItems.filter((item) => item.project.has_access !== false).length} equally weighted accessible project readiness scores; locked projects are excluded.`} organizationCriteria={getMetricCriteria("metric.project.portfolio_health")} />
               </div>
+              <button
+                aria-haspopup="dialog"
+                className="projects-view-evidence-button"
+                onClick={() => setIsRiskEvidenceOpen(true)}
+                type="button"
+              >
+                Inspect portfolio evidence
+              </button>
             </div>
           </section>
 
@@ -1777,7 +2272,8 @@ export function ProjectsPage() {
             <PortfolioMetricCard
               caption="projects in portfolio"
               evidence={[
-                `${projectPortfolioItems.filter((item) => item.appTypeCount > 0).length} with app types`,
+                `${portfolioSummary.accessibleProjects} accessible projects included in quality calculations`,
+                `${portfolioSummary.lockedProjects} locked project${portfolioSummary.lockedProjects === 1 ? "" : "s"} excluded from sensitive evidence`,
                 `${portfolioSummary.assessedProjects} with assessable QA scope`
               ]}
               label="Total Projects"
@@ -1786,8 +2282,8 @@ export function ProjectsPage() {
             <PortfolioMetricCard
               caption="Needs immediate review"
               evidence={[
-                `${portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked} failed or blocked in latest runs`,
-                `${portfolioSummary.riskyLowPassProjects} below the 60% pass-confidence threshold`
+                `${portfolioSummary.executionFailureCases} failed and ${portfolioSummary.executionBlockedCases} blocked latest outcomes`,
+                `${portfolioSummary.riskyLowPassProjects} below the ${portfolioSummary.riskPassThreshold}% pass-confidence threshold`
               ]}
               label="Risky Projects"
               criteriaKey="metric.project.risky_classification"
@@ -1806,15 +2302,16 @@ export function ProjectsPage() {
               value={portfolioSummary.releaseReadyProjects}
             />
             <PortfolioMetricCard
-              caption="Average across project scope"
+              caption="Below run-evidence policy"
               evidence={[
-                `${portfolioSummary.coveredStories} of ${portfolioSummary.totalStories} Stories linked`,
-                `${portfolioSummary.totalStories - portfolioSummary.coveredStories} coverage gaps`
+                `${portfolioSummary.evidenceMissingProjects} accessible project${portfolioSummary.evidenceMissingProjects === 1 ? "" : "s"} violate the configured threshold`,
+                `Screenshots, videos, and comments on the latest run or its results count as evidence`,
+                `Projects without finalized run outcomes are flagged when QA scope exists`
               ]}
-              label="Story Coverage"
-              criteriaKey="metric.project.average_story_coverage"
-              tone="success"
-              value={`${portfolioSummary.averageRequirementCoverage}%`}
+              label="Evidence Missing"
+              criteriaKey="metric.project.execution_evidence"
+              tone="warning"
+              value={portfolioSummary.evidenceMissingProjects}
             />
             {canViewProjectAutomationCoverage ? (
               <PortfolioMetricCard
@@ -1894,10 +2391,10 @@ export function ProjectsPage() {
                   </CatalogSearchFilter>
                   <CatalogSelectionControls
                     allSelected={areAllFilteredProjectsSelected}
-                    canSelectAll={Boolean(filteredProjectItems.length)}
+                    canSelectAll={Boolean(selectableFilteredProjectItems.length)}
                     onClear={() => setSelectedActionProjectIds([])}
                     onSelectAll={() =>
-                      setSelectedActionProjectIds((current) => [...new Set([...current, ...filteredProjectItems.map((item) => item.project.id)])])
+                      setSelectedActionProjectIds((current) => [...new Set([...current, ...selectableFilteredProjectItems.map((item) => item.project.id)])])
                     }
                     selectedCount={selectedActionProjectIds.length}
                   />
@@ -1937,6 +2434,7 @@ export function ProjectsPage() {
                 <div className="projects-grid">
                   {filteredProjectItems.map((item) => {
                     const { project, coverage, automationCoverage, passCoverage } = item;
+                    const isLocked = project.has_access === false;
                     const isSelected = String(selectedProjectId) === String(project.id);
                     const requirementCoverageDetail = coverage.totalRequirements
                       ? `${coverage.coveredRequirements}/${coverage.totalRequirements} stories covered`
@@ -1955,21 +2453,23 @@ export function ProjectsPage() {
                         className={[
                           "project-portfolio-card",
                           `is-${item.healthTone}`,
+                          project.is_favorite ? "is-favorite" : "",
+                          isLocked ? "is-locked" : "",
                           isSelected ? "is-active" : ""
                         ].filter(Boolean).join(" ")}
-                        onClick={() => openPortfolioProject(item)}
+                        onClick={isLocked ? undefined : () => openPortfolioProject(item)}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) {
                             return;
                           }
 
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (!isLocked && (event.key === "Enter" || event.key === " ")) {
                             event.preventDefault();
                             openPortfolioProject(item);
                           }
                         }}
-                        role="button"
-                        tabIndex={0}
+                        role={isLocked ? "article" : "button"}
+                        tabIndex={isLocked ? -1 : 0}
                       >
                         <div className="project-portfolio-topline">
                           <div className="tile-card-select-row project-card-select-row">
@@ -1977,6 +2477,7 @@ export function ProjectsPage() {
                               <input
                                 aria-label={`Select ${project.name}`}
                                 checked={selectedActionProjectIds.includes(project.id)}
+                                disabled={isLocked}
                                 onChange={(event) =>
                                   setSelectedActionProjectIds((current) =>
                                     event.target.checked
@@ -1989,24 +2490,51 @@ export function ProjectsPage() {
 	                              <span className="sr-only">Select project</span>
 	                            </label>
 	                            <div className="project-portfolio-title">
-	                              <TileCardIconFrame className="project-card-icon" tone={isSelected ? "success" : "info"}>
-	                                <TileCardProjectIcon />
-	                              </TileCardIconFrame>
+                                <span className="project-card-icon-stack">
+	                                <TileCardIconFrame className={isLocked ? "project-card-icon is-locked" : "project-card-icon"} tone={isLocked ? "neutral" : isSelected ? "success" : "info"}>
+	                                  {isLocked ? <IconLock size={18} stroke={2.2} /> : <TileCardProjectIcon />}
+	                                </TileCardIconFrame>
+                                  <button
+                                    aria-label={`${project.is_favorite ? "Remove" : "Add"} ${project.name} ${project.is_favorite ? "from" : "to"} favorites`}
+                                    aria-pressed={Boolean(project.is_favorite)}
+                                    className={project.is_favorite ? "project-favorite-button project-tile-favorite is-favorite" : "project-favorite-button project-tile-favorite"}
+                                    disabled={updateProjectFavorite.isPending}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      toggleProjectFavorite(item);
+                                    }}
+                                    title={project.is_favorite ? "Remove from favorites" : "Add to favorites"}
+                                    type="button"
+                                  >
+                                    <IconStar aria-hidden="true" fill={project.is_favorite ? "currentColor" : "none"} size={14} stroke={2.2} />
+                                  </button>
+                                </span>
 	                              <DisplayIdBadge value={project.display_id || project.id} />
 	                              <div>
 	                                <h3>{project.name}</h3>
 	                              </div>
-	                            </div>
+                            </div>
                             <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
-                              <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
-                              <CatalogActionMenu
-                                actions={getProjectActionItems(item)}
-                                label={`${project.name} actions`}
-                              />
+                              <span className={`project-health-badge ${isLocked ? "neutral" : item.healthTone}`}>{isLocked ? "Locked" : item.healthLabel}</span>
+                              {!isLocked ? (
+                                <CatalogActionMenu
+                                  actions={getProjectActionItems(item)}
+                                  label={`${project.name} actions`}
+                                />
+                              ) : null}
                             </div>
                           </div>
                         </div>
 
+                        {isLocked ? (
+                          <div className="project-card-locked-state">
+                            <span className="project-card-locked-symbol"><IconLock aria-hidden="true" size={20} stroke={2} /></span>
+                            <div>
+                              <strong>Project access required</strong>
+                              <p>This project is visible in the workspace catalog, but its scope and activity remain private.</p>
+                            </div>
+                          </div>
+                        ) : <>
                         <div className={`project-readiness-row ${item.healthTone}`}>
                           <div>
                             <span>Release Readiness</span>
@@ -2055,16 +2583,17 @@ export function ProjectsPage() {
                         ) : null}
 
                         <div className="project-meta-grid">
-                          <span><b>{item.memberCount}</b> Members</span>
-                          <span><b>{item.suiteCount}</b> Suites</span>
-                          <span><b>{item.testCaseCount}</b> Cases</span>
                           <span><b>{item.requirementCount}</b> Stories</span>
+                          <span><b>{item.moduleCount}</b> Modules</span>
+                          <span><b>{item.testCaseCount}</b> Cases</span>
+                          <span><b>{item.bugCount}</b> Bugs</span>
                         </div>
 
                         <div className={`project-risk-note ${item.healthTone}`}>
-                          <span>{item.healthTone === "danger" ? "!" : "AI"}</span>
+                          <span>{item.healthTone === "danger" ? "!" : "Focus"}</span>
                           <p>{item.insight}</p>
                         </div>
+                        </>}
 
                         <div className="project-card-actions" aria-hidden="true" />
                       </article>
@@ -2077,15 +2606,22 @@ export function ProjectsPage() {
                   enableColumnResize
                   enableHeaderColumnReorder
                   emptyMessage="No projects match the current search or filters."
-                  getRowClassName={(item) => (String(selectedProjectId) === String(item.project.id) ? "is-active-row" : "")}
+                  getRowClassName={(item) => [
+                    String(selectedProjectId) === String(item.project.id) ? "is-active-row" : "",
+                    item.project.is_favorite ? "is-favorite-row" : "",
+                    item.project.has_access === false ? "is-locked-row" : ""
+                  ].filter(Boolean).join(" ")}
                   getRowKey={(item) => item.project.id}
                   hideToolbarCopy
                   onRowClick={openPortfolioProject}
                   renderRowActions={(item) => (
                     <div className="projects-list-actions">
-                      <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+                      {item.project.has_access !== false ? (
+                        <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+                      ) : null}
                     </div>
                   )}
+                  rowGroups={projectListRowGroups}
                   rows={filteredProjectItems}
                   storageKey="qaira:projects:list-columns"
                 />
@@ -2098,16 +2634,110 @@ export function ProjectsPage() {
         detailView={(
           <div className="stack-grid">
             <Panel
-              actions={<WorkspaceBackButton label="Back to projects list" onClick={() => setFocusedProjectId("")} />}
+              actions={<WorkspaceBackButton label="Back to projects list" onClick={() => {
+                setIsEditingProjectDetails(false);
+                setFocusedProjectId("");
+              }} />}
               title={focusedProject ? focusedProject.name : "Project summary"}
               subtitle={focusedProject ? "Quick orientation before you dive into related records." : "Select a project to reveal its scoped data."}
             >
               {focusedProject ? (
                 <div className="detail-stack">
-                  <div className="detail-summary">
-                    <strong>{focusedProject.name}</strong>
-                    <RichTextContent value={focusedProject.description} fallback="No description provided yet." />
-                  </div>
+                  {isEditingProjectDetails ? (
+                    <form className="project-details-edit-form" onSubmit={handleProjectDetailsSave}>
+                      <div className="project-details-edit-heading">
+                        <div>
+                          <span className="project-details-eyebrow">Project details</span>
+                          <h3>Edit name and description</h3>
+                          <p>Keep the description concise and scannable so the team understands the project scope quickly.</p>
+                        </div>
+                        <span className="project-details-edit-badge"><IconPencil aria-hidden="true" size={15} stroke={2} /> Editing</span>
+                      </div>
+                      <div className="project-details-edit-fields">
+                        <FormField label="Project name" inputId="project-details-name" required>
+                          <input
+                            autoFocus
+                            disabled={updateProjectDetails.isPending}
+                            id="project-details-name"
+                            onChange={(event) => setProjectDetailsDraft((current) => ({ ...current, name: event.target.value }))}
+                            value={projectDetailsDraft.name}
+                          />
+                        </FormField>
+                        <FormField label="Description" inputId="project-details-description">
+                          <RichTextEditor
+                            aiRephraseContext={{
+                              entityType: "project",
+                              entityId: focusedProject.id,
+                              entityTitle: projectDetailsDraft.name || focusedProject.name,
+                              fieldLabel: "Project description"
+                            }}
+                            aiRephraseTitle="Rephrase project description with AI"
+                            aria-label="Project description"
+                            appearance="canonical"
+                            className="project-details-description-editor"
+                            disabled={updateProjectDetails.isPending}
+                            id="project-details-description"
+                            onChange={(description) => setProjectDetailsDraft((current) => ({ ...current, description }))}
+                            placeholder="Describe the goals, scope, systems, and intended quality outcomes..."
+                            rows={5}
+                            value={projectDetailsDraft.description}
+                          />
+                        </FormField>
+                      </div>
+                      <div className="project-details-edit-actions">
+                        <span>AI suggestions remain editable and require explicit acceptance.</span>
+                        <button className="ghost-button" disabled={updateProjectDetails.isPending} onClick={closeProjectDetailsEditor} type="button">Cancel</button>
+                        <button className="primary-button" disabled={!projectDetailsDraft.name.trim() || updateProjectDetails.isPending} type="submit">
+                          {updateProjectDetails.isPending ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <article className="project-detail-overview">
+                      <div className="project-detail-overview-head">
+                        <div>
+                          <span className="project-details-eyebrow">Project details</span>
+                          <strong>{focusedProject.name}</strong>
+                        </div>
+                        {canManageProjects ? (
+                          <button
+                            aria-label={`Edit details for ${focusedProject.name}`}
+                            className="ghost-button project-details-edit-button"
+                            onClick={openProjectDetailsEditor}
+                            type="button"
+                          >
+                            <IconPencil aria-hidden="true" size={16} stroke={2} />
+                            <span>Edit details</span>
+                          </button>
+                        ) : null}
+                      </div>
+                      <RichTextContent value={focusedProject.description} fallback="No description provided yet." />
+                    </article>
+                  )}
+                  {canViewAttachments ? (
+                    <details className="project-detail-attachments">
+                      <summary>
+                        <span className="project-detail-attachments-icon"><IconPaperclip aria-hidden="true" size={17} stroke={2} /></span>
+                        <span>
+                          <strong>Attachments</strong>
+                          <small>Project briefs, references, and supporting files</small>
+                        </span>
+                        <IconChevronDown aria-hidden="true" className="project-detail-attachments-chevron" size={18} stroke={2} />
+                      </summary>
+                      <div className="project-detail-attachments-content">
+                        <JiraAttachmentPanel
+                          canDelete={canDeleteAttachments}
+                          canUpload={canCreateAttachments}
+                          canView={canViewAttachments}
+                          entityId={focusedProject.id}
+                          entityType="project"
+                          issueKey={focusedProject.display_id || focusedProject.id}
+                          projectId={focusedProject.id}
+                          title="Project attachments"
+                        />
+                      </div>
+                    </details>
+                  ) : null}
                   <div className="metric-strip">
                     <button
                       aria-label={`Open members for ${focusedProject.name}`}
@@ -2407,6 +3037,7 @@ export function ProjectsPage() {
             role="dialog"
             tabIndex={-1}
           >
+            <div className="project-risk-report-surface" ref={riskEvidenceReportRef}>
             <header className="project-risk-evidence-header">
               <div className="project-risk-evidence-heading">
                 <span className="project-risk-evidence-icon" aria-hidden="true">
@@ -2414,9 +3045,9 @@ export function ProjectsPage() {
                 </span>
                 <div>
                   <span className="dialog-context-label">Portfolio health</span>
-                  <h2 className="dialog-title" id="project-risk-evidence-title">Why projects need attention</h2>
+                  <h2 className="dialog-title" id="project-risk-evidence-title">Projects needing attention</h2>
                   <p id="project-risk-evidence-description">
-                    Current evidence from loaded Stories, test cases, automation status, and the latest execution results.
+                    Exact evidence across every accessible project, evaluated with the configured portfolio metric rules.
                   </p>
                 </div>
               </div>
@@ -2428,30 +3059,54 @@ export function ProjectsPage() {
 
             <div className="project-risk-evidence-body">
               <section className="project-risk-summary-grid" aria-label="Portfolio risk summary">
-                <article className="project-risk-summary-card tone-danger">
-                  <IconAlertTriangle aria-hidden="true" size={18} stroke={1.9} />
-                  <span>Needs attention</span>
-                  <strong>{portfolioSummary.attentionProjects}</strong>
-                  <small>{portfolioSummary.riskyProjects} risky · {portfolioSummary.watchProjects} watch</small>
-                </article>
-                <article className="project-risk-summary-card tone-danger">
-                  <IconActivity aria-hidden="true" size={18} stroke={1.9} />
-                  <span>Execution blockers</span>
-                  <strong>{portfolioSummary.riskyLatestFailed + portfolioSummary.riskyLatestBlocked}</strong>
-                  <small>Failed or blocked latest results</small>
-                </article>
-                <article className="project-risk-summary-card tone-info">
-                  <IconChartBar aria-hidden="true" size={18} stroke={1.9} />
-                  <span>Average pass confidence</span>
-                  <strong>{portfolioSummary.averagePassCoverage}%</strong>
-                  <small>Across loaded project test-case scope</small>
-                </article>
-                <article className="project-risk-summary-card tone-warning">
-                  <IconShieldCheck aria-hidden="true" size={18} stroke={1.9} />
-                  <span>Evidence missing</span>
-                  <strong>{portfolioSummary.attentionWithoutExecution}</strong>
-                  <small>Attention projects without a recorded run</small>
-                </article>
+                <EvidenceFlipCard
+                  caption={`${portfolioSummary.riskyProjects} risky · ${portfolioSummary.watchProjects} watch · accessible portfolio`}
+                  className="project-risk-summary-card"
+                  evidence={compactAttentionEvidence.length ? compactAttentionEvidence : ["No configured attention threshold is currently crossed."]}
+                  frontIcon={<IconAlertTriangle size={18} stroke={1.9} />}
+                  label="Projects need attention"
+                  tone={portfolioSummary.attentionProjects ? "danger" : "success"}
+                  value={`${portfolioSummary.attentionProjects}/${portfolioSummary.accessibleProjects}`}
+                />
+                <EvidenceFlipCard
+                  caption={`${portfolioSummary.executionBlockedCases} blocked outcomes disclosed separately`}
+                  className="project-risk-summary-card"
+                  evidence={[
+                    compactImpactEvidence("Modules", portfolioSummary.failureImpacts.modules),
+                    compactImpactEvidence("Stories", portfolioSummary.failureImpacts.requirements),
+                    `${portfolioSummary.executionFailureCases} failed cases across newest project runs`
+                  ]}
+                  frontIcon={<IconActivity size={18} stroke={1.9} />}
+                  label="Execution failure cases"
+                  tone="danger"
+                  value={portfolioSummary.executionFailureCases}
+                />
+                <EvidenceFlipCard
+                  caption="Latest finalized outcomes"
+                  className="project-risk-summary-card"
+                  evidence={[
+                    `${portfolioAnalyticsQuery.data?.projects.filter((item) => item.pass_confidence.total > 0).length || 0} projects have finalized pass evidence`,
+                    `${portfolioSummary.executionFailureCases} failed · ${portfolioSummary.executionBlockedCases} blocked latest-run cases`,
+                    "Running and unknown outcomes are excluded from pass confidence"
+                  ]}
+                  frontIcon={<IconChartBar size={18} stroke={1.9} />}
+                  label="Average pass confidence"
+                  tone="info"
+                  value={`${portfolioSummary.averagePassCoverage}%`}
+                />
+                <EvidenceFlipCard
+                  caption={`${portfolioSummary.openBugCount} currently open`}
+                  className="project-risk-summary-card"
+                  evidence={[
+                    compactImpactEvidence("Modules", portfolioSummary.bugImpacts.modules),
+                    compactImpactEvidence("Stories", portfolioSummary.bugImpacts.requirements),
+                    `${portfolioSummary.bugCount} distinct Bugs across accessible projects`
+                  ]}
+                  frontIcon={<IconBug size={18} stroke={1.9} />}
+                  label="Bugs"
+                  tone="warning"
+                  value={portfolioSummary.bugCount}
+                />
               </section>
 
               <section className="project-risk-method" aria-labelledby="project-risk-method-title">
@@ -2462,23 +3117,23 @@ export function ProjectsPage() {
                   <div>
                     <h3 id="project-risk-method-title">How the signal is calculated</h3>
                     <p>
-                      Readiness weights Story coverage at 35%, automation coverage at 25%, and latest pass confidence at 40%.
-                      Loaded cases without a passing latest result do not increase pass confidence.
+                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and latest finalized pass confidence at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
+                      Evidence policy requires {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.execution_evidence"]?.minimum_coverage_percent ?? 80)}% latest-run evidence coverage.
                     </p>
                   </div>
                 </div>
                 <dl>
                   <div>
                     <dt>Risky</dt>
-                    <dd>Latest failures or blockers, or pass confidence below 60%.</dd>
+                    <dd>Latest failures or blockers, or pass confidence below {portfolioSummary.riskPassThreshold}%.</dd>
                   </div>
                   <div>
                     <dt>Watch</dt>
-                    <dd>Assessable scope with weighted readiness below 80%.</dd>
+                    <dd>Readiness, evidence completeness, or open-Bug policy needs review.</dd>
                   </div>
                   <div>
                     <dt>Release ready</dt>
-                    <dd>Weighted readiness of at least 80% with no hard risk signal.</dd>
+                    <dd>Readiness of at least {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.release_ready"]?.readiness_threshold ?? 80)}% with no hard risk or policy violation.</dd>
                   </div>
                 </dl>
               </section>
@@ -2523,7 +3178,7 @@ export function ProjectsPage() {
                               <strong>{item.readinessScore}%</strong>
                             </div>
                             <ProjectProgressBar
-                              detail="35% Story coverage, 25% automation coverage, and 40% pass confidence"
+                              detail="Configured Story coverage, automation coverage, and latest finalized pass-confidence weights"
                               label="Weighted readiness"
                               tone={item.healthTone === "danger" ? "danger" : "info"}
                               value={item.readinessScore}
@@ -2550,6 +3205,16 @@ export function ProjectsPage() {
                               <dt>Latest blockers</dt>
                               <dd>{item.latestFailedCount + item.latestBlockedCount}</dd>
                               <small>{item.latestFailedCount} failed · {item.latestBlockedCount} blocked</small>
+                            </div>
+                            <div>
+                              <dt>Evidence</dt>
+                              <dd>{item.executionEvidence.coveragePercent}%</dd>
+                              <small>{item.executionEvidence.evidenced}/{item.executionEvidence.total} latest outcomes evidenced</small>
+                            </div>
+                            <div>
+                              <dt>Bugs</dt>
+                              <dd>{item.bugCount}</dd>
+                              <small>{item.openBugCount} open · {compactImpactEvidence("Modules", item.bugImpacts.modules)}</small>
                             </div>
                           </dl>
 
@@ -2579,10 +3244,17 @@ export function ProjectsPage() {
                 )}
               </section>
             </div>
+            </div>
 
             <footer className="project-risk-evidence-footer">
-              <span>Evidence refreshes with the project portfolio data.</span>
-              <button className="ghost-button" onClick={closeRiskEvidenceDialog} type="button">Close</button>
+              <span>Evidence refreshes from every accessible project. Compact cards reset automatically after 10 seconds.</span>
+              <div className="project-risk-footer-actions">
+                <button className="ghost-button" disabled={isExportingRiskPdf || !canExportPortfolioAttention} onClick={() => void exportRiskEvidencePdf()} title={canExportPortfolioAttention ? "Export this rendered attention view as PDF" : "Permission required: run.report.export"} type="button">
+                  <IconDownload aria-hidden="true" size={16} />
+                  {isExportingRiskPdf ? "Exporting…" : "Export PDF"}
+                </button>
+                <button className="ghost-button" onClick={closeRiskEvidenceDialog} type="button">Close</button>
+              </div>
             </footer>
           </div>
         </div>
@@ -2600,113 +3272,147 @@ export function ProjectsPage() {
             tabIndex={-1}
           >
             <div className="project-create-header">
-              <div className="project-create-title">
-                <div className="modal-title-info-row">
-                  <h2 className="dialog-title" id="create-project-title">Create project</h2>
-                  <InfoTooltip
-                    content="Create the project, attach app types, and select any extra members. Admins are added automatically, and your account is linked as a member."
-                    label="Create project information"
-                  />
-                </div>
+              <div className="project-create-heading">
+                <DialogCloseButton
+                  disabled={createProject.isPending}
+                  label="Close create project dialog"
+                  onClick={closeCreateProjectModal}
+                />
+                <h2 className="dialog-title" id="create-project-title">Create Project</h2>
               </div>
-              <DialogCloseButton
-                disabled={createProject.isPending}
-                label="Close create project dialog"
-                onClick={closeCreateProjectModal}
-              />
             </div>
 
-            <form className="project-create-modal-form" onSubmit={handleProjectCreate}>
+            <form className="project-create-modal-form" id="create-project-form" onSubmit={handleProjectCreate}>
               <div className="project-create-modal-body">
-                <div className="form-grid">
-                  <FormField label="Project name" inputId="project-name-input" required>
-                    <input
-                      autoComplete="organization"
-                      autoFocus
-                      data-autofocus="true"
-                      id="project-name-input"
-                      onChange={(event) => updateProjectDraft({ name: event.target.value })}
-                      value={projectDraft.name}
-                    />
-                  </FormField>
-                  <FormField label="Description" inputId="project-description-input">
-                    <RichTextEditor
-                      appearance="canonical"
-                      id="project-description-input"
-                      onChange={(description) => updateProjectDraft({ description })}
-                      rows={3}
-                      value={projectDraft.description}
-                    />
-                  </FormField>
-                </div>
-
-                <div className="metric-strip compact">
-                  <div className="mini-card">
-                    <strong>{projectDraft.memberIds.length}</strong>
-                    <span>Extra members selected</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{projectDraft.appTypes.filter((appType) => appType.name.trim()).length}</strong>
-                    <span>App types ready</span>
-                  </div>
-                </div>
-
-                <div className="detail-summary">
-                  <strong>Project-scoped access from the first save</strong>
-                  <span>The creator receives the workspace administrator role when the connected workspace grants administrative access; otherwise the creator receives QA lead. Every selected member must have a HelloTest role.</span>
-                </div>
-
-                <section className="project-create-section">
+                <div className="project-create-left-column">
+                <section aria-labelledby="project-app-configurations-title" className="project-create-section project-create-app-section">
                   <div className="project-create-section-head">
                     <div>
-                      <h4>App types</h4>
-                      <p>Add one or more app types so the project is ready for design work immediately.</p>
+                      <h3 className="project-create-step-title" id="project-app-configurations-title">
+                        <span aria-hidden="true" className="project-create-step-number">1</span>
+                        <span>App Configurations</span>
+                      </h3>
+                      <p>Define the applications involved in this project to set up appropriate test environments.</p>
                     </div>
-                    <button className="ghost-button" onClick={addProjectAppTypeRow} type="button">
-                      Add app type
-                    </button>
                   </div>
 
                   <div className="project-app-type-list">
-                    {projectDraft.appTypes.map((appType, index) => (
-                      <div className="project-app-type-row" key={appType.id}>
-                        <div className="project-app-type-grid">
-                          <FormField label={`App type ${index + 1} name`}>
+                    {projectDraft.appTypes.map((appType, index) => {
+                      const isExpanded = expandedProjectAppTypeId === appType.id;
+                      const appPanelId = `project-app-editor-${appType.id}`;
+                      return (
+                        <div className={isExpanded ? "project-app-type-row is-expanded" : "project-app-type-row"} key={appType.id}>
+                        <div className="project-app-type-summary">
+                          <span
+                            className="project-app-type-icon"
+                            data-platform-type={normalizeAppTypeKind(appType.type, appType.is_unified)}
+                          >
+                            <AppTypeIcon isUnified={appType.is_unified} size={19} type={appType.type} />
+                          </span>
+                          <span className="project-app-type-summary-copy">
+                            <strong>{appType.name.trim() || `App ${index + 1}`}</strong>
+                            <span>{appTypeDropdownOptions.find((option) => option.value === appType.type)?.label || appType.type || "Platform"}</span>
+                          </span>
+                          <span className="project-app-type-status">{appType.name.trim() ? "Added" : "Editing"}</span>
+                          <button
+                            aria-label={`Remove app ${index + 1}`}
+                            className="project-app-type-remove-button"
+                            onClick={() => removeProjectAppType(appType.id)}
+                            type="button"
+                          >
+                            <TrashIcon />
+                          </button>
+                          <button
+                            aria-controls={appPanelId}
+                            aria-expanded={isExpanded}
+                            aria-label={`${isExpanded ? "Collapse" : "Edit"} app ${index + 1}`}
+                            className="project-app-type-expand-button"
+                            onClick={() => setExpandedProjectAppTypeId(isExpanded ? "" : appType.id)}
+                            type="button"
+                          >
+                            {isExpanded ? <IconChevronUp aria-hidden="true" /> : <IconChevronDown aria-hidden="true" />}
+                          </button>
+                        </div>
+                        <div className="project-app-type-grid" hidden={!isExpanded} id={appPanelId}>
+                          <FormField label="App Name">
                             <input
                               onChange={(event) => updateProjectAppType(appType.id, { name: event.target.value })}
-                              placeholder="Web app"
+                              placeholder="e.g. Mobile API"
                               required
                               value={appType.name}
                             />
                           </FormField>
-                          <FormField label="Platform type">
+                          <FormField label="Platform Type">
                             <AppTypeDropdown
                               ariaLabel={`Select platform type for app type ${index + 1}`}
-                              onChange={(value) => updateProjectAppType(appType.id, { type: value as AppType["type"] })}
+                              inlineMenu
+                              onChange={(value) => updateProjectAppType(appType.id, {
+                                type: value as AppType["type"],
+                                is_unified: value === "unified"
+                              })}
                               options={appTypeDropdownOptions}
                               placeholder="Select platform type"
                               value={appType.type}
                             />
                           </FormField>
-                          <button className="ghost-button danger" onClick={() => removeProjectAppType(appType.id)} type="button">
-                            Remove
+                          <button
+                            className="primary-button project-app-type-done-button"
+                            onClick={() => setExpandedProjectAppTypeId("")}
+                            type="button"
+                          >
+                            Save Changes
                           </button>
                         </div>
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
+                  <button className="project-add-app-button" onClick={addProjectAppTypeRow} type="button">
+                    <AddIcon />
+                    <span>Add App</span>
+                  </button>
                 </section>
 
-                <section className="project-create-section">
+                <section aria-labelledby="project-members-title" className="project-create-section project-create-members-section">
                   <div className="project-create-section-head">
-                    <div>
-                      <h4>Project members</h4>
-                      <p>Select workspace users and assign a HelloTest role. The creator is added as QA lead, and every other selection defaults to QA member.</p>
+                    <h3 className="project-create-step-title" id="project-members-title">
+                      <span aria-hidden="true" className="project-create-step-number">2</span>
+                      <span>Project Members</span>
+                    </h3>
+                  </div>
+
+                  {projectDraft.visibility === "private" ? (
+                    <div className="project-private-owner-card">
+                      <span className="project-private-owner-icon"><IconLock aria-hidden="true" size={18} stroke={2.1} /></span>
+                      <div>
+                        <strong>Private to you</strong>
+                        <p>{session?.user.name || visibleUserEmail(session?.user.email) || "Project creator"} will be added automatically. Other workspace users stay hidden and cannot access this project.</p>
+                      </div>
                     </div>
-                    <div className="panel-head-actions">
-                      <span className="status-pill tone-neutral">{projectDraft.memberIds.length} selected</span>
+                  ) : <>
+                  <div className="project-create-access-banner">
+                    <IconInfoCircle aria-hidden="true" size={20} stroke={2} />
+                    <div>
+                      <strong>Project-scoped access</strong>
+                      <p>Users added here only have access to resources within this project. Assign <b>Administrator</b> for full project control, or <b>QA Lead</b> for testing management.</p>
+                    </div>
+                  </div>
+
+                  <div className="project-member-picker-shell">
+                    <div className="project-member-picker-toolbar">
+                      <label className="project-member-search-field">
+                        <span className="sr-only">Search team members</span>
+                        <IconSearch aria-hidden="true" size={17} stroke={2} />
+                        <input
+                          onChange={(event) => setProjectMemberSearch(event.target.value)}
+                          placeholder="Search team members..."
+                          type="search"
+                          value={projectMemberSearch}
+                        />
+                      </label>
+                      <div className="project-member-picker-actions">
                       <button
-                        className="ghost-button"
+                        className="project-member-text-button"
                         disabled={!selectableProjectMemberIds.length || areAllSelectableProjectMembersSelected}
                         onClick={selectAllProjectDraftMembers}
                         type="button"
@@ -2714,7 +3420,7 @@ export function ProjectsPage() {
                         Select all
                       </button>
                       <button
-                        className="ghost-button"
+                        className="project-member-text-button is-muted"
                         disabled={!projectDraft.memberIds.length}
                         onClick={clearProjectDraftMembers}
                         type="button"
@@ -2726,9 +3432,15 @@ export function ProjectsPage() {
 
                   {projectMemberOptions.length ? (
                     <div className="modal-case-picker project-member-picker">
-                      {projectMemberOptions.map((user) => {
+                      {filteredProjectMemberOptions.map((user) => {
                         const isAutoIncluded = user.id === session?.user.id;
                         const isSelected = isAutoIncluded || projectDraft.memberIds.includes(user.id);
+                        const initials = String(user.name || visibleUserEmail(user.email) || "?")
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part[0]?.toUpperCase())
+                          .join("");
 
                         return (
                           <div className={isAutoIncluded ? "modal-case-option project-member-option is-auto-included" : "modal-case-option project-member-option"} key={user.id}>
@@ -2739,6 +3451,7 @@ export function ProjectsPage() {
                                 onChange={() => toggleProjectDraftMember(user.id)}
                                 type="checkbox"
                               />
+                              <span aria-hidden="true" className="project-member-avatar">{initials}</span>
                               <span>
                                 <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
                                 <span>{visibleUserEmail(user.email)}</span>
@@ -2762,22 +3475,149 @@ export function ProjectsPage() {
                           </div>
                         );
                       })}
+                      {!filteredProjectMemberOptions.length ? (
+                        <div className="project-member-search-empty">No team members match “{projectMemberSearch}”.</div>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="empty-state compact">No users exist yet to add to this project.</div>
                   )}
+                  </div>
+                  </>}
+                </section>
+                </div>
+
+                <section aria-labelledby="project-create-details-title" className="project-create-section project-create-general-section">
+                  <h3 className="project-create-step-title" id="project-create-details-title">
+                    <span aria-hidden="true" className="project-create-step-number is-primary">3</span>
+                    <span>Project Details</span>
+                  </h3>
+                  <div className="project-create-general-card">
+                    <FormField label="Project name" inputId="project-name-input" required>
+                      <input
+                        autoComplete="organization"
+                        autoFocus
+                        data-autofocus="true"
+                        id="project-name-input"
+                        onChange={(event) => updateProjectDraft({ name: event.target.value })}
+                        placeholder="e.g. Q4 Data Pipeline Refactor"
+                        value={projectDraft.name}
+                      />
+                    </FormField>
+                    <FormField label="Description" inputId="project-description-input">
+                      <RichTextEditor
+                        aria-label="Project description"
+                        appearance="canonical"
+                        id="project-description-input"
+                        onAttachmentRequest={() => projectAttachmentInputRef.current?.click()}
+                        onChange={(description) => updateProjectDraft({ description })}
+                        placeholder="Briefly describe the goals and scope of this project..."
+                        rows={3}
+                        value={projectDraft.description}
+                      />
+                    </FormField>
+                    <FormField label="Project type" inputId="project-visibility-input" required>
+                      <select
+                        id="project-visibility-input"
+                        onChange={(event) => updateProjectDraft({
+                          visibility: event.target.value as ProjectCreateDraft["visibility"],
+                          ...(event.target.value === "private" ? { memberIds: [], memberRoleIds: {} } : {})
+                        })}
+                        value={projectDraft.visibility}
+                      >
+                        <option value="private">Private — only you</option>
+                        <option value="public">Public — invite workspace users</option>
+                      </select>
+                      <span className="project-visibility-help">
+                        {projectDraft.visibility === "private"
+                          ? "Creator-only access. Choose Public when this project needs collaborators."
+                          : "Choose the workspace users who should receive project access."}
+                      </span>
+                    </FormField>
+                    <section aria-labelledby="project-create-attachments-title" className="project-create-attachments-section">
+                      <div className="project-create-attachments-heading">
+                        <div>
+                          <span className="project-create-attachments-icon"><IconPaperclip aria-hidden="true" size={16} stroke={2.1} /></span>
+                          <span>
+                            <strong id="project-create-attachments-title">Attachments</strong>
+                            <small>{projectDraft.attachments.length}/{MAX_PROJECT_ATTACHMENTS} files · gzip compressed on upload</small>
+                          </span>
+                        </div>
+                        <button
+                          className="project-create-attachment-browse"
+                          disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                          onClick={() => projectAttachmentInputRef.current?.click()}
+                          type="button"
+                        >
+                          <IconUpload aria-hidden="true" size={15} stroke={2} />
+                          <span>Add files</span>
+                        </button>
+                      </div>
+                      <input
+                        hidden
+                        multiple
+                        onChange={(event) => event.target.files && stageProjectAttachments(event.target.files)}
+                        ref={projectAttachmentInputRef}
+                        type="file"
+                      />
+                      <div
+                        className={isProjectAttachmentDragging ? "project-create-attachment-dropzone is-dragging" : "project-create-attachment-dropzone"}
+                        onDragEnter={(event) => { event.preventDefault(); setIsProjectAttachmentDragging(true); }}
+                        onDragLeave={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsProjectAttachmentDragging(false);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={handleProjectAttachmentDrop}
+                      >
+                        {projectDraft.attachments.length ? (
+                          <ul className="project-create-attachment-list">
+                            {projectDraft.attachments.map((file) => (
+                              <li key={`${file.name}:${file.size}:${file.lastModified}`}>
+                                <span className="project-create-attachment-file-icon"><IconPaperclip aria-hidden="true" size={14} stroke={2} /></span>
+                                <span className="project-create-attachment-file-copy">
+                                  <strong title={file.name}>{file.name}</strong>
+                                  <small>{formatProjectAttachmentBytes(file.size)} · ready to compress</small>
+                                </span>
+                                <button aria-label={`Remove ${file.name}`} onClick={() => removeProjectAttachment(file)} type="button">
+                                  <IconX aria-hidden="true" size={15} stroke={2} />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <button
+                            className="project-create-attachment-empty"
+                            disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                            onClick={() => projectAttachmentInputRef.current?.click()}
+                            type="button"
+                          >
+                            <IconUpload aria-hidden="true" size={18} stroke={1.9} />
+                            <span>Drop project files here or browse</span>
+                          </button>
+                        )}
+                      </div>
+                      {projectAttachmentMetaQuery.error ? (
+                        <span className="project-create-attachment-error">Unable to verify attachment storage. Files can be retried from Project Details.</span>
+                      ) : null}
+                    </section>
+                  </div>
                 </section>
               </div>
-
-              <div className="action-row project-create-modal-actions">
-                <button className="ghost-button danger" disabled={createProject.isPending} onClick={closeCreateProjectModal} type="button">
-                  Cancel
-                </button>
-                <button className="primary-button" disabled={!canCreateProjects || createProject.isPending} type="submit">
-                  {createProject.isPending ? "Creating…" : "Create project"}
-                </button>
-              </div>
             </form>
+
+            <footer className="project-create-footer">
+              <button className="ghost-button project-create-cancel-button" disabled={createProject.isPending} onClick={closeCreateProjectModal} type="button">
+                Cancel
+              </button>
+              <button
+                className="primary-button project-create-submit-button"
+                disabled={!canCreateProjects || createProject.isPending}
+                form="create-project-form"
+                type="submit"
+              >
+                {createProject.isPending ? "Creating…" : "Create Project"}
+              </button>
+            </footer>
           </div>
         </div>
       ) : null}

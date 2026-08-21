@@ -1745,6 +1745,16 @@ input, select, textarea {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
+.app-type-inline-icon[data-platform-type="web"] { color: #0c66e4; background: #e9f2ff; border-color: #b9d5fb; }
+.app-type-inline-icon[data-platform-type="api"] { color: #6e5dc6; background: #f1efff; border-color: #d5cef8; }
+.app-type-inline-icon[data-platform-type="android"] { color: #168a53; background: #e9f8ef; border-color: #bde7ce; }
+.app-type-inline-icon[data-platform-type="ios"] { color: #344563; background: #f0f2f5; border-color: #cbd2df; }
+.app-type-inline-icon[data-platform-type="unified"] { color: #006d77; background: #e5f7f8; border-color: #b5e3e6; }
+
+.platform-type-icon {
+  filter: drop-shadow(0 1px 1px rgba(20, 38, 75, 0.08));
+}
+
 .project-app-type-card-title {
   display: block;
 }
@@ -23631,27 +23641,114 @@ html {
 
 .project-traceability-toolbar {
   display: grid;
-  grid-template-columns: minmax(16rem, 1fr) minmax(11rem, 15rem) minmax(10rem, 16rem);
-  gap: 0.85rem;
-  align-items: end;
-  padding: 0.9rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 92%, var(--primary) 8%);
+  grid-template-columns: minmax(16rem, 1fr) minmax(9.5rem, 12rem) minmax(15rem, 20rem);
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border-subtle));
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 96%, var(--primary) 4%), var(--surface));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary) 7%, transparent);
 }
 
-.project-traceability-toolbar > div:first-child,
-.project-traceability-toolbar > label {
+.project-traceability-toolbar-copy,
+.project-traceability-app-filter {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.2rem;
   min-width: 0;
 }
 
-.project-traceability-toolbar > div:first-child span,
-.project-traceability-toolbar > label > span {
+.project-traceability-toolbar-copy > strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.25;
+}
+
+.project-traceability-toolbar-copy > span {
   color: var(--text-secondary);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   line-height: 1.4;
+}
+
+.project-traceability-app-filter {
+  width: 100%;
+  max-width: 12rem;
+  justify-self: end;
+}
+
+.project-traceability-app-filter > span {
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+  font-weight: 760;
+  letter-spacing: 0.045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.project-traceability-app-filter > select {
+  width: 100%;
+  min-height: 2.3rem;
+  padding: 0.46rem 2rem 0.46rem 0.7rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border-subtle));
+  border-radius: 9px;
+  background-color: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.project-traceability-app-filter > select:focus-visible,
+.project-traceability-search:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--border-subtle));
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.project-traceability-search {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-self: end;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border-subtle));
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.project-traceability-search > svg {
+  position: absolute;
+  z-index: 1;
+  left: 0.72rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  pointer-events: none;
+}
+
+.project-traceability-search > input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.3rem;
+  padding: 0.48rem 0.75rem 0.48rem 2.2rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.project-traceability-search > input::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
 }
 
 .project-traceability-health {
@@ -23837,12 +23934,13 @@ html {
 .project-traceability-continuation.is-error { border-color: color-mix(in srgb, var(--danger, #c93756) 40%, var(--border-subtle)); background: color-mix(in srgb, var(--danger, #c93756) 7%, var(--surface)); }
 
 @media (max-width: 980px) {
-  .project-traceability-toolbar { grid-template-columns: minmax(0, 1fr) minmax(10rem, 14rem); }
+  .project-traceability-toolbar { grid-template-columns: minmax(0, 1fr) minmax(10rem, 12rem); }
   .project-traceability-search { grid-column: 1 / -1; }
 }
 
 @media (max-width: 640px) {
   .project-traceability-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .project-traceability-app-filter { max-width: none; justify-self: stretch; }
   .project-traceability-search { grid-column: auto; }
   .project-traceability-lanes { grid-template-columns: repeat(4, minmax(15rem, 82vw)); scroll-snap-type: x proximity; }
   .project-traceability-lane { scroll-snap-align: start; }
@@ -39811,6 +39909,58 @@ body > .nested-modal-backdrop {
   line-height: 1.45;
 }
 
+.settings-metric-parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line, #d8deea);
+  border-radius: 8px;
+}
+
+.settings-metric-parameter-grid legend {
+  padding: 0 0.35rem;
+  color: var(--ink, #172b4d);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.settings-metric-number-input {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line, #c8d0dc);
+  border-radius: 7px;
+  background: var(--panel-strong, #fff);
+}
+
+.settings-metric-number-input:focus-within {
+  border-color: var(--primary, #0758c9);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #0758c9) 16%, transparent);
+}
+
+.settings-metric-number-input input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-metric-number-input > span {
+  padding: 0 0.65rem;
+  color: var(--muted, #64748b);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .settings-metric-parameter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .settings-metric-criteria-card {
   align-content: start;
 }
@@ -45591,19 +45741,41 @@ body > .nested-modal-backdrop {
   box-shadow: 0 10px 28px rgba(31, 35, 40, 0.1);
 }
 
-.rich-text-ai-review .agent-process-rail {
-  border-top: 0;
-}
-
 .rich-text-ai-review > header,
 .rich-text-ai-review > footer,
 .rich-text-ai-review__loading {
   padding: 0 0.9rem;
 }
 
+.rich-text-ai-review > .rich-text-ai-review__header {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+  padding-top: 0.82rem;
+}
+
 .rich-text-ai-review > header > div {
   display: grid;
+  min-width: 0;
   gap: 0.12rem;
+}
+
+.rich-text-ai-review > header > .rich-text-ai-review__heading-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.rich-text-ai-review__header > strong {
+  font-size: 0.78rem;
+}
+
+.rich-text-ai-review__header .ai-evidence-button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  border-color: rgba(9, 105, 218, 0.24);
+  background: #f4f8ff;
 }
 
 .rich-text-ai-review > header span {
@@ -45648,6 +45820,20 @@ body > .nested-modal-backdrop {
   padding-bottom: 0.82rem;
   color: #656d76;
   font-size: 0.74rem;
+}
+
+@media (max-width: 480px) {
+  .rich-text-ai-review > .rich-text-ai-review__header {
+    gap: 0.18rem;
+  }
+
+  .rich-text-ai-review__header .ai-evidence-button {
+    padding-inline: 0.55rem;
+  }
+
+  .rich-text-ai-review__header .ai-evidence-button > svg:last-child {
+    display: none;
+  }
 }
 
 :root[data-theme="dark"] .rich-text-editor-toolbar {
@@ -54194,8 +54380,9 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
 }
 
 .evidence-flip-card-back {
+  position: absolute;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.45rem;
   transform: rotateY(180deg);
   pointer-events: none;
@@ -54213,6 +54400,8 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
   display: grid;
   gap: 0.14rem;
   min-width: 0;
+  min-height: 1.7rem;
+  padding-left: 2.05rem;
 }
 
 .evidence-flip-card-back-heading > span {
@@ -54242,19 +54431,31 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
 }
 
 .evidence-flip-card-back-button {
-  width: max-content;
-  min-height: 1.6rem;
+  position: absolute;
+  z-index: 3;
+  top: 0.72rem;
+  left: 0.72rem;
+  display: inline-grid;
+  width: 1.55rem;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  min-height: 1.55rem;
+  place-items: center;
   padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--line));
+  border-radius: 0.48rem;
+  background: color-mix(in srgb, var(--primary) 7%, var(--shell-panel));
+  color: var(--primary-strong, var(--primary));
   cursor: pointer;
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 760;
-  line-height: 1.2;
-  text-decoration: underline;
-  text-underline-offset: 0.16rem;
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 10%, transparent);
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.evidence-flip-card-back-button:hover {
+  border-color: color-mix(in srgb, var(--primary) 44%, var(--line));
+  background: color-mix(in srgb, var(--primary) 12%, var(--shell-panel));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 16%, transparent);
+  transform: translateX(-1px);
 }
 
 .evidence-flip-card-back-button:focus-visible {
@@ -54565,4 +54766,12 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
   .page-content--executions-full .execution-run-tile-grid {
     grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)) !important;
   }
+}
+
+/* Keep native checkboxes visually consistent across light and dark surfaces.
+   The control surface remains white; selection uses the shared product blue. */
+:where(input[type="checkbox"]) {
+  color-scheme: light !important;
+  background-color: #ffffff !important;
+  accent-color: var(--brand-blue-600, #2563eb) !important;
 }

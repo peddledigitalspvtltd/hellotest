@@ -1,12 +1,12 @@
 import { type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconPhoto } from "@tabler/icons-react";
+import { IconPaperclip, IconPhoto } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
-import { AgenticProcessRail } from "./AgenticExperience";
+import { AiEvidenceButton, AiEvidenceFlyout } from "./AgenticExperience";
 
 type RichTextEditorProps = {
   id?: string;
@@ -21,6 +21,7 @@ type RichTextEditorProps = {
   appearance?: "standard" | "canonical";
   toolbarPreset?: "default" | "sprint-goal";
   onAiRephrase?: (html: string, plainText: string) => Promise<string | void> | string | void;
+  onAttachmentRequest?: () => void;
   aiRephraseTitle?: string;
   aiRephraseContext?: {
     entityType?: string;
@@ -40,6 +41,21 @@ type RichTextContentProps = {
   className?: string;
   as?: ElementType;
   title?: string;
+};
+
+type AiRephraseEvidence = {
+  status: "running" | "completed" | "failed";
+  entityType: string;
+  entityId: string;
+  entityTitle: string;
+  fieldLabel: string;
+  sourceText: string;
+  projectId: string;
+  provider: string;
+  model: string;
+  generationMode: string;
+  fallbackReason: string;
+  outputLength: number;
 };
 
 const ALLOWED_TAGS = new Set(["a", "b", "blockquote", "br", "code", "div", "em", "h3", "i", "li", "ol", "p", "s", "span", "strike", "strong", "u", "ul"]);
@@ -297,6 +313,69 @@ export function richTextToPlainText(value?: string | null) {
     .trim();
 }
 
+function richTextToEditableMarkdown(value: string) {
+  const normalized = normalizeRichTextHtml(value);
+
+  if (typeof document === "undefined") {
+    return normalized
+      .replace(/<li[^>]*>/gi, "- ")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<\/?(?:ul|ol)[^>]*>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const container = document.createElement("div");
+  container.innerHTML = normalized;
+
+  const serializeInline = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || "";
+    }
+    if (!(node instanceof HTMLElement)) {
+      return "";
+    }
+
+    const content = Array.from(node.childNodes).map(serializeInline).join("");
+    switch (node.tagName.toLowerCase()) {
+      case "strong":
+      case "b":
+        return `**${content}**`;
+      case "em":
+      case "i":
+        return `*${content}*`;
+      case "code":
+        return `\`${content}\``;
+      case "a": {
+        const href = sanitizeUrl(node.getAttribute("href") || "");
+        return href ? `[${content}](${href})` : content;
+      }
+      case "br":
+        return "\n";
+      default:
+        return content;
+    }
+  };
+
+  const blocks = Array.from(container.children).flatMap((element) => {
+    const tag = element.tagName.toLowerCase();
+    if (tag === "ul" || tag === "ol") {
+      return Array.from(element.children)
+        .filter((child) => child.tagName.toLowerCase() === "li")
+        .map((item, index) => `${tag === "ol" ? `${index + 1}.` : "-"} ${serializeInline(item).trim()}`);
+    }
+    if (tag === "blockquote") {
+      return [`> ${serializeInline(element).trim()}`];
+    }
+    return [serializeInline(element).trim()];
+  });
+
+  return blocks.filter(Boolean).join("\n\n").trim();
+}
+
 function isSelectionInside(root: HTMLElement) {
   const selection = window.getSelection();
   if (!selection?.rangeCount) {
@@ -336,6 +415,7 @@ export function RichTextEditor({
   appearance = "standard",
   toolbarPreset = "default",
   onAiRephrase,
+  onAttachmentRequest,
   aiRephraseTitle = "Rephrase description with AI",
   aiRephraseContext,
   "aria-label": ariaLabel
@@ -347,6 +427,8 @@ export function RichTextEditor({
   const lastHtmlRef = useRef("");
   const [isRephrasing, setIsRephrasing] = useState(false);
   const [aiProposal, setAiProposal] = useState<string | null>(null);
+  const [aiEvidence, setAiEvidence] = useState<AiRephraseEvidence | null>(null);
+  const [isAiEvidenceOpen, setIsAiEvidenceOpen] = useState(false);
   const isEmpty = !richTextToPlainText(value);
   const canUseDefaultAiRephrase = Boolean(projectId)
     && hasPermission(session, "content.ai")
@@ -471,29 +553,73 @@ export function RichTextEditor({
       return;
     }
 
+    const evidenceBase: AiRephraseEvidence = {
+      status: "running",
+      entityType: aiRephraseContext?.entityType || "rich-text authoring field",
+      entityId: aiRephraseContext?.entityId || "",
+      entityTitle: aiRephraseContext?.entityTitle || "",
+      fieldLabel: aiRephraseContext?.fieldLabel || aiRephraseTitle.replace(/^Rephrase\s+/i, "").replace(/\s+with AI$/i, ""),
+      sourceText: plainText,
+      projectId: projectId || "",
+      provider: onAiRephrase ? "Feature-provided rephrase handler" : "Resolving configured provider",
+      model: "",
+      generationMode: onAiRephrase ? "feature handler" : "provider selection pending",
+      fallbackReason: "",
+      outputLength: 0
+    };
+
+    setAiEvidence(evidenceBase);
+    setIsAiEvidenceOpen(false);
     setIsRephrasing(true);
     try {
-      const aiValue = onAiRephrase
-        ? await onAiRephrase(currentHtml, plainText)
-        : (await api.ai.rephraseRichText({
+      let aiValue: string | void;
+      let resolvedEvidence = evidenceBase;
+
+      if (onAiRephrase) {
+        aiValue = await onAiRephrase(currentHtml, plainText);
+      } else {
+        const response = await api.ai.rephraseRichText({
             project_id: projectId,
             content: plainText,
             content_html: currentHtml,
-            entity_type: aiRephraseContext?.entityType || "rich-text authoring field",
-            entity_id: aiRephraseContext?.entityId,
-            entity_title: aiRephraseContext?.entityTitle,
-            field_label: aiRephraseContext?.fieldLabel || aiRephraseTitle.replace(/^Rephrase\s+/i, "").replace(/\s+with AI$/i, ""),
+            entity_type: evidenceBase.entityType,
+            entity_id: evidenceBase.entityId || undefined,
+            entity_title: evidenceBase.entityTitle || undefined,
+            field_label: evidenceBase.fieldLabel,
             app_type_id: aiRephraseContext?.appTypeId,
             requirement_id: aiRephraseContext?.requirementId,
             module_id: aiRephraseContext?.moduleId,
             aria_label: ariaLabel
-          })).content;
+          });
+        aiValue = response.content;
+        resolvedEvidence = {
+          ...evidenceBase,
+          provider: response.integration?.name || "HelloTest AI",
+          model: response.integration?.model || "",
+          generationMode: String(response.provenance?.generation_mode || "configured rephrase"),
+          fallbackReason: String(response.provenance?.fallback_reason || "")
+        };
+      }
+
       const nextValue = typeof aiValue === "string" ? aiValue : "";
       if (nextValue) {
         const nextHtml = sanitizeRichTextHtml(nextValue);
-        setAiProposal(richTextToPlainText(nextHtml));
+        const editableProposal = richTextToEditableMarkdown(nextHtml);
+        setAiProposal(editableProposal);
+        setAiEvidence({
+          ...resolvedEvidence,
+          status: "completed",
+          outputLength: richTextToPlainText(nextHtml).length
+        });
+      } else {
+        setAiEvidence({ ...resolvedEvidence, status: "failed" });
       }
     } catch (error) {
+      setAiEvidence({
+        ...evidenceBase,
+        status: "failed",
+        fallbackReason: error instanceof Error ? error.message : "The rephrase request could not be completed."
+      });
       console.warn("Rich text AI rephrase failed; the original content was preserved.", error);
     } finally {
       setIsRephrasing(false);
@@ -502,16 +628,49 @@ export function RichTextEditor({
 
   const acceptAiProposal = useCallback(() => {
     if (!aiProposal?.trim()) return;
-    const nextHtml = sanitizeRichTextHtml(aiProposal
-      .trim()
-      .split(/\n{2,}/)
-      .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
-      .join(""));
+    const nextHtml = sanitizeRichTextHtml(markdownToHtml(aiProposal.trim()));
     lastHtmlRef.current = nextHtml;
     onChange(nextHtml);
     if (editorRef.current) editorRef.current.innerHTML = nextHtml;
     setAiProposal(null);
   }, [aiProposal, onChange]);
+
+  const evidenceEntityLabel = aiEvidence?.entityTitle
+    || aiEvidence?.entityId
+    || aiEvidence?.entityType
+    || "Current rich-text field";
+  const evidenceStages = aiEvidence ? [
+    {
+      label: "Intent",
+      detail: `Improve ${aiEvidence.fieldLabel || "the current field"} for clarity and scanability without changing its meaning.`
+    },
+    {
+      label: "Considered context",
+      detail: `Used the current ${aiEvidence.sourceText.length}-character field value${aiEvidence.entityTitle ? ` and the supplied ${aiEvidence.entityType} title “${aiEvidence.entityTitle}”` : ""}${aiEvidence.projectId ? " within the active project scope" : ""}.`
+    },
+    {
+      label: "Guardrails",
+      detail: "Preserve facts, identifiers, outcomes, constraints, and testability. Do not invent records, evidence, links, results, or approvals."
+    },
+    {
+      label: "Content specialist",
+      detail: `${aiEvidence.provider}${aiEvidence.model ? ` · ${aiEvidence.model}` : ""} produced the proposal using ${aiEvidence.generationMode}.`
+    },
+    {
+      label: "Output contract",
+      detail: aiEvidence.entityType.toLowerCase() === "project"
+        ? "Return concise semantic HTML with a scannable unordered bullet list for the project description."
+        : "Return concise semantic rich text and use lists where they improve scanning."
+    },
+    {
+      label: "Evaluation",
+      detail: `Sanitized the proposal to the supported rich-text allowlist${aiEvidence.outputLength ? ` and retained ${aiEvidence.outputLength} characters of visible output` : ""}.`
+    },
+    {
+      label: "Human review",
+      detail: "The original content remains unchanged until Accept replacement is selected. The proposal stays editable before acceptance."
+    }
+  ] : [];
 
   const defaultControls: Array<{ group: "format" | "insert" | "list" | "ai"; label: ReactNode; title: string; action: () => void; disabled?: boolean }> = [
     { group: "format", label: <strong className="rich-text-tool-glyph">B</strong>, title: "Bold", action: () => runCommand("bold") },
@@ -519,6 +678,7 @@ export function RichTextEditor({
     { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--strike">S</span>, title: "Strikethrough", action: () => runCommand("strikeThrough") },
     { group: "format", label: <span className="rich-text-tool-glyph rich-text-tool-glyph--underline">U</span>, title: "Underline", action: () => runCommand("underline") },
     { group: "insert", label: <RichTextLinkIcon />, title: "Link", action: createLink },
+    ...(onAttachmentRequest ? [{ group: "insert" as const, label: <IconPaperclip aria-hidden="true" size={18} stroke={1.9} />, title: "Attach files", action: onAttachmentRequest }] : []),
     { group: "insert", label: <RichTextCodeIcon />, title: "Inline code", action: wrapSelectionWithCode },
     { group: "list", label: <RichTextBulletedListIcon />, title: "Bulleted list", action: () => runCommand("insertUnorderedList") },
     { group: "list", label: <RichTextNumberedListIcon />, title: "Numbered list", action: () => runCommand("insertOrderedList") },
@@ -583,12 +743,17 @@ export function RichTextEditor({
       />
       {isRephrasing || aiProposal !== null ? (
         <section aria-label="AI rephrase proposal" className="rich-text-ai-review">
-          <AgenticProcessRail agentName="Content Improvement Agent" compact status={isRephrasing ? "running" : "completed"} />
+          <header className="rich-text-ai-review__header">
+            <div className="rich-text-ai-review__heading-line">
+              <span>Editable AI proposal</span>
+              <AiEvidenceButton label="Inspect evidence" onClick={() => setIsAiEvidenceOpen(true)} />
+            </div>
+            <strong>{isRephrasing ? "Building an editable proposal" : "Review before replacing the current text"}</strong>
+          </header>
           {isRephrasing ? (
             <div className="rich-text-ai-review__loading" role="status">Building an editable proposal. Your current text is preserved.</div>
           ) : (
             <>
-              <header><div><span>Editable AI proposal</span><strong>Review before replacing the current text</strong></div></header>
               <textarea aria-label="Edit AI rephrase proposal" onChange={(event) => setAiProposal(event.target.value)} rows={Math.max(4, rows)} value={aiProposal || ""} />
               <footer>
                 <span>Nothing changes until you accept.</span>
@@ -599,6 +764,46 @@ export function RichTextEditor({
           )}
         </section>
       ) : null}
+      <AiEvidenceFlyout
+        description={`Request-specific evidence for ${aiEvidence?.fieldLabel || "this AI rephrase"}.`}
+        eyebrow="AI rephrase evidence"
+        facts={aiEvidence ? [
+          { label: "State", value: aiEvidence.status === "running" ? "Preparing proposal" : aiEvidence.status === "completed" ? "Ready for review" : "Request failed" },
+          { label: "Target", value: evidenceEntityLabel },
+          { label: "Field", value: aiEvidence.fieldLabel || "Rich text" },
+          { label: "Source", value: `${aiEvidence.sourceText.length} characters` },
+          { label: "Provider", value: aiEvidence.provider },
+          { label: "Mode", value: aiEvidence.generationMode }
+        ] : []}
+        onClose={() => setIsAiEvidenceOpen(false)}
+        open={isAiEvidenceOpen && Boolean(aiEvidence)}
+        title={`${aiEvidence?.fieldLabel || "AI rephrase"} evidence`}
+      >
+        <section className="ai-evidence-flyout__section">
+          <header>
+            <span>Considered request</span>
+            <strong>What the rephrase used and was required to preserve</strong>
+          </header>
+          <ol className="ai-evidence-flyout__timeline">
+            {evidenceStages.map((stage, index) => (
+              <li data-status={aiEvidence?.status === "completed" ? "complete" : index === 0 ? "current" : "queued"} key={stage.label}>
+                <span aria-hidden="true">{index + 1}</span>
+                <div>
+                  <strong>{stage.label}</strong>
+                  <p>{stage.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+        {aiEvidence?.fallbackReason ? (
+          <section className="ai-evidence-flyout__section">
+            <header><span>Provider note</span><strong>Fallback or failure detail</strong></header>
+            <p className="ai-evidence-flyout__empty">{aiEvidence.fallbackReason}</p>
+          </section>
+        ) : null}
+        <p className="ai-evidence-flyout__boundary">This panel shows the supplied context, enforced constraints, and observable processing metadata. It does not expose hidden model reasoning.</p>
+      </AiEvidenceFlyout>
     </div>
   );
 }

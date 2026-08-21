@@ -95,6 +95,9 @@ export type JiraAttachment = {
   id: string;
   filename: string;
   size: number;
+  storedSize?: number;
+  compression?: "gzip" | "none" | string;
+  savedBytes?: number;
   mimeType: string;
   created?: string | null;
   content?: string | null;
@@ -209,8 +212,77 @@ export type Project = {
   display_id?: string | null;
   name: string;
   description: string | null;
+  visibility?: "private" | "public";
   created_by: string | null;
   created_at?: string;
+  has_access?: boolean;
+  is_favorite?: boolean;
+  story_count?: number | null;
+  module_count?: number | null;
+  case_count?: number | null;
+  bug_count?: number | null;
+};
+
+export type ProjectPortfolioImpact = {
+  total: number;
+  top: Array<{ id: string; name: string; count: number }>;
+};
+
+export type ProjectPortfolioAnalyticsItem = {
+  project_id: string;
+  display_id: string;
+  name: string;
+  counts: { members: number; app_types: number; stories: number; modules: number; cases: number; bugs: number; open_bugs: number };
+  members: Array<{ user_id: string; name: string }>;
+  app_types: AppType[];
+  story_coverage: { total: number; covered: number; percent: number };
+  automation_coverage: { total: number; automated: number; percent: number };
+  pass_confidence: { total: number; passed: number; percent: number };
+  execution_evidence: { total: number; evidenced: number; missing: number; percent: number; threshold: number; violates: boolean };
+  latest_execution: Execution | null;
+  latest_failed_count: number;
+  latest_blocked_count: number;
+  bug_count: number;
+  open_bug_count: number;
+  failure_impacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+  bug_impacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+  readiness_score: number;
+  health_tone: "success" | "warning" | "danger" | "neutral";
+  health_label: string;
+  readiness_label: string;
+  attention_reasons: string[];
+  insight: string;
+};
+
+export type ProjectPortfolioAnalytics = {
+  evaluated_at: string;
+  configuration: Record<string, Record<string, number>>;
+  summary: {
+    total_projects: number;
+    accessible_projects: number;
+    locked_projects: number;
+    risky_projects: number;
+    watch_projects: number;
+    release_ready_projects: number;
+    assessed_projects: number;
+    attention_projects: number;
+    overall_health: number;
+    average_story_coverage: number;
+    average_automation_coverage: number;
+    average_pass_confidence: number;
+    total_stories: number;
+    covered_stories: number;
+    total_cases: number;
+    automated_cases: number;
+    evidence_missing_projects: number;
+    execution_failure_cases: number;
+    execution_blocked_cases: number;
+    bug_count: number;
+    open_bug_count: number;
+    failure_impacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+    bug_impacts: { modules: ProjectPortfolioImpact; requirements: ProjectPortfolioImpact };
+  };
+  projects: ProjectPortfolioAnalyticsItem[];
 };
 
 export type ProjectActivationStatus =
@@ -2592,7 +2664,7 @@ export type ApiError = {
   current_revision?: number;
 };
 
-export type QairaEntityType = "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
+export type QairaEntityType = "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
 
 export type QairaAttachment = {
   id: string;
@@ -2601,6 +2673,9 @@ export type QairaAttachment = {
   entity_id?: string;
   filename: string;
   size: number;
+  storedSize?: number;
+  compression?: "gzip" | "none" | string;
+  savedBytes?: number;
   mimeType: string;
   checksum?: string | null;
   created?: string | null;

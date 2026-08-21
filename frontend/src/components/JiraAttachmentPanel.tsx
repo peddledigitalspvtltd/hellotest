@@ -19,6 +19,15 @@ function attachmentKind(attachment: JiraAttachment) {
   return "File";
 }
 
+function attachmentStorageLabel(attachment: JiraAttachment) {
+  if (attachment.compression !== "gzip") return attachment.author?.displayName || "HelloTest user";
+  const saved = Number(attachment.savedBytes || 0);
+  const compression = saved > 0
+    ? `gzip · ${formatBytes(saved)} saved`
+    : "gzip compressed";
+  return `${attachment.author?.displayName || "HelloTest user"} · ${compression}`;
+}
+
 async function openAttachment(attachment: JiraAttachment) {
   const blob = await api.attachments.download(attachment.id);
   const url = URL.createObjectURL(blob);
@@ -189,7 +198,7 @@ export function JiraAttachmentPanel({
             <div className="jira-attachment-copy">
               <strong title={attachment.filename}>{attachment.filename}</strong>
               <span>{attachmentKind(attachment)} · {formatBytes(attachment.size)}</span>
-              <small>{attachment.author?.displayName || "HelloTest user"}</small>
+              <small>{attachmentStorageLabel(attachment)}</small>
             </div>
             <div className="jira-attachment-actions">
               <button className="ghost-button compact" disabled={view.isPending} onClick={() => void view.mutateAsync(attachment)} type="button">Open</button>

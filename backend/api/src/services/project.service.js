@@ -3,6 +3,7 @@ const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
 const { APP_TYPE_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
+const attachmentService = require("./attachment.service");
 
 const VALID_APP_TYPES = new Set(APP_TYPE_VALUES);
 
@@ -241,11 +242,12 @@ const deleteProjectRecord = db.prepare(`
   WHERE id = ?
 `);
 
-exports.createProject = async ({ name, description, created_by, member_ids, app_types }) => {
+exports.createProject = async ({ name, description, visibility, created_by, members, member_ids, app_types }) => {
   if (!name || !created_by) throw new Error("Missing fields");
 
   const normalizedName = String(name).trim();
   if (!normalizedName) throw new Error("Project name is required");
+  const normalizedVisibility = visibility === "public" ? "public" : "private";
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("project");
@@ -253,8 +255,11 @@ exports.createProject = async ({ name, description, created_by, member_ids, app_
   const user = await selectUserById.get(created_by);
   if (!user) throw new Error("Invalid user");
 
-  const normalizedMemberIds = Array.isArray(member_ids)
-    ? [...new Set(member_ids.map((value) => String(value || "").trim()).filter(Boolean))]
+  const requestedMemberIds = Array.isArray(members)
+    ? members.map((member) => member?.user_id)
+    : member_ids;
+  const normalizedMemberIds = normalizedVisibility === "public" && Array.isArray(requestedMemberIds)
+    ? [...new Set(requestedMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
     : [];
   const normalizedAppTypes = Array.isArray(app_types)
     ? app_types
@@ -297,7 +302,7 @@ exports.createProject = async ({ name, description, created_by, member_ids, app_
     }
   }
 
-  const adminUsers = await selectAdminUsers.all();
+  const adminUsers = normalizedVisibility === "public" ? await selectAdminUsers.all() : [];
   const memberships = new Map();
 
   for (const adminUser of adminUsers) {
@@ -314,9 +319,9 @@ exports.createProject = async ({ name, description, created_by, member_ids, app_
 
   const createProjectWithMemberships = db.transaction(async () => {
     await db.prepare(`
-      INSERT INTO projects (id, display_id, name, description, created_by)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, display_id, normalizedName, description || null, created_by);
+      INSERT INTO projects (id, display_id, name, description, visibility, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, display_id, normalizedName, description || null, normalizedVisibility, created_by);
 
     for (const [userId, roleId] of memberships.entries()) {
       await insertProjectMember.run(uuid(), id, userId, roleId);
@@ -331,23 +336,138 @@ exports.createProject = async ({ name, description, created_by, member_ids, app_
 
   return {
     id,
+    display_id,
+    name: normalizedName,
+    description: description || null,
+    visibility: normalizedVisibility,
+    created_by,
     members_added: memberships.size,
     app_types_created: normalizedAppTypes.length
   };
 };
 
+exports.getProjectCatalog = async (userId) => {
+  if (!userId) throw new Error("User is required");
+
+  return db.prepare(`
+    WITH catalog AS (
+      SELECT
+        p.*,
+        EXISTS (
+          SELECT 1
+          FROM project_members pm
+          WHERE pm.project_id = p.id
+            AND pm.user_id = ?
+        ) AS has_access,
+        EXISTS (
+          SELECT 1
+          FROM project_favorites pf
+          WHERE pf.project_id = p.id
+            AND pf.user_id = ?
+        ) AS is_favorite
+      FROM projects p
+    )
+    SELECT
+      catalog.id,
+      catalog.display_id,
+      catalog.name,
+      CASE WHEN catalog.has_access THEN catalog.description ELSE NULL END AS description,
+      catalog.visibility,
+      CASE WHEN catalog.has_access THEN catalog.created_by ELSE NULL END AS created_by,
+      catalog.created_at,
+      catalog.has_access,
+      catalog.is_favorite,
+      CASE WHEN catalog.has_access THEN
+        (SELECT COUNT(*)::INTEGER FROM requirements WHERE requirements.project_id = catalog.id)
+      ELSE NULL END AS story_count,
+      CASE WHEN catalog.has_access THEN (
+        SELECT COUNT(*)::INTEGER
+        FROM test_case_modules
+        JOIN app_types ON app_types.id = test_case_modules.app_type_id
+        WHERE app_types.project_id = catalog.id
+      ) ELSE NULL END AS module_count,
+      CASE WHEN catalog.has_access THEN (
+        SELECT COUNT(*)::INTEGER
+        FROM test_cases
+        JOIN app_types ON app_types.id = test_cases.app_type_id
+        WHERE app_types.project_id = catalog.id
+      ) ELSE NULL END AS case_count,
+      CASE WHEN catalog.has_access THEN
+        (SELECT COUNT(*)::INTEGER FROM feedback WHERE feedback.project_id = catalog.id)
+      ELSE NULL END AS bug_count
+    FROM catalog
+    ORDER BY catalog.created_at DESC
+  `).all(userId, userId);
+};
+
+exports.favoriteProject = async (projectId, userId) => {
+  await exports.getProject(projectId);
+  await db.prepare(`
+    INSERT INTO project_favorites (project_id, user_id)
+    VALUES (?, ?)
+    ON CONFLICT (project_id, user_id) DO NOTHING
+  `).run(projectId, userId);
+  return { updated: true, is_favorite: true };
+};
+
+exports.unfavoriteProject = async (projectId, userId) => {
+  await db.prepare(`
+    DELETE FROM project_favorites
+    WHERE project_id = ? AND user_id = ?
+  `).run(projectId, userId);
+  return { updated: true, is_favorite: false };
+};
+
 // Get projects filtered by user membership
 exports.getProjects = async (userId = null) => {
   if (!userId) {
-    return db.prepare("SELECT * FROM projects").all();
+    return db.prepare(`
+      SELECT
+        projects.*,
+        (SELECT COUNT(*)::INTEGER FROM requirements WHERE requirements.project_id = projects.id) AS story_count,
+        (
+          SELECT COUNT(*)::INTEGER
+          FROM test_case_modules
+          JOIN app_types ON app_types.id = test_case_modules.app_type_id
+          WHERE app_types.project_id = projects.id
+        ) AS module_count,
+        (
+          SELECT COUNT(*)::INTEGER
+          FROM test_cases
+          JOIN app_types ON app_types.id = test_cases.app_type_id
+          WHERE app_types.project_id = projects.id
+        ) AS case_count,
+        (SELECT COUNT(*)::INTEGER FROM feedback WHERE feedback.project_id = projects.id) AS bug_count
+      FROM projects
+      ORDER BY projects.created_at DESC
+    `).all();
   }
   
   // Only return projects where user is a member
   return db.prepare(`
-    SELECT DISTINCT p.* 
+    SELECT
+      p.*,
+      (SELECT COUNT(*)::INTEGER FROM requirements WHERE requirements.project_id = p.id) AS story_count,
+      (
+        SELECT COUNT(*)::INTEGER
+        FROM test_case_modules
+        JOIN app_types ON app_types.id = test_case_modules.app_type_id
+        WHERE app_types.project_id = p.id
+      ) AS module_count,
+      (
+        SELECT COUNT(*)::INTEGER
+        FROM test_cases
+        JOIN app_types ON app_types.id = test_cases.app_type_id
+        WHERE app_types.project_id = p.id
+      ) AS case_count,
+      (SELECT COUNT(*)::INTEGER FROM feedback WHERE feedback.project_id = p.id) AS bug_count
     FROM projects p
-    INNER JOIN project_members pm ON pm.project_id = p.id
-    WHERE pm.user_id = ?
+    WHERE EXISTS (
+      SELECT 1
+      FROM project_members pm
+      WHERE pm.project_id = p.id
+        AND pm.user_id = ?
+    )
     ORDER BY p.created_at DESC
   `).all(userId);
 };
@@ -373,17 +493,28 @@ exports.getProject = async (id, userId = null) => {
 
 exports.updateProject = async (id, data) => {
   const existing = await exports.getProject(id);
+  const nextName = data.name === undefined ? existing.name : String(data.name || "").trim();
+  const nextDescription = data.description === undefined
+    ? existing.description
+    : String(data.description || "").trim() || null;
+
+  if (!nextName) {
+    const error = new Error("Project name is required");
+    error.statusCode = 400;
+    throw error;
+  }
 
   await db.prepare(`
     UPDATE projects SET name = ?, description = ?
     WHERE id = ?
-  `).run(data.name || existing.name, data.description || existing.description, id);
+  `).run(nextName, nextDescription, id);
 
   return { updated: true };
 };
 
 exports.deleteProject = async (id) => {
   await exports.getProject(id);
+  const projectAttachmentObjects = await attachmentService.listProjectObjects(id);
 
   const executeDelete = db.transaction(async () => {
     await deleteProjectExecutionResults.run(id, id);
@@ -417,5 +548,6 @@ exports.deleteProject = async (id) => {
 
   await executeObsDelete();
   await executeDelete();
-  return { deleted: true };
+  const attachmentCleanup = await attachmentService.purgeProjectObjects(id, projectAttachmentObjects);
+  return { deleted: true, attachment_cleanup: attachmentCleanup };
 };

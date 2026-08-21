@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const path = require("path");
 const { Transform } = require("stream");
+const { createGunzip, createGzip, constants: zlibConstants } = require("zlib");
 const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 const { config } = require("../config");
@@ -23,6 +24,9 @@ const serialize = (row) => ({
   filename: row.file_name,
   mimeType: row.mime_type || "application/octet-stream",
   size: Number(row.size_bytes || 0),
+  storedSize: Number(row.stored_size_bytes || row.size_bytes || 0),
+  compression: row.compression || "none",
+  savedBytes: Math.max(0, Number(row.size_bytes || 0) - Number(row.stored_size_bytes || row.size_bytes || 0)),
   checksum: row.checksum_sha256 || null,
   created: row.created_at || null,
   thumbnail: null,
@@ -86,15 +90,19 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
       callback(null, chunk);
     }
   });
+  const compressor = createGzip({
+    level: zlibConstants.Z_BEST_SPEED
+  });
   stream.once("error", (error) => monitored.destroy(error));
-  stream.pipe(monitored);
+  monitored.once("error", (error) => compressor.destroy(error));
+  stream.pipe(monitored).pipe(compressor);
 
   let stored;
   try {
     stored = await objectStorage.putObject({
       objectName,
-      stream: monitored,
-      mimeType
+      stream: compressor,
+      mimeType: "application/gzip"
     });
 
     if (stream.truncated || bytes <= 0 || bytes > config.objectStorage.maxAttachmentBytes) {
@@ -107,9 +115,10 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
     const row = await db.prepare(`
       INSERT INTO attachments (
         id, project_id, entity_type, entity_id, bucket_name, object_name,
-        file_name, mime_type, size_bytes, etag, checksum_sha256, created_by
+        file_name, mime_type, size_bytes, stored_size_bytes, compression,
+        etag, checksum_sha256, created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `).get(
       id,
@@ -120,7 +129,9 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
       objectName,
       normalizedFileName,
       String(mimeType || "application/octet-stream").slice(0, 200),
-      bytes || stored.size,
+      bytes,
+      stored.size,
+      "gzip",
       stored.etag,
       hash.digest("hex"),
       user.id
@@ -143,9 +154,29 @@ const download = async ({ user, id }) => {
     entityId: row.entity_id,
     projectId: row.project_id
   });
+  const storedStream = await objectStorage.getObject({ bucket: row.bucket_name, objectName: row.object_name });
+  const stream = row.compression === "gzip" ? storedStream.pipe(createGunzip()) : storedStream;
   return {
     row,
-    stream: await objectStorage.getObject({ bucket: row.bucket_name, objectName: row.object_name })
+    stream
+  };
+};
+
+const listProjectObjects = async (projectId) => db.prepare(`
+    SELECT bucket_name, object_name
+    FROM attachments
+    WHERE project_id = ?
+  `).all(projectId);
+
+const purgeProjectObjects = async (projectId, knownRows) => {
+  const rows = Array.isArray(knownRows) ? knownRows : await listProjectObjects(projectId);
+  const results = await Promise.allSettled(rows.map((row) => objectStorage.removeObject({
+    bucket: row.bucket_name,
+    objectName: row.object_name
+  })));
+  return {
+    attempted: rows.length,
+    failed: results.filter((result) => result.status === "rejected").length
   };
 };
 
@@ -169,8 +200,11 @@ module.exports = {
   meta: () => ({
     enabled: objectStorage.isEnabled(),
     provider: config.storageProvider,
-    uploadLimit: config.objectStorage.maxAttachmentBytes
+    uploadLimit: config.objectStorage.maxAttachmentBytes,
+    compression: "gzip"
   }),
+  listProjectObjects,
+  purgeProjectObjects,
   remove,
   safeFileName,
   upload

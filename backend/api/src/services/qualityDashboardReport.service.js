@@ -84,18 +84,44 @@ const decodeRenderedSnapshot = (payload = {}) => {
   return { jpeg, ...readJpegDimensions(jpeg) };
 };
 
-const renderedSnapshotPdf = (payload = {}) => {
+const renderedSnapshotPdf = (payload = {}, options = {}) => {
   const snapshot = decodeRenderedSnapshot(payload);
   if (!snapshot) return null;
 
   const pageWidth = 842;
-  const pageHeight = 595;
   const margin = 30;
   const contentWidth = pageWidth - margin * 2;
+  const imageObjectId = 3;
+
+  if (options.pageMode === "continuous") {
+    const maximumPageHeight = 14_400;
+    const scale = Math.min(
+      contentWidth / snapshot.width,
+      (maximumPageHeight - margin * 2) / snapshot.height
+    );
+    const renderedWidth = snapshot.width * scale;
+    const renderedHeight = snapshot.height * scale;
+    const pageHeight = Math.max(595, renderedHeight + margin * 2);
+    const imageX = (pageWidth - renderedWidth) / 2;
+    const imageY = (pageHeight - renderedHeight) / 2;
+    const stream = `q\n${renderedWidth.toFixed(3)} 0 0 ${renderedHeight.toFixed(3)} ${imageX.toFixed(3)} ${imageY.toFixed(3)} cm\n/Im0 Do\nQ`;
+    return pdfFromObjects([
+      Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
+      Buffer.from("<< /Type /Pages /Kids [4 0 R] /Count 1 >>"),
+      Buffer.concat([
+        Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${snapshot.width} /Height ${snapshot.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${snapshot.jpeg.length} >>\nstream\n`),
+        snapshot.jpeg,
+        Buffer.from("\nendstream")
+      ]),
+      Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight.toFixed(3)}] /Resources << /XObject << /Im0 ${imageObjectId} 0 R >> >> /Contents 5 0 R >>`),
+      Buffer.from(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`)
+    ]);
+  }
+
+  const pageHeight = 595;
   const contentHeight = pageHeight - margin * 2;
   const renderedHeight = snapshot.height * (contentWidth / snapshot.width);
   const pageCount = Math.max(1, Math.ceil(renderedHeight / contentHeight));
-  const imageObjectId = 3;
   const pageObjectIds = Array.from({ length: pageCount }, (_value, index) => 4 + index * 2);
   const objects = [
     Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),

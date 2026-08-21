@@ -47,3 +47,141 @@ test("Story-linked test-case creation enters the standard new-case workspace wit
   assert.match(page, /setProjectId\(requestedProjectId\)/);
   assert.match(page, /requirement_id: requirementId/);
 });
+
+test("project tiles present exact delivery scope in Stories, Modules, Cases, Bugs order", async () => {
+  const [page, types] = await Promise.all([
+    readSource("../src/pages/ProjectsPage.tsx"),
+    readSource("../src/types.ts")
+  ]);
+  const metaGrid = page.slice(page.indexOf('<div className="project-meta-grid">'), page.indexOf('</div>', page.indexOf('<div className="project-meta-grid">')));
+
+  assert.ok(metaGrid.indexOf("Stories") < metaGrid.indexOf("Modules"));
+  assert.ok(metaGrid.indexOf("Modules") < metaGrid.indexOf("Cases"));
+  assert.ok(metaGrid.indexOf("Cases") < metaGrid.indexOf("Bugs"));
+  assert.match(metaGrid, /item\.requirementCount/);
+  assert.match(metaGrid, /item\.moduleCount/);
+  assert.match(metaGrid, /item\.testCaseCount/);
+  assert.match(metaGrid, /item\.bugCount/);
+  assert.match(types, /story_count\?: number \| null;[\s\S]*module_count\?: number \| null;[\s\S]*case_count\?: number \| null;[\s\S]*bug_count\?: number \| null;/);
+});
+
+test("project creation and catalog expose mature visibility, favorite, and locked states", async () => {
+  const [page, api, styles, dataTable] = await Promise.all([
+    readSource("../src/pages/ProjectsPage.tsx"),
+    readSource("../src/lib/api.ts"),
+    readSource("../src/pages/ProjectsPage.css"),
+    readSource("../src/components/DataTable.tsx")
+  ]);
+
+  assert.match(page, /<FormField label="Project type"/);
+  assert.match(page, /Private — only you/);
+  assert.match(page, /Public — invite workspace users/);
+  assert.match(page, /projectDraft\.visibility === "private"/);
+  assert.match(page, /project-private-owner-card/);
+  assert.match(page, /project-tile-favorite/);
+  assert.match(page, /key: "select-favorite"[\s\S]*key: "id"/);
+  assert.match(page, /key: "select-favorite"[\s\S]*width: 88/);
+  assert.match(dataTable, /Math\.max\(SELECTION_COLUMN_WIDTH, Math\.round\(column\.width \|\| 0\)\)/);
+  assert.match(page, /key: "favorites"[\s\S]*key: "projects"[\s\S]*key: "locked"/);
+  assert.match(page, /isLocked \? <IconLock/);
+  assert.match(api, /catalog: \(\) => request<Project\[\]>\("\/projects\/catalog"\)/);
+  assert.match(api, /favorite: \(id: string\)/);
+  assert.match(api, /unfavorite: \(id: string\)/);
+  assert.match(styles, /\.project-favorite-button\.is-favorite/);
+  assert.match(styles, /\.catalog-data-table \.project-favorite-button\.is-favorite \{[\s\S]*background: transparent/);
+  assert.match(styles, /\.project-portfolio-card\.is-locked/);
+});
+
+test("project platform icons and compressed attachments stay selected, scoped, and reviewable", async () => {
+  const [page, dropdown, editor, api, types, modalStyles, projectStyles] = await Promise.all([
+    readSource("../src/pages/ProjectsPage.tsx"),
+    readSource("../src/components/AppTypeDropdown.tsx"),
+    readSource("../src/components/RichTextEditor.tsx"),
+    readSource("../src/lib/api.ts"),
+    readSource("../src/types.ts"),
+    readSource("../src/modal-system.css"),
+    readSource("../src/pages/ProjectsPage.css")
+  ]);
+
+  for (const kind of ["web", "api", "android", "ios"]) {
+    assert.match(dropdown, new RegExp(`kind=\\"${kind}\\"`));
+  }
+  assert.match(dropdown, /platform-type-icon--unified/);
+  assert.match(page, /project-app-type-icon[\s\S]*data-platform-type=\{normalizeAppTypeKind/);
+  assert.match(page, /<AppTypeIcon isUnified=\{appType\.is_unified\}[\s\S]*type=\{appType\.type\}/);
+  assert.match(editor, /title: "Link"/);
+  assert.match(editor, /title: "Attach files"/);
+  assert.match(page, /gzip compressed on upload/);
+  assert.match(page, /entityType="project"/);
+  assert.match(page, /<details className="project-detail-attachments">/);
+  assert.match(api, /entity_type: "project" \|/);
+  assert.match(types, /QairaEntityType = "project" \|/);
+  assert.match(modalStyles, /\.project-create-attachments-section/);
+  assert.match(projectStyles, /\.project-detail-attachments\[open\]/);
+});
+
+test("project portfolio analytics are all-project, configurable, prioritized, flippable, and exportable", async () => {
+  const [page, api, registry, settings, flipCard, styles] = await Promise.all([
+    readSource("../src/pages/ProjectsPage.tsx"),
+    readSource("../src/lib/api.ts"),
+    readSource("../src/lib/aiPromptRegistry.ts"),
+    readSource("../src/pages/SettingsPage.tsx"),
+    readSource("../src/components/EvidenceFlipCard.tsx"),
+    readSource("../src/pages/ProjectsPage.css")
+  ]);
+
+  assert.match(api, /portfolioAnalytics: \(\) => request<ProjectPortfolioAnalytics>\("\/projects\/portfolio-analytics"\)/);
+  assert.match(page, /label="Projects need attention"/);
+  assert.match(page, /label="Execution failure cases"/);
+  assert.match(page, /label="Evidence Missing"/);
+  assert.match(page, /label="Bugs"/);
+  assert.match(page, /compactImpactEvidence\("Modules"/);
+  assert.match(page, /compactImpactEvidence\("Stories"/);
+  assert.match(page, /item\.bugCount/);
+  assert.match(page, /downloadPortfolioAttentionPdf/);
+  assert.match(page, /captureProjectAttentionSnapshot/);
+  const snapshotCapture = page.slice(
+    page.indexOf("async function captureProjectAttentionSnapshot"),
+    page.indexOf("const formatProjectTimeAgo")
+  );
+  assert.match(snapshotCapture, /is-exporting-snapshot/);
+  assert.match(snapshotCapture, /\.dialog-close-button, \.metric-methodology-info/);
+  assert.doesNotMatch(snapshotCapture, /matches\("button/);
+  const blobRequestHelper = api.slice(
+    api.indexOf("async function requestBlob"),
+    api.indexOf("async function requestForm")
+  );
+  assert.match(blobRequestHelper, /headers\.set\("Content-Type", "application\/json"\)/);
+  assert.match(flipCard, /window\.setTimeout/);
+  assert.match(flipCard, /evidence\.slice\(0, maxEvidenceItems\)/);
+  assert.match(flipCard, /className="evidence-flip-card-back-button"[\s\S]*<svg/);
+  assert.match(registry, /AI_METRIC_FORMULA_VALUES_KEY/);
+  assert.match(registry, /key: "metric\.project\.execution_evidence"/);
+  assert.match(registry, /key: "metric\.project\.execution_failures"/);
+  assert.match(registry, /key: "metric\.project\.bugs"/);
+  assert.match(settings, /Formula values/);
+  assert.match(settings, /portfolio readiness weights must total 100%/i);
+  assert.match(styles, /\.project-risk-summary-card\.evidence-flip-card/);
+});
+
+test("project traceability toolbar keeps compact app scope and embedded search controls", async () => {
+  const [traceability, styles] = await Promise.all([
+    readSource("../src/components/ProjectTraceabilityMap.tsx"),
+    readSource("../src/styles.css")
+  ]);
+
+  assert.match(traceability, /className="project-traceability-app-filter"/);
+  assert.match(traceability, /aria-label="Filter traceability by app type"/);
+  assert.match(traceability, /className="search-input-with-icon project-traceability-search"/);
+  assert.match(traceability, /type="search"/);
+  assert.match(styles, /\.project-traceability-search > svg[\s\S]*position: absolute/);
+  assert.match(styles, /\.project-traceability-app-filter[\s\S]*max-width: 12rem/);
+});
+
+test("native checkboxes retain a white surface across application themes", async () => {
+  const styles = await readSource("../src/styles.css");
+
+  assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*color-scheme: light !important/);
+  assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*background-color: #ffffff !important/);
+  assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*accent-color: var\(--brand-blue-600, #2563eb\) !important/);
+});

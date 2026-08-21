@@ -1607,6 +1607,19 @@ const statements = [
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS value JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE projects ADD COLUMN IF NOT EXISTS display_id TEXT`,
+  `ALTER TABLE projects ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`,
+  `UPDATE projects SET visibility = 'public' WHERE visibility IS NULL OR visibility NOT IN ('private', 'public')`,
+  `ALTER TABLE projects ALTER COLUMN visibility SET DEFAULT 'public'`,
+  `ALTER TABLE projects ALTER COLUMN visibility SET NOT NULL`,
+  `
+    CREATE TABLE IF NOT EXISTS project_favorites (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (project_id, user_id)
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_project_favorites_user_created ON project_favorites (user_id, created_at DESC)`,
   `ALTER TABLE requirements ADD COLUMN IF NOT EXISTS display_id TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS display_id TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS display_id TEXT`,
@@ -1682,6 +1695,8 @@ const statements = [
       file_name TEXT NOT NULL,
       mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
       size_bytes BIGINT NOT NULL DEFAULT 0,
+      stored_size_bytes BIGINT NOT NULL DEFAULT 0,
+      compression TEXT NOT NULL DEFAULT 'none',
       etag TEXT,
       checksum_sha256 TEXT,
       created_by TEXT,
@@ -1692,6 +1707,8 @@ const statements = [
   `,
   `CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, entity_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_project ON attachments (project_id, created_at DESC)`,
+  `ALTER TABLE attachments ADD COLUMN IF NOT EXISTS stored_size_bytes BIGINT NOT NULL DEFAULT 0`,
+  `ALTER TABLE attachments ADD COLUMN IF NOT EXISTS compression TEXT NOT NULL DEFAULT 'none'`,
   `
     CREATE TABLE IF NOT EXISTS entity_comments (
       id TEXT PRIMARY KEY,

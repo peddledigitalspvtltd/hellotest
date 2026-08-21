@@ -21,6 +21,53 @@
   border-radius: 14px;
 }
 
+.projects-attention-flip-card,
+.project-risk-summary-card.evidence-flip-card {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 8.35rem;
+  padding: 0;
+  overflow: hidden;
+  perspective: 70rem;
+  isolation: isolate;
+}
+
+.projects-attention-flip-card {
+  width: 100%;
+  min-height: 7.4rem;
+  border: 1px solid color-mix(in srgb, var(--primary, #2563eb) 18%, var(--line, #d8deea));
+  border-radius: 10px;
+}
+
+.projects-attention-flip-card .evidence-flip-card-inner,
+.project-risk-summary-card.evidence-flip-card .evidence-flip-card-inner {
+  min-height: inherit;
+}
+
+.projects-attention-flip-card .evidence-flip-card-face,
+.project-risk-summary-card.evidence-flip-card .evidence-flip-card-face {
+  padding: 0.78rem 0.9rem;
+}
+
+.projects-attention-flip-card .project-stat-card-trigger,
+.project-risk-summary-card.evidence-flip-card .project-stat-card-trigger {
+  width: 100%;
+  height: 100%;
+  align-content: start;
+  text-align: left;
+}
+
+.projects-attention-flip-card .project-stat-card-trigger > strong,
+.project-risk-summary-card.evidence-flip-card .project-stat-card-trigger > strong {
+  font-size: 1.5rem;
+}
+
+.projects-page .projects-command-insight > .projects-view-evidence-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .projects-command-insight-copy {
   display: grid;
   gap: 0.58rem;
@@ -154,7 +201,28 @@
   width: min(68rem, calc(100vw - 32px)) !important;
   height: min(54rem, calc(100dvh - 32px));
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.project-risk-report-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dialog-canvas, #f7f9ff);
+}
+
+.project-risk-report-surface.is-exporting-snapshot {
+  height: auto !important;
+  grid-template-rows: auto auto;
+  overflow: visible;
+}
+
+.project-risk-report-surface.is-exporting-snapshot .project-risk-evidence-body {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
 .project-risk-evidence-header {
@@ -238,6 +306,29 @@
   border: 1px solid var(--dialog-border, #cfd6e2);
   border-radius: 8px;
   background: var(--dialog-surface, #ffffff);
+}
+
+.project-risk-summary-card.evidence-flip-card {
+  --risk-card-accent: #2563eb;
+  background: var(--dialog-surface, #ffffff);
+}
+
+.project-risk-summary-card.evidence-flip-card.danger { --risk-card-accent: #dc2626; }
+.project-risk-summary-card.evidence-flip-card.warning { --risk-card-accent: #d97706; }
+.project-risk-summary-card.evidence-flip-card.info { --risk-card-accent: #2563eb; }
+.project-risk-summary-card.evidence-flip-card.success { --risk-card-accent: #168a5b; }
+
+.project-risk-summary-card.evidence-flip-card .evidence-flip-card-face {
+  background: var(--dialog-surface, #ffffff);
+}
+
+.project-risk-summary-card.evidence-flip-card .evidence-flip-card-front-icon {
+  color: var(--risk-card-accent);
+}
+
+.project-risk-summary-card.evidence-flip-card .project-stat-evidence {
+  font-size: 0.68rem;
+  line-height: 1.32;
 }
 
 .project-risk-summary-card::before {
@@ -577,6 +668,18 @@
   font-size: 0.68rem;
 }
 
+.project-risk-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.project-risk-footer-actions .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 :root[data-theme="dark"] .projects-page .projects-command-insight,
 :root[data-theme="dark"] .projects-page .project-stat-card {
   border-color: rgba(148, 163, 184, 0.24);
@@ -700,9 +803,517 @@
   }
 }
 
+.project-detail-overview,
+.project-details-edit-form {
+  border: 1px solid color-mix(in srgb, var(--primary, #0758c9) 20%, var(--line, #d8deea));
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary, #0758c9) 4%, #ffffff), #ffffff 58%),
+    var(--panel-strong, #ffffff);
+  box-shadow: 0 8px 24px rgba(20, 38, 75, 0.07);
+}
+
+.project-detail-attachments {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary, #0758c9) 17%, var(--line, #d8deea));
+  border-radius: 10px;
+  background: var(--panel-strong, #ffffff);
+  box-shadow: 0 6px 18px rgba(20, 38, 75, 0.05);
+}
+
+.project-detail-attachments > summary {
+  display: flex;
+  min-height: 3.65rem;
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.72rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+  transition: background 150ms ease;
+}
+
+.project-detail-attachments > summary::-webkit-details-marker { display: none; }
+.project-detail-attachments > summary:hover { background: color-mix(in srgb, var(--primary, #0758c9) 5%, #ffffff); }
+.project-detail-attachments > summary:focus-visible { outline: 2px solid var(--primary, #0758c9); outline-offset: -2px; }
+
+.project-detail-attachments-icon {
+  display: inline-grid;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary, #0758c9) 9%, #ffffff);
+  color: var(--primary-strong, #0758c9);
+}
+
+.project-detail-attachments > summary > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.12rem;
+}
+
+.project-detail-attachments > summary strong { color: var(--text, #071a3d); font-size: 0.82rem; }
+.project-detail-attachments > summary small { color: var(--text-secondary, #5f6678); font-size: 0.7rem; }
+.project-detail-attachments-chevron { color: var(--text-secondary, #5f6678); transition: transform 160ms ease; }
+.project-detail-attachments[open] .project-detail-attachments-chevron { transform: rotate(180deg); }
+
+.project-detail-attachments-content {
+  padding: 0.9rem;
+  border-top: 1px solid var(--line, #d8deea);
+  background: color-mix(in srgb, var(--primary, #0758c9) 2%, #ffffff);
+}
+
+.project-detail-attachments-content .jira-attachment-head { display: none; }
+
+.project-detail-overview {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+}
+
+.project-detail-overview-head,
+.project-details-edit-heading,
+.project-details-edit-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.project-detail-overview-head > div,
+.project-details-edit-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.22rem;
+}
+
+.project-details-eyebrow {
+  color: var(--primary-strong, #0758c9);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.project-detail-overview-head strong {
+  color: var(--text, #071a3d);
+  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-size: 1.08rem;
+  line-height: 1.3;
+}
+
+.project-detail-overview > .rich-text-content {
+  color: var(--text-secondary, #5f6678);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.project-detail-overview > .rich-text-content ul {
+  display: grid;
+  gap: 0.24rem;
+  margin: 0.2rem 0;
+  padding-left: 1.2rem;
+}
+
+.project-details-edit-button {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  gap: 0.42rem;
+  padding: 0.38rem 0.62rem;
+  border-color: color-mix(in srgb, var(--primary, #0758c9) 24%, transparent) !important;
+  background: color-mix(in srgb, var(--primary, #0758c9) 7%, #ffffff) !important;
+  color: var(--primary-strong, #0758c9) !important;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.project-details-edit-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary, #0758c9) 42%, transparent) !important;
+  background: color-mix(in srgb, var(--primary, #0758c9) 12%, #ffffff) !important;
+}
+
+.project-details-edit-form {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.project-details-edit-heading {
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary, #0758c9) 13%, var(--line, #d8deea));
+}
+
+.project-details-edit-heading h3,
+.project-details-edit-heading p {
+  margin: 0;
+}
+
+.project-details-edit-heading h3 {
+  color: var(--text, #071a3d);
+  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.project-details-edit-heading p {
+  max-width: 44rem;
+  color: var(--text-secondary, #5f6678);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.project-details-edit-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #0758c9) 9%, #ffffff);
+  color: var(--primary-strong, #0758c9);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.project-details-edit-fields {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.project-details-edit-fields > .form-field:first-child {
+  width: min(100%, 34rem);
+}
+
+.project-details-edit-fields .form-field-label {
+  color: var(--text, #071a3d);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.project-details-edit-fields input {
+  min-height: 2.4rem;
+  border-color: var(--line, #cbd2e3);
+  border-radius: 6px;
+  background: var(--panel-strong, #ffffff);
+}
+
+.project-details-description-editor.canonical-rich-text-editor {
+  border-color: var(--line, #cbd2e3) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 1px 2px rgba(20, 38, 75, 0.04) !important;
+}
+
+.project-details-description-editor .rich-text-editor-surface {
+  min-height: 9rem !important;
+}
+
+.project-details-description-editor .rich-text-tool-button--ai {
+  width: auto !important;
+  min-width: 30px !important;
+  gap: 0.4rem;
+  padding: 0 0.58rem !important;
+  border: 1px solid color-mix(in srgb, var(--primary, #0758c9) 18%, transparent) !important;
+  background: color-mix(in srgb, var(--primary, #0758c9) 7%, #ffffff) !important;
+  color: var(--primary-strong, #0758c9) !important;
+}
+
+.project-details-description-editor .rich-text-tool-button--ai::after {
+  content: "Rephrase with AI";
+  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.project-details-description-editor .rich-text-ai-review > textarea {
+  min-height: 8rem;
+  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  line-height: 1.55;
+}
+
+.project-details-edit-actions {
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 0.8rem;
+  border-top: 1px solid color-mix(in srgb, var(--primary, #0758c9) 13%, var(--line, #d8deea));
+}
+
+.project-details-edit-actions > span {
+  margin-right: auto;
+  color: var(--text-secondary, #5f6678);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+:root[data-theme="dark"] .project-detail-overview,
+:root[data-theme="dark"] .project-details-edit-form {
+  background: linear-gradient(180deg, rgba(19, 41, 72, 0.98), rgba(13, 29, 51, 0.98));
+}
+
+@media (max-width: 640px) {
+  .project-detail-overview-head,
+  .project-details-edit-heading,
+  .project-details-edit-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-details-edit-button,
+  .project-details-edit-badge {
+    align-self: flex-start;
+  }
+
+  .project-details-edit-actions > span {
+    margin-right: 0;
+  }
+
+  .project-details-edit-actions > button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .projects-view-evidence-button,
   .project-risk-open-button {
     transition: none;
+  }
+}
+
+/* Favorites and access states are first-class project identity signals. */
+.project-card-select-row .project-portfolio-title > .project-card-icon-stack {
+  position: relative;
+  display: inline-grid !important;
+  flex: 0 0 auto;
+  overflow: visible;
+  color: inherit;
+}
+
+.project-favorite-button {
+  display: inline-grid;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #7a879b;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+}
+
+.project-favorite-button:hover:not(:disabled) {
+  border-color: #f1d18a;
+  background: #fff8e7;
+  color: #c7830c;
+  transform: translateY(-1px);
+}
+
+.project-favorite-button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(218, 151, 22, 0.2), 0 4px 12px rgba(92, 61, 8, 0.12);
+}
+
+.project-favorite-button.is-favorite {
+  border-color: #f3d796;
+  background: linear-gradient(145deg, #fffaf0, #fff2cb);
+  color: #c7830c;
+  box-shadow: 0 3px 9px rgba(179, 116, 6, 0.14);
+}
+
+.project-tile-favorite {
+  position: absolute;
+  z-index: 2;
+  top: -9px;
+  right: -9px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 3px 9px rgba(20, 38, 75, 0.15);
+}
+
+.project-portfolio-card.is-favorite:not(.is-locked) {
+  border-color: rgba(210, 148, 24, 0.3);
+  box-shadow: 0 13px 34px rgba(78, 60, 22, 0.1);
+}
+
+.project-portfolio-card.is-locked {
+  cursor: default;
+  border-color: rgba(103, 116, 139, 0.2);
+  background: linear-gradient(160deg, rgba(247, 249, 252, 0.98), rgba(238, 242, 247, 0.92));
+  box-shadow: 0 7px 20px rgba(36, 48, 68, 0.06);
+}
+
+.project-portfolio-card.is-locked::before {
+  background: #8793a5;
+  opacity: 0.65;
+}
+
+.project-portfolio-card.is-locked:hover {
+  transform: none;
+  border-color: rgba(103, 116, 139, 0.28);
+  box-shadow: 0 9px 24px rgba(36, 48, 68, 0.08);
+}
+
+.project-card-icon.is-locked,
+.projects-list-project-icon.is-locked {
+  background: #e6eaf0 !important;
+  color: #687589 !important;
+}
+
+.project-card-locked-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 132px;
+  padding: 18px;
+  border: 1px dashed #bdc6d3;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.project-card-locked-symbol {
+  display: inline-grid;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 11px;
+  background: #e7ebf1;
+  color: #657187;
+}
+
+.project-card-locked-state strong {
+  color: #354258;
+  font-size: 0.92rem;
+}
+
+.project-card-locked-state p {
+  margin: 5px 0 0;
+  color: #6f7b8e;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.projects-list-project-cell,
+.project-locked-list-label,
+.project-list-group-label,
+.project-favorite-column-label {
+  display: flex;
+  align-items: center;
+}
+
+.projects-list-project-cell {
+  min-width: 0;
+  gap: 10px;
+}
+
+.projects-list-project-icon {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+}
+
+.project-locked-list-label {
+  width: fit-content;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #687589;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.project-list-group-label {
+  gap: 7px;
+  color: #9a6810;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.project-list-group-label.is-locked {
+  color: #687589;
+}
+
+.projects-page .catalog-data-table tr.is-favorite-row > td {
+  background: rgba(255, 249, 232, 0.48);
+}
+
+.projects-page .catalog-data-table .project-favorite-button,
+.projects-page .catalog-data-table .project-favorite-column-label {
+  margin-inline: auto;
+}
+
+.projects-page .catalog-data-table .project-favorite-button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.projects-page .catalog-data-table .project-favorite-button:hover:not(:disabled),
+.projects-page .catalog-data-table .project-favorite-button.is-favorite {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.projects-page .catalog-data-table tr.is-locked-row {
+  cursor: default;
+}
+
+.projects-page .catalog-data-table tr.is-locked-row > td {
+  background: rgba(244, 246, 249, 0.76);
+  color: #7a8597;
+}
+
+/* Project actions use the same confident blue and tactile feedback as the
+   create-project dialog's primary action. This page stylesheet loads with the
+   route, so it remains authoritative over legacy generic button rules. */
+.projects-page .projects-catalog-create-button:not(:disabled) {
+  border-color: #0758c9 !important;
+  background: #0758c9 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(5, 35, 91, 0.24) !important;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease, transform 100ms ease !important;
+}
+
+.projects-page .projects-catalog-create-button:hover:not(:disabled) {
+  border-color: #0649aa !important;
+  background: #0649aa !important;
+  box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
+}
+
+.projects-page :is(.projects-catalog-create-button, .project-create-modal button):not(:disabled):is(:focus, :focus-visible) {
+  outline: 0 !important;
+  box-shadow: 0 0 0 3px rgba(7, 88, 201, 0.24), 0 4px 12px rgba(20, 38, 75, 0.16) !important;
+}
+
+.projects-page :is(.projects-catalog-create-button, .project-create-modal button):not(:disabled):active {
+  transform: translateY(1px) scale(0.985) !important;
+  box-shadow: 0 1px 3px rgba(20, 38, 75, 0.2) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .projects-page .projects-catalog-create-button,
+  .projects-page .project-create-modal button {
+    transition: none !important;
   }
 }

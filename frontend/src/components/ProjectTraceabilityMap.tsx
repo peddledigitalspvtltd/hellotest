@@ -216,19 +216,19 @@ export function ProjectTraceabilityMap({
   return (
     <section className="project-traceability-map">
       <div className="project-traceability-toolbar">
-        <div>
+        <div className="project-traceability-toolbar-copy">
           <strong>End-to-end traceability</strong>
           <span>Select an item to isolate its connected Story, module, test, and Bug neighborhood.</span>
         </div>
-        <label>
+        <label className="project-traceability-app-filter">
           <span>App type</span>
-          <select value={selectedAppTypeId} onChange={(event) => { onAppTypeChange(event.target.value); setSelectedNode(null); }}>
+          <select aria-label="Filter traceability by app type" value={selectedAppTypeId} onChange={(event) => { onAppTypeChange(event.target.value); setSelectedNode(null); }}>
             {appTypes.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.type}</option>)}
           </select>
         </label>
         <div className="search-input-with-icon project-traceability-search">
           <SearchIcon />
-          <input aria-label="Search traceability map" placeholder="Search map" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
+          <input aria-label="Search traceability map" placeholder="Search Stories, modules, cases or Bugs" type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
         </div>
       </div>
 

@@ -947,9 +947,9 @@ h6,
 
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th.data-table-select-header,
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td.data-table-select-cell {
-  width: 36px !important;
-  min-width: 36px !important;
-  max-width: 36px !important;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
   padding-right: 6px !important;
   padding-left: 12px !important;
   text-align: left !important;

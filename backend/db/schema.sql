@@ -42,6 +42,7 @@ CREATE TABLE projects (
   display_id TEXT UNIQUE,
   name TEXT NOT NULL,
   description TEXT,
+  visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('private', 'public')),
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id)
@@ -61,6 +62,18 @@ CREATE TABLE project_members (
 
 CREATE INDEX idx_project_members_project_user
   ON project_members (project_id, user_id);
+
+CREATE TABLE project_favorites (
+  project_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (project_id, user_id),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_project_favorites_user_created
+  ON project_favorites (user_id, created_at DESC);
 
 CREATE TABLE permissions (
   id TEXT PRIMARY KEY,
@@ -1165,6 +1178,8 @@ CREATE TABLE IF NOT EXISTS attachments (
   file_name TEXT NOT NULL,
   mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
   size_bytes BIGINT NOT NULL DEFAULT 0,
+  stored_size_bytes BIGINT NOT NULL DEFAULT 0,
+  compression TEXT NOT NULL DEFAULT 'none',
   etag TEXT,
   checksum_sha256 TEXT,
   created_by TEXT,

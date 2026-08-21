@@ -63,3 +63,54 @@ test("Bug creation requires a project so saved Bugs remain visible in project li
   assert.match(bootstrap, /UPDATE feedback[\s\S]*?WHERE feedback\.project_id IS NULL[\s\S]*?COUNT\(DISTINCT project_members\.project_id\)[\s\S]*?= 1/);
   assert.match(seed, /INSERT INTO feedback \(id, project_id, user_id, title, message, status\)/);
 });
+
+test("project catalog returns exact Stories, Modules, Cases, and Bugs counts", async () => {
+  const service = await readSource("../src/services/project.service.js");
+
+  assert.match(service, /FROM requirements WHERE requirements\.project_id = p\.id\) AS story_count/);
+  assert.match(service, /FROM test_case_modules[\s\S]*WHERE app_types\.project_id = p\.id[\s\S]*AS module_count/);
+  assert.match(service, /FROM test_cases[\s\S]*WHERE app_types\.project_id = p\.id[\s\S]*AS case_count/);
+  assert.match(service, /FROM feedback WHERE feedback\.project_id = p\.id\) AS bug_count/);
+});
+
+test("project visibility, catalog locks, and per-user favorites are persisted and access-aware", async () => {
+  const [routes, service, schema, bootstrap, permissions] = await Promise.all([
+    readSource("../src/routes/projects.routes.js"),
+    readSource("../src/services/project.service.js"),
+    readSource("../../db/schema.sql"),
+    readSource("../src/db/bootstrap.js"),
+    readSource("../src/security/permissions.catalog.js")
+  ]);
+
+  assert.match(schema, /visibility TEXT NOT NULL DEFAULT 'public' CHECK \(visibility IN \('private', 'public'\)\)/);
+  assert.match(schema, /CREATE TABLE project_favorites/);
+  assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS project_favorites/);
+  assert.match(routes, /fastify\.get\("\/projects\/catalog"/);
+  assert.match(routes, /fastify\.put\("\/projects\/:id\/favorite"/);
+  assert.match(routes, /fastify\.delete\("\/projects\/:id\/favorite"/);
+  assert.match(service, /normalizedVisibility === "public" \? await selectAdminUsers\.all\(\) : \[\]/);
+  assert.match(service, /CASE WHEN catalog\.has_access THEN catalog\.description ELSE NULL END/);
+  assert.match(service, /INSERT INTO project_favorites/);
+  assert.match(permissions, /\["GET", "\/projects\/catalog", "project\.view"\]/);
+});
+
+test("project attachments use project scope and transparent gzip persistence", async () => {
+  const [attachmentService, entityScope, schema, bootstrap, projectService] = await Promise.all([
+    readSource("../src/services/attachment.service.js"),
+    readSource("../src/services/entityScope.service.js"),
+    readSource("../../db/schema.sql"),
+    readSource("../src/db/bootstrap.js"),
+    readSource("../src/services/project.service.js")
+  ]);
+
+  assert.match(entityScope, /project: \{[\s\S]*SELECT id, id AS project_id FROM projects/);
+  assert.match(attachmentService, /createGzip/);
+  assert.match(attachmentService, /createGunzip/);
+  assert.match(attachmentService, /compression: "gzip"/);
+  assert.match(attachmentService, /stored_size_bytes/);
+  assert.match(schema, /stored_size_bytes BIGINT NOT NULL DEFAULT 0/);
+  assert.match(schema, /compression TEXT NOT NULL DEFAULT 'none'/);
+  assert.match(bootstrap, /ALTER TABLE attachments ADD COLUMN IF NOT EXISTS stored_size_bytes/);
+  assert.match(projectService, /attachmentService\.listProjectObjects\(id\)/);
+  assert.match(projectService, /attachmentService\.purgeProjectObjects\(id, projectAttachmentObjects\)/);
+});

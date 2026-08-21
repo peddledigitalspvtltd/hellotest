@@ -101,6 +101,14 @@ test("rich-text AI output is reduced to the supported authoring HTML contract", 
   );
   assert.equal(richTextAi.sanitizeAllowedHtml("First line\n\nSecond line"), "<p>First line</p><p>Second line</p>");
   assert.equal(richTextAi.sanitizeAllowedHtml("<blockquote><em>Review</em></blockquote>"), "<blockquote><em>Review</em></blockquote>");
+  assert.equal(
+    richTextAi.ensureBulletListHtml("<p>Project scope</p><p>Release goals</p>"),
+    "<ul><li>Project scope</li><li>Release goals</li></ul>"
+  );
+  assert.equal(
+    richTextAi.ensureBulletListHtml("<ol><li>First outcome</li><li>Second outcome</li></ol>"),
+    "<ul><li>First outcome</li><li>Second outcome</li></ul>"
+  );
 });
 
 test("execution assignments inherit from run through suite and module to case", () => {

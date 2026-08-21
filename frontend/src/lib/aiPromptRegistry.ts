@@ -9,6 +9,7 @@ export type AiPromptRegistryItem = {
 export const AI_PROMPT_OVERRIDES_KEY = "ai_prompt_registry_overrides";
 export const AI_PROMPT_LLM_OVERRIDES_KEY = "ai_prompt_registry_llm_overrides";
 export const AI_METRIC_CRITERIA_OVERRIDES_KEY = "ai_metric_criteria_overrides";
+export const AI_METRIC_FORMULA_VALUES_KEY = "ai_metric_formula_values";
 
 export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
   {
@@ -203,6 +204,18 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
 export type AiPromptOverrides = Record<string, string>;
 export type AiPromptLlmOverrides = Record<string, string>;
 export type AiMetricCriteriaOverrides = Record<string, string>;
+export type AiMetricFormulaValues = Record<string, Record<string, number>>;
+
+export type AiMetricFormulaParameter = {
+  defaultValue: number;
+  help: string;
+  key: string;
+  label: string;
+  max: number;
+  min: number;
+  step?: number;
+  suffix?: string;
+};
 
 export type AiMetricCriteriaRegistryItem = {
   aliases: string[];
@@ -210,6 +223,7 @@ export type AiMetricCriteriaRegistryItem = {
   formula: string;
   key: string;
   label: string;
+  parameters?: AiMetricFormulaParameter[];
   surface: string;
 };
 
@@ -299,24 +313,35 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Project portfolio health",
     surface: "Projects portfolio",
     aliases: ["overall health", "portfolio health"],
-    formula: "Arithmetic mean of each visible project's readiness score, where project readiness is Story coverage × 35% + automation coverage × 25% + latest pass confidence × 40%.",
-    criteria: "Treat every visible project equally rather than weighting by record volume. A project without assessable scope contributes its deterministic zero readiness and remains identified as new."
+    formula: "Arithmetic mean of each accessible project's readiness score. Readiness combines exact Story coverage, automation coverage, and latest finalized pass confidence using the configured weights.",
+    criteria: "Treat every accessible project equally rather than weighting by record volume. Keep projects without assessable scope identified as new and disclose missing evidence.",
+    parameters: [
+      { key: "story_weight", label: "Story coverage weight", defaultValue: 35, min: 0, max: 100, suffix: "%", help: "Contribution of exact Story-to-Test-Case traceability to project readiness." },
+      { key: "automation_weight", label: "Automation coverage weight", defaultValue: 25, min: 0, max: 100, suffix: "%", help: "Contribution of explicitly automated Test Cases to project readiness." },
+      { key: "pass_weight", label: "Pass confidence weight", defaultValue: 40, min: 0, max: 100, suffix: "%", help: "Contribution of latest finalized Test Case outcomes to project readiness." }
+    ]
   },
   {
     key: "metric.project.risky_classification",
     label: "Risky project classification",
     surface: "Projects portfolio",
     aliases: ["risky projects", "risky project classification"],
-    formula: "Count of assessable projects whose newest run has at least one failed or blocked result, or whose passed-latest-result count ÷ loaded Test Cases is below 60%.",
-    criteria: "Use the latest recorded project run for hard failure signals and keep projects without Stories or Test Cases classified as new, not risky."
+    formula: "Count of assessable accessible projects whose newest run has a failed or blocked result, or whose latest finalized pass confidence is below the configured threshold.",
+    criteria: "Use the latest recorded project run for hard failure signals and keep projects without Stories or Test Cases classified as new, not risky.",
+    parameters: [
+      { key: "pass_confidence_threshold", label: "Risk pass threshold", defaultValue: 60, min: 0, max: 100, suffix: "%", help: "Projects below this finalized pass-confidence value are classified as risky." }
+    ]
   },
   {
     key: "metric.project.release_ready",
     label: "Release-ready projects",
     surface: "Projects portfolio",
     aliases: ["release ready", "release-ready projects"],
-    formula: "Count of assessable projects with readiness of at least 80% and no latest failed or blocked result and no pass-confidence result below 60%.",
-    criteria: "This threshold classifies portfolio attention; it does not approve a release. Keep projects with hard risk signals out even when their weighted score exceeds 80%."
+    formula: "Count of assessable accessible projects at or above the configured readiness threshold with no hard risk, evidence-policy, or open-Bug attention signal.",
+    criteria: "This threshold classifies portfolio attention; it does not approve a release. Keep projects with hard risk or missing-evidence signals out even when their weighted score exceeds the threshold.",
+    parameters: [
+      { key: "readiness_threshold", label: "Release-ready threshold", defaultValue: 80, min: 1, max: 100, suffix: "%", help: "Minimum weighted readiness required for the portfolio release-ready classification." }
+    ]
   },
   {
     key: "metric.project.average_story_coverage",
@@ -333,6 +358,51 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     aliases: ["average automation coverage", "portfolio automation coverage"],
     formula: "Arithmetic mean across visible projects of Test Cases explicitly marked automated ÷ loaded project Test Cases × 100. Each project has equal weight; projects with no cases contribute 0%.",
     criteria: "Show only when automation analytics permission and feature availability are present. A text snippet or hidden source field does not prove automation."
+  },
+  {
+    key: "metric.project.execution_evidence",
+    label: "Execution evidence completeness",
+    surface: "Projects portfolio",
+    aliases: ["evidence missing", "execution evidence", "run evidence"],
+    formula: "Latest-run finalized Test Case outcomes with a screenshot, video, or comment at result or run level ÷ latest-run finalized outcomes × 100.",
+    criteria: "Flag an assessable project when no finalized run evidence exists or evidence completeness falls below the configured threshold. Do not count unrelated project attachments.",
+    parameters: [
+      { key: "minimum_coverage_percent", label: "Minimum evidence coverage", defaultValue: 80, min: 0, max: 100, suffix: "%", help: "Minimum share of latest finalized outcomes that must have screenshot, video, or comment evidence. Set 0 to disable the violation." }
+    ]
+  },
+  {
+    key: "metric.project.needs_attention",
+    label: "Projects needing attention",
+    surface: "Projects portfolio",
+    aliases: ["projects need attention", "needs attention"],
+    formula: "Distinct accessible projects classified as risky or watch after readiness, execution, evidence, and open-Bug policy checks.",
+    criteria: "Rank hard execution risk first, then evidence and Bug policy violations, then lowest readiness. Show only the configured number of priority projects on compact card backs.",
+    parameters: [
+      { key: "priority_project_limit", label: "Priority projects shown", defaultValue: 3, min: 1, max: 8, help: "Maximum project names shown on compact attention evidence; the remaining count is summarized." }
+    ]
+  },
+  {
+    key: "metric.project.execution_failures",
+    label: "Execution failure cases",
+    surface: "Projects portfolio",
+    aliases: ["execution failures", "failure cases"],
+    formula: "Failed Test Case outcomes in each accessible project's newest recorded execution. Blocked outcomes are disclosed separately and are not counted as failures.",
+    criteria: "Rank impacted Modules and Stories by distinct failed Test Cases, show only the configured priority items, and summarize the remaining impacted scope.",
+    parameters: [
+      { key: "priority_impact_limit", label: "Priority impacts shown", defaultValue: 2, min: 1, max: 5, help: "Maximum highest-impact Modules and Stories returned for compact evidence." }
+    ]
+  },
+  {
+    key: "metric.project.bugs",
+    label: "Portfolio Bugs",
+    surface: "Projects portfolio",
+    aliases: ["project bugs", "portfolio bugs", "open bugs"],
+    formula: "Distinct Bugs assigned to accessible projects. Open Bugs are determined from current workflow status and drive the configurable attention threshold.",
+    criteria: "Deduplicate Bugs linked through multiple Test Cases or Stories. Rank impacted Modules and Stories by distinct Bugs and summarize lower-priority scope.",
+    parameters: [
+      { key: "open_bug_attention_threshold", label: "Open-Bug attention threshold", defaultValue: 1, min: 0, max: 1000, help: "An assessable project at or above this number of open Bugs receives a watch signal. Set 0 to disable this signal." },
+      { key: "priority_impact_limit", label: "Priority impacts shown", defaultValue: 2, min: 1, max: 5, help: "Maximum highest-impact Modules and Stories returned for compact evidence." }
+    ]
   },
   {
     key: "metric.analytics.release_posture",
@@ -526,6 +596,29 @@ export function normalizeAiMetricCriteriaOverrides(input: unknown): AiMetricCrit
     Object.entries(input as Record<string, unknown>)
       .filter(([key, value]) => typeof key === "string" && key.trim() && typeof value === "string")
       .map(([key, value]) => [key.trim(), String(value).trim().slice(0, 4_000)])
+  );
+}
+
+export function normalizeAiMetricFormulaValues(input: unknown): AiMetricFormulaValues {
+  const source = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+
+  return Object.fromEntries(
+    AI_METRIC_CRITERIA_REGISTRY
+      .filter((metric) => metric.parameters?.length)
+      .map((metric) => {
+        const supplied = source[metric.key] && typeof source[metric.key] === "object" && !Array.isArray(source[metric.key])
+          ? source[metric.key] as Record<string, unknown>
+          : {};
+        return [metric.key, Object.fromEntries((metric.parameters || []).map((parameter) => {
+          const parsed = Number(supplied[parameter.key]);
+          const bounded = Number.isFinite(parsed)
+            ? Math.max(parameter.min, Math.min(parameter.max, parsed))
+            : parameter.defaultValue;
+          return [parameter.key, bounded];
+        }))];
+      })
   );
 }
 

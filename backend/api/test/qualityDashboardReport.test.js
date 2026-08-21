@@ -37,6 +37,16 @@ test("tall dashboard snapshots flow across multiple PDF pages", () => {
   assert.equal((pdf.toString("latin1").match(/\/Type \/Page\b/g) || []).length, 4);
 });
 
+test("continuous snapshot exports preserve a tall rendered view on one PDF page", () => {
+  const pdf = reports.renderedSnapshotPdf({
+    rendered_snapshot_data_url: jpegDataUrl({ width: 1200, height: 3000 })
+  }, { pageMode: "continuous" });
+
+  assert.ok(pdf.includes(Buffer.from("/Count 1")));
+  assert.equal((pdf.toString("latin1").match(/\/Type \/Page\b/g) || []).length, 1);
+  assert.match(pdf.toString("latin1"), /\/MediaBox \[0 0 842 \d+\.\d{3}\]/);
+});
+
 test("dashboard snapshot export rejects unsupported image payloads", () => {
   assert.throws(
     () => reports.renderedSnapshotPdf({ rendered_snapshot_data_url: "data:image/png;base64,AAAA" }),

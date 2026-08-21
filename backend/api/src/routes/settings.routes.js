@@ -3,7 +3,9 @@ const apiKeyService = require("../services/apiKey.service");
 
 const AI_PROMPT_PREFERENCE_KEYS = new Set([
   "ai_prompt_registry_overrides",
-  "ai_prompt_registry_llm_overrides"
+  "ai_prompt_registry_llm_overrides",
+  "ai_metric_criteria_overrides",
+  "ai_metric_formula_values"
 ]);
 
 module.exports = async function (fastify) {

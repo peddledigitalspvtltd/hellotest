@@ -11,3 +11,14 @@
 .evidence-flip-card-front-accessory .metric-methodology-info {
   color: var(--ds-text-subtle, var(--muted)) !important;
 }
+
+.evidence-flip-card-front-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-bottom: 0.2rem;
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: var(--risk-card-accent, var(--primary, #0758c9));
+}
