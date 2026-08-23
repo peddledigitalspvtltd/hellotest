@@ -6,7 +6,7 @@ import { startQueueWorker } from "./lib/queueWorker.js";
 import { getRun, getRunEnvelope, listRuns, saveRun } from "./lib/runStore.js";
 import { registerRecorderRoutes } from "./lib/recorder.js";
 import { captureLiveSessionScreenshot, getLiveSessionStatus } from "./lib/webEngine.js";
-import type { EngineRunEnvelope } from "./contracts/qaira.js";
+import type { EngineRunEnvelope } from "./contracts/hellotest.js";
 
 const port = Number.parseInt(process.env.PORT || "4301", 10);
 const normalizeText = (value: unknown) => {
@@ -70,7 +70,7 @@ app.addHook("onRequest", async (request, reply) => {
   const origin = request.headers.origin;
   reply.header("access-control-allow-origin", typeof origin === "string" ? origin : "*");
   reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
-  reply.header("access-control-allow-headers", "content-type,x-qaira-recorder-token,authorization");
+  reply.header("access-control-allow-headers", "content-type,x-hellotest-recorder-token,authorization");
   reply.header("access-control-max-age", "600");
 
   if (request.method === "OPTIONS") {
@@ -93,9 +93,9 @@ const getOpsTelemetry = () => {
 
 app.get("/health", async () => ({
   ok: true,
-  service: process.env.ENGINE_NAME || "QAira Test Engine",
+  service: process.env.ENGINE_NAME || "HelloTest Test Engine",
   runner: process.env.TESTENGINE_WORKER_CLASS || "hybrid",
-  ui: "qaira",
+  ui: "hellotest",
   execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android",
   supported_web_engines: ["playwright", "selenium"],
   ops_telemetry: getOpsTelemetry().getHealthSnapshot()
@@ -130,7 +130,7 @@ app.get("/api/v1/live-session", async (request, reply) => {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>QAira Playwright Live View</title>
+  <title>HelloTest Playwright Live View</title>
   <style>
     body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0e1726; color: #f8fafc; }
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; background: #121f33; border-bottom: 1px solid rgba(255,255,255,.12); }
@@ -142,7 +142,7 @@ app.get("/api/v1/live-session", async (request, reply) => {
   </style>
 </head>
 <body>
-  <div class="bar"><strong>QAira Playwright live view</strong><span id="state">${status.available ? "Connected" : "Waiting for a Playwright run"}</span></div>
+  <div class="bar"><strong>HelloTest Playwright live view</strong><span id="state">${status.available ? "Connected" : "Waiting for a Playwright run"}</span></div>
   <div class="stage"><img id="shot" alt="" /><div class="empty" id="empty">Waiting for an active Playwright browser session.</div></div>
   <script>
     const shot = document.getElementById("shot");
@@ -207,9 +207,9 @@ app.get("/api/v1/runs/:id", async (request, reply) => {
 app.post("/api/v1/runs", async (request, reply) => {
   const envelope = request.body as EngineRunEnvelope;
 
-  if (!envelope?.engine_run_id || !envelope?.qaira_run_id || !envelope?.qaira_test_case_id) {
+  if (!envelope?.engine_run_id || !envelope?.hellotest_run_id || !envelope?.hellotest_test_case_id) {
     reply.code(400);
-    return { message: "engine_run_id, qaira_run_id, and qaira_test_case_id are required" };
+    return { message: "engine_run_id, hellotest_run_id, and hellotest_test_case_id are required" };
   }
 
   if (!envelope.automated) {

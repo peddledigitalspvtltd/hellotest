@@ -275,7 +275,7 @@ test("AI Grooming deterministic fallback metadata does not attribute evidence-gr
   assert.equal(result.generation_mode, "deterministic");
   assert.equal(result.provenance.provider, "HelloTest evidence graph");
   assert.equal(result.provenance.model, null);
-  assert.equal(result.integration.id, "qaira-evidence-graph");
+  assert.equal(result.integration.id, "hellotest-evidence-graph");
   assert.equal(result.integration.model, null);
   assert.equal(result.integration.direct_model_invocation, true);
 });

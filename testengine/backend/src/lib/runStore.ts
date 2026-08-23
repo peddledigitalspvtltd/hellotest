@@ -1,4 +1,4 @@
-import type { EngineRunEnvelope, EngineRunRecord } from "../contracts/qaira.js";
+import type { EngineRunEnvelope, EngineRunRecord } from "../contracts/hellotest.js";
 
 const runs = new Map<string, EngineRunRecord>();
 const envelopes = new Map<string, EngineRunEnvelope>();

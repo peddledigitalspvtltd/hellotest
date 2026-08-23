@@ -431,7 +431,7 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
     settings: workflowSettings,
     n8n_payload: workflow.n8n_payload,
     runtime_contract: {
-      mode: "isolated-qaira-orchestrator",
+      mode: "isolated-hellotest-orchestrator",
       arbitrary_code_execution: false,
       external_services: "adapter-only",
       failure_domain: "agentic workflow run only",

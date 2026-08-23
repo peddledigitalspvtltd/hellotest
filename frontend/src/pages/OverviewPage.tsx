@@ -212,7 +212,7 @@ function QualityAnalyticsDashboard() {
   const [analyticsLayout, setAnalyticsLayout] = useState<AnalyticsLayout>(DEFAULT_ANALYTICS_LAYOUT);
   const canViewAutomationAnalytics = hasPermission(session, "automation.analytics.view")
     && hasPermission(session, "dashboard.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.analytics"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"]);
   const canCreateTestCases = hasPermission(session, "testcase.create");
   const {
     projects,
@@ -775,7 +775,7 @@ function QualityAnalyticsDashboard() {
       ? "Production readiness needs hardening"
       : "Not ready for production";
   const canViewQualityInsights = hasPermission(session, "quality_insight.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.quality_insights"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
   const qualityInsightItems = asArray(qualityInsightPreview.data?.insights);
   const qualityInsightEvidence = asArray(qualityInsightPreview.data?.provenance?.evidence);
   const qualityInsightLimitations = asArray(qualityInsightPreview.data?.limitations);
@@ -898,7 +898,7 @@ function QualityAnalyticsDashboard() {
     }
   }), [automatedCasesCount, automatedExecutions.length, automatedLatestResults.length, automatedPassRate, automationCoverage, casesMissingStepsCount, casesWithStepsCount, coverageGapCount, designCompleteness, executionStatusCounts.failed, knownAutomationCaseCount, knownStepCaseCount, latestExecutionSummary.blocked, latestExecutionSummary.failed, latestExecutionSummary.passed, latestExecutionSummary.total, latestFailedSignals, latestPassRate, mappedRequirementsCount, openRiskCount, releaseBlockerCount, releaseHeadline, releaseReadinessScore, releaseRiskPenalty, requirementCoverage, requirementsList.length, resultStatusCounts.blocked, resultStatusCounts.failed, resultStatusCounts.passed, resultStatusCounts.total]);
 
-  const layoutStorageKey = `qaira-ui.analytics-layout.v1:${activeProjectId || "unselected"}`;
+  const layoutStorageKey = `hellotest-ui.analytics-layout.v1:${activeProjectId || "unselected"}`;
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(layoutStorageKey);
@@ -1054,8 +1054,8 @@ export function OverviewPage() {
         {projectId ? (
           <CustomQualityDashboard
             canManage={hasPermission(session, "dashboard.manage")}
-            canUseAutomation={hasPermission(session, "automation.analytics.view") && hasPermission(session, "dashboard.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.analytics"])}
-            canUseAi={hasPermission(session, "quality_insight.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.quality_insights"])}
+            canUseAutomation={hasPermission(session, "automation.analytics.view") && hasPermission(session, "dashboard.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"])}
+            canUseAi={hasPermission(session, "quality_insight.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"])}
             projectId={String(projectId)}
           />
         ) : (

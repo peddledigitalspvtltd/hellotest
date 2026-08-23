@@ -19,6 +19,7 @@ const { config } = require("./config");
 const { ensureRuntimeSchema: ensureMainRuntimeSchema } = require("./db/bootstrap");
 const { ensureRuntimeSchema: ensureObsRuntimeSchema } = require("./obsDb/bootstrap");
 const { generateRequestId } = require("./utils/token");
+const adminPortalService = require("./services/adminPortal.service");
 
 // Add request ID to all requests
 fastify.addHook("onRequest", async (req, reply) => {
@@ -67,6 +68,7 @@ fastify.register(require("./routes"));
 fastify.addHook("onReady", async () => {
   await ensureMainRuntimeSchema();
   await ensureObsRuntimeSchema();
+  await adminPortalService.ensureAdminFoundation();
 });
 fastify.register(require("./plugins/backgroundTasks"));
 

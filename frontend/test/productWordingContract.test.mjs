@@ -8,6 +8,8 @@ const sourceRoots = [
   new URL("../src/", import.meta.url),
   new URL("../../backend/api/src/", import.meta.url)
 ];
+const retiredProductName = ["qai", "ra"].join("");
+const legacyVisibleProviderPattern = /\bJira\b/;
 
 async function sourceFiles(root) {
   const entries = await readdir(root, { withFileTypes: true });
@@ -37,7 +39,7 @@ test("customer-visible product wording contains no legacy provider or product br
         || ts.isJsxText(node)
       ) {
         const visibleText = source.slice(node.getStart(ast), node.end);
-        if (/\bJira\b|\b(?:QAira|Qaira|QAIRA)\b/.test(visibleText)) {
+        if (legacyVisibleProviderPattern.test(visibleText) || visibleText.toLowerCase().includes(retiredProductName)) {
           const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
           violations.push(`${path.basename(file.pathname)}:${line}`);
         }
@@ -49,5 +51,5 @@ test("customer-visible product wording contains no legacy provider or product br
 
   assert.deepEqual(violations, []);
   const seed = await readFile(new URL("../../backend/db/seed.sql", import.meta.url), "utf8");
-  assert.doesNotMatch(seed, /['"](?:QAira|Qaira|QAIRA)(?: Support)?['"]/);
+  assert.doesNotMatch(seed, new RegExp(`['"]${retiredProductName}(?: Support)?['"]`, "i"));
 });

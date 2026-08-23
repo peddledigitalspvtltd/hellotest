@@ -808,7 +808,7 @@ const buildDeterministicRequirementCreation = ({ additionalContext, externalLink
   const contextLines = String(additionalContext || "")
     .split(/\r?\n/)
     .map((line) => line.replace(/^[-*#\s]+/, "").trim())
-    .filter((line) => line && !/^(qaira smart context pack|requirements?|ai knowledge|file context|attached file context)\s*:?$/i.test(line))
+    .filter((line) => line && !/^(hellotest smart context pack|requirements?|ai knowledge|file context|attached file context)\s*:?$/i.test(line))
     .filter((line, index, lines) => lines.findIndex((candidate) => candidate.toLowerCase() === line.toLowerCase()) === index);
   const seed = contextLines[0];
   if (!seed || !additionalContext) return [];

@@ -443,7 +443,7 @@ const WORKSPACE_TRANSACTION_METADATA_LABELS: Record<string, string> = {
 const DEFAULT_DURATION_LABEL = "0s";
 const MAX_AI_BUG_CONTEXT_ITEMS = 25;
 const MAX_AI_BUG_EVIDENCE_LINES = 5;
-const EXECUTION_CASE_LIST_COLUMN_PREFERENCE_KEY = "qaira:execution-cases:list-columns:v2";
+const EXECUTION_CASE_LIST_COLUMN_PREFERENCE_KEY = "hellotest:execution-cases:list-columns:v2";
 const MAX_EXECUTION_EVIDENCE_SOURCE_BYTES = 25 * 1024 * 1024;
 const MAX_EXECUTION_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_EXECUTION_EVIDENCE_IMAGE_DIMENSION = 1400;
@@ -1359,9 +1359,9 @@ export function ExecutionsPage() {
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canCreateManualRuns = hasPermission(session, "run.create")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
   const canExecuteRuns = hasPermission(session, "run.execute")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
   const canUpdateRuns = hasPermission(session, "run.update");
   const canViewSchedules = hasPermission(session, "schedule.view");
   const canCreateSchedules = hasPermission(session, "schedule.create");
@@ -1370,17 +1370,17 @@ export function ExecutionsPage() {
   const canRunSchedules = hasPermission(session, "schedule.run");
   const canManageRunResults = hasPermission(session, "result.manage");
   const canRunLocalAutomation = hasPermission(session, "automation.run.local")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.local_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.local_execution"]);
   const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.remote_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
   const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.parallel_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.parallel_execution"]);
   const canUseRunAi = hasPermission(session, "run.ai")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.execution_analysis"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.execution_analysis"]);
   const canReportBugs = hasPermission(session, "feedback.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.bugs"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.bugs"]);
   const canUseAiBugTriage = canReportBugs
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.bug_triage"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
   const canViewRunAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const canBuildRunAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
   const canPreviewRunAutomation = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
@@ -3669,7 +3669,7 @@ export function ExecutionsPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(selectedExecution.name || selectedExecution.id || "qaira-run-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
+      link.download = `${(selectedExecution.name || selectedExecution.id || "hellotest-run-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -3699,7 +3699,7 @@ export function ExecutionsPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(selectedExecutionCase.title || selectedExecutionCase.id || "qaira-case-run-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
+      link.download = `${(selectedExecutionCase.title || selectedExecutionCase.id || "hellotest-case-run-report").replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -7693,7 +7693,7 @@ export function ExecutionsPage() {
                     onRowClick={(execution) => focusExecution(execution.id)}
                     renderRowActions={renderExecutionRowActions}
                     rows={activeExecutionCatalogRows}
-                    storageKey="qaira:executions:list-columns"
+                    storageKey="hellotest:executions:list-columns"
                   />
                 ) : null}
                 {testRunsView === "scheduled-runs" && catalogViewMode === "list" && canViewSchedules ? (
@@ -7705,7 +7705,7 @@ export function ExecutionsPage() {
                     onRowClick={(schedule) => focusExecutionSchedule(schedule.id)}
                     renderRowActions={renderExecutionScheduleRowActions}
                     rows={filteredSchedules}
-                    storageKey="qaira:execution-schedules:list-columns"
+                    storageKey="hellotest:execution-schedules:list-columns"
                   />
                 ) : null}
                 {testRunsView === "batch-process" && catalogViewMode === "list" ? (
@@ -7717,7 +7717,7 @@ export function ExecutionsPage() {
                     onRowClick={(transaction) => openWorkspaceTransactionDetail(transaction.id)}
                     renderRowActions={renderOperationRowActions}
                     rows={filteredWorkspaceTransactions}
-                    storageKey="qaira:operations:list-columns"
+                    storageKey="hellotest:operations:list-columns"
                   />
                 ) : null}
                 {catalogViewMode === "tile" && isExecutionRunsView(testRunsView) && !activeExecutionCatalogRows.length ? (
@@ -9286,7 +9286,7 @@ export function ExecutionsPage() {
                               }}
                               renderRowActions={renderExecutionSuiteRowActions}
                               rows={filteredExecutionSuites}
-                              storageKey="qaira:execution-run-suites:list-columns"
+                              storageKey="hellotest:execution-run-suites:list-columns"
                             />
                             <div className="execution-open-suite-panels">
                               {filteredExecutionSuites

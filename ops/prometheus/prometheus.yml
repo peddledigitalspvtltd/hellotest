@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: qaira-api
+  - job_name: hellotest-api
     metrics_path: /metrics
     static_configs:
       - targets:

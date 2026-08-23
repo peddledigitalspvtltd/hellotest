@@ -1,53 +1,56 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: qaira-postgres
+    container_name: hellotest-postgres
     ports:
       - "5432:5432"
     volumes:
-      - qaira-postgres-data:/var/lib/postgresql/data
+      - hellotest-postgres-data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-qaira}
-      POSTGRES_USER: ${POSTGRES_USER:-qaira}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qaira}
+      POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hellotest}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qaira} -d ${POSTGRES_DB:-qaira}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hellotest} -d ${POSTGRES_DB:-hellotest}"]
       interval: 5s
       timeout: 5s
       retries: 20
 
   minio:
     image: minio/minio:latest
-    container_name: qaira-minio
+    container_name: hellotest-minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-qaira}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-qaira-minio-dev-secret}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
     volumes:
-      - qaira-minio-data:/data
+      - hellotest-minio-data:/data
     restart: unless-stopped
 
   api:
     build: ./api
-    container_name: qaira-api
+    container_name: hellotest-api
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
-      SESSION_SECRET: ${SESSION_SECRET:-qaira-dev-secret}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      SESSION_SECRET: ${SESSION_SECRET:-hellotest-dev-secret}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:5174,http://localhost:8080,http://localhost:8081}
+      ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-5174}
+      ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
+      ADMIN_BOOTSTRAP_ENABLED: ${ADMIN_BOOTSTRAP_ENABLED:-true}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-qaira}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-qaira-minio-dev-secret}
-      MINIO_BUCKET: ${MINIO_BUCKET:-qaira-attachments}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hellotest}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hellotest-minio-dev-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
       MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
     depends_on:
       postgres:
@@ -61,5 +64,5 @@ services:
       retries: 10
 
 volumes:
-  qaira-postgres-data:
-  qaira-minio-data:
+  hellotest-postgres-data:
+  hellotest-minio-data:

@@ -7,7 +7,7 @@ const createError = (message, statusCode) => {
   return error;
 };
 
-const normalizeSenderName = (value) => /^qaira(?: support)?$/i.test(String(value || "").trim())
+const normalizeSenderName = (value) => /^hellotest(?: support)?$/i.test(String(value || "").trim())
   ? "HelloTest Support"
   : String(value || "").trim() || "HelloTest Support";
 

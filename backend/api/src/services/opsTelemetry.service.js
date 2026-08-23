@@ -263,7 +263,7 @@ const postEvent = async (integration, payload) => {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const headers = {
     "content-type": "application/json",
-    "x-qaira-source": "qaira-ops-telemetry"
+    "x-hellotest-source": "hellotest-ops-telemetry"
   };
   const authHeaderName = normalizeText(config.api_key_header) || "Authorization";
   const authHeaderValue = buildAuthHeaderValue(config.api_key_prefix, integration.api_key);
@@ -361,7 +361,7 @@ exports.emitExecutionHierarchyEvents = async ({
   execution_id,
   test_case_id,
   step_id,
-  source = "qaira",
+  source = "hellotest",
   summary,
   execution_result_id,
   step_status,
@@ -408,7 +408,7 @@ exports.emitExecutionHierarchyEvents = async ({
     };
     const basePayload = {
       source,
-      service_name: normalizeText(config.service_name) || "qaira-testengine",
+      service_name: normalizeText(config.service_name) || "hellotest-testengine",
       environment: normalizeText(config.environment) || process.env.NODE_ENV || "production",
       emitted_at: emittedAt,
       integration_id: integration.id,

@@ -10,6 +10,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DialogCloseButton } from "../components/DialogCloseButton";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { InfoTooltip } from "../components/InfoTooltip";
@@ -71,6 +72,7 @@ type AutomationStepView = "keyword" | "code";
 type AutomationCreationMode = "ai" | "record" | "blank";
 type RepositoryScreenTab = "overview" | "fields" | "dom" | "suggestions";
 type RepositoryFieldTab = "locators" | "evidence" | "meaning";
+type RepositoryInspectReviewTab = "selected" | "candidates" | "evidence";
 const REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH = 440;
 const REPOSITORY_CONFIG_DRAWER_MIN_WIDTH = 360;
 const REPOSITORY_CONFIG_DRAWER_MAX_WIDTH = 720;
@@ -629,7 +631,7 @@ function parseParameterText(value: string) {
 
 function parseAutomationStepOptions(step: TestStep): AutomationStepOptions {
   const code = step.automation_code || step.action || "";
-  const optionMatch = code.match(/@qaira-options\s+([^\n]+)/i);
+  const optionMatch = code.match(/@hellotest-options\s+([^\n]+)/i);
   const flags = new Set((optionMatch?.[1] || "").split(/\s+/).filter(Boolean));
 
   return {
@@ -640,14 +642,14 @@ function parseAutomationStepOptions(step: TestStep): AutomationStepOptions {
 }
 
 function applyAutomationStepOptions(code: string, options: AutomationStepOptions) {
-  const cleaned = code.replace(/^\s*\/\/\s*@qaira-options\s+[^\n]*\n?/i, "").trim();
+  const cleaned = code.replace(/^\s*\/\/\s*@hellotest-options\s+[^\n]*\n?/i, "").trim();
   const flags = [
     options.screenshotOnFailure ? "screenshotOnFailure" : "",
     options.optional ? "optional" : "",
     options.skip ? "skip" : ""
   ].filter(Boolean);
 
-  return flags.length ? `// @qaira-options ${flags.join(" ")}\n${cleaned}` : cleaned;
+  return flags.length ? `// @hellotest-options ${flags.join(" ")}\n${cleaned}` : cleaned;
 }
 
 function getAutomationStepTypeLabel(step: TestStep) {
@@ -962,7 +964,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const isAutomationWorkspaceEnabled = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
-    ["qaira.automation.workspace"]
+    ["hellotest.automation.workspace"]
   );
   const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
@@ -971,13 +973,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data);
   const canUseMobileAppium = hasPermission(session, "mobile.manage")
     && isAutomationWorkspaceEnabled
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const canRunLocalAutomation = hasPermission(session, "automation.run.local")
     && isAutomationWorkspaceEnabled
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
   const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
     && isAutomationWorkspaceEnabled
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -1078,6 +1080,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isRepositoryConfigOpen, setIsRepositoryConfigOpen] = useState(true);
   const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
+  const [inspectReviewTab, setInspectReviewTab] = useState<RepositoryInspectReviewTab>("selected");
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
   const [isInspectingLiveField, setIsInspectingLiveField] = useState(false);
@@ -1740,6 +1743,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       setScreenUrlDraft(targetPage.url);
     }
     setIsInspectOpen(true);
+    setInspectReviewTab("selected");
     setInspectMessage(inspectRecorderSession?.status === "running"
       ? `Inspecting ${targetPage?.pageName || "the selected screen"}. Select an open tab, then capture or highlight fields.`
       : `Connect a local browser to inspect ${targetPage?.pageName || "the selected screen"} and capture fields.`);
@@ -3224,7 +3228,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
 
   const addRepositoryScreen = useMutation({
-    mutationFn: () => {
+    mutationFn: (_options?: { inspectAfterSave?: boolean }) => {
       const screenName = newRepositoryScreenDraft.screen_name.trim();
 
       if (!screenName) {
@@ -3254,9 +3258,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         }
       });
     },
-    onSuccess: (entry) => {
+    onSuccess: (entry, options) => {
       const screenName = newRepositoryScreenDraft.screen_name.trim();
-      setSelectedScreenName(makeRepositoryScreenKey(screenName, entry?.app_type_id || appTypeId || undefined));
+      const screenKey = makeRepositoryScreenKey(screenName, entry?.app_type_id || appTypeId || undefined);
+      queryClient.setQueryData<AutomationLearningCacheEntry[]>(
+        ["automation-learning-cache", "automation-workspace", projectId, appTypeId],
+        (current) => [entry, ...(current || []).filter((currentEntry) => currentEntry.id !== entry.id)]
+      );
+      setSelectedScreenName(screenKey);
       setScreenUrlDraft(newRepositoryScreenDraft.page_url.trim());
       setScreenDomDraft(newRepositoryScreenDraft.dom_structure.trim());
       setScreenScreenshotDraft(newRepositoryScreenDraft.screenshot_url.trim());
@@ -3272,10 +3281,27 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (entry?.id) {
         setSelectedRepositoryId(entry.id);
       }
+      setNewRepositoryScreenDraft({
+        screen_name: "",
+        page_url: "",
+        url_pattern_type: "contains",
+        url_pattern_value: "",
+        description: "",
+        business_meaning: "",
+        dom_structure: "",
+        screenshot_url: ""
+      });
       setIsAddingRepositoryScreen(false);
-      setIsInspectOpen(true);
-      setInspectMessage("Screen saved. Launch or reuse the local browser to inspect fields, or extract fields from supplied DOM evidence.");
-      showSuccess("Screen created. Inspect fields or request AI suggestions before saving its repository set.");
+      setScreenDetailTab("overview");
+      if (options?.inspectAfterSave) {
+        setIsInspectOpen(true);
+        setInspectReviewTab("selected");
+        setInspectMessage("Screen saved. Launch or reuse the local browser to inspect fields, or extract fields from supplied DOM evidence.");
+        showSuccess("Screen created. Continue by capturing and reviewing its repository fields.");
+      } else {
+        setIsInspectOpen(false);
+        showSuccess("Screen created. You can add details now and inspect it whenever you are ready.");
+      }
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
     },
@@ -3386,6 +3412,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onSuccess: (response) => {
       const aiFields = response.fields.map((field) => ({ ...field, source: "ai_extract" as const }));
       setAiSuggestedInspectFields(aiFields);
+      setInspectReviewTab("candidates");
       aiFields.forEach((field) => {
         if (inspectRecorderSession?.status === "running") {
           void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
@@ -3782,10 +3809,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       });
       return merged;
     });
+    setInspectReviewTab("candidates");
     for (const field of fields) {
       await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
     }
-    setInspectMessage(`${fields.length} highlighted field${fields.length === 1 ? "" : "s"} captured. Review them under DOM suggestions, then select the fields to save.`);
+    setInspectMessage(`${fields.length} highlighted field${fields.length === 1 ? "" : "s"} captured. Review them in Candidates, then select the fields to save.`);
   };
 
   const startLiveInspect = async () => {
@@ -3897,6 +3925,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       ? `${next.length} selected field${next.length === 1 ? "" : "s"} remain. Save when the selection is correct.`
       : "No fields selected. Inspect or choose suggested fields before saving.");
     void syncInspectHighlights(next);
+  };
+
+  const removeAllStagedInspectFields = () => {
+    setStagedInspectFields([]);
+    stagedInspectFieldsRef.current = [];
+    setInspectMessage("Selected fields cleared. Captured candidates remain available for review.");
+    void syncInspectHighlights([], browserInspectFields);
   };
 
   const selectAllBrowserInspectFields = () => {
@@ -4201,7 +4236,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       />
                     )}
                     rows={filteredAutomationCases}
-                    storageKey="qaira:automation-cases:list-columns"
+                    storageKey="hellotest:automation-cases:list-columns"
                   />
                 ) : null}
                 {automationCatalogViewMode === "tile" && !filteredAutomationCases.length ? (
@@ -5108,17 +5143,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             subtitle="Screen-level fields grouped by page, with friendly member names, HTML tag details, locator, DOM, image, and fallback intelligence."
             actions={(
               <div className="testops-action-row">
-	                <button className="ghost-button" onClick={() => openRepositoryInspect(activePageObject)} type="button">
-	                  <MousePointerIcon />
-	                  <span>Inspect screen</span>
-	                </button>
-                <button className="ghost-button" onClick={() => {
+                <button className="primary-button" onClick={() => {
                   setIsAddingRepositoryScreen((current) => !current);
                   setIsAddingRepositoryField(false);
                 }} type="button">
                   <AddIcon />
-                  <span>Add screen</span>
+                  <span>New screen</span>
                 </button>
+	                <button className="ghost-button" disabled={!activePageObject} onClick={() => openRepositoryInspect(activePageObject)} type="button">
+	                  <MousePointerIcon />
+	                  <span>Inspect selected</span>
+	                </button>
 	                <button className="ghost-button" onClick={() => setIsRepositoryImportModalOpen(true)} type="button">
 	                  <ImportIcon />
 	                  <span>{isParsingRepositoryImport ? "Reading..." : "Import"}</span>
@@ -5164,7 +5199,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <div className="automation-create-card repository-screen-create-card">
                 <div className="object-repository-inspector-section-head">
                   <strong>Add repository screen</strong>
-                  <span>Define the page identity now, then inspect live or extract intended fields from DOM and screenshot evidence.</span>
+                  <span>Create the screen record without opening a browser. Inspection and field capture remain available after it is saved.</span>
                 </div>
 	                      <div className="record-grid testops-builder-form repository-screen-overview-grid">
                   <label className="form-field"><span>Screen name</span><input value={newRepositoryScreenDraft.screen_name} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screen_name: event.target.value }))} placeholder="Checkout Page" /></label>
@@ -5176,14 +5211,22 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <input value={newRepositoryScreenDraft.url_pattern_value} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/checkout" />
                     </div>
                   </label>
-                  <label className="form-field"><span>Screenshot URL / data URL</span><input value={newRepositoryScreenDraft.screenshot_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screenshot_url: event.target.value }))} placeholder="Captured during inspect when blank" /></label>
                   <label className="form-field repository-span-two"><span>Purpose and intended flow</span><textarea rows={3} value={newRepositoryScreenDraft.business_meaning} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Customer reviews cart, enters payment, and submits an order." /></label>
                   <label className="form-field repository-span-two"><span>Description</span><RichTextEditor appearance="canonical" rows={2} value={newRepositoryScreenDraft.description} onChange={(description) => setNewRepositoryScreenDraft((current) => ({ ...current, description }))} placeholder="Page context used when selecting stable fields." /></label>
-                  <label className="form-field repository-span-two"><span>DOM / accessibility structure</span><textarea rows={6} value={newRepositoryScreenDraft.dom_structure} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, dom_structure: event.target.value }))} placeholder="<main><input aria-label='Card number' />...</main>" /></label>
                 </div>
-                <div className="testops-action-row">
-                  <button className="primary-button" disabled={addRepositoryScreen.isPending} onClick={() => addRepositoryScreen.mutate()} type="button"><MousePointerIcon /><span>{addRepositoryScreen.isPending ? "Saving..." : "Save and inspect"}</span></button>
-                  <button className="ghost-button" onClick={() => setIsAddingRepositoryScreen(false)} type="button">Cancel</button>
+                <details className="repository-screen-create-evidence">
+                  <summary>
+                    <span><strong>Optional evidence</strong><small>Add a screenshot or DOM now, or capture both later during inspection.</small></span>
+                  </summary>
+                  <div className="record-grid testops-builder-form repository-screen-overview-grid">
+                    <label className="form-field repository-span-two"><span>Screenshot URL / data URL</span><input value={newRepositoryScreenDraft.screenshot_url} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, screenshot_url: event.target.value }))} placeholder="Captured during inspect when blank" /></label>
+                    <label className="form-field repository-span-two"><span>DOM / accessibility structure</span><textarea rows={6} value={newRepositoryScreenDraft.dom_structure} onChange={(event) => setNewRepositoryScreenDraft((current) => ({ ...current, dom_structure: event.target.value }))} placeholder="<main><input aria-label='Card number' />...</main>" /></label>
+                  </div>
+                </details>
+                <div className="testops-action-row repository-screen-create-actions">
+                  <button className="primary-button" disabled={addRepositoryScreen.isPending || !newRepositoryScreenDraft.screen_name.trim()} onClick={() => addRepositoryScreen.mutate({ inspectAfterSave: false })} type="button"><LayersIcon /><span>{addRepositoryScreen.isPending ? "Saving..." : "Save screen"}</span></button>
+                  <button className="ghost-button" disabled={addRepositoryScreen.isPending || !newRepositoryScreenDraft.screen_name.trim()} onClick={() => addRepositoryScreen.mutate({ inspectAfterSave: true })} type="button"><MousePointerIcon /><span>Save and inspect</span></button>
+                  <button className="ghost-button" disabled={addRepositoryScreen.isPending} onClick={() => setIsAddingRepositoryScreen(false)} type="button">Cancel</button>
                 </div>
               </div>
             ) : null}
@@ -5649,9 +5692,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       />
                     </div>
                   </div>
-                  <button className="ghost-button compact" onClick={() => setIsInspectOpen(false)} type="button">Close</button>
+                  <DialogCloseButton label="Close object repository inspector" onClick={() => setIsInspectOpen(false)} />
                 </div>
-                <div className="object-repository-live-inspect">
+                <div className="object-repository-inspector-body">
+                <details className="object-repository-live-inspect object-repository-collapsible-section" open>
+                  <summary className="object-repository-collapsible-summary">
+                    <span>
+                      <strong>Browser inspection workspace</strong>
+                      <small>{inspectRecorderSession?.status === "running" ? "Browser connected" : "Ready to connect"} · {inspectTabs.length} tab{inspectTabs.length === 1 ? "" : "s"} · {stagedInspectFields.length} selected</small>
+                    </span>
+                    <span className="object-repository-collapse-label">Collapse</span>
+                  </summary>
+                  <div className="object-repository-live-inspect-body">
                   <div className="object-repository-inspector-steps" aria-label="Inspect capture steps">
                     <span className={inspectRecorderSession?.status === "running" ? "is-complete" : "is-active"}><strong>1</strong> Browser</span>
                     <span className={selectedInspectTabId ? "is-complete" : inspectRecorderSession?.status === "running" ? "is-active" : ""}><strong>2</strong> Select tab</span>
@@ -5660,7 +5712,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   </div>
                   <div className="object-repository-live-inspect-head">
                     <div>
-                      <strong>Live browser inspect</strong>
+                      <strong>Browser controls</strong>
                       <span>{inspectRecorderSession?.status === "running" ? `Connected to dedicated inspect session ${inspectRecorderSession.id.slice(0, 8)}. Tabs refresh automatically.` : "Launch browser probes localhost:4311 and localhost:4301, reusing an existing inspection Chrome session when one is open."}</span>
                     </div>
                     <div className="testops-action-row">
@@ -5672,16 +5724,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       >
                         <MousePointerIcon />
                         <span>{inspectRecorderSession?.status === "running" ? "Use browser" : isLaunchingInspectBrowser ? "Connecting..." : "Launch browser"}</span>
-                      </button>
-                      <button
-                        aria-label="Refresh browser tabs"
-                        className="ghost-button explorer-icon-button"
-                        disabled={!inspectRecorderSession?.id}
-                        onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
-                        title="Refresh browser tabs"
-                        type="button"
-                      >
-                        <RefreshIcon />
                       </button>
                         <button
                           className="primary-button"
@@ -5696,23 +5738,34 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   </div>
                   <div className="object-repository-capture-workspace">
                     <section className="object-repository-browser-preview">
-                      <strong>Browser view</strong>
-                      {inspectRecorderLiveUrl ? (
-                        <iframe src={inspectRecorderLiveUrl} title="Inspect browser live view" />
-                      ) : (
-                        <div className="empty-state compact">Browser preview appears after the recorder starts.</div>
-                      )}
-                    </section>
-                    <section className="object-repository-tab-area">
-                      <strong>Open tabs</strong>
-                      <div className="object-repository-tab-picker">
+                      <div className="object-repository-browser-preview-head">
+                        <div>
+                          <strong>Browser view</strong>
+                          <span>{selectedInspectTabId ? "Selected tab is ready for capture" : "Select a browser tab"}</span>
+                        </div>
+                        <button
+                          aria-label="Refresh browser tabs"
+                          className="ghost-button compact object-repository-refresh-tabs"
+                          disabled={!inspectRecorderSession?.id}
+                          onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
+                          title="Refresh browser tabs"
+                          type="button"
+                        >
+                          <RefreshIcon />
+                          <span>Refresh tabs</span>
+                        </button>
+                      </div>
+                      <div aria-label="Open browser tabs" className="object-repository-tab-picker object-repository-browser-tabs">
                         {inspectTabs.length ? inspectTabs.map((tab) => (
                           <button
+                            aria-pressed={selectedInspectTabId === tab.id}
                             className={selectedInspectTabId === tab.id ? "is-active" : ""}
                             key={tab.id || tab.url}
                             onClick={() => setSelectedInspectTabId(tab.id || "")}
+                            title={tab.url || "about:blank"}
                             type="button"
                           >
+                            <span className="object-repository-browser-tab-status" />
                             <strong>{tab.title || "Untitled tab"}</strong>
                             <span>{tab.url || "about:blank"}</span>
                           </button>
@@ -5720,13 +5773,36 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           <div className="empty-state compact">{inspectRecorderSession?.status === "running" ? "Waiting for an inspectable browser tab..." : "Launch the browser to load tabs."}</div>
                         )}
                       </div>
+                      {inspectRecorderLiveUrl ? (
+                        <iframe src={inspectRecorderLiveUrl} title="Inspect browser live view" />
+                      ) : (
+                        <div className="empty-state compact">Browser preview appears after the recorder starts.</div>
+                      )}
                     </section>
                   </div>
                   {inspectMessage ? <div className="object-repository-inspect-message">{inspectMessage}</div> : null}
-                  <section className="object-repository-selected-fields" aria-label="Fields selected for saving">
-                    <div className="object-repository-inspector-section-head">
-                      <strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong>
-                      <span>Blue highlights in the browser match this selection. Remove any unwanted fields before saving.</span>
+                  <SubnavTabs
+                    ariaLabel="Inspector review"
+                    className="object-repository-inspector-review-tabs"
+                    value={inspectReviewTab}
+                    onChange={setInspectReviewTab}
+                    items={[
+                      { value: "selected", label: "Selected locators", meta: String(stagedInspectFields.length) },
+                      { value: "candidates", label: "Candidates", meta: String(suggestedInspectFields.length + browserInspectFields.length) },
+                      { value: "evidence", label: "Selector evidence", meta: screenDomDraft || screenScreenshotDraft ? "1" : "0" }
+                    ]}
+                  />
+                  {inspectReviewTab === "selected" ? (
+                  <section className="object-repository-selected-fields object-repository-review-panel">
+                    <div className="object-repository-inspector-section-head object-repository-selected-fields-head">
+                      <span>
+                        <strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong>
+                        <small>Blue browser highlights match this review set. Remove unwanted fields before saving.</small>
+                      </span>
+                      <div className="object-repository-selection-actions">
+                        <button className="ghost-button compact" disabled={!stagedInspectFields.length || !inspectRecorderSession?.id} onClick={() => void syncInspectHighlights(stagedInspectFields, []).then(() => setInspectMessage("All selected fields are highlighted in the browser.")).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight selected fields."))} type="button"><MousePointerIcon size={14} /><span>Highlight all</span></button>
+                        <button className="ghost-button compact danger" disabled={!stagedInspectFields.length} onClick={removeAllStagedInspectFields} type="button"><TrashIcon size={14} /><span>Remove all</span></button>
+                      </div>
                     </div>
                     <div className="object-repository-selected-grid">
                       {stagedInspectFields.map((field) => (
@@ -5745,10 +5821,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       {!stagedInspectFields.length ? <div className="empty-state compact">Nothing selected yet. Choose <strong>Select fields</strong> and click controls in the browser, or request AI suggestions.</div> : null}
                     </div>
                   </section>
-                </div>
-                <div className="object-repository-inspector-grid">
+                  ) : null}
+                  </div>
+                </details>
+                <div className="object-repository-inspector-review">
+                  {inspectReviewTab === "evidence" ? (
                   <div className="object-repository-inspector-inputs">
-                    <details className="object-repository-static-evidence">
+                    <details className="object-repository-static-evidence object-repository-review-panel" open>
                       <summary>
                         <span>
                           <strong>Screen evidence</strong>
@@ -5792,11 +5871,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </details>
                     </details>
                   </div>
-                    <div className="object-repository-inspector-preview">
-                      <div className="object-repository-inspector-section-head">
-                        <strong>{suggestedInspectFields.length ? `${suggestedInspectFields.length} field suggestions` : "Suggested fields"}</strong>
-                        <span>DOM and AI suggestions are not saved until selected and committed with the screen.</span>
-                      </div>
+                  ) : null}
+                  {inspectReviewTab === "candidates" ? (
+                    <details className="object-repository-inspector-preview object-repository-collapsible-section" open>
+                      <summary className="object-repository-inspector-section-head object-repository-collapsible-summary">
+                        <span>
+                          <strong>{suggestedInspectFields.length ? `${suggestedInspectFields.length} field suggestions` : "Suggested fields"}</strong>
+                          <small>Browser, DOM, and AI candidates remain unsaved until selected.</small>
+                        </span>
+                        <span className="object-repository-collapse-label">Collapse</span>
+                      </summary>
+                      <div className="object-repository-suggestion-list">
                       {browserInspectFields.length ? (
                         <section className="object-repository-browser-candidates" aria-label="Fields highlighted in the browser">
                           <div className="object-repository-browser-candidates-head">
@@ -5881,7 +5966,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         );
                       })}
                       {!suggestedInspectFields.length && !browserInspectFields.length ? <div className="empty-state compact">Capture fields live, or provide DOM/screenshot evidence and choose AI suggest fields.</div> : null}
-                    </div>
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
                 </div>
                 <div className="testops-action-row object-repository-inspector-footer">
                   <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => extractRepositoryFields.mutate()} type="button">
@@ -5892,7 +5980,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <LayersIcon />
                     <span>{saveInspectedScreenFields.isPending ? "Saving..." : `Save screen and fields${stagedInspectFields.length ? ` (${stagedInspectFields.length})` : ""}`}</span>
                   </button>
-                  <button className="ghost-button" onClick={() => setIsInspectOpen(false)} type="button">Close</button>
                 </div>
               </div>
             </div>

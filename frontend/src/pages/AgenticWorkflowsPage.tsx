@@ -528,7 +528,7 @@ const buildN8nPayload = (draft: WorkflowDraft, nodes: AgenticWorkflowNode[], edg
       return {
         id: node.id,
         name: String(node.data.label || node.data.name || node.id),
-        type: `qaira.agentic.${node.data.kind || "agent"}`,
+        type: `hellotest.agentic.${node.data.kind || "agent"}`,
         typeVersion: 1,
         position: [node.position.x, node.position.y],
         parameters: {
@@ -594,7 +594,7 @@ const buildN8nPayload = (draft: WorkflowDraft, nodes: AgenticWorkflowNode[], edg
     settings: draft.settings,
     pinData: {},
     meta: {
-      source: "qaira-agentic-workflows",
+      source: "hellotest-agentic-workflows",
       compatible_with: "n8n-workflow-json",
       generated_at: new Date().toISOString()
     }
@@ -643,7 +643,7 @@ export function AgenticWorkflowsPage() {
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const isAgenticWorkflowsEnabled = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
-    ["qaira.ai.agentic_workflows"]
+    ["hellotest.ai.agentic_workflows"]
   );
   const canManageAgenticWorkflows = isAgenticWorkflowsEnabled
     && hasPermission(session, "agentic_workflow.manage");
@@ -699,10 +699,10 @@ export function AgenticWorkflowsPage() {
   }, [activeSurface, assistantAgentId, searchParams]);
 
   useEffect(() => {
-    const handoff = window.sessionStorage.getItem("qaira.agentic.handoff");
+    const handoff = window.sessionStorage.getItem("hellotest.agentic.handoff");
     if (!handoff) return;
 
-    window.sessionStorage.removeItem("qaira.agentic.handoff");
+    window.sessionStorage.removeItem("hellotest.agentic.handoff");
     try {
       const context = JSON.parse(handoff) as { prompt?: string; source?: string; created_at?: string };
       if (!context.prompt) return;

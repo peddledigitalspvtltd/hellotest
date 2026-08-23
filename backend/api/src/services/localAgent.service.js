@@ -81,10 +81,10 @@ const probeCandidates = async (kind, candidates) => {
 };
 
 const resolveLocalRunRoot = () =>
-  path.resolve(process.env.HELLOTEST_LOCAL_RUN_ROOT || process.env.QAIRA_LOCAL_RUN_ROOT || path.join(__dirname, "../../../../local-run"));
+  path.resolve(process.env.HELLOTEST_LOCAL_RUN_ROOT || path.join(__dirname, "../../../../local-run"));
 
 const localAgentLaunchEnabled = () =>
-  (process.env.HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH || process.env.QAIRA_ALLOW_LOCAL_AGENT_LAUNCH) === "true";
+  process.env.HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH === "true";
 
 const launchHostRecorder = () => {
   if (!localAgentLaunchEnabled()) {
@@ -114,8 +114,7 @@ const launchHostRecorder = () => {
     stdio: "ignore",
     env: {
       ...process.env,
-      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || process.env.QAIRA_HOST_RECORDER_PORT || "4311",
-      QAIRA_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || process.env.QAIRA_HOST_RECORDER_PORT || "4311"
+      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || "4311"
     }
   });
 

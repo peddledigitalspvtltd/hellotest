@@ -7,11 +7,11 @@
  */
 
 .test-case-create-module-backdrop.modal-backdrop--scroll {
-  --create-module-border: var(--qaira-dialog-border, #d0d5dd);
-  --create-module-ink: var(--qaira-dialog-text, #172b4d);
-  --create-module-muted: var(--qaira-dialog-muted, #626f86);
-  --create-module-surface: var(--qaira-dialog-surface, #ffffff);
-  --create-module-subtle: var(--qaira-dialog-surface-subtle, #f7f8f9);
+  --create-module-border: var(--hellotest-dialog-border, #d0d5dd);
+  --create-module-ink: var(--hellotest-dialog-text, #172b4d);
+  --create-module-muted: var(--hellotest-dialog-muted, #626f86);
+  --create-module-surface: var(--hellotest-dialog-surface, #ffffff);
+  --create-module-subtle: var(--hellotest-dialog-surface-subtle, #f7f8f9);
   align-items: center !important;
   padding: 24px !important;
   overflow: hidden !important;
@@ -68,7 +68,7 @@
   margin: 0 !important;
   overflow: hidden;
   color: var(--create-module-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 20px !important;
   font-weight: 650 !important;
   line-height: 26px !important;
@@ -164,7 +164,7 @@
 .test-case-create-module-modal .test-case-create-module-section-heading h3 {
   margin: 0;
   color: var(--create-module-ink);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 16px;
   font-weight: 650;
   line-height: 22px;

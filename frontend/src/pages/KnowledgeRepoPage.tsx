@@ -580,7 +580,7 @@ export function KnowledgeRepoPage() {
                   label={`${item.title} actions`}
                 />
               )}
-              storageKey="qaira:knowledge:list-columns:v2"
+              storageKey="hellotest:knowledge:list-columns:v2"
             /> : null}
             {!knowledgeQuery.isPending && !filteredItems.length ? (
               <div className="empty-state compact">

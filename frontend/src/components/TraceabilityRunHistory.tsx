@@ -205,7 +205,7 @@ export function TraceabilityRunHistory({
           />
         )}
         rows={filteredRows}
-        storageKey={`qaira:traceability-runs:${requirementId ? "requirement" : "test-case"}`}
+        storageKey={`hellotest:traceability-runs:${requirementId ? "requirement" : "test-case"}`}
       />
     </div>
   );

@@ -325,7 +325,7 @@ async function loadProjectArtifactData(projectId) {
 
 async function buildProjectArtifactArchive(integration, projectId) {
   const artifact = await loadProjectArtifactData(projectId);
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qaira-artifact-"));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hellotest-artifact-"));
   const artifactDir = path.join(tempRoot, "artifact");
   const manifestDir = path.join(artifactDir, "manifest");
   const exportDir = path.join(artifactDir, "exports");
@@ -502,7 +502,7 @@ async function syncAutomationToGithub(integration, projectId) {
   const owner = normalizeText(integration.config?.owner);
   const repo = normalizeText(integration.config?.repo);
   const branch = normalizeText(integration.config?.branch) || "main";
-  const directory = normalizeText(integration.config?.directory) || "qaira-sync";
+  const directory = normalizeText(integration.config?.directory) || "hellotest-sync";
   const extension = normalizeText(integration.config?.file_extension) || "ts";
 
   if (!owner || !repo) {

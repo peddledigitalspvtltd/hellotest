@@ -30,7 +30,7 @@ test("brand styling keeps the full and compact lockups responsive", async () => 
 
   assert.match(styles, /\.hellotest-brand-icon/);
   assert.match(styles, /\.hellotest-brand-test \{[\s\S]*?linear-gradient/);
-  assert.match(styles, /\.sidebar\.is-collapsed[\s\S]*?\.qaira-brand-wordmark\.is-mark-only/);
+  assert.match(styles, /\.sidebar\.is-collapsed[\s\S]*?\.hellotest-brand-wordmark\.is-mark-only/);
   assert.match(styles, /@media \(max-width: 560px\)/);
   assert.match(styles, /\.auth-page \.left\.auth-aside \{\s+display: none/);
 });

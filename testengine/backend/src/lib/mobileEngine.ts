@@ -1,4 +1,4 @@
-import type { EngineRunEnvelope, EngineRunStep } from "../contracts/qaira.js";
+import type { EngineRunEnvelope, EngineRunStep } from "../contracts/hellotest.js";
 
 const MOBILE_ENGINE_URL = String(process.env.MOBILE_ENGINE_URL || "").trim().replace(/\/+$/, "");
 

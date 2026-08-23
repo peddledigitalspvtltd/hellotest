@@ -1,11 +1,11 @@
-# QAira AWS Deployment Scripts
+# HelloTest AWS Deployment Scripts
 
-These scripts are the preferred EC2 entrypoints for AWS-style deployment. The root [qaira.sh](../qaira.sh) script owns image publishing, service relation config, and compose orchestration; these wrappers add AWS-safe bind defaults and quick status/log checks.
+These scripts are the preferred EC2 entrypoints for AWS-style deployment. The root [hellotest.sh](../hellotest.sh) script owns image publishing, service relation config, and compose orchestration; these wrappers add AWS-safe bind defaults and quick status/log checks.
 
 ## Recommended AWS Shape
 
 - Build/release host or CI:
-  - runs `./qaira.sh push`
+  - runs `./hellotest.sh push`
   - builds and pushes backend, frontend, and Test Engine images
 - App EC2:
   - runs only the platform plane
@@ -16,7 +16,7 @@ These scripts are the preferred EC2 entrypoints for AWS-style deployment. The ro
   - services: Test Engine, Selenium Hub, Selenium Chromium node
   - command: `deploymentscripts/aws-testengine-deploy.sh`
 
-Avoid ad hoc `docker compose up` on EC2 after switching to the platform stack. App hosts should refresh through `./qaira.sh deploy --stack platform` or `deploymentscripts/aws-app-deploy.sh` so service URLs and bind defaults stay consistent.
+Avoid ad hoc `docker compose up` on EC2 after switching to the platform stack. App hosts should refresh through `./hellotest.sh deploy --stack platform` or `deploymentscripts/aws-app-deploy.sh` so service URLs and bind defaults stay consistent.
 
 ## Deploy App Host
 
@@ -30,22 +30,22 @@ Common variants:
 
 ```bash
 deploymentscripts/aws-app-deploy.sh --http-port 80
-QAIRA_HTTP_BIND=127.0.0.1 deploymentscripts/aws-app-deploy.sh --http-port 8081
+HELLOTEST_HTTP_BIND=127.0.0.1 deploymentscripts/aws-app-deploy.sh --http-port 8081
 ```
 
-Use `QAIRA_HTTP_BIND=127.0.0.1` when nginx/Caddy/Apache on the same instance owns ports `80` and `443` and proxies to QAira locally. Use `QAIRA_HTTP_BIND=0.0.0.0` when an AWS ALB targets the instance port directly, and restrict access with security groups.
+Use `HELLOTEST_HTTP_BIND=127.0.0.1` when nginx/Caddy/Apache on the same instance owns ports `80` and `443` and proxies to HelloTest locally. Use `HELLOTEST_HTTP_BIND=0.0.0.0` when an AWS ALB targets the instance port directly, and restrict access with security groups.
 
 ## Deploy Test Engine Host
 
 ```bash
-QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
 deploymentscripts/aws-testengine-deploy.sh
 ```
 
 If EC2 instance metadata is available, the script derives `ENGINE_PUBLIC_URL` from the public IPv4. You can set it explicitly:
 
 ```bash
-QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
 ENGINE_PUBLIC_URL=http://13.55.32.201:4301 \
 deploymentscripts/aws-testengine-deploy.sh
 ```
@@ -63,13 +63,13 @@ deploymentscripts/aws-logs.sh --stack app --tail 200
 deploymentscripts/aws-logs.sh --stack testengine --tail 200
 ```
 
-`qaira-api` is the backend/API service. A separate `backend` container is not expected.
+`hellotest-api` is the backend/API service. A separate `backend` container is not expected.
 
 ## AWS Security Group Baseline
 
 App EC2:
 
-- Public or ALB-only: `80`/`443`, or the chosen QAira HAProxy port such as `8081`
+- Public or ALB-only: `80`/`443`, or the chosen HelloTest HAProxy port such as `8081`
 - SSH: only from admin IPs
 - Keep `3000`, `5432`, `3001`, `9090`, `3100`, `4317`, `4318`, `9464`, and `8404` private or localhost-only
 

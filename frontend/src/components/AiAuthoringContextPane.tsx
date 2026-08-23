@@ -15,7 +15,7 @@ export const AI_AUTHORING_CONTEXT_PANE_DEFAULT_WIDTH = 332;
 
 // Keep the existing Story studio preference so all authoring modes inherit
 // the same context-pane width without invalidating a user's saved layout.
-const AI_AUTHORING_CONTEXT_PANE_STORAGE_KEY = "qaira:story-ai-context-pane-width:v1";
+const AI_AUTHORING_CONTEXT_PANE_STORAGE_KEY = "hellotest:story-ai-context-pane-width:v1";
 
 const clampContextPaneWidth = (value: number) =>
   Math.min(

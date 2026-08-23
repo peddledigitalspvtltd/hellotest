@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
 
-const API_KEY_PREFIX = "qaira_";
+const API_KEY_PREFIX = "hellotest_";
 const API_KEY_BYTES = 32;
 
 const API_KEY_SCOPES = [

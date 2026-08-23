@@ -30,7 +30,7 @@ const engineSecretMatches = (provided, expected) => {
 
 const getCurrentUser = async (id) => {
   const user = await db.prepare(`
-    SELECT id, email, name, avatar_data_url, auth_provider, email_verified, created_at, is_workspace_admin
+    SELECT id, email, name, avatar_data_url, auth_provider, email_verified, status, created_at, is_workspace_admin
     FROM users
     WHERE id = ?
   `).get(id);
@@ -137,6 +137,10 @@ async function accessControlPlugin(fastify) {
         throw createError("User not found", 404);
       }
 
+      if (user.status === "suspended") {
+        throw createError("This account is suspended", 403);
+      }
+
       req.user = user;
       req.apiKey = apiKey;
       req.authMethod = "api_key";
@@ -162,6 +166,10 @@ async function accessControlPlugin(fastify) {
 
     if (!user) {
       throw createError("User not found", 404);
+    }
+
+    if (user.status === "suspended") {
+      throw createError("This account is suspended", 403);
     }
 
     req.user = user;
@@ -229,7 +237,7 @@ async function accessControlPlugin(fastify) {
 
   fastify.decorate("authenticateTestEngine", async (req) => {
     const provided =
-      req.headers["x-qaira-testengine-secret"]
+      req.headers["x-hellotest-testengine-secret"]
       || req.headers["x-testengine-secret"]
       || (typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ")
         ? req.headers.authorization.slice("Bearer ".length)
@@ -237,8 +245,7 @@ async function accessControlPlugin(fastify) {
     const expected =
       process.env.TESTENGINE_SHARED_SECRET
       || process.env.HELLOTEST_TESTENGINE_SECRET
-      || process.env.QAIRA_TESTENGINE_SECRET
-      || "qaira-testengine-dev-secret";
+      || "hellotest-testengine-dev-secret";
 
     if (!engineSecretMatches(provided, expected)) {
       throw createError("Test Engine authentication failed", 401);
@@ -247,5 +254,5 @@ async function accessControlPlugin(fastify) {
 }
 
 module.exports = fp(accessControlPlugin, {
-  name: "qaira-access-control"
+  name: "hellotest-access-control"
 });

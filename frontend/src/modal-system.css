@@ -49,7 +49,7 @@
   background: var(--dialog-surface) !important;
   background-image: none !important;
   color: var(--dialog-text) !important;
-  font-family: var(--qaira-font-body, "Inter", "Segoe UI", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", "Segoe UI", sans-serif) !important;
   box-shadow: var(--dialog-shadow) !important;
   backdrop-filter: none !important;
 }
@@ -80,7 +80,7 @@
 
 .modal-backdrop :is(.dialog-title, .modal-title, .ai-studio-title) {
   color: var(--dialog-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-weight: 600 !important;
   letter-spacing: -0.015em !important;
   text-transform: none !important;
@@ -88,7 +88,7 @@
 
 .modal-backdrop .dialog-context-label {
   color: var(--dialog-muted) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -153,7 +153,7 @@
 
 .modal-backdrop .form-field > :is(label, span):first-child {
   color: var(--dialog-text);
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 11px;
   font-weight: 600;
   line-height: 14px;
@@ -165,7 +165,7 @@
   border-radius: 6px !important;
   background-color: var(--dialog-surface) !important;
   color: var(--dialog-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   box-shadow: none !important;
 }
@@ -177,7 +177,7 @@
   border-radius: 6px !important;
   background: var(--dialog-surface) !important;
   color: var(--dialog-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   line-height: 19px !important;
   resize: vertical;
@@ -220,7 +220,7 @@
 .modal-backdrop:not(.profile-dialog-backdrop) :is(.primary-button, .ghost-button) {
   min-height: 36px;
   border-radius: 6px;
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 12px;
   font-weight: 600;
   box-shadow: none;
@@ -499,7 +499,7 @@
 
 .story-ai-dialog .story-ai-dialog-review-head strong {
   color: var(--dialog-ink);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 16px;
   font-weight: 600;
   line-height: 21px;
@@ -1362,7 +1362,7 @@
 .canonical-external-references-field > .form-field-label {
   margin: 0 0 0 4px;
   color: var(--canonical-authoring-text) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   line-height: 14px !important;
@@ -1498,7 +1498,7 @@
   border-radius: 0 !important;
   background: var(--canonical-authoring-surface) !important;
   color: var(--canonical-authoring-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -1578,7 +1578,7 @@
   border-radius: 999px;
   background: var(--canonical-authoring-chip);
   color: var(--canonical-authoring-chip-text);
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 11px;
   font-weight: 500;
   line-height: 14px;
@@ -1651,7 +1651,7 @@
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--canonical-authoring-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -1693,7 +1693,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--canonical-authoring-chip-text);
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 13px;
   line-height: 18px;
 }
@@ -2100,7 +2100,7 @@
 .story-create-dialog .story-create-dialog-header .dialog-title {
   margin: 0 !important;
   color: var(--story-create-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 18px !important;
   font-weight: 600 !important;
   line-height: 26px !important;
@@ -2206,7 +2206,7 @@
   padding: 0 4px;
   color: var(--story-create-text) !important;
   background: var(--story-create-surface);
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -2238,7 +2238,7 @@
   border-radius: 4px !important;
   background-color: var(--story-create-surface) !important;
   color: var(--story-create-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -2280,7 +2280,7 @@
 ) > .form-field-label {
   margin: 0 0 0 4px;
   color: var(--story-create-text) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   line-height: 14px !important;
@@ -2411,7 +2411,7 @@
   border-radius: 0 !important;
   background: var(--story-create-surface) !important;
   color: var(--story-create-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -2499,7 +2499,7 @@
   border-radius: 999px;
   background: var(--story-create-chip);
   color: var(--story-create-chip-text);
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 11px;
   font-weight: 500;
   line-height: 14px;
@@ -2533,7 +2533,7 @@
   border-radius: 4px !important;
   background-color: var(--story-create-surface) !important;
   color: var(--story-create-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -2585,7 +2585,7 @@
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--story-create-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -2627,7 +2627,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--story-create-chip-text);
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 13px;
   line-height: 18px;
 }
@@ -2686,7 +2686,7 @@
   gap: 8px;
   margin: 0 !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -2894,7 +2894,7 @@ body > .sprint-create-backdrop {
   background: var(--sprint-create-surface) !important;
   color: var(--sprint-create-text) !important;
   color-scheme: light;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   scrollbar-gutter: auto !important;
   box-shadow:
     0 10px 15px -3px rgba(15, 23, 42, 0.1),
@@ -2930,7 +2930,7 @@ body > .sprint-create-backdrop {
 .sprint-create-dialog .sprint-create-dialog-header .dialog-title {
   margin: 0 !important;
   color: var(--sprint-create-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 20px !important;
   font-weight: 700 !important;
   line-height: 28px !important;
@@ -2940,7 +2940,7 @@ body > .sprint-create-backdrop {
 .sprint-create-dialog .sprint-create-dialog-header .requirement-create-title > p {
   margin: 0 !important;
   color: #44546f !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -3055,7 +3055,7 @@ body > .sprint-create-backdrop {
   padding: 0;
   background: transparent;
   color: #44546f !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   line-height: 16px !important;
@@ -3085,7 +3085,7 @@ body > .sprint-create-backdrop {
   border-radius: 4px !important;
   background-color: var(--sprint-create-surface) !important;
   color: var(--sprint-create-text) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -3120,7 +3120,7 @@ body > .sprint-create-backdrop {
 .sprint-create-dialog .sprint-create-goal-field > .form-field-label {
   margin: 0;
   color: var(--sprint-create-muted) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   line-height: 16px !important;
@@ -3222,7 +3222,7 @@ body > .sprint-create-backdrop {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--sprint-create-text) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -3265,7 +3265,7 @@ body > .sprint-create-backdrop {
   align-items: center;
   margin: 0 0 0 4px;
   color: var(--sprint-create-muted) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   line-height: 16px !important;
@@ -3308,7 +3308,7 @@ body > .sprint-create-backdrop {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--sprint-create-text) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -3349,7 +3349,7 @@ body > .sprint-create-backdrop {
 .sprint-create-dialog .sprint-story-picker-heading h3 {
   margin: 0;
   color: var(--sprint-create-muted);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 12px;
   font-weight: 700;
   line-height: 16px;
@@ -3429,7 +3429,7 @@ body > .sprint-create-backdrop {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--sprint-create-text) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -3530,7 +3530,7 @@ body > .sprint-create-backdrop {
   background: transparent;
   color: var(--sprint-create-ink);
   cursor: pointer;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
@@ -3771,7 +3771,7 @@ body > .sprint-create-backdrop {
   gap: 8px;
   margin: 0 !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
   line-height: 20px !important;
@@ -3961,7 +3961,7 @@ body > .sprint-create-backdrop {
   border-radius: 8px !important;
   background: var(--report-bug-surface) !important;
   color: var(--report-bug-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", "Segoe UI", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", "Segoe UI", sans-serif) !important;
   box-shadow: var(--report-bug-shadow) !important;
   scrollbar-gutter: auto;
   color-scheme: light;
@@ -3990,7 +3990,7 @@ body > .sprint-create-backdrop {
   min-width: 0;
   margin: 0;
   color: var(--report-bug-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 24px !important;
   font-weight: 600 !important;
   line-height: 32px !important;
@@ -4106,7 +4106,7 @@ body > .sprint-create-backdrop {
 
 .report-bug-modal .issue-form-section-head strong {
   color: var(--report-bug-text) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -4128,7 +4128,7 @@ body > .sprint-create-backdrop {
   min-width: 0;
   align-items: baseline;
   color: var(--report-bug-text) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   line-height: 14px !important;
@@ -4158,7 +4158,7 @@ body > .sprint-create-backdrop {
   border-radius: 4px !important;
   background: var(--report-bug-surface) !important;
   color: var(--report-bug-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 14px !important;
   font-weight: 400 !important;
   line-height: 20px !important;
@@ -4366,7 +4366,7 @@ body > .sprint-create-backdrop {
 .report-bug-modal .impact-checkbox-option strong {
   overflow: hidden;
   color: var(--report-bug-ink) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -4377,7 +4377,7 @@ body > .sprint-create-backdrop {
 .report-bug-modal .impact-checkbox-option small {
   overflow: hidden;
   color: var(--report-bug-muted) !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 10px !important;
   font-weight: 400 !important;
   line-height: 14px !important;
@@ -4449,7 +4449,7 @@ body > .sprint-create-backdrop {
   gap: 8px;
   padding: 8px 24px;
   border-radius: 4px;
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 12px;
   font-weight: 600;
   line-height: 16px;
@@ -6025,7 +6025,7 @@ body:has(.project-create-modal) {
   gap: 8px;
   margin: 0;
   color: var(--project-create-ink);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 14px;
   font-weight: 600;
   line-height: 22px;
@@ -6040,7 +6040,7 @@ body:has(.project-create-modal) {
   border-radius: 50%;
   background: #dce6ff;
   color: #41516e;
-  font-family: var(--qaira-font-body, "Inter", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
   font-size: 11px;
   font-weight: 700;
 }

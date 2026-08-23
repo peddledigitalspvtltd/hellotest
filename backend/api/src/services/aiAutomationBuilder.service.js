@@ -535,7 +535,7 @@ const normalizeUrlKey = (value) => {
   }
 
   try {
-    const parsed = new URL(normalized, "http://qaira.local");
+    const parsed = new URL(normalized, "http://hellotest.local");
     return `${parsed.pathname || "/"}`.replace(/\/+$/, "") || "/";
   } catch {
     return normalized.replace(/\?.*$/, "").replace(/\/+$/, "") || "unknown-page";
@@ -600,7 +600,7 @@ const inferScreenNameFromUrl = (url) => {
   }
 
   try {
-    const parsed = new URL(normalized, "http://qaira.local");
+    const parsed = new URL(normalized, "http://hellotest.local");
     const segments = parsed.pathname
       .split("/")
       .map(normalizeUrlPathSegment)

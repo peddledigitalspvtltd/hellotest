@@ -356,7 +356,7 @@ async function resolveLocalEngineBaseUrl(preferredUrl) {
   const candidates = [
     preferredUrl,
     process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
-    process.env.QAIRA_LOCAL_RUN_ENGINE_URL,
+    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
     "http://localhost:4311",
     "http://127.0.0.1:4311",
     "http://host.docker.internal:4311",
@@ -1769,7 +1769,7 @@ exports.startExecution = async (id, options = {}) => {
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
       execution_id: id,
-      source: "qaira.execution.start",
+      source: "hellotest.execution.start",
       summary: "Execution started."
     });
   } catch {
@@ -1833,7 +1833,7 @@ exports.startLocalExecution = async (id, options = {}) => {
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
       execution_id: id,
-      source: "qaira.execution.local-start",
+      source: "hellotest.execution.local-start",
       summary: "Local execution started."
     });
   } catch {
@@ -1872,7 +1872,7 @@ exports.completeExecution = async (id, status, options = {}) => {
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
       execution_id: id,
-      source: "qaira.execution.complete",
+      source: "hellotest.execution.complete",
       summary: `Execution ${status}.`
     });
   } catch {
@@ -1952,7 +1952,7 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
         execution_id: executionId,
         test_case_id: testCaseId,
         step_id: stepId,
-        source: "qaira.execution-console.web-step-queued",
+        source: "hellotest.execution-console.web-step-queued",
         summary: queuedNote,
         execution_result_id: result.id,
         step_note: queuedNote,
@@ -2053,7 +2053,7 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
       execution_id: executionId,
       test_case_id: testCaseId,
       step_id: stepId,
-      source: "qaira.execution-console",
+      source: "hellotest.execution-console",
       summary: formattedStepNote,
       execution_result_id: result.id,
       step_status: stepResult.status,

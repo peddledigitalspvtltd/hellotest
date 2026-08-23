@@ -1,6 +1,8 @@
 const routeModules = [
   { area: "workspace", module: require("./domainMetadata.routes") },
   { area: "workspace", module: require("./admin.routes") },
+  { area: "workspace", module: require("./adminUi.routes") },
+  { area: "workspace", module: require("./adminPortal.routes") },
   { area: "auth", module: require("./auth.routes") },
   { area: "people", module: require("./users") },
   { area: "people", module: require("./roles.routes") },

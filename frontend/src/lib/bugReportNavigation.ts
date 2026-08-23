@@ -32,8 +32,8 @@ export function safeBugReportReturnRoute(value: string | null | undefined) {
   if (!route || route.length > 2_000 || !route.startsWith("/") || route.startsWith("//")) return "";
 
   try {
-    const parsed = new URL(route, "https://qaira.invalid");
-    if (parsed.origin !== "https://qaira.invalid" || !SAFE_RETURN_ROUTES.has(parsed.pathname)) return "";
+    const parsed = new URL(route, "https://hellotest.invalid");
+    if (parsed.origin !== "https://hellotest.invalid" || !SAFE_RETURN_ROUTES.has(parsed.pathname)) return "";
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return "";

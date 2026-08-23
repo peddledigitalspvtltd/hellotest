@@ -1,4 +1,4 @@
-export const HIERARCHY_DRAG_MIME = "application/x-qaira-hierarchy+json";
+export const HIERARCHY_DRAG_MIME = "application/x-hellotest-hierarchy+json";
 export const HIERARCHY_MOVE_BATCH_SIZE = 100;
 
 export type HierarchyDragKind = "requirement" | "test-case";

@@ -1,12 +1,12 @@
 import { useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { QairaAttachment, QairaEntityType } from "../types";
+import type { HelloTestAttachment, HelloTestEntityType } from "../types";
 import { ToastMessage } from "./ToastMessage";
 
 type EntityScope = {
   project_id: string;
-  entity_type: QairaEntityType;
+  entity_type: HelloTestEntityType;
   entity_id: string;
 };
 
@@ -17,7 +17,7 @@ function formatBytes(value: number) {
   return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
 }
 
-function attachmentKind(attachment: QairaAttachment) {
+function attachmentKind(attachment: HelloTestAttachment) {
   if (attachment.mimeType.startsWith("image/")) return "Image";
   if (attachment.mimeType.startsWith("video/")) return "Video";
   if (attachment.mimeType === "application/pdf") return "PDF";
@@ -25,7 +25,7 @@ function attachmentKind(attachment: QairaAttachment) {
   return "File";
 }
 
-async function downloadAttachment(attachment: QairaAttachment) {
+async function downloadAttachment(attachment: HelloTestAttachment) {
   const blob = await api.attachments.download(attachment.id);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -48,7 +48,7 @@ export function EntityAttachmentPanel({
   title = "Attachments"
 }: {
   projectId: string;
-  entityType: QairaEntityType;
+  entityType: HelloTestEntityType;
   entityId: string;
   canView: boolean;
   canUpload: boolean;
@@ -58,7 +58,7 @@ export function EntityAttachmentPanel({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [deleteCandidate, setDeleteCandidate] = useState<QairaAttachment | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<HelloTestAttachment | null>(null);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const scope: EntityScope = { project_id: projectId, entity_type: entityType, entity_id: entityId };
@@ -83,7 +83,7 @@ export function EntityAttachmentPanel({
       const limit = Number(attachmentMeta.data?.uploadLimit || 0);
       const oversized = limit > 0 ? files.filter((file) => file.size > limit) : [];
       if (oversized.length) throw new Error(`${oversized.map((file) => file.name).join(", ")} exceed the ${formatBytes(limit)} upload limit.`);
-      const uploaded: QairaAttachment[] = [];
+      const uploaded: HelloTestAttachment[] = [];
       const failures: string[] = [];
       for (let offset = 0; offset < files.length; offset += 2) {
         const batch = files.slice(offset, offset + 2);

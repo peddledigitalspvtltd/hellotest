@@ -298,7 +298,7 @@ const writeArtifactFile = async (relativePath, content) => {
 };
 const emitCallback = async (envelope, payload) => {
     if (!envelope.callback?.url || !envelope.callback?.signing_secret) {
-        throw new Error("This run does not include a QAira callback target.");
+        throw new Error("This run does not include a HelloTest callback target.");
     }
     const serialized = JSON.stringify(payload);
     const signature = buildCallbackSignature(envelope.callback.signing_secret, serialized);
@@ -312,7 +312,7 @@ const emitCallback = async (envelope, payload) => {
     });
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || `QAira callback failed with status ${response.status}`);
+        throw new Error(text || `HelloTest callback failed with status ${response.status}`);
     }
 };
 const persistRunSummary = async (run, summary) => {
@@ -640,13 +640,13 @@ const markRunState = (runId, nextState, summary, extra) => updateRun(runId, (cur
 const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails, status, durationMs, errorMessage, healingAttempted, healingSucceeded }) => ({
     event: status === "passed" ? "run.completed" : status === "failed" ? "run.failed" : "run.incident",
     engine_run_id: run.id,
-    qaira_run_id: envelope.qaira_run_id,
-    qaira_execution_id: envelope.qaira_execution_id || envelope.qaira_run_id,
-    qaira_test_case_id: envelope.qaira_test_case_id,
+    hellotest_run_id: envelope.hellotest_run_id,
+    hellotest_execution_id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
+    hellotest_test_case_id: envelope.hellotest_test_case_id,
     state: status === "passed" ? "completed" : status === "failed" ? "failed" : "incident",
     summary: status === "passed"
-        ? `${envelope.qaira_test_case_title} completed successfully.`
-        : errorMessage || `${envelope.qaira_test_case_title} failed during automated execution.`,
+        ? `${envelope.hellotest_test_case_title} completed successfully.`
+        : errorMessage || `${envelope.hellotest_test_case_title} failed during automated execution.`,
     deterministic_attempted: true,
     healing_attempted: Boolean(healingAttempted),
     healing_succeeded: Boolean(healingSucceeded),
@@ -664,11 +664,11 @@ const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCa
 const buildProgressCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails, latestOutcome, durationMs, totalSteps, healingAttempted, healingSucceeded }) => ({
     event: "run.step.completed",
     engine_run_id: run.id,
-    qaira_run_id: envelope.qaira_run_id,
-    qaira_execution_id: envelope.qaira_execution_id || envelope.qaira_run_id,
-    qaira_test_case_id: envelope.qaira_test_case_id,
+    hellotest_run_id: envelope.hellotest_run_id,
+    hellotest_execution_id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
+    hellotest_test_case_id: envelope.hellotest_test_case_id,
     state: "running",
-    summary: `${envelope.qaira_test_case_title}: completed step ${stepOutcomes.length} of ${totalSteps}.`,
+    summary: `${envelope.hellotest_test_case_title}: completed step ${stepOutcomes.length} of ${totalSteps}.`,
     deterministic_attempted: true,
     healing_attempted: Boolean(healingAttempted),
     healing_succeeded: Boolean(healingSucceeded),
@@ -704,7 +704,7 @@ const executeUnsupportedRun = async ({ envelope, run, logger, reason }) => {
         await emitCallback(envelope, payload);
     }
     catch (error) {
-        logger.error({ error, engineRunId: run.id }, "Unable to emit QAira callback for unsupported run");
+        logger.error({ error, engineRunId: run.id }, "Unable to emit HelloTest callback for unsupported run");
     }
 };
 async function executeRun(envelope, run, logger) {
@@ -823,7 +823,7 @@ async function executeRun(envelope, run, logger) {
             const result = await executeEngineStep(step);
             recordStepResult(result);
             currentStep = null;
-            const progressSummary = `${envelope.qaira_test_case_title}: completed step ${stepOutcomes.length} of ${orderedSteps.length}.`;
+            const progressSummary = `${envelope.hellotest_test_case_title}: completed step ${stepOutcomes.length} of ${orderedSteps.length}.`;
             const progressRun = markRunState(run.id, "running", progressSummary);
             if (progressRun) {
                 await persistRunSummary(progressRun, {
@@ -860,7 +860,7 @@ async function executeRun(envelope, run, logger) {
             }
             if (result.outcome.status === "failed") {
                 const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("failed"));
-                const failedRun = markRunState(run.id, "failed", `${envelope.qaira_test_case_title} failed on step ${step.order}.`, { artifact_bundle: artifactBundle });
+                const failedRun = markRunState(run.id, "failed", `${envelope.hellotest_test_case_title} failed on step ${step.order}.`, { artifact_bundle: artifactBundle });
                 if (!failedRun) {
                     return;
                 }
@@ -884,7 +884,7 @@ async function executeRun(envelope, run, logger) {
                     stepAutomationDetails,
                     status: "failed",
                     durationMs: Date.now() - startedAt,
-                    errorMessage: result.outcome.note || `${envelope.qaira_test_case_title} failed on step ${step.order}.`,
+                    errorMessage: result.outcome.note || `${envelope.hellotest_test_case_title} failed on step ${step.order}.`,
                     healingAttempted,
                     healingSucceeded
                 }));
@@ -895,8 +895,8 @@ async function executeRun(envelope, run, logger) {
         const finalStatus = stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
         const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
         const completedRun = markRunState(run.id, finalStatus === "passed" ? "completed" : "incident", finalStatus === "passed"
-            ? `${envelope.qaira_test_case_title} completed successfully.`
-            : `${envelope.qaira_test_case_title} completed with blocked hook or step outcomes.`, { artifact_bundle: artifactBundle });
+            ? `${envelope.hellotest_test_case_title} completed successfully.`
+            : `${envelope.hellotest_test_case_title} completed with blocked hook or step outcomes.`, { artifact_bundle: artifactBundle });
         if (!completedRun) {
             return;
         }
@@ -925,7 +925,7 @@ async function executeRun(envelope, run, logger) {
         }));
     }
     catch (error) {
-        const failureMessage = stringifyError(error, `${envelope.qaira_test_case_title} failed during execution.`);
+        const failureMessage = stringifyError(error, `${envelope.hellotest_test_case_title} failed during execution.`);
         if (currentStep && !stepOutcomes.some((outcome) => outcome.step_id === currentStep?.id)) {
             const failedOutcome = {
                 step_id: currentStep.id,
@@ -934,7 +934,7 @@ async function executeRun(envelope, run, logger) {
                 ended_at: nowIso(),
                 duration_ms: null,
                 note: [
-                    `${envelope.qaira_test_case_title} failed on step ${currentStep.order}.`,
+                    `${envelope.hellotest_test_case_title} failed on step ${currentStep.order}.`,
                     failureMessage
                 ].join("\n")
             };
@@ -979,7 +979,7 @@ async function executeRun(envelope, run, logger) {
             }));
         }
         catch (callbackError) {
-            logger.error({ error: callbackError, engineRunId: run.id }, "Unable to emit QAira callback after execution failure");
+            logger.error({ error: callbackError, engineRunId: run.id }, "Unable to emit HelloTest callback after execution failure");
         }
     }
     finally {

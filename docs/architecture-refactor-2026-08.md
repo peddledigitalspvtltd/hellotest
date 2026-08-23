@@ -1,8 +1,8 @@
-# QAira architecture refactor — August 2026
+# HelloTest architecture refactor — August 2026
 
 ## Scope and invariants
 
-This pass preserves the attached QAira/Jira reference UI as the visual contract. It changes navigation lifecycle, shared selection behavior, persistence boundaries, and database access without redesigning screens or changing native QAira ownership of backend data.
+This pass preserves the attached HelloTest/Jira reference UI as the visual contract. It changes navigation lifecycle, shared selection behavior, persistence boundaries, and database access without redesigning screens or changing native HelloTest ownership of backend data.
 
 The principal invariant is that every sidebar destination remains reachable in any order, including routes that render the same page component with different modes.
 

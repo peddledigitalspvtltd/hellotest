@@ -5,10 +5,10 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_RUN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 REPO_DIR=$(CDPATH= cd -- "$LOCAL_RUN_DIR/.." && pwd)
 ENGINE_DIR="$REPO_DIR/testengine/backend"
-BROWSER_DIR="${QAIRA_PLAYWRIGHT_BROWSERS_PATH:-$LOCAL_RUN_DIR/.playwright-browsers}"
-ARTIFACT_DIR="${QAIRA_HOST_RECORDER_ARTIFACT_ROOT:-$LOCAL_RUN_DIR/artifacts/host-recorder}"
-PORT="${QAIRA_HOST_RECORDER_PORT:-4311}"
-HOST_RECORDER_BIN="${QAIRA_HOST_RECORDER_BIN:-$LOCAL_RUN_DIR/bin/qaira-host-recorder}"
+BROWSER_DIR="${HELLOTEST_PLAYWRIGHT_BROWSERS_PATH:-$LOCAL_RUN_DIR/.playwright-browsers}"
+ARTIFACT_DIR="${HELLOTEST_HOST_RECORDER_ARTIFACT_ROOT:-$LOCAL_RUN_DIR/artifacts/host-recorder}"
+PORT="${HELLOTEST_HOST_RECORDER_PORT:-4311}"
+HOST_RECORDER_BIN="${HELLOTEST_HOST_RECORDER_BIN:-$LOCAL_RUN_DIR/bin/hellotest-host-recorder}"
 SOURCE_NEWER_THAN_RECORDER=false
 UPDATED_RECORDER_SOURCE=""
 
@@ -31,7 +31,7 @@ fi
 mkdir -p "$BROWSER_DIR" "$ARTIFACT_DIR"
 
 if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then
-  echo "QAira host recorder is already running"
+  echo "HelloTest host recorder is already running"
   echo "  Browser URL: http://localhost:$PORT"
   echo "  API/container URL: http://host.docker.internal:$PORT"
   if [ "$SOURCE_NEWER_THAN_RECORDER" = "true" ]; then
@@ -42,12 +42,12 @@ if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/health" 
 fi
 
 if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port $PORT is already in use, but it does not look like the QAira host recorder."
+  echo "Port $PORT is already in use, but it does not look like the HelloTest host recorder."
   echo
   lsof -nP -iTCP:"$PORT" -sTCP:LISTEN || true
   echo
   echo "Stop that process, or start the recorder on another port:"
-  echo "  QAIRA_HOST_RECORDER_PORT=4312 bin/start-host-recorder.sh"
+  echo "  HELLOTEST_HOST_RECORDER_PORT=4312 bin/start-host-recorder.sh"
   exit 1
 fi
 
@@ -61,7 +61,7 @@ if [ "$SOURCE_NEWER_THAN_RECORDER" = "true" ]; then
 fi
 
 if [ -x "$HOST_RECORDER_BIN" ] && [ "$USE_PACKAGED_RECORDER" = "true" ]; then
-  echo "Starting QAira host recorder from packaged binary"
+  echo "Starting HelloTest host recorder from packaged binary"
   echo "  Binary: $HOST_RECORDER_BIN"
   echo "  Browser URL: http://localhost:$PORT"
   echo "  API/container URL: http://host.docker.internal:$PORT"
@@ -69,7 +69,7 @@ if [ -x "$HOST_RECORDER_BIN" ] && [ "$USE_PACKAGED_RECORDER" = "true" ]; then
   echo
 
   PORT="$PORT" \
-  ENGINE_NAME="${ENGINE_NAME:-qaira-host-recorder}" \
+  ENGINE_NAME="${ENGINE_NAME:-hellotest-host-recorder}" \
   ENGINE_PUBLIC_URL="http://localhost:$PORT" \
   ARTIFACT_ROOT="$ARTIFACT_DIR" \
   RECORDER_HEADLESS=false \
@@ -87,14 +87,14 @@ fi
 PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" npx playwright install chromium
 npm run build
 
-echo "Starting QAira host recorder"
+echo "Starting HelloTest host recorder"
 echo "  Browser URL: http://localhost:$PORT"
 echo "  API/container URL: http://host.docker.internal:$PORT"
 echo "  Browser binaries: $BROWSER_DIR"
 echo
 
 PORT="$PORT" \
-ENGINE_NAME="${ENGINE_NAME:-qaira-host-recorder}" \
+ENGINE_NAME="${ENGINE_NAME:-hellotest-host-recorder}" \
 ENGINE_PUBLIC_URL="http://localhost:$PORT" \
 ARTIFACT_ROOT="$ARTIFACT_DIR" \
 RECORDER_HEADLESS=false \

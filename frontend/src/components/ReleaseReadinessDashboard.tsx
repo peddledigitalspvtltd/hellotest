@@ -312,7 +312,7 @@ export function ReleaseReadinessDashboard() {
     evidenceComplete: !evidenceIsProvisional
   }), [evidenceIsProvisional, executions, issues, release, requirements, results, sprint, testCases]);
   const canUseAi = hasPermission(session, "quality_insight.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.quality_insights"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
   const qualityInsightPreview = useMutation({
     mutationFn: ({ activeProject, activeRelease }: { activeProject: string; activeRelease: string }) => api.ai.qualityInsights({
       project_id: activeProject,

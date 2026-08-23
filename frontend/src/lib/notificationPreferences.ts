@@ -1,4 +1,4 @@
-export const NOTIFICATION_PREFERENCES_KEY = "qaira.notification_preferences";
+export const NOTIFICATION_PREFERENCES_KEY = "hellotest.notification_preferences";
 
 export type NotificationPreferences = {
   executionFailures: boolean;

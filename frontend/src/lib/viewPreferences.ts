@@ -1,6 +1,6 @@
 export type CatalogViewModePreference = "tile" | "list";
 
-export const DEFAULT_CATALOG_VIEW_MODE_KEY = "qaira.default_catalog_view_mode";
+export const DEFAULT_CATALOG_VIEW_MODE_KEY = "hellotest.default_catalog_view_mode";
 export const MOBILE_GRID_ONLY_QUERY = "(max-width: 720px)";
 
 export function isMobileGridOnlyViewport() {

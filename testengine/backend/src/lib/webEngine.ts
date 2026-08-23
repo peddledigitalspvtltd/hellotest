@@ -11,7 +11,7 @@ import {
   type Locator,
   type Page
 } from "playwright";
-import type { EngineArtifactRef, EngineRunEnvelope, EngineRunStep, EngineStepOutcomeStatus, EngineWebEngineProvider } from "../contracts/qaira.js";
+import type { EngineArtifactRef, EngineRunEnvelope, EngineRunStep, EngineStepOutcomeStatus, EngineWebEngineProvider } from "../contracts/hellotest.js";
 import {
   buildInitialContext,
   interpolateText,
@@ -1017,7 +1017,7 @@ const downloadRemoteUploadFile = async (url: string) => {
     throw new Error(`Unable to download remote upload file: ${response.status} ${response.statusText}`);
   }
 
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "qaira-upload-"));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "hellotest-upload-"));
   const filePath = path.join(tempDir, safeUploadFileName(url, response.headers.get("content-type")));
   await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
 
@@ -2829,10 +2829,10 @@ const buildAutomationInvocationSource = (source: string) => {
   return [
     `const automation = (${expression});`,
     `if (typeof automation !== "function") { throw new Error("Automation wrapper did not evaluate to a function."); }`,
-    `const qairaBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings };`,
+    `const hellotestBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings };`,
     `return await (automation.length > 1`,
     `  ? automation(page, web, expect, params, capture, playwrightPage, driver, bindings)`,
-    `  : automation(qairaBindings));`
+    `  : automation(hellotestBindings));`
   ].join("\n");
 };
 
@@ -2869,7 +2869,7 @@ const executeAutomationCode = async (
   }
 
   try {
-    const qairaBindings = {
+    const hellotestBindings = {
       page: bindings.page,
       web: bindings.web,
       expect: bindings.expect,
@@ -2887,13 +2887,13 @@ const executeAutomationCode = async (
       bindings.capture,
       bindings.playwrightPage,
       bindings.driver,
-      qairaBindings
+      hellotestBindings
     );
   } catch (error) {
     const stack = error instanceof Error ? error.stack || "" : "";
     const lineMatch = stack.match(/<anonymous>:(\d+):\d+/);
     if (error instanceof Error && lineMatch) {
-      (error as Error & { qairaLine?: number }).qairaLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+      (error as Error & { hellotestLine?: number }).hellotestLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
     }
     throw error;
   }
@@ -2948,9 +2948,9 @@ const buildStepNote = ({
   });
 
   if (error) {
-    const qairaLine = (error as Error & { qairaLine?: number }).qairaLine;
-    if (qairaLine) {
-      lines.push(`Code line: ${qairaLine}`);
+    const hellotestLine = (error as Error & { hellotestLine?: number }).hellotestLine;
+    if (hellotestLine) {
+      lines.push(`Code line: ${hellotestLine}`);
     }
     lines.push(`Error: ${error.message}`);
   }

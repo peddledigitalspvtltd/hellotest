@@ -37,6 +37,22 @@ test("tall dashboard snapshots flow across multiple PDF pages", () => {
   assert.equal((pdf.toString("latin1").match(/\/Type \/Page\b/g) || []).length, 4);
 });
 
+test("logical report sections are packed into one complete multi-page PDF", () => {
+  const pdf = reports.renderedSnapshotPdf({
+    rendered_snapshot_pages_data_urls: [
+      jpegDataUrl({ width: 1200, height: 180 }),
+      jpegDataUrl({ width: 1200, height: 420 }),
+      jpegDataUrl({ width: 1200, height: 900 }),
+      jpegDataUrl({ width: 1200, height: 900 })
+    ]
+  });
+
+  assert.equal(pdf.subarray(0, 8).toString(), "%PDF-1.4");
+  assert.ok(pdf.includes(Buffer.from("/Count 3")));
+  assert.equal((pdf.toString("latin1").match(/\/Subtype \/Image/g) || []).length, 4);
+  assert.equal((pdf.toString("latin1").match(/\/Type \/Page\b/g) || []).length, 3);
+});
+
 test("continuous snapshot exports preserve a tall rendered view on one PDF page", () => {
   const pdf = reports.renderedSnapshotPdf({
     rendered_snapshot_data_url: jpegDataUrl({ width: 1200, height: 3000 })

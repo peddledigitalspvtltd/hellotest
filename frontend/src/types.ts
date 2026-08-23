@@ -112,7 +112,7 @@ export type JiraAttachment = {
 export type QualityDashboardGadget = {
   id: string;
   title: string;
-  data_source?: "jira" | "qaira";
+  data_source?: "jira" | "hellotest";
   release?: string;
   type: "metric" | "donut" | "bar" | "stacked-bar" | "line" | "table";
   jql: string;
@@ -237,7 +237,15 @@ export type ProjectPortfolioAnalyticsItem = {
   app_types: AppType[];
   story_coverage: { total: number; covered: number; percent: number };
   automation_coverage: { total: number; automated: number; percent: number };
-  pass_confidence: { total: number; passed: number; percent: number };
+  pass_confidence: {
+    total: number;
+    passed: number;
+    percent: number;
+    case_total: number;
+    case_passed: number;
+    bug_total: number;
+    bug_resolved: number;
+  };
   execution_evidence: { total: number; evidenced: number; missing: number; percent: number; threshold: number; violates: boolean };
   latest_execution: Execution | null;
   latest_failed_count: number;
@@ -369,7 +377,7 @@ export type ProjectActivationSiteConflict = {
 };
 
 export type ProjectActivationSiteSnapshot = {
-  schema: "qaira.siteSchema.v1";
+  schema: "hellotest.siteSchema.v1";
   status: ProjectActivationSiteStatus;
   is_ready: boolean;
   phase: string | null;
@@ -412,7 +420,7 @@ export type ProjectActivationBatchItem = {
 };
 
 export type ProjectActivationBatchResult = {
-  schema: "qaira.projectActivationBatch.v1";
+  schema: "hellotest.projectActivationBatch.v1";
   batch_id: string | null;
   requested: number;
   total: number;
@@ -424,7 +432,7 @@ export type ProjectActivationBatchResult = {
 };
 
 export type ProjectActivationSnapshot = {
-  schema: "qaira.projectActivation.v1";
+  schema: "hellotest.projectActivation.v1";
   project: ProjectActivationProject;
   status: ProjectActivationStatus;
   schema_ready?: boolean;
@@ -560,7 +568,7 @@ export type RequirementRelatedItem = {
   assignee_id?: string | null;
   assignee_name?: string | null;
   jira_url?: string | null;
-  qaira_kind?: "test-case" | "test-suite" | "test-run" | "bug" | "requirement" | null;
+  hellotest_kind?: "test-case" | "test-suite" | "test-run" | "bug" | "requirement" | null;
 };
 
 export type RequirementIteration = {
@@ -572,7 +580,7 @@ export type RequirementIteration = {
   goal?: string | null;
   jira_sprint_id?: string | null;
   jira_sprint_name?: string | null;
-  source?: "jira" | "qaira" | string;
+  source?: "jira" | "hellotest" | string;
   state?: string | null;
   status?: string | null;
   start_date?: string | null;
@@ -1910,7 +1918,7 @@ export type TestCaseVersionContent = {
 };
 
 export type TestCaseVersionSnapshot = {
-  schema: "qaira.testCaseVersion.v1";
+  schema: "hellotest.testCaseVersion.v1";
   revision: number;
   captured_at: string;
   captured_by: string | null;
@@ -2664,12 +2672,12 @@ export type ApiError = {
   current_revision?: number;
 };
 
-export type QairaEntityType = "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
+export type HelloTestEntityType = "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
 
-export type QairaAttachment = {
+export type HelloTestAttachment = {
   id: string;
   project_id?: string;
-  entity_type?: QairaEntityType;
+  entity_type?: HelloTestEntityType;
   entity_id?: string;
   filename: string;
   size: number;
@@ -2683,7 +2691,7 @@ export type QairaAttachment = {
   author?: { displayName?: string; avatarUrls?: Record<string, string> } | null;
 };
 
-export type QairaComment = {
+export type HelloTestComment = {
   id: string;
   body: string;
   created: string | null;

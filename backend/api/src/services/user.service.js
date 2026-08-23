@@ -254,8 +254,8 @@ exports.createUser = async ({ email, password, password_hash, name, role_id }) =
 
 exports.getUsers = async () => {
   return db.prepare(`
-    SELECT users.id, users.email, users.name, users.avatar_data_url, users.auth_provider,
-      users.email_verified, users.created_at,
+    SELECT users.id, users.email, users.name, users.username, users.avatar_data_url, users.auth_provider,
+      users.email_verified, users.status, users.must_change_password, users.last_login_at, users.created_at,
       COALESCE(representative_role.id, default_role.id) AS role_id,
       COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
@@ -278,8 +278,8 @@ exports.getUsers = async () => {
 
 exports.getUser = async (id) => {
   const user = await db.prepare(`
-    SELECT users.id, users.email, users.name, users.avatar_data_url, users.auth_provider,
-      users.email_verified, users.created_at,
+    SELECT users.id, users.email, users.name, users.username, users.avatar_data_url, users.auth_provider,
+      users.email_verified, users.status, users.must_change_password, users.last_login_at, users.created_at,
       COALESCE(representative_role.id, default_role.id) AS role_id,
       COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
@@ -414,7 +414,7 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
 
   await db.prepare(`
     UPDATE users
-    SET password_hash = ?
+    SET password_hash = ?, must_change_password = FALSE
     WHERE id = ?
   `).run(hashPassword(new_password), id);
 

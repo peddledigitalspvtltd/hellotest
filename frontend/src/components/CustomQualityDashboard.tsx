@@ -86,7 +86,7 @@ const DASHBOARD_ACCENTS: Array<{ id: NonNullable<QualityDashboardGadget["accent"
   { id: "slate", label: "Slate" }
 ];
 
-const QAIRA_DERIVED_METRICS = new Set<QualityDashboardGadget["metric"]>([
+const HELLOTEST_DERIVED_METRICS = new Set<QualityDashboardGadget["metric"]>([
   "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "openDefects", "failedRuns",
   "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"
 ]);
@@ -147,19 +147,19 @@ const DASHBOARD_WIDGET_PRESETS: Array<{
     id: "traceability",
     label: "Story traceability",
     description: "Stories with and without linked HelloTest tests.",
-    gadget: { id: "", title: "Story traceability", data_source: "qaira", type: "metric", jql: "", group_by: "status", metric: "requirementCoverage", accent: "green" }
+    gadget: { id: "", title: "Story traceability", data_source: "hellotest", type: "metric", jql: "", group_by: "status", metric: "requirementCoverage", accent: "green" }
   },
   {
     id: "cycle-time",
     label: "Execution cycle time",
     description: "Actual elapsed time from test-run start to completion.",
-    gadget: { id: "", title: "Execution cycle time", data_source: "qaira", type: "metric", jql: "", group_by: "status", metric: "executionCycleHours", accent: "teal" }
+    gadget: { id: "", title: "Execution cycle time", data_source: "hellotest", type: "metric", jql: "", group_by: "status", metric: "executionCycleHours", accent: "teal" }
   },
   {
     id: "module-distribution",
     label: "Module distribution",
     description: "HelloTest test cases distributed across modules and unassigned scope.",
-    gadget: { id: "", title: "Test distribution by module", data_source: "qaira", type: "bar", jql: "", group_by: "module", metric: "moduleCaseCount", accent: "purple" }
+    gadget: { id: "", title: "Test distribution by module", data_source: "hellotest", type: "bar", jql: "", group_by: "module", metric: "moduleCaseCount", accent: "purple" }
   }
 ];
 
@@ -191,7 +191,7 @@ function defaultOrderByForGadget(gadget: QualityDashboardGadget) {
 }
 
 function buildDefaultDashboardJql(gadget: QualityDashboardGadget, release = "") {
-  if (gadget.data_source === "qaira") return "";
+  if (gadget.data_source === "hellotest") return "";
   const title = gadget.title.toLowerCase();
   const clauses: string[] = [];
 
@@ -260,7 +260,7 @@ function addDashboardDrilldownClause(jql: string, clause: string) {
 }
 
 function openDashboardDrilldown(result: QualityDashboardGadgetResult, groupLabel?: string) {
-  if (result.gadget.data_source === "qaira") {
+  if (result.gadget.data_source === "hellotest") {
     const target = new URL(window.location.href);
     const path = result.drilldown_target || "/";
     target.hash = `#${path}${groupLabel ? `${path.includes("?") ? "&" : "?"}dashboardGroup=${encodeURIComponent(groupLabel)}` : ""}`;
@@ -828,14 +828,14 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                                 const next = {
                                   ...current,
                                   data_source: dataSource,
-                                  metric: dataSource === "qaira" && !QAIRA_DERIVED_METRICS.has(current.metric) ? "count" as const : current.metric
+                                  metric: dataSource === "hellotest" && !HELLOTEST_DERIVED_METRICS.has(current.metric) ? "count" as const : current.metric
                                 };
-                                return { ...next, jql: dataSource === "qaira" ? "" : buildDefaultDashboardJql(next, designerDraft.release) };
+                                return { ...next, jql: dataSource === "hellotest" ? "" : buildDefaultDashboardJql(next, designerDraft.release) };
                               });
                             }}
                           >
                             <option value="jira">Work items · JQL</option>
-                            <option value="qaira">HelloTest derived quality</option>
+                            <option value="hellotest">HelloTest derived quality</option>
                           </select>
                         </FormField>
                         <FormField label="Visualization"><select value={gadgetDraft.type} onChange={(event) => setGadgetDraft((current) => ({ ...current, type: event.target.value as QualityDashboardGadget["type"] }))}><option value="metric">Metric</option><option value="donut">Donut</option><option value="bar">Bar</option><option value="stacked-bar">Stacked bar</option><option value="line">Trend line</option><option value="table">Issue list</option></select></FormField>
@@ -849,7 +849,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                               setGadgetDraft((current) => ({
                                 ...current,
                                 metric,
-                                ...(QAIRA_DERIVED_METRICS.has(metric) ? { data_source: "qaira" as const, jql: "" } : {})
+                                ...(HELLOTEST_DERIVED_METRICS.has(metric) ? { data_source: "hellotest" as const, jql: "" } : {})
                               }));
                             }}
                           >
@@ -859,7 +859,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                         </FormField>
                         <FormField label="Accent"><select value={gadgetDraft.accent || "blue"} onChange={(event) => setGadgetDraft((current) => ({ ...current, accent: event.target.value as QualityDashboardGadget["accent"] }))}>{DASHBOARD_ACCENTS.map((accent) => <option key={accent.id} value={accent.id}>{accent.label}</option>)}</select></FormField>
                       </div>
-                      {gadgetDraft.data_source !== "qaira" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>Derived HelloTest signal</strong><span>Computed from bounded project stories, tests, suites, modules, runs, and Bugs. No free-form query is executed.</span></div>}
+                      {gadgetDraft.data_source !== "hellotest" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>Derived HelloTest signal</strong><span>Computed from bounded project stories, tests, suites, modules, runs, and Bugs. No free-form query is executed.</span></div>}
                       <div className="action-row"><button className="ghost-button" disabled={preview.isPending} onClick={() => preview.mutate({ ...gadgetDraft, id: gadgetDraft.id || "preview" })} type="button">{preview.isPending ? "Running…" : "Preview"}</button><button className="primary-button" disabled={!gadgetDraft.title.trim() || (!editingGadgetId && draft.gadgets.length >= 12)} onClick={addGadget} type="button">{editingGadgetId ? "Update gadget" : "Add gadget"}</button>{editingGadgetId ? <button className="ghost-button" onClick={() => { setEditingGadgetId(""); setGadgetDraft({ ...EMPTY_GADGET, title: "" }); setIsGadgetJqlDirty(false); }} type="button">Cancel edit</button> : null}</div>
                     </div>
                     {preview.data ? <QualityGadget onDrilldown={(groupLabel) => handleGadgetDrilldown(preview.data!, groupLabel)} result={preview.data} /> : null}
@@ -936,8 +936,8 @@ function QualityGadget({
   const accent = gadget.accent || "blue";
   const palette = GADGET_ACCENT_PALETTES[accent] || GADGET_ACCENT_PALETTES.blue;
   const gadgetStyle = {
-    "--qaira-gadget-accent": palette[0],
-    "--qaira-gadget-accent-soft": `${palette[0]}18`
+    "--hellotest-gadget-accent": palette[0],
+    "--hellotest-gadget-accent-soft": `${palette[0]}18`
   } as CSSProperties;
   const seriesTotal = Math.max(series.reduce((sum, item) => sum + (Number(item.value) || 0), 0), 1);
   let cursor = 0;
@@ -995,9 +995,9 @@ function QualityGadget({
         </button>
       ) : null}
       {gadget.type === "table" ? (
-        <div className="quality-table-wrap"><table><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th></tr></thead><tbody>{rows.map((row) => { const issueUrl = gadget.data_source !== "qaira" ? getJiraBrowseUrl(row.key) : null; return <tr key={row.id}><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.key}</a> : row.key}</td><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.title}</a> : <button className="quality-table-drilldown" onClick={() => onDrilldown?.()} type="button">{row.title}</button>}</td><td>{row.type || "—"}</td><td>{row.priority || "—"}</td><td>{row.status || "—"}</td><td>{row.assignee || "Unassigned"}</td></tr>; })}</tbody></table></div>
+        <div className="quality-table-wrap"><table><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th></tr></thead><tbody>{rows.map((row) => { const issueUrl = gadget.data_source !== "hellotest" ? getJiraBrowseUrl(row.key) : null; return <tr key={row.id}><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.key}</a> : row.key}</td><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.title}</a> : <button className="quality-table-drilldown" onClick={() => onDrilldown?.()} type="button">{row.title}</button>}</td><td>{row.type || "—"}</td><td>{row.priority || "—"}</td><td>{row.status || "—"}</td><td>{row.assignee || "Unassigned"}</td></tr>; })}</tbody></table></div>
       ) : null}
-      <small className="quality-gadget-foot">{gadget.data_source === "qaira" ? "HelloTest derived · bounded project portfolio" : "JQL · project scoped"} · {Number(result.returned) || 0} inspected</small>
+      <small className="quality-gadget-foot">{gadget.data_source === "hellotest" ? "HelloTest derived · bounded project portfolio" : "JQL · project scoped"} · {Number(result.returned) || 0} inspected</small>
     </article>
   );
 }

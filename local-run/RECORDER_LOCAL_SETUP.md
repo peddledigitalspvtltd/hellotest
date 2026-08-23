@@ -1,10 +1,10 @@
 # Local Recorder Setup
 
-Use this when QAira should start recorder sessions against a local Test Engine.
+Use this when HelloTest should start recorder sessions against a local Test Engine.
 
 ## 1. Start Local Services
 
-For the best desktop recording flow, run the normal QAira stack and the host
+For the best desktop recording flow, run the normal HelloTest stack and the host
 recorder helper. The host helper opens a real Chromium window on your machine.
 
 ```bash
@@ -20,7 +20,7 @@ On Windows product installs, use the packaged recorder launcher instead:
 bin\start-host-recorder.cmd
 ```
 
-If `local-run/bin/qaira-host-recorder.exe` is present, the Windows launcher runs
+If `local-run/bin/hellotest-host-recorder.exe` is present, the Windows launcher runs
 that binary and does not require testengine source files. If the binary is not
 present, it falls back to the developer source flow.
 
@@ -33,7 +33,7 @@ npm run package:host-recorder
 
 The first source-based host-recorder run installs Playwright Chromium into
 `local-run/.playwright-browsers`. Later runs reuse that directory. Override it
-with `QAIRA_PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers` if your team wants to
+with `HELLOTEST_PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers` if your team wants to
 preload or cache the browser binaries.
 
 If you only want the Docker embedded live view, skip `bin/start-host-recorder.sh`
@@ -53,9 +53,9 @@ Expected local endpoints:
 - Docker Test Engine capabilities: `http://localhost:4301/api/v1/capabilities`
 - OPS board: `http://localhost:4301/ops-telemetry`
 
-## 2. Configure QAira Test Engine Integration
+## 2. Configure HelloTest Test Engine Integration
 
-In QAira, open Integrations and create or update a Test Engine integration.
+In HelloTest, open Integrations and create or update a Test Engine integration.
 
 Use these local values:
 
@@ -63,9 +63,9 @@ Use these local values:
 - Recorder public base URL for visible host browser: `http://localhost:4311`
 - Docker embedded fallback engine URL: `http://testengine:4301`
 - Docker embedded fallback public URL: `http://localhost:4301`
-- Shared secret: `qaira-testengine-dev-secret`
+- Shared secret: `hellotest-testengine-dev-secret`
 - Queue polling: `0.5` minutes or `30000` ms via env
-- Dispatch mode: QAira pull
+- Dispatch mode: HelloTest pull
 - Active web engine: Playwright
 - Browser: Chromium
 - Headless: enabled for Docker local run
@@ -82,7 +82,7 @@ cd local-run
 bin/fix-recorder-integration.sh
 ```
 
-## 3. Start Recording From QAira
+## 3. Start Recording From HelloTest
 
 1. Open a saved web test case.
 2. Open the Automation builder section.
@@ -110,10 +110,10 @@ bin/logs.sh testengine
 ```
 
 If the recorder starts but the browser is not visible, keep `RECORDER_HEADLESS=true`
-and use QAira's live recorder view. Docker containers usually cannot open a
+and use HelloTest's live recorder view. Docker containers usually cannot open a
 physical desktop browser window on the host.
 
-If QAira cannot reach the Test Engine from inside the API container, verify:
+If HelloTest cannot reach the Test Engine from inside the API container, verify:
 
 ```bash
 docker compose -f local-run/docker-compose.yml exec api wget -q -O - http://testengine:4301/health

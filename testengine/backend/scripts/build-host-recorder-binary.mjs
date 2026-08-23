@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -10,10 +10,10 @@ const repoDir = resolve(engineDir, "..", "..");
 const localRunDir = resolve(repoDir, "local-run");
 const packageDir = resolve(localRunDir, "host-recorder-package");
 const outDir = resolve(packageDir, "dist", `${process.platform}-${process.arch}`);
-const bundlePath = join(outDir, "qaira-host-recorder.cjs");
+const bundlePath = join(outDir, "hellotest-host-recorder.cjs");
 const seaConfigPath = join(outDir, "sea-config.json");
-const seaBlobPath = join(outDir, "qaira-host-recorder.blob");
-const binaryName = process.platform === "win32" ? "qaira-host-recorder.exe" : "qaira-host-recorder";
+const seaBlobPath = join(outDir, "hellotest-host-recorder.blob");
+const binaryName = process.platform === "win32" ? "hellotest-host-recorder.exe" : "hellotest-host-recorder";
 const binaryPath = join(outDir, binaryName);
 const localBinPath = resolve(localRunDir, "bin", binaryName);
 
@@ -60,8 +60,8 @@ await writeFile(
 );
 
 await writeFile(seaConfigPath, JSON.stringify({
-  main: bundlePath,
-  output: seaBlobPath,
+  main: relative(engineDir, bundlePath),
+  output: relative(engineDir, seaBlobPath),
   disableExperimentalSEAWarning: true
 }, null, 2));
 

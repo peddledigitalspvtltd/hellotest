@@ -60,11 +60,11 @@ const resolveDate = (rawOption, now) => {
 };
 
 const generateYopmailAddress = (option, now) => {
-  const prefix = String(option || "qaira")
+  const prefix = String(option || "hellotest")
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 32) || "qaira";
+    .slice(0, 32) || "hellotest";
   const stamp = resolveDate("YYYYMMDDHHmmss", now);
   return `${prefix}-${stamp}-${randomFromAlphabet(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 };

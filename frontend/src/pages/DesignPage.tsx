@@ -62,7 +62,7 @@ import { formatReferenceList, parseReferenceList } from "../lib/externalReferenc
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestCaseModule, TestStep, TestSuite, User } from "../types";
 
-const SUITE_ACTION_USAGE_STORAGE_KEY = "qaira:suite-toolbar-action-usage:v1";
+const SUITE_ACTION_USAGE_STORAGE_KEY = "hellotest:suite-toolbar-action-usage:v1";
 
 type SuiteToolbarActionKey = "create-suite" | "manual-run" | "local-run" | "remote-run" | "select-visible" | "clear-selection" | "delete-selected";
 type SuiteToolbarActionUsage = Record<string, { count: number; lastUsedAt: number }>;
@@ -235,23 +235,23 @@ export function DesignPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canUseManualSuites = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.suites"]);
+  const canUseManualSuites = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
   const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const canCreateSuites = hasPermission(session, "suite.create") && canUseManualSuites;
   const canUpdateSuites = hasPermission(session, "suite.update") && canUseManualSuites;
   const canDeleteSuites = hasPermission(session, "suite.delete") && canUseManualSuites;
   const canCreateManualRuns = hasPermission(session, "run.create")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
-  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
   const canRunLocalAutomation = hasPermission(session, "automation.run.local")
     && canUseAutomationWorkspace
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
   const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
     && canUseAutomationWorkspace
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
   const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel")
     && canUseAutomationWorkspace
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.parallel_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
@@ -2394,7 +2394,7 @@ function SuiteSidebar({
               hideToolbarCopy
               onRowClick={(suite) => onSelectSuite(suite.id)}
               rows={suites}
-              storageKey="qaira:suites:list-columns"
+              storageKey="hellotest:suites:list-columns"
             />
           ) : null}
         </TileBrowserPane>
@@ -3030,7 +3030,7 @@ function TestCaseList({
                 onRowClick={(testCase) => onSelectCase(testCase.id)}
                 rowGroups={suiteCaseListRowGroups}
                 rows={[]}
-                storageKey="qaira:suite-cases:list-columns:v2"
+                storageKey="hellotest:suite-cases:list-columns:v2"
               />
             </div>
           ) : null}

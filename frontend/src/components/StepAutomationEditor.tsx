@@ -183,13 +183,13 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
         `await page.waitForLoadState("domcontentloaded");`
       ].join("\n");
     case "openTab":
-      // The QAira helper mirrors Playwright context.newPage() and keeps later page.* calls on the active tab.
+      // The HelloTest helper mirrors Playwright context.newPage() and keeps later page.* calls on the active tab.
       return `await web.openTab(${target ? quoteCodeString(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "switchTab":
-      // The QAira helper mirrors choosing a Page from browserContext.pages() and makes it active.
+      // The HelloTest helper mirrors choosing a Page from browserContext.pages() and makes it active.
       return `await web.switchTab(${quoteCodeString(target || "latest")});`;
     case "closeTab":
-      // The QAira helper mirrors Page.close() and moves the runtime to the next available tab.
+      // The HelloTest helper mirrors Page.close() and moves the runtime to the next available tab.
       return target ? `await web.closeTab(${quoteCodeString(target)});` : "await web.closeTab();";
     case "reload":
       return [
@@ -930,7 +930,7 @@ export function StepTypePickerButton({
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canUseMobileAppium = hasPermission(session, "mobile.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -1987,7 +1987,7 @@ export function StepAutomationDialog({
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
   const canUseMobileAppium = hasPermission(session, "mobile.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const stepRevisionKey = JSON.stringify({
     id: step.id || "",

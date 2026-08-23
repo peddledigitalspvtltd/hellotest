@@ -149,7 +149,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     && hasPermission(session, "prompt_template.manage");
   const canManageLocalization = isAdmin && hasPermission(session, "localization.manage");
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
   const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewAdminSettings) });
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
@@ -310,7 +310,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     const href = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = href;
-    link.download = "qaira-localization.json";
+    link.download = "hellotest-localization.json";
     link.click();
     URL.revokeObjectURL(href);
   };

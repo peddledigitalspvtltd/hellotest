@@ -101,6 +101,6 @@ aws_public_ipv4() {
 
 print_container_table() {
   docker ps -a \
-    --filter "name=qaira" \
+    --filter "name=hellotest" \
     --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
 }

@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: QAIra API
+  title: HelloTest API
   version: 1.1.0
   description: |
-    OpenAPI specification for the current QAIra Fastify + PostgreSQL backend.
+    OpenAPI specification for the current HelloTest Fastify + PostgreSQL backend.
     This spec documents the implemented CRUD resources, request payloads,
     query filters, and the execution lifecycle actions.
 servers:
@@ -1417,7 +1417,7 @@ paths:
       - $ref: "#/components/parameters/StepIdPathParam"
     post:
       tags: [Test Engine]
-      summary: "Internal: report a queued step result back to QAira"
+      summary: "Internal: report a queued step result back to HelloTest"
       requestBody:
         required: true
         content:
@@ -1477,7 +1477,7 @@ paths:
   /attachments:
     get:
       tags: [Evidence]
-      summary: List attachments for a project-scoped QAira record
+      summary: List attachments for a project-scoped HelloTest record
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - { name: entity_type, in: query, required: true, schema: { type: string, enum: [requirement, test_case, test_suite, shared_step_group, execution, execution_result, issue] } }
@@ -1523,7 +1523,7 @@ paths:
   /comments:
     get:
       tags: [Evidence]
-      summary: List comments for a project-scoped QAira record
+      summary: List comments for a project-scoped HelloTest record
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - { name: entity_type, in: query, required: true, schema: { type: string } }
@@ -1532,7 +1532,7 @@ paths:
         "200": { description: Ordered record comments }
     post:
       tags: [Evidence]
-      summary: Add a comment to a project-scoped QAira record
+      summary: Add a comment to a project-scoped HelloTest record
       responses:
         "200": { description: Created comment }
   /test-cases/{id}/versions:
@@ -1630,7 +1630,7 @@ paths:
   /feedback/ai-draft-preview:
     post:
       tags: [Issues]
-      summary: Create a review-only bug draft from bounded QAira evidence
+      summary: Create a review-only bug draft from bounded HelloTest evidence
       responses:
         "200": { description: Evidence-linked draft, confidence, provenance, and human-review requirement }
   /issues/ai-draft-preview:
@@ -2692,7 +2692,7 @@ components:
       properties:
         project_id: { type: string, nullable: true }
         runner: { type: string, example: hybrid }
-        dispatch_mode: { type: string, example: qaira-pull }
+        dispatch_mode: { type: string, example: hellotest-pull }
         execution_scope: { type: string, example: api+web }
         active_web_engine: { type: string, enum: [playwright, selenium] }
         browser: { type: string, enum: [chromium, firefox, webkit] }
@@ -2804,7 +2804,7 @@ components:
           type: array
           items:
             type: string
-        qaira_result_log_compatibility: { type: string, nullable: true }
+        hellotest_result_log_compatibility: { type: string, nullable: true }
     AssignedUserSummary:
       type: object
       properties:
@@ -3469,7 +3469,7 @@ components:
     TestEngineCaseResult:
       type: object
       properties:
-        qaira_execution_result_id: { type: string, nullable: true }
+        hellotest_execution_result_id: { type: string, nullable: true }
         status: { type: string, enum: [passed, failed, blocked] }
         duration_ms: { type: number, nullable: true }
         error: { type: string, nullable: true }
@@ -3581,10 +3581,10 @@ components:
       type: object
       properties:
         engine_run_id: { type: string }
-        qaira_run_id: { type: string }
-        qaira_execution_id: { type: string, nullable: true }
-        qaira_test_case_id: { type: string }
-        qaira_test_case_title: { type: string }
+        hellotest_run_id: { type: string }
+        hellotest_execution_id: { type: string, nullable: true }
+        hellotest_test_case_id: { type: string }
+        hellotest_test_case_title: { type: string }
         project:
           $ref: "#/components/schemas/TestEngineRunProject"
         app_type:
@@ -3669,12 +3669,12 @@ components:
         lease_expires_at: { type: string, format: date-time, nullable: true }
     TestEngineCallbackRequest:
       type: object
-      required: [engine_run_id, qaira_test_case_id]
+      required: [engine_run_id, hellotest_test_case_id]
       properties:
         engine_run_id: { type: string }
-        qaira_run_id: { type: string, nullable: true }
-        qaira_execution_id: { type: string, nullable: true }
-        qaira_test_case_id: { type: string }
+        hellotest_run_id: { type: string, nullable: true }
+        hellotest_execution_id: { type: string, nullable: true }
+        hellotest_test_case_id: { type: string }
         event:
           type: string
           enum: [run.accepted, run.progress, run.step.completed, run.completed, run.failed, run.incident, run.patch.proposed]

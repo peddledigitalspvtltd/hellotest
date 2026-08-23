@@ -125,7 +125,7 @@ async function validatorPlugin(fastify) {
 }
 
 const plugin = fp(validatorPlugin, {
-  name: "qaira-validator"
+  name: "hellotest-validator"
 });
 
 plugin.validateInput = validateInput;

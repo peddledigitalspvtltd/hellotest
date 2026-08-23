@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EngineRunEnvelope, EngineRunRecord } from "../contracts/qaira.js";
+import type { EngineRunEnvelope, EngineRunRecord } from "../contracts/hellotest.js";
 
 const nowIso = () => new Date().toISOString();
 
@@ -11,18 +11,18 @@ export function buildAcceptedRun(envelope: EngineRunEnvelope): EngineRunRecord {
   const generatedScriptPath =
     envelope.source_mode === "attached-script"
       ? envelope.attached_script?.path || null
-      : `generated/${envelope.qaira_test_case_id}/${randomUUID()}.spec.ts`;
+      : `generated/${envelope.hellotest_test_case_id}/${randomUUID()}.spec.ts`;
   const locatorMapPath =
     envelope.source_mode === "attached-script"
       ? envelope.attached_script?.locator_map_path || null
-      : `generated/${envelope.qaira_test_case_id}/locator-map.json`;
+      : `generated/${envelope.hellotest_test_case_id}/locator-map.json`;
 
   return {
     id: envelope.engine_run_id,
-    qaira_run_id: envelope.qaira_run_id,
-    qaira_execution_id: envelope.qaira_execution_id || envelope.qaira_run_id,
-    qaira_test_case_id: envelope.qaira_test_case_id,
-    test_case_title: envelope.qaira_test_case_title,
+    hellotest_run_id: envelope.hellotest_run_id,
+    hellotest_execution_id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
+    hellotest_test_case_id: envelope.hellotest_test_case_id,
+    test_case_title: envelope.hellotest_test_case_title,
     state:
       isApiOnlyRun
         ? "running"
@@ -80,7 +80,7 @@ export function buildAcceptedRun(envelope: EngineRunEnvelope): EngineRunRecord {
             kind: "locator-map",
             status: "review",
             summary: "When healing succeeds, locator patches should be proposed for review before promotion.",
-            target_path: locatorMapPath || `generated/${envelope.qaira_test_case_id}/locator-map.json`
+            target_path: locatorMapPath || `generated/${envelope.hellotest_test_case_id}/locator-map.json`
           }
         ]
       : [],
@@ -93,7 +93,7 @@ export function buildCapabilities() {
   const workerClass = String(process.env.TESTENGINE_WORKER_CLASS || "").trim().toLowerCase() || "hybrid";
   return {
     runner: workerClass,
-    control_plane: "qaira",
+    control_plane: "hellotest",
     browsers: ["chromium", "firefox", "webkit"],
     execution_scope: "api+web+android",
     supported_step_types: ["api", "web", "android"],
@@ -175,8 +175,8 @@ export function buildCapabilities() {
       "pause"
     ],
     live_view_providers: ["playwright", "selenium"],
-    qaira_result_log_compatibility: "execution_results.logs.v1",
-    qaira_inline_step_evidence: true,
+    hellotest_result_log_compatibility: "execution_results.logs.v1",
+    hellotest_inline_step_evidence: true,
     healing_scope: ["locator", "wait", "popup", "navigation"],
     blocked_auto_changes: ["assertion", "business-rule", "test-data-mutation"]
   };

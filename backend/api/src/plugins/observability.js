@@ -82,63 +82,63 @@ const recordRequestMetric = ({ method, route, statusCode, durationMs }) => {
 const renderMetrics = (engineMetrics = {}) => {
   const memoryUsage = process.memoryUsage();
   const lines = [
-    "# HELP qaira_http_requests_total Total HTTP requests handled by the API.",
-    "# TYPE qaira_http_requests_total counter"
+    "# HELP hellotest_http_requests_total Total HTTP requests handled by the API.",
+    "# TYPE hellotest_http_requests_total counter"
   ];
 
   for (const entry of metricsState.requests.values()) {
     const labels = `method="${formatLabelValue(entry.method)}",route="${formatLabelValue(entry.route)}",status="${formatLabelValue(entry.statusCode)}"`;
-    lines.push(`qaira_http_requests_total{${labels}} ${entry.total}`);
+    lines.push(`hellotest_http_requests_total{${labels}} ${entry.total}`);
   }
 
-  lines.push("# HELP qaira_http_request_duration_ms_sum Cumulative request latency in milliseconds.");
-  lines.push("# TYPE qaira_http_request_duration_ms_sum counter");
+  lines.push("# HELP hellotest_http_request_duration_ms_sum Cumulative request latency in milliseconds.");
+  lines.push("# TYPE hellotest_http_request_duration_ms_sum counter");
 
   for (const entry of metricsState.requests.values()) {
     const labels = `method="${formatLabelValue(entry.method)}",route="${formatLabelValue(entry.route)}",status="${formatLabelValue(entry.statusCode)}"`;
-    lines.push(`qaira_http_request_duration_ms_sum{${labels}} ${entry.durationMsSum.toFixed(3)}`);
+    lines.push(`hellotest_http_request_duration_ms_sum{${labels}} ${entry.durationMsSum.toFixed(3)}`);
   }
 
-  lines.push("# HELP qaira_http_request_duration_ms_count Request latency observation count.");
-  lines.push("# TYPE qaira_http_request_duration_ms_count counter");
+  lines.push("# HELP hellotest_http_request_duration_ms_count Request latency observation count.");
+  lines.push("# TYPE hellotest_http_request_duration_ms_count counter");
 
   for (const entry of metricsState.requests.values()) {
     const labels = `method="${formatLabelValue(entry.method)}",route="${formatLabelValue(entry.route)}",status="${formatLabelValue(entry.statusCode)}"`;
-    lines.push(`qaira_http_request_duration_ms_count{${labels}} ${entry.total}`);
+    lines.push(`hellotest_http_request_duration_ms_count{${labels}} ${entry.total}`);
   }
 
-  lines.push("# HELP qaira_http_requests_inflight Currently active HTTP requests.");
-  lines.push("# TYPE qaira_http_requests_inflight gauge");
-  lines.push(`qaira_http_requests_inflight ${metricsState.inflight}`);
+  lines.push("# HELP hellotest_http_requests_inflight Currently active HTTP requests.");
+  lines.push("# TYPE hellotest_http_requests_inflight gauge");
+  lines.push(`hellotest_http_requests_inflight ${metricsState.inflight}`);
 
-  lines.push("# HELP qaira_process_uptime_seconds Process uptime in seconds.");
-  lines.push("# TYPE qaira_process_uptime_seconds gauge");
-  lines.push(`qaira_process_uptime_seconds ${process.uptime().toFixed(3)}`);
+  lines.push("# HELP hellotest_process_uptime_seconds Process uptime in seconds.");
+  lines.push("# TYPE hellotest_process_uptime_seconds gauge");
+  lines.push(`hellotest_process_uptime_seconds ${process.uptime().toFixed(3)}`);
 
-  lines.push("# HELP qaira_process_memory_bytes Resident memory usage by type.");
-  lines.push("# TYPE qaira_process_memory_bytes gauge");
+  lines.push("# HELP hellotest_process_memory_bytes Resident memory usage by type.");
+  lines.push("# TYPE hellotest_process_memory_bytes gauge");
 
   for (const [memoryType, value] of Object.entries(memoryUsage)) {
-    lines.push(`qaira_process_memory_bytes{type="${formatLabelValue(memoryType)}"} ${value}`);
+    lines.push(`hellotest_process_memory_bytes{type="${formatLabelValue(memoryType)}"} ${value}`);
   }
 
   if (engineMetrics) {
-    lines.push("# HELP qaira_runs_total Total HelloTest execution runs.");
-    lines.push("# TYPE qaira_runs_total gauge");
-    lines.push(`qaira_runs_total ${engineMetrics.total || 0}`);
+    lines.push("# HELP hellotest_runs_total Total HelloTest execution runs.");
+    lines.push("# TYPE hellotest_runs_total gauge");
+    lines.push(`hellotest_runs_total ${engineMetrics.total || 0}`);
 
-    lines.push("# HELP qaira_runs_running Number of HelloTest execution runs currently running.");
-    lines.push("# TYPE qaira_runs_running gauge");
-    lines.push(`qaira_runs_running ${engineMetrics.running || 0}`);
+    lines.push("# HELP hellotest_runs_running Number of HelloTest execution runs currently running.");
+    lines.push("# TYPE hellotest_runs_running gauge");
+    lines.push(`hellotest_runs_running ${engineMetrics.running || 0}`);
 
-    lines.push("# HELP qaira_runs_queued Number of queued HelloTest execution runs.");
-    lines.push("# TYPE qaira_runs_queued gauge");
-    lines.push(`qaira_runs_queued ${engineMetrics.queued || 0}`);
+    lines.push("# HELP hellotest_runs_queued Number of queued HelloTest execution runs.");
+    lines.push("# TYPE hellotest_runs_queued gauge");
+    lines.push(`hellotest_runs_queued ${engineMetrics.queued || 0}`);
 
     if (engineMetrics.last_heartbeat_at) {
-      lines.push("# HELP qaira_run_heartbeat_timestamp Timestamp of the most recent heartbeat.");
-      lines.push("# TYPE qaira_run_heartbeat_timestamp gauge");
-      lines.push(`qaira_run_heartbeat_timestamp ${Math.floor(new Date(engineMetrics.last_heartbeat_at).getTime() / 1000)}`);
+      lines.push("# HELP hellotest_run_heartbeat_timestamp Timestamp of the most recent heartbeat.");
+      lines.push("# TYPE hellotest_run_heartbeat_timestamp gauge");
+      lines.push(`hellotest_run_heartbeat_timestamp ${Math.floor(new Date(engineMetrics.last_heartbeat_at).getTime() / 1000)}`);
     }
   }
 
@@ -196,7 +196,7 @@ async function observabilityPlugin(fastify) {
   fastify.get("/health", async () => {
     return {
       ok: true,
-      service: "qaira-api",
+      service: "hellotest-api",
       uptimeSeconds: Number(process.uptime().toFixed(3)),
       timestamp: new Date().toISOString()
     };
@@ -208,7 +208,7 @@ async function observabilityPlugin(fastify) {
 
       return {
         ok: true,
-        service: "qaira-api",
+        service: "hellotest-api",
         database: "ready",
         timestamp: new Date().toISOString()
       };
@@ -217,7 +217,7 @@ async function observabilityPlugin(fastify) {
       reply.code(503);
       return {
         ok: false,
-        service: "qaira-api",
+        service: "hellotest-api",
         database: "unavailable",
         timestamp: new Date().toISOString()
       };
@@ -234,5 +234,5 @@ async function observabilityPlugin(fastify) {
 }
 
 module.exports = fp(observabilityPlugin, {
-  name: "qaira-observability"
+  name: "hellotest-observability"
 });

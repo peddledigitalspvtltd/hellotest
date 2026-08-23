@@ -3,9 +3,9 @@ import type {
   EngineApiValidation,
   EngineRunEnvelope,
   EngineRunStep,
-  QairaExecutionApiAssertion,
-  QairaExecutionStepApiDetail
-} from "../contracts/qaira.js";
+  HelloTestExecutionApiAssertion,
+  HelloTestExecutionStepApiDetail
+} from "../contracts/hellotest.js";
 import {
   buildInitialContext,
   interpolateHeaders,
@@ -18,7 +18,7 @@ type ApiStepExecutionResult = {
   status: "passed" | "failed";
   duration_ms: number;
   note: string;
-  detail: QairaExecutionStepApiDetail;
+  detail: HelloTestExecutionStepApiDetail;
   captures: Record<string, string>;
   evidence: {
     dataUrl: string;
@@ -618,7 +618,7 @@ export async function executeApiStepInEngine(
         json: preview.response.body_json
       },
       captures,
-      assertions: assertions.map<QairaExecutionApiAssertion>((assertion) => ({
+      assertions: assertions.map<HelloTestExecutionApiAssertion>((assertion) => ({
         kind: assertion.kind,
         passed: assertion.passed,
         target: assertion.target,

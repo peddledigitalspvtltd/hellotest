@@ -64,11 +64,11 @@ function resolveDate(rawOption: string | undefined, now: Date) {
 }
 
 function generateYopmailAddress(rawPrefix: string | undefined, now: Date) {
-  const prefix = String(rawPrefix || "qaira")
+  const prefix = String(rawPrefix || "hellotest")
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 32) || "qaira";
+    .slice(0, 32) || "hellotest";
   const timestamp = resolveDate("YYYYMMDDHHmmss", now);
   return `${prefix}-${timestamp}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 }

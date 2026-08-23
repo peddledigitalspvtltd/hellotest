@@ -113,11 +113,11 @@ const buildUrl = (baseUrl, path) => {
   }
 };
 
-const baseUrl = normalizeUrl(process.env.QAIRA_API_BASE_URL);
-const authToken = normalizeText(process.env.QAIRA_AUTH_TOKEN || process.env.QAIRA_BEARER_TOKEN);
-const authEmail = normalizeText(process.env.QAIRA_AUTH_EMAIL);
-const authPassword = normalizeText(process.env.QAIRA_AUTH_PASSWORD);
-const projectId = normalizeText(process.env.QAIRA_PROJECT_ID);
+const baseUrl = normalizeUrl(process.env.HELLOTEST_API_BASE_URL);
+const authToken = normalizeText(process.env.HELLOTEST_AUTH_TOKEN || process.env.HELLOTEST_BEARER_TOKEN);
+const authEmail = normalizeText(process.env.HELLOTEST_AUTH_EMAIL);
+const authPassword = normalizeText(process.env.HELLOTEST_AUTH_PASSWORD);
+const projectId = normalizeText(process.env.HELLOTEST_PROJECT_ID);
 const fallbackEngineUrl = normalizeUrl(process.env.ENGINE_PUBLIC_URL);
 const fallbackPollIntervalMinutes = Math.max(0.5, normalizeNumber(process.env.TESTENGINE_POLL_INTERVAL_MINUTES, 5));
 const fallbackOpsServiceName = normalizeText(
@@ -144,7 +144,7 @@ let engineIntegration = null;
 let opsIntegration = null;
 
 if (!baseUrl) {
-  warnings.push("QAIRA_API_BASE_URL is not set, so integration lookup was skipped.");
+  warnings.push("HELLOTEST_API_BASE_URL is not set, so integration lookup was skipped.");
 } else {
   try {
     if (!resolvedToken && authEmail && authPassword) {
@@ -176,13 +176,13 @@ if (!baseUrl) {
       opsIntegration = pickIntegration(integrations, "ops", projectId);
     } else {
       warnings.push(
-        "No QAIRA_AUTH_TOKEN or QAIRA_AUTH_EMAIL/QAIRA_AUTH_PASSWORD was provided, so QAira integrations could not be read."
+        "No HELLOTEST_AUTH_TOKEN or HELLOTEST_AUTH_EMAIL/HELLOTEST_AUTH_PASSWORD was provided, so HelloTest integrations could not be read."
       );
     }
   } catch (error) {
     lookupStatus = "error";
     warnings.push(
-      `Unable to read QAira integrations: ${error instanceof Error ? error.message : "request failed"}`
+      `Unable to read HelloTest integrations: ${error instanceof Error ? error.message : "request failed"}`
     );
   }
 }
@@ -206,7 +206,7 @@ const opsBoardPath = fallbackBoardPath;
 const opsServiceName =
   fallbackOpsServiceName
   || normalizeText(opsIntegration?.config?.service_name)
-  || "qaira-testengine";
+  || "hellotest-testengine";
 const opsEnvironment =
   fallbackOpsEnvironment
   || normalizeText(opsIntegration?.config?.environment)
@@ -232,19 +232,19 @@ if (opsIntegration) {
 
 if (!enginePublicUrl) {
   warnings.push(
-    "No Test Engine host URL could be resolved. Set ENGINE_PUBLIC_URL or provide QAira auth so the active Test Engine integration can be read."
+    "No Test Engine host URL could be resolved. Set ENGINE_PUBLIC_URL or provide HelloTest auth so the active Test Engine integration can be read."
   );
 }
 
 if (!opsIntegration) {
   warnings.push(
-    "No active OPS integration was found for the selected scope. The local telemetry board will run, but QAira will not emit execution hierarchy events until OPS is configured."
+    "No active OPS integration was found for the selected scope. The local telemetry board will run, but HelloTest will not emit execution hierarchy events until OPS is configured."
   );
 }
 
 if (opsHostOverride && enginePublicUrl && opsHostOverride !== enginePublicUrl) {
   warnings.push(
-    `The active OPS integration overrides its host URL to ${opsHostOverride}. QAira's current implementation normally rides on the Test Engine host ${enginePublicUrl}, so clear that override if you want OPS to follow the engine automatically.`
+    `The active OPS integration overrides its host URL to ${opsHostOverride}. HelloTest's current implementation normally rides on the Test Engine host ${enginePublicUrl}, so clear that override if you want OPS to follow the engine automatically.`
   );
 }
 

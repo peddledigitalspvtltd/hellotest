@@ -11,7 +11,7 @@ const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 const VERIFICATION_SECRET =
   process.env.VERIFICATION_CODE_SECRET ||
   process.env.SESSION_SECRET ||
-  "qaira-verification-secret";
+  "hellotest-verification-secret";
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -85,7 +85,8 @@ const getSessionPermissions = async (id, role) => {
 
 const selectUserForSession = async (id) => {
   const user = await db.prepare(`
-    SELECT id, email, name, avatar_data_url, auth_provider, email_verified, created_at, is_workspace_admin
+    SELECT id, email, name, username, avatar_data_url, auth_provider, email_verified, status,
+      must_change_password, last_login_at, created_at, is_workspace_admin
     FROM users
     WHERE id = ?
   `).get(id);
@@ -144,12 +145,12 @@ const assignDefaultProjectMemberships = async (userId) => {
     FROM projects
     WHERE id = 'project-16'
        OR LOWER(COALESCE(display_id, '')) = 'project-16'
-       OR LOWER(name) = 'qaira'
+       OR LOWER(name) = 'hellotest'
     ORDER BY
       CASE
         WHEN id = 'project-16' THEN 0
         WHEN LOWER(COALESCE(display_id, '')) = 'project-16' THEN 1
-        WHEN LOWER(name) = 'qaira' THEN 2
+        WHEN LOWER(name) = 'hellotest' THEN 2
         ELSE 3
       END,
       created_at ASC
@@ -453,13 +454,17 @@ exports.login = async ({ email, password }) => {
   const normalizedEmail = normalizeEmail(email);
 
   const user = await db.prepare(`
-    SELECT id, email, name, password_hash, created_at
+    SELECT id, email, name, password_hash, status, created_at
     FROM users
     WHERE LOWER(email) = ?
   `).get(normalizedEmail);
 
   if (!user) {
     throw createError("Invalid credentials", 401);
+  }
+
+  if (user.status === "suspended") {
+    throw createError("This account is suspended. Contact a workspace administrator.", 403);
   }
 
   const isPasswordValid = verifyPassword(password, user.password_hash);
@@ -469,6 +474,8 @@ exports.login = async ({ email, password }) => {
   }
 
   const sessionUser = await selectUserForSession(user.id);
+
+  await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
 
   return {
     token: createToken(sessionUser),

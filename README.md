@@ -1,6 +1,6 @@
-# QAIra
+# HelloTest
 
-QAIra is a QA management workspace with a Fastify backend, a React frontend, PostgreSQL for relational persistence, and MinIO-compatible object storage for binary test evidence.
+HelloTest is a QA management workspace with a Fastify backend, a React frontend, PostgreSQL for relational persistence, and MinIO-compatible object storage for binary test evidence.
 
 This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, which avoids the read-only database file issues that were happening with mounted `.db` files.
 
@@ -29,39 +29,55 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 Start everything from the repo root:
 
 ```bash
-./qaira.sh up --stack full
+TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --no-cache --stack local
 ```
 
 Open the apps:
 
 - Frontend: `http://localhost:8080`
+- Administration portal (canonical API route): `http://localhost:3000/admin`
+- Administration portal (direct container port): `http://localhost:8081`
 - API: `http://localhost:3000`
 - PostgreSQL: `localhost:5432`
 - MinIO API: `localhost:9000`
 - MinIO console: `http://localhost:9001`
 
-On the first boot, the Postgres container creates the `qaira` database and automatically runs:
+On the first boot, the Postgres container creates the `hellotest` database and automatically runs:
 
 - `backend/db/schema.sql`
 - `backend/db/seed.sql`
 
 ## Operator Script
 
-Use `qaira.sh` as the single root entrypoint for service relation config, image publishing, and compose deployment:
+Use `hellotest.sh` as the single root entrypoint for service relation config, image publishing, and compose deployment:
 
 ```bash
-./qaira.sh config --stack full
-./qaira.sh push
-./qaira.sh deploy --stack platform
-./qaira.sh deploy --stack testengine --yes
+./hellotest.sh config --stack full
+./hellotest.sh push
+./hellotest.sh deploy --stack platform
+./hellotest.sh deploy --stack testengine --yes
 ```
 
-`./qaira.sh config` writes the resolved service contract to `.qaira/<stack>.env`. Override any endpoint or image with environment variables or `--config <file>`:
+`--build --no-cache` now rebuilds every Compose service without Docker layer cache before starting it, including both the product and administration frontend bundles. The equivalent full-stack command is:
 
 ```bash
-QAIRA_PUBLIC_URL=https://qaira.example.com \
-QAIRA_API_BASE_URL=https://qaira.example.com/api \
-./qaira.sh deploy --stack platform
+docker compose -f docker-compose.full.yml up -d --build
+```
+
+For the cloud/edge stack, use:
+
+```bash
+./hellotest.sh deploy --build --no-cache --stack platform --yes
+```
+
+The edge route is `${HELLOTEST_PUBLIC_URL}/admin`; the API container also serves `/admin` directly whenever its port is exposed.
+
+`./hellotest.sh config` writes the resolved service contract to `.hellotest/<stack>.env`. Override any endpoint or image with environment variables or `--config <file>`:
+
+```bash
+HELLOTEST_PUBLIC_URL=https://hellotest.example.com \
+HELLOTEST_API_BASE_URL=https://hellotest.example.com/api \
+./hellotest.sh deploy --stack platform
 ```
 
 The deploy command prints the target stack, compose file, frontend URL, API URLs, and Test Engine URL before it changes containers. Use `--yes` only from automation.
@@ -70,7 +86,7 @@ For AWS EC2 hosts, prefer the scripts in [deploymentscripts](./deploymentscripts
 
 ```bash
 deploymentscripts/aws-app-deploy.sh
-QAIRA_API_BASE_URL=https://qaira.qualipal.in/api deploymentscripts/aws-testengine-deploy.sh
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api deploymentscripts/aws-testengine-deploy.sh
 deploymentscripts/aws-status.sh
 deploymentscripts/aws-logs.sh --stack app
 ```
@@ -101,9 +117,9 @@ The Compose credentials are development defaults. Set unique `MINIO_ROOT_USER`, 
 From the repo root, target services through the same operator script:
 
 ```bash
-./qaira.sh up --stack full postgres api
-./qaira.sh up --stack full frontend
-./qaira.sh up --stack testengine testengine
+./hellotest.sh up --stack full postgres api
+./hellotest.sh up --stack full frontend
+./hellotest.sh up --stack testengine testengine
 ```
 
 ## Platform stack
@@ -125,7 +141,7 @@ That stack adds:
 If port `80` is already used on the host, publish HAProxy on another host port:
 
 ```bash
-QAIRA_HTTP_PORT=8081 docker compose -f docker-compose.platform.yml up -d
+HELLOTEST_HTTP_PORT=8081 docker compose -f docker-compose.platform.yml up -d
 ```
 
 More detail is in [PLATFORM_STACK.md](./PLATFORM_STACK.md).
@@ -143,10 +159,10 @@ docker pull postgres:16-alpine
 2. Start PostgreSQL:
 
 ```bash
-docker run --name qaira-postgres \
-  -e POSTGRES_DB=qaira \
-  -e POSTGRES_USER=qaira \
-  -e POSTGRES_PASSWORD=qaira \
+docker run --name hellotest-postgres \
+  -e POSTGRES_DB=hellotest \
+  -e POSTGRES_USER=hellotest \
+  -e POSTGRES_PASSWORD=hellotest \
   -p 5432:5432 \
   -d postgres:16-alpine
 ```
@@ -154,13 +170,13 @@ docker run --name qaira-postgres \
 3. Load the schema:
 
 ```bash
-PGPASSWORD=qaira psql -h localhost -U qaira -d qaira -f backend/db/schema.sql
+PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f backend/db/schema.sql
 ```
 
 4. Load the sample data:
 
 ```bash
-PGPASSWORD=qaira psql -h localhost -U qaira -d qaira -f backend/db/seed.sql
+PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f backend/db/seed.sql
 ```
 
 5. Run the API locally:
@@ -168,7 +184,7 @@ PGPASSWORD=qaira psql -h localhost -U qaira -d qaira -f backend/db/seed.sql
 ```bash
 cd backend/api
 npm install
-DATABASE_URL=postgresql://qaira:qaira@localhost:5432/qaira npm start
+DATABASE_URL=postgresql://hellotest:hellotest@localhost:5432/hellotest npm start
 ```
 
 6. Run the frontend locally in another terminal:
@@ -179,19 +195,28 @@ npm install
 VITE_API_BASE_URL=http://localhost:3000 npm run dev
 ```
 
+Run the administration portal as a separate Vite process only when developing its UI. It uses the same API and PostgreSQL database as the product workspace:
+
+```bash
+cd frontend
+VITE_API_BASE_URL=http://localhost:3000 npm run dev:admin
+```
+
+Vite opens the portal under `http://localhost:5174/admin/`; a locally running API also gateways it at `http://localhost:3000/admin`. In Docker, no extra npm process is needed: the admin bundle is included in the frontend image. For a new instance, sign in with `admin` / `admin`, then replace the bootstrap password from **Security**. Production deployments should disable bootstrap login after onboarding a permanent administrator with `ADMIN_BOOTSTRAP_ENABLED=false`, or provide `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` during first boot.
+
 ## Sample login
 
 The seed file creates these users:
 
-- `admin@testiny.ai` / `admin123`
-- `member@testiny.ai` / `member123`
+- `admin@hellotest.ai` / `admin123`
+- `member@hellotest.ai` / `member123`
 
 ## Environment variables
 
 ### Backend
 
 - `DATABASE_URL`
-  Example: `postgresql://qaira:qaira@postgres:5432/qaira`
+  Example: `postgresql://hellotest:hellotest@postgres:5432/hellotest`
 - `SESSION_SECRET`
 - `CORS_ORIGIN`
 - `LOG_LEVEL`
@@ -200,7 +225,7 @@ The seed file creates these users:
 - `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_REGION`
 - `MAX_ATTACHMENT_BYTES` (defaults to 100 MiB)
 
-Attachment uploads are streamed through the authenticated API. PostgreSQL stores the QAira entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Keep object-storage credentials on the API service only—never expose them through the frontend runtime config.
+Attachment uploads are streamed through the authenticated API. PostgreSQL stores the HelloTest entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Keep object-storage credentials on the API service only—never expose them through the frontend runtime config.
 
 ### PostgreSQL container
 
@@ -210,11 +235,14 @@ Attachment uploads are streamed through the authenticated API. PostgreSQL stores
 
 ### Frontend
 
-- `QAIRA_API_BASE_URL` for the container build/runtime config
+- `HELLOTEST_API_BASE_URL` for the container build/runtime config
   Example: `http://localhost:3000` for `docker-compose.full.yml`, or `/api` when the frontend and API share the same public host behind HAProxy or a load balancer
 - `VITE_API_BASE_URL` for local Vite development
-- `QAIRA_BACKEND_IMAGE` to override the backend Docker Hub image
-- `QAIRA_FRONTEND_IMAGE` to override the frontend Docker Hub image
+- `HELLOTEST_ADMIN_URL` for the public administration portal URL reported by `hellotest.sh`
+- `HELLOTEST_ADMIN_PORT` for the optional direct administration frontend port (defaults to `8081`)
+- `ADMIN_FRONTEND_INTERNAL_URL` for the API-to-frontend Docker route (defaults to `http://frontend:81`)
+- `HELLOTEST_BACKEND_IMAGE` to override the backend Docker Hub image
+- `HELLOTEST_FRONTEND_IMAGE` to override the frontend Docker Hub image
 
 ## Database behavior
 
@@ -244,7 +272,7 @@ docker compose up --build
 ## Notes
 
 - `docker-compose.full.yml` now uses Docker Hub images by default:
-- Backend: `jayarajumetta/qaira-backend:latest`
-- Frontend: `jayarajumetta/qaira-frontend:latest`
+- Backend: `jayarajumetta/hellotest-backend:latest`
+- Frontend: `jayarajumetta/hellotest-frontend:latest`
 - The frontend is configured to talk to `http://localhost:3000` by default in local Docker workflows.
 - The schema in `backend/db/schema.sql` is ordered for PostgreSQL foreign key creation, and `seed.sql` uses PostgreSQL boolean values.

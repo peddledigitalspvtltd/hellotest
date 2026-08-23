@@ -48,7 +48,7 @@
 .artifact-assurance-overall-score.needs-attention { background: #9a4c00; }
 
 .artifact-assurance-overall-score strong {
-  font: 700 2.65rem/0.95 var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font: 700 2.65rem/0.95 var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   letter-spacing: -0.045em;
 }
 
@@ -108,7 +108,7 @@
 .artifact-assurance-dimension-title {
   margin: 0;
   color: var(--text-primary, #172b4d);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
 }
 
 .artifact-assurance-overview-copy h2 {
@@ -270,7 +270,7 @@
 }
 
 .artifact-assurance-dimension-score strong {
-  font: 700 1.68rem/1 var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font: 700 1.68rem/1 var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   letter-spacing: -0.035em;
 }
 

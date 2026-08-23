@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: qaira-frontend
+    container_name: hellotest-frontend
     ports:
       - "8080:80"
     environment:
-      QAIRA_API_BASE_URL: ${QAIRA_API_BASE_URL:-/api}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}

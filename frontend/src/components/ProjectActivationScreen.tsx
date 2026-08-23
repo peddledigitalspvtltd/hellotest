@@ -73,7 +73,7 @@ const activationStepStates = (snapshot?: ProjectActivationSnapshot): ActivationS
   return ["complete", "complete", "current", "waiting", "waiting"];
 };
 
-const featurePolicyMessage = /feature[\s_-]+(?:policy|availability)|deployment[-_ ]managed|qaira\.data\.feature-flags\.v1/i;
+const featurePolicyMessage = /feature[\s_-]+(?:policy|availability)|deployment[-_ ]managed|hellotest\.data\.feature-flags\.v1/i;
 const errorMessage = (error: unknown) => error instanceof Error
   ? error.message
   : String(error || "").trim();

@@ -4,6 +4,8 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 
 const normalizeRecipients = (value) => [...new Set((Array.isArray(value) ? value : []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))];
 const MAX_RENDERED_SNAPSHOT_BYTES = 6 * 1024 * 1024;
+const MAX_RENDERED_REPORT_BYTES = 32 * 1024 * 1024;
+const MAX_RENDERED_REPORT_PAGES = 60;
 const escapePdf = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/[^\x20-\x7e]/g, "?");
 const wrap = (value, width = 88) => {
   const words = String(value || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
@@ -84,7 +86,90 @@ const decodeRenderedSnapshot = (payload = {}) => {
   return { jpeg, ...readJpegDimensions(jpeg) };
 };
 
+const decodeRenderedSnapshotPages = (payload = {}) => {
+  const pageDataUrls = Array.isArray(payload.rendered_snapshot_pages_data_urls)
+    ? payload.rendered_snapshot_pages_data_urls.filter((value) => typeof value === "string" && value.trim())
+    : [];
+  if (!pageDataUrls.length) return [];
+  if (pageDataUrls.length > MAX_RENDERED_REPORT_PAGES) {
+    throw new Error(`Dashboard report supports no more than ${MAX_RENDERED_REPORT_PAGES} rendered sections.`);
+  }
+  const pages = pageDataUrls.map((dataUrl) => decodeRenderedSnapshot({ rendered_snapshot_data_url: dataUrl }));
+  const totalBytes = pages.reduce((total, page) => total + page.jpeg.length, 0);
+  if (totalBytes > MAX_RENDERED_REPORT_BYTES) {
+    throw new Error(`Dashboard report images must total no more than ${Math.floor(MAX_RENDERED_REPORT_BYTES / 1024 / 1024)} MB.`);
+  }
+  return pages;
+};
+
+const renderedSnapshotPagesPdf = (snapshots) => {
+  if (!snapshots.length) return null;
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const margin = 30;
+  const gap = 12;
+  const contentWidth = pageWidth - margin * 2;
+  const contentHeight = pageHeight - margin * 2;
+  const renderedSnapshots = snapshots.map((snapshot, index) => {
+    const scale = Math.min(contentWidth / snapshot.width, contentHeight / snapshot.height);
+    return {
+      ...snapshot,
+      imageName: `Im${index}`,
+      imageObjectId: 3 + index,
+      renderedWidth: snapshot.width * scale,
+      renderedHeight: snapshot.height * scale
+    };
+  });
+  const packedPages = [];
+  let currentPage = [];
+  let usedHeight = 0;
+  renderedSnapshots.forEach((snapshot) => {
+    const nextHeight = (currentPage.length ? gap : 0) + snapshot.renderedHeight;
+    if (currentPage.length && usedHeight + nextHeight > contentHeight) {
+      packedPages.push(currentPage);
+      currentPage = [];
+      usedHeight = 0;
+    }
+    currentPage.push(snapshot);
+    usedHeight += (currentPage.length > 1 ? gap : 0) + snapshot.renderedHeight;
+  });
+  if (currentPage.length) packedPages.push(currentPage);
+
+  const firstPageObjectId = 3 + renderedSnapshots.length;
+  const pageObjectIds = packedPages.map((_page, index) => firstPageObjectId + index * 2);
+  const objects = [
+    Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
+    Buffer.from(`<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${packedPages.length} >>`)
+  ];
+  renderedSnapshots.forEach((snapshot) => {
+    objects.push(Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${snapshot.width} /Height ${snapshot.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${snapshot.jpeg.length} >>\nstream\n`),
+      snapshot.jpeg,
+      Buffer.from("\nendstream")
+    ]));
+  });
+  packedPages.forEach((page, pageIndex) => {
+    const pageObjectId = pageObjectIds[pageIndex];
+    const contentObjectId = pageObjectId + 1;
+    const resources = page.map((snapshot) => `/${snapshot.imageName} ${snapshot.imageObjectId} 0 R`).join(" ");
+    let y = pageHeight - margin;
+    const commands = [];
+    page.forEach((snapshot, index) => {
+      if (index) y -= gap;
+      y -= snapshot.renderedHeight;
+      const x = margin + (contentWidth - snapshot.renderedWidth) / 2;
+      commands.push(`q\n${snapshot.renderedWidth.toFixed(3)} 0 0 ${snapshot.renderedHeight.toFixed(3)} ${x.toFixed(3)} ${y.toFixed(3)} cm\n/${snapshot.imageName} Do\nQ`);
+    });
+    const stream = commands.join("\n");
+    objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << ${resources} >> >> /Contents ${contentObjectId} 0 R >>`));
+    objects.push(Buffer.from(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`));
+  });
+  return pdfFromObjects(objects);
+};
+
 const renderedSnapshotPdf = (payload = {}, options = {}) => {
+  const snapshotPages = decodeRenderedSnapshotPages(payload);
+  if (snapshotPages.length) return renderedSnapshotPagesPdf(snapshotPages);
   const snapshot = decodeRenderedSnapshot(payload);
   if (!snapshot) return null;
 

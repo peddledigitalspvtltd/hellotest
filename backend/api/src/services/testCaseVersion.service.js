@@ -135,7 +135,7 @@ const get = async (testCaseId, revision) => {
     throw error;
   }
   return {
-    schema: "qaira.testCaseVersion.v1",
+    schema: "hellotest.testCaseVersion.v1",
     revision: Number(row.revision),
     captured_at: row.created_at,
     captured_by: row.created_by_name || row.created_by_email || row.created_by || null,

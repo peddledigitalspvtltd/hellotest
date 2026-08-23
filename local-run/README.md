@@ -1,4 +1,4 @@
-# QAira Local Run Bundle
+# HelloTest Local Run Bundle
 
 This folder is intentionally self-contained for local setup commands. It does
 not replace or edit the existing root scripts or compose files.
@@ -8,10 +8,10 @@ not replace or edit the existing root scripts or compose files.
 - `.env.example`: local defaults you can copy to `.env`.
 - `docker-compose.yml`: source-build local stack for Postgres, MinIO, API, frontend, and Test Engine.
 - `docker-compose.images.yml`: image-based duplicate of the local stack.
-- `RECORDER_LOCAL_SETUP.md`: local recorder setup and QAira integration checklist.
+- `RECORDER_LOCAL_SETUP.md`: local recorder setup and HelloTest integration checklist.
 - `bin/start.sh`: start the local stack.
 - `bin/start-host-recorder.sh`: start a visible host-side Playwright recorder on `localhost:4311` on macOS/Linux.
-- `bin/start-host-recorder.cmd`: start the visible host recorder on Windows, preferring `bin/qaira-host-recorder.exe` when present.
+- `bin/start-host-recorder.cmd`: start the visible host recorder on Windows, preferring `bin/hellotest-host-recorder.exe` when present.
 - `bin/stop.sh`: stop the local stack.
 - `bin/status.sh`: show container status.
 - `bin/logs.sh`: follow logs.
@@ -29,7 +29,7 @@ bin/start-host-recorder.sh
 bin/health.sh
 ```
 
-On Windows, product installs can place `qaira-host-recorder.exe` in
+On Windows, product installs can place `hellotest-host-recorder.exe` in
 `local-run\bin` and use:
 
 ```bat
@@ -38,8 +38,8 @@ bin\start-host-recorder.cmd
 
 Open:
 
-- QAira frontend: `http://localhost:8080`
-- QAira API: `http://localhost:3000`
+- HelloTest frontend: `http://localhost:8080`
+- HelloTest API: `http://localhost:3000`
 - MinIO API: `http://localhost:9000`
 - MinIO console: `http://localhost:9001`
 - Host recorder: `http://localhost:4311`
@@ -48,8 +48,8 @@ Open:
 
 Seed login:
 
-- `admin@testiny.ai` / `admin123`
-- `member@testiny.ai` / `member123`
+- `admin@hellotest.ai` / `admin123`
+- `member@hellotest.ai` / `member123`
 
 ## Source Build vs Image Run
 
@@ -62,7 +62,7 @@ bin/start.sh
 Image-based duplicate stack:
 
 ```bash
-QAIRA_LOCAL_COMPOSE_FILE=docker-compose.images.yml bin/start.sh
+HELLOTEST_LOCAL_COMPOSE_FILE=docker-compose.images.yml bin/start.sh
 ```
 
 ## Polling
@@ -90,7 +90,7 @@ The local Test Engine defaults to:
 - `TESTENGINE_ANDROID_POLL_CONCURRENCY=1`
 
 That means the Test Engine gateway stays available while worker containers are
-created only when QAira has queued execution work. The local autoscaler checks
+created only when HelloTest has queued execution work. The local autoscaler checks
 queue depth every 15 seconds, scales each pool independently from zero, caps each
 pool at 3 workers by default, and removes obsolete stopped containers after
 scale-down. API bursts can scale up without starting extra browsers or mobile
@@ -113,7 +113,7 @@ bin/autoscale-testengine.sh once
 ```
 
 Local LLM and local automation-generator agent services are intentionally not
-part of this low-footprint local stack. Use QAira's integration settings for a
+part of this low-footprint local stack. Use HelloTest's integration settings for a
 remote LLM provider when AI generation is needed.
 
 ## AI Generation
@@ -126,11 +126,11 @@ model images or running background generation workers by default.
 
 Read `RECORDER_LOCAL_SETUP.md`. In short, start this stack, run
 `bin/start-host-recorder.sh` for visible desktop recording, then use the local
-recorder from QAira.
+recorder from HelloTest.
 
 For packaged desktop installs, place the host recorder binary at
-`local-run/bin/qaira-host-recorder.exe` on Windows or
-`local-run/bin/qaira-host-recorder` on macOS/Linux. The launchers use the binary
+`local-run/bin/hellotest-host-recorder.exe` on Windows or
+`local-run/bin/hellotest-host-recorder` on macOS/Linux. The launchers use the binary
 first and fall back to the source-build developer flow only when the binary is
 not present.
 

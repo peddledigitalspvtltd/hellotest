@@ -166,7 +166,7 @@ const RECOVERABLE_REQUIREMENT_AI_JOB_WINDOW_MS = 30 * 60_000;
 const SPRINT_HEALTH_REQUEST_BATCH_SIZE = 12;
 const SPRINT_HEALTH_CONCURRENT_BATCHES = 2;
 const SPRINT_STORY_PICKER_MAX_PAGES = 100;
-const STORY_AI_CONTEXT_PANE_STORAGE_KEY = "qaira:story-ai-context-pane-width:v1";
+const STORY_AI_CONTEXT_PANE_STORAGE_KEY = "hellotest:story-ai-context-pane-width:v1";
 const STORY_AI_CONTEXT_PANE_MIN_WIDTH = 280;
 const STORY_AI_CONTEXT_PANE_MAX_WIDTH = 480;
 const STORY_AI_CONTEXT_PANE_DEFAULT_WIDTH = 332;
@@ -627,10 +627,10 @@ export function RequirementsPage() {
   const canCreateAttachments = hasPermission(session, "attachment.create");
   const canDeleteAttachments = hasPermission(session, "attachment.delete");
   const canUseRequirementAi = hasPermission(session, "requirement.ai")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.requirement_design"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.requirement_design"]);
   const canUseAiBugCreation = hasPermission(session, "feedback.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.bug_triage"]);
-  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
   const canViewRequirementIterations = hasPermission(session, "requirement_iteration.view");
   const canCreateRequirementIterations = hasPermission(session, "requirement_iteration.create");
   const canUpdateRequirementIterations = hasPermission(session, "requirement_iteration.update");
@@ -2793,7 +2793,7 @@ export function RequirementsPage() {
             label: "AI Test Cases Generation",
             description: "Generate or review AI-designed test cases for this Story.",
             icon: <SparkIcon />,
-            featureKeys: ["qaira.ai.requirement_design"],
+            featureKeys: ["hellotest.ai.requirement_design"],
             permissionMode: "all" as const,
             requiredPermissions: ["requirement.ai", "testcase.create"],
             onClick: () => openRequirementAiStudio(item.id)
@@ -2802,7 +2802,7 @@ export function RequirementsPage() {
             label: "AI Complete Story",
             description: "Use AI to improve missing or weak Story details.",
             icon: <SparkIcon />,
-            featureKeys: ["qaira.ai.requirement_design"],
+            featureKeys: ["hellotest.ai.requirement_design"],
             permissionMode: "all" as const,
             requiredPermissions: ["requirement.ai", "requirement.update"],
             onClick: () => openRequirementOptimization([item.id])
@@ -2868,7 +2868,7 @@ export function RequirementsPage() {
   const selectedTestCaseFallbackLabels = useMemo(() => {
     const labels: Record<string, string> = {};
     (selectedRequirement?.related_items || []).forEach((item) => {
-      if (item.qaira_kind !== "test-case") return;
+      if (item.hellotest_kind !== "test-case") return;
       labels[item.id] = [item.display_id, item.title].filter(Boolean).join(" · ") || `Linked test case ${item.id}`;
     });
     return labels;
@@ -3489,7 +3489,7 @@ export function RequirementsPage() {
       await refresh();
     } catch {
       // The Jira mutation and exact assignment receipt already succeeded. A
-      // secondary Qaira query failure must never invite duplicate Sprint creation.
+      // secondary HelloTest query failure must never invite duplicate Sprint creation.
       setMessageTone(creationTone);
       setMessage(`${creationMessage} HelloTest could not refresh every workspace panel yet; Sprint membership will revalidate automatically.`);
     }
@@ -3915,7 +3915,7 @@ export function RequirementsPage() {
       if (!authoritativeRequirements.length) {
         throw new Error("HelloTest did not return authoritative Story details for this export. Refresh and try again.");
       }
-      downloadCsvRecords("qaira-stories.csv", authoritativeRequirements.map((requirement) => ({
+      downloadCsvRecords("hellotest-stories.csv", authoritativeRequirements.map((requirement) => ({
         Title: requirement.title,
         Description: requirement.description || "",
         Status: requirement.status || "",
@@ -5774,7 +5774,7 @@ export function RequirementsPage() {
 		                        label: "AI Test Cases Generation",
 	                        description: "Generate or review AI-designed test cases for this Story.",
 		                        icon: <SparkIcon />,
-		                        featureKeys: ["qaira.ai.requirement_design"],
+		                        featureKeys: ["hellotest.ai.requirement_design"],
 		                        permissionMode: "all" as const,
 		                        requiredPermissions: ["requirement.ai", "testcase.create"],
 		                        onClick: () => openRequirementAiStudio(item.id)
@@ -5783,7 +5783,7 @@ export function RequirementsPage() {
 	                        label: "AI Complete Story",
 	                        description: "Use AI to improve missing or weak Story details.",
 		                        icon: <SparkIcon />,
-		                        featureKeys: ["qaira.ai.requirement_design"],
+		                        featureKeys: ["hellotest.ai.requirement_design"],
 	                        permissionMode: "all" as const,
 	                        requiredPermissions: ["requirement.ai", "requirement.update"],
 	                        onClick: () => openRequirementOptimization([item.id])
@@ -5922,7 +5922,7 @@ export function RequirementsPage() {
                   renderRowActions={renderRequirementListRowActions}
                   rowGroups={requirementListRowGroups}
                   rows={[]}
-                  storageKey="qaira:requirements:list-columns:v2"
+                  storageKey="hellotest:requirements:list-columns:v2"
                 />
               ) : null}
               {!isRequirementCatalogLoading && !requirements.length && !requirementIterationGroups.groups.length && !requirementsQuery.hasNextPage ? (
@@ -8042,12 +8042,12 @@ function RequirementRelatedItemsPanel({
     [String(testCase.id), testCase] as const,
     ...(testCase.display_id ? [[String(testCase.display_id), testCase] as const] : [])
   ]));
-  const qairaRoute = (item: RequirementRelatedItem) => {
-    if (item.qaira_kind === "test-case") return `/test-cases?case=${encodeURIComponent(item.id)}`;
-    if (item.qaira_kind === "test-suite") return `/design?suite=${encodeURIComponent(item.id)}`;
-    if (item.qaira_kind === "test-run") return `/executions?execution=${encodeURIComponent(item.id)}`;
-    if (item.qaira_kind === "bug") return `/issues?issue=${encodeURIComponent(item.id)}`;
-    if (item.qaira_kind === "requirement") return `/requirements?requirement=${encodeURIComponent(item.id)}`;
+  const hellotestRoute = (item: RequirementRelatedItem) => {
+    if (item.hellotest_kind === "test-case") return `/test-cases?case=${encodeURIComponent(item.id)}`;
+    if (item.hellotest_kind === "test-suite") return `/design?suite=${encodeURIComponent(item.id)}`;
+    if (item.hellotest_kind === "test-run") return `/executions?execution=${encodeURIComponent(item.id)}`;
+    if (item.hellotest_kind === "bug") return `/issues?issue=${encodeURIComponent(item.id)}`;
+    if (item.hellotest_kind === "requirement") return `/requirements?requirement=${encodeURIComponent(item.id)}`;
     return "";
   };
 
@@ -8062,18 +8062,18 @@ function RequirementRelatedItemsPanel({
       </div>
       <div className="requirement-related-list">
         {items.map((item) => {
-          const linkedTestCase = item.qaira_kind === "test-case"
+          const linkedTestCase = item.hellotest_kind === "test-case"
             ? testCaseByReference.get(item.id) || testCaseByReference.get(item.display_id || "")
             : null;
           const status = linkedTestCase?.status || item.status || "No status";
           const assignee = linkedTestCase?.assignee_name || linkedTestCase?.assignee_email || item.assignee_name || "Unassigned";
-          const route = qairaRoute(item);
+          const route = hellotestRoute(item);
             return (
               <article className="requirement-related-item" key={`${item.direction}-${item.relation}-${item.id}`}>
                 <div className="requirement-related-item-main">
                   <div className="requirement-related-item-id">
-                    {item.qaira_kind === "test-case" ? <TestCaseIcon size={15} strokeWidth={1.8} /> : null}
-                    {item.qaira_kind === "requirement" ? <StoryIcon size={15} /> : null}
+                    {item.hellotest_kind === "test-case" ? <TestCaseIcon size={15} strokeWidth={1.8} /> : null}
+                    {item.hellotest_kind === "requirement" ? <StoryIcon size={15} /> : null}
                     <DisplayIdBadge value={item.display_id || item.id} href={getJiraBrowseUrl(item.display_id || item.id, item.jira_url)} />
                     <span>{item.relation}</span>
                   </div>

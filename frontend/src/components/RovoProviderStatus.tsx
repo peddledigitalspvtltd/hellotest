@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconSparkles } from "@tabler/icons-react";
-import { openQairaRovo, isQairaRovoAvailable } from "../lib/rovo";
+import { openHelloTestRovo, isHelloTestRovoAvailable } from "../lib/rovo";
 
 type RovoStatus = "checking" | "available" | "unavailable";
 
@@ -19,7 +19,7 @@ export function RovoProviderStatus({
 
   useEffect(() => {
     let active = true;
-    void isQairaRovoAvailable().then((available) => {
+    void isHelloTestRovoAvailable().then((available) => {
       if (active) setStatus(available ? "available" : "unavailable");
     });
     return () => { active = false; };
@@ -29,7 +29,7 @@ export function RovoProviderStatus({
     setIsOpening(true);
     setMessage("");
     try {
-      await openQairaRovo(prompt);
+      await openHelloTestRovo(prompt);
     } catch (error) {
       setStatus("unavailable");
       setMessage(error instanceof Error ? error.message : "Unable to open the HelloTest agent workspace.");

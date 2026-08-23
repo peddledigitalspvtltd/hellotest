@@ -496,10 +496,10 @@ module.exports = async function (fastify) {
     await projectService.getProject(execution.project_id, req.user.id);
 
     const pdf = await executionReportService.renderReportPdf(req.params.id, { user_id: req.user.id });
-    const safeName = String(execution.name || execution.id || "qaira-run-report")
+    const safeName = String(execution.name || execution.id || "hellotest-run-report")
       .replace(/[^A-Za-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      || "qaira-run-report";
+      || "hellotest-run-report";
     const completedAt = new Date().toISOString();
     const transaction = await workspaceTransactionService.createTransaction({
       project_id: execution.project_id,

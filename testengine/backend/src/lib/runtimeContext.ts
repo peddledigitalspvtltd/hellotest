@@ -1,4 +1,4 @@
-import type { EngineApiRequest, EngineRunEnvelope } from "../contracts/qaira.js";
+import type { EngineApiRequest, EngineRunEnvelope } from "../contracts/hellotest.js";
 
 export type RuntimeExecutionContext = {
   values: Record<string, string>;
@@ -98,7 +98,7 @@ export const materializeTemplateValue = (value: unknown, now = new Date()): stri
     const option = String(rawOption || "").trim();
     if (kind === "randomnumber") return randomCharacters(Math.max(1, Math.min(12, Number.parseInt(option, 10) || 6)), "0123456789");
     if (kind === "randomstring") return randomCharacters(Math.max(1, Math.min(32, Number.parseInt(option, 10) || 8)), "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
-    if (kind === "yopmail") return `qaira-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
+    if (kind === "yopmail") return `hellotest-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
     if (kind === "aidata") return option.toLowerCase().includes("email") ? `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com` : `ai-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}`;
     return resolveDate(option || "YYYY-MM-DD", now);
   };

@@ -1,20 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchIcon } from "./AppIcons";
 import { DisplayIdBadge } from "./DisplayIdBadge";
-import type { AppType, Issue, Requirement, TestCase, TestCaseModule } from "../types";
+import type { AppType, Issue, Requirement, RequirementIteration, TestCase, TestCaseModule } from "../types";
 
 type NodeKind = "requirement" | "module" | "case" | "bug";
-type SelectedNode = { kind: NodeKind; id: string } | null;
 type TraceabilityView = "all" | "gaps";
 
 const includesText = (values: Array<string | null | undefined>, search: string) =>
   !search || values.some((value) => String(value || "").toLowerCase().includes(search));
+
+const normalizeReference = (value?: string | null) => String(value || "").trim().toLowerCase();
 
 export function ProjectTraceabilityMap({
   appTypes,
   selectedAppTypeId,
   onAppTypeChange,
   requirements,
+  sprints,
   modules,
   testCases,
   bugs,
@@ -28,6 +30,7 @@ export function ProjectTraceabilityMap({
   selectedAppTypeId: string;
   onAppTypeChange: (id: string) => void;
   requirements: Requirement[];
+  sprints: RequirementIteration[];
   modules: TestCaseModule[];
   testCases: TestCase[];
   bugs: Issue[];
@@ -38,9 +41,10 @@ export function ProjectTraceabilityMap({
   loadMoreError?: boolean;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedNode, setSelectedNode] = useState<SelectedNode>(null);
-  const [expandedKinds, setExpandedKinds] = useState<NodeKind[]>([]);
+  const [expandedSprintIds, setExpandedSprintIds] = useState<string[]>([]);
+  const [expandedRequirementIds, setExpandedRequirementIds] = useState<string[]>([]);
   const [view, setView] = useState<TraceabilityView>("all");
+  const initializedExpansionRef = useRef(false);
   const search = searchTerm.trim().toLowerCase();
 
   const scopedCases = useMemo(
@@ -51,11 +55,8 @@ export function ProjectTraceabilityMap({
     () => modules.filter((item) => item.app_type_id === selectedAppTypeId),
     [modules, selectedAppTypeId]
   );
+
   const graph = useMemo(() => {
-    const requirementById = new Map(requirements.map((item) => [item.id, item]));
-    const moduleById = new Map(scopedModules.map((item) => [item.id, item]));
-    const caseById = new Map(scopedCases.map((item) => [item.id, item]));
-    const bugById = new Map(bugs.map((item) => [item.id, item]));
     const requirementAlias = new Map<string, string>();
     const moduleAlias = new Map<string, string>();
     const caseAlias = new Map<string, string>();
@@ -67,19 +68,15 @@ export function ProjectTraceabilityMap({
 
     const requirementCases = new Map(requirements.map((item) => [item.id, new Set<string>()]));
     const moduleCases = new Map(scopedModules.map((item) => [item.id, new Set<string>()]));
-    const caseRequirements = new Map(scopedCases.map((item) => [item.id, new Set<string>()]));
     const caseModules = new Map(scopedCases.map((item) => [item.id, new Set<string>()]));
     const caseBugs = new Map(scopedCases.map((item) => [item.id, new Set<string>()]));
-    const bugCases = new Map(bugs.map((item) => [item.id, new Set<string>()]));
     const bugRequirements = new Map(bugs.map((item) => [item.id, new Set<string>()]));
     const bugModules = new Map(bugs.map((item) => [item.id, new Set<string>()]));
 
     const linkRequirementCase = (requirementReference: string, caseReference: string) => {
       const requirementId = requirementAlias.get(String(requirementReference));
       const caseId = caseAlias.get(String(caseReference));
-      if (!requirementId || !caseId) return;
-      requirementCases.get(requirementId)?.add(caseId);
-      caseRequirements.get(caseId)?.add(requirementId);
+      if (requirementId && caseId) requirementCases.get(requirementId)?.add(caseId);
     };
     const linkModuleCase = (moduleReference: string, caseReference: string) => {
       const moduleId = moduleAlias.get(String(moduleReference));
@@ -91,9 +88,7 @@ export function ProjectTraceabilityMap({
     const linkBugCase = (bugReference: string, caseReference: string) => {
       const bugId = bugAlias.get(String(bugReference));
       const caseId = caseAlias.get(String(caseReference));
-      if (!bugId || !caseId) return;
-      bugCases.get(bugId)?.add(caseId);
-      caseBugs.get(caseId)?.add(bugId);
+      if (bugId && caseId) caseBugs.get(caseId)?.add(bugId);
     };
 
     scopedCases.forEach((testCase) => {
@@ -114,196 +109,238 @@ export function ProjectTraceabilityMap({
         if (id) bugModules.get(bug.id)?.add(id);
       });
     });
-    return { requirementById, moduleById, caseById, bugById, requirementCases, moduleCases, caseRequirements, caseModules, caseBugs, bugCases, bugRequirements, bugModules };
+
+    return {
+      requirementCases,
+      moduleCases,
+      caseModules,
+      caseBugs,
+      bugRequirements,
+      bugModules,
+      moduleById: new Map(scopedModules.map((item) => [item.id, item])),
+      caseById: new Map(scopedCases.map((item) => [item.id, item])),
+      bugById: new Map(bugs.map((item) => [item.id, item]))
+    };
   }, [bugs, requirements, scopedCases, scopedModules]);
 
-  const connectedIds = useMemo(() => {
-    if (!selectedNode) return null;
-    const result = {
-      requirement: new Set<string>(),
-      module: new Set<string>(),
-      case: new Set<string>(),
-      bug: new Set<string>()
-    };
-    result[selectedNode.kind].add(selectedNode.id);
-
-    const includeCase = (testCase: TestCase) => {
-      result.case.add(testCase.id);
-      graph.caseRequirements.get(testCase.id)?.forEach((id) => result.requirement.add(id));
-      graph.caseModules.get(testCase.id)?.forEach((id) => result.module.add(id));
-      graph.caseBugs.get(testCase.id)?.forEach((id) => result.bug.add(id));
-    };
-
-    if (selectedNode.kind === "case") {
-      const item = graph.caseById.get(selectedNode.id);
-      if (item) includeCase(item);
-    } else if (selectedNode.kind === "requirement") {
-      graph.requirementCases.get(selectedNode.id)?.forEach((id) => { const item = graph.caseById.get(id); if (item) includeCase(item); });
-    } else if (selectedNode.kind === "module") {
-      graph.moduleCases.get(selectedNode.id)?.forEach((id) => { const item = graph.caseById.get(id); if (item) includeCase(item); });
-    } else {
-      graph.bugCases.get(selectedNode.id)?.forEach((id) => { const item = graph.caseById.get(id); if (item) includeCase(item); });
-      graph.bugRequirements.get(selectedNode.id)?.forEach((id) => result.requirement.add(id));
-      graph.bugModules.get(selectedNode.id)?.forEach((id) => result.module.add(id));
-    }
-
-    graph.bugById.forEach((_bug, bugId) => {
-      if ([...(graph.bugCases.get(bugId) || [])].some((id) => result.case.has(id))
-        || [...(graph.bugRequirements.get(bugId) || [])].some((id) => result.requirement.has(id))
-        || [...(graph.bugModules.get(bugId) || [])].some((id) => result.module.has(id))) result.bug.add(bugId);
+  const requirementPaths = useMemo(() => requirements.map((requirement) => {
+    const caseIds = [...(graph.requirementCases.get(requirement.id) || [])];
+    const moduleIds = new Set<string>();
+    caseIds.forEach((caseId) => graph.caseModules.get(caseId)?.forEach((moduleId) => moduleIds.add(moduleId)));
+    const bugIds = new Set<string>();
+    caseIds.forEach((caseId) => graph.caseBugs.get(caseId)?.forEach((bugId) => bugIds.add(bugId)));
+    graph.bugRequirements.forEach((requirementIds, bugId) => {
+      if (requirementIds.has(requirement.id)) bugIds.add(bugId);
     });
-    return result;
-  }, [graph, selectedNode]);
+    graph.bugModules.forEach((linkedModuleIds, bugId) => {
+      if ([...moduleIds].some((moduleId) => linkedModuleIds.has(moduleId))) bugIds.add(bugId);
+    });
+    const linkedModules = [...moduleIds].map((id) => graph.moduleById.get(id)).filter((item): item is TestCaseModule => Boolean(item));
+    const linkedCases = caseIds.map((id) => graph.caseById.get(id)).filter((item): item is TestCase => Boolean(item));
+    const linkedBugs = [...bugIds].map((id) => graph.bugById.get(id)).filter((item): item is Issue => Boolean(item));
+    return { requirement, modules: linkedModules, cases: linkedCases, bugs: linkedBugs, isGap: !linkedModules.length || !linkedCases.length };
+  }), [graph, requirements]);
 
-  const lanes = useMemo(() => {
-    const requirementNodes = requirements.map((item) => ({
-      id: item.id,
-      displayId: item.display_id,
-      title: item.title,
-      meta: item.status || "No status",
-      count: graph.requirementCases.get(item.id)?.size || 0,
-      isGap: !(graph.requirementCases.get(item.id)?.size),
-      gapLabel: "No tests in this app type",
-      linkLabel: "linked cases"
-    }));
-    const moduleNodes = scopedModules.map((item) => ({
-      id: item.id,
-      displayId: item.display_id,
-      title: item.name,
-      meta: "Test module",
-      count: graph.moduleCases.get(item.id)?.size || 0,
-      isGap: !(graph.moduleCases.get(item.id)?.size),
-      gapLabel: "No assigned tests",
-      linkLabel: "assigned cases"
-    }));
-    const caseNodes = scopedCases.map((item) => ({
-      id: item.id,
-      displayId: item.display_id,
-      title: item.title,
-      meta: `${item.status || "No status"} · ${item.automated === "yes" ? "Automated" : "Manual"}`,
-      count: (graph.caseRequirements.get(item.id)?.size || 0) + (graph.caseModules.get(item.id)?.size || 0),
-      isGap: !(graph.caseRequirements.get(item.id)?.size) || !(graph.caseModules.get(item.id)?.size),
-      gapLabel: [!(graph.caseRequirements.get(item.id)?.size) ? "No Story" : "", !(graph.caseModules.get(item.id)?.size) ? "No module" : ""].filter(Boolean).join(" · "),
-      linkLabel: "Story/module links"
-    }));
-    const bugNodes = bugs.filter((bug) =>
-      Boolean(graph.bugCases.get(bug.id)?.size || graph.bugModules.get(bug.id)?.size || graph.bugRequirements.get(bug.id)?.size)
-    ).map((item) => ({
-      id: item.id,
-      displayId: item.jira_bug_key,
-      title: item.title,
-      meta: `${item.status || "No status"}${item.severity ? ` · ${item.severity}` : ""}`,
-      count: graph.bugCases.get(item.id)?.size || 0,
-      isGap: !(graph.bugCases.get(item.id)?.size),
-      gapLabel: "No scoped test link",
-      linkLabel: "linked cases"
-    }));
-    return [
-      { kind: "requirement" as const, label: "Stories", nodes: requirementNodes, empty: "No Stories in this project" },
-      { kind: "module" as const, label: "Modules", nodes: moduleNodes, empty: "No modules for this app type" },
-      { kind: "case" as const, label: "Test cases", nodes: caseNodes, empty: "No cases for this app type" },
-      { kind: "bug" as const, label: "Bugs", nodes: bugNodes, empty: "No connected Bugs" }
-    ];
-  }, [bugs, graph, requirements, scopedCases, scopedModules]);
+  const sprintGroups = useMemo(() => {
+    const sprintAliases = new Map<string, string>();
+    const sprintByRequirement = new Map<string, string>();
+    sprints.forEach((sprint) => {
+      [sprint.id, sprint.jira_sprint_id, sprint.name, sprint.jira_sprint_name]
+        .filter(Boolean)
+        .forEach((alias) => sprintAliases.set(normalizeReference(alias), sprint.id));
+      (sprint.requirement_ids || []).forEach((requirementId) => sprintByRequirement.set(normalizeReference(requirementId), sprint.id));
+    });
+    const groups = new Map(sprints.map((sprint) => [sprint.id, { sprint, paths: [] as typeof requirementPaths }]));
+    const backlog: typeof requirementPaths = [];
+    requirementPaths.forEach((path) => {
+      const sprintId = sprintByRequirement.get(normalizeReference(path.requirement.id))
+        || sprintByRequirement.get(normalizeReference(path.requirement.display_id))
+        || [path.requirement.iteration_id, path.requirement.sprint_id, path.requirement.sprint]
+        .map(normalizeReference)
+        .map((alias) => sprintAliases.get(alias))
+        .find(Boolean);
+      if (sprintId && groups.has(sprintId)) groups.get(sprintId)?.paths.push(path);
+      else backlog.push(path);
+    });
+    const ordered = [...groups.values()].sort((left, right) => {
+      const stateRank = (state?: string | null) => state === "active" ? 0 : state === "future" ? 1 : 2;
+      return stateRank(left.sprint.state || left.sprint.status) - stateRank(right.sprint.state || right.sprint.status)
+        || String(right.sprint.start_date || "").localeCompare(String(left.sprint.start_date || ""));
+    });
+    if (backlog.length || !ordered.length) {
+      ordered.push({
+        sprint: { id: "__backlog__", project_id: requirements[0]?.project_id || "", name: "Backlog / No sprint", state: "backlog" },
+        paths: backlog
+      });
+    }
+    return ordered;
+  }, [requirementPaths, requirements, sprints]);
 
-  const linkedRequirementCount = lanes[0].nodes.filter((node) => node.count > 0).length;
-  const linkedCaseCount = scopedCases.filter((item) => graph.caseRequirements.get(item.id)?.size && graph.caseModules.get(item.id)?.size).length;
-  const gapCount = lanes.reduce((count, lane) => count + lane.nodes.filter((node) => node.isGap).length, 0);
-  const selectedNodeLabel = selectedNode
-    ? lanes.find((lane) => lane.kind === selectedNode.kind)?.nodes.find((node) => node.id === selectedNode.id)?.title
-    : "";
+  useEffect(() => {
+    if (initializedExpansionRef.current || !sprintGroups.length) return;
+    const initialSprint = sprintGroups.find((group) => (group.sprint.state || group.sprint.status) === "active") || sprintGroups.find((group) => group.paths.length) || sprintGroups[0];
+    setExpandedSprintIds(initialSprint ? [initialSprint.sprint.id] : []);
+    initializedExpansionRef.current = true;
+  }, [sprintGroups]);
+
+  const visibleSprintGroups = useMemo(() => sprintGroups.map((group) => {
+    const paths = group.paths.filter((path) => {
+      if (view === "gaps" && !path.isGap) return false;
+      return includesText([
+        group.sprint.name,
+        group.sprint.jira_sprint_name,
+        path.requirement.display_id,
+        path.requirement.title,
+        path.requirement.status,
+        ...path.modules.flatMap((item) => [item.display_id, item.name]),
+        ...path.cases.flatMap((item) => [item.display_id, item.title]),
+        ...path.bugs.flatMap((item) => [item.jira_bug_key, item.title])
+      ], search);
+    });
+    return { ...group, paths };
+  }).filter((group) => group.paths.length || (!search && view === "all")), [search, sprintGroups, view]);
+
+  const linkedRequirementCount = requirementPaths.filter((path) => path.cases.length).length;
+  const linkedCaseCount = scopedCases.filter((item) => {
+    const hasRequirement = requirementPaths.some((path) => path.cases.some((testCase) => testCase.id === item.id));
+    return hasRequirement && Boolean(graph.caseModules.get(item.id)?.size);
+  }).length;
+  const connectedBugIds = new Set(requirementPaths.flatMap((path) => path.bugs.map((bug) => bug.id)));
+  const gapCount = requirementPaths.filter((path) => path.isGap).length
+    + scopedModules.filter((module) => !(graph.moduleCases.get(module.id)?.size)).length
+    + scopedCases.filter((testCase) => !graph.caseModules.get(testCase.id)?.size || !requirementPaths.some((path) => path.cases.some((item) => item.id === testCase.id))).length;
+
+  const toggleSprint = (sprintId: string) => setExpandedSprintIds((current) =>
+    current.includes(sprintId) ? current.filter((id) => id !== sprintId) : [...current, sprintId]
+  );
+  const toggleRequirement = (requirementId: string) => setExpandedRequirementIds((current) =>
+    current.includes(requirementId) ? current.filter((id) => id !== requirementId) : [...current, requirementId]
+  );
 
   return (
     <section className="project-traceability-map">
       <div className="project-traceability-toolbar">
         <div className="project-traceability-toolbar-copy">
           <strong>End-to-end traceability</strong>
-          <span>Select an item to isolate its connected Story, module, test, and Bug neighborhood.</span>
+          <span>Expand a sprint to follow each Story through its derived modules, test cases, and Bugs.</span>
         </div>
         <label className="project-traceability-app-filter">
-          <span>App type</span>
-          <select aria-label="Filter traceability by app type" value={selectedAppTypeId} onChange={(event) => { onAppTypeChange(event.target.value); setSelectedNode(null); }}>
+          <span>Application</span>
+          <select aria-label="Filter traceability by application" value={selectedAppTypeId} onChange={(event) => onAppTypeChange(event.target.value)}>
             {appTypes.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.type}</option>)}
           </select>
         </label>
         <div className="search-input-with-icon project-traceability-search">
           <SearchIcon />
-          <input aria-label="Search traceability map" placeholder="Search Stories, modules, cases or Bugs" type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
+          <input aria-label="Search traceability map" placeholder="Search sprints, Stories, modules, cases or Bugs" type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
         </div>
       </div>
 
       <div className="project-traceability-health metric-strip page-metric-strip" aria-label="Traceability health metrics" role="group">
+        <span><strong>{sprintGroups.filter((group) => group.sprint.id !== "__backlog__").length}</strong> Sprints</span>
         <span><strong>{linkedRequirementCount}/{requirements.length}</strong> Stories covered</span>
         <span><strong>{scopedModules.length}</strong> Modules</span>
-        <span><strong>{scopedCases.length}</strong> Test cases</span>
-        <span><strong>{linkedCaseCount}</strong> fully traced cases</span>
-        <button aria-pressed={view === "gaps"} className={view === "gaps" ? "project-traceability-gap-filter is-active" : "project-traceability-gap-filter"} onClick={() => { setView((current) => current === "gaps" ? "all" : "gaps"); setSelectedNode(null); }} type="button"><strong>{gapCount}</strong> mapping gaps</button>
-        {selectedNode ? <button className="ghost-button compact" onClick={() => setSelectedNode(null)} type="button">Clear focus</button> : null}
+        <span><strong>{linkedCaseCount}/{scopedCases.length}</strong> fully traced cases</span>
+        <span><strong>{connectedBugIds.size}</strong> linked Bugs</span>
+        <button aria-pressed={view === "gaps"} className={view === "gaps" ? "project-traceability-gap-filter is-active" : "project-traceability-gap-filter"} onClick={() => setView((current) => current === "gaps" ? "all" : "gaps")} type="button"><strong>{gapCount}</strong> mapping gaps</button>
       </div>
 
-      {selectedNode && connectedIds ? (
-        <div className="project-traceability-focus" role="status">
-          <span>Focused path</span>
-          <strong>{selectedNodeLabel}</strong>
-          <small>{connectedIds.requirement.size} Stories · {connectedIds.module.size} modules · {connectedIds.case.size} cases · {connectedIds.bug.size} Bugs</small>
-        </div>
-      ) : null}
-
-      <div className="project-traceability-lanes">
-        {lanes.map((lane, laneIndex) => {
-          const searchedNodes = lane.nodes
-            .filter((node) => includesText([node.displayId, node.title, node.meta], search))
-            .filter((node) => view === "all" || node.isGap)
-            .sort((left, right) => {
-              if (!connectedIds) return Number(right.isGap) - Number(left.isGap) || left.title.localeCompare(right.title);
-              return Number(connectedIds[lane.kind].has(right.id)) - Number(connectedIds[lane.kind].has(left.id)) || left.title.localeCompare(right.title);
-            });
-          const connectedNodes = connectedIds ? searchedNodes.filter((node) => connectedIds[lane.kind].has(node.id)) : [];
-          const defaultVisibleCount = Math.max(7, connectedNodes.length);
-          const visibleNodes = expandedKinds.includes(lane.kind) ? searchedNodes : searchedNodes.slice(0, defaultVisibleCount);
+      <div className="project-traceability-sprints" aria-label="Sprint traceability paths">
+        {visibleSprintGroups.map((group) => {
+          const isExpanded = expandedSprintIds.includes(group.sprint.id) || Boolean(search);
+          const moduleCount = new Set(group.paths.flatMap((path) => path.modules.map((item) => item.id))).size;
+          const caseCount = new Set(group.paths.flatMap((path) => path.cases.map((item) => item.id))).size;
+          const bugCount = new Set(group.paths.flatMap((path) => path.bugs.map((item) => item.id))).size;
+          const sprintState = group.sprint.state || group.sprint.status || "unplanned";
           return (
-            <section className={`project-traceability-lane is-${lane.kind}`} key={lane.kind}>
-              <header>
-                <span>{laneIndex + 1}</span>
-                <strong>{lane.label}</strong>
-                <small>{searchedNodes.length}</small>
-              </header>
-              <div className="project-traceability-node-list">
-                {visibleNodes.map((node) => {
-                  const isSelected = selectedNode?.kind === lane.kind && selectedNode.id === node.id;
-                  const isConnected = !connectedIds || connectedIds[lane.kind].has(node.id);
-                  return (
-                    <article className={`project-traceability-node${isSelected ? " is-selected" : ""}${isConnected ? "" : " is-muted"}${node.isGap ? " is-gap" : ""}`} key={node.id}>
-                      <button aria-pressed={isSelected} onClick={() => setSelectedNode(isSelected ? null : { kind: lane.kind, id: node.id })} type="button">
-                        <span className="project-traceability-node-title">
-                          {node.displayId ? <DisplayIdBadge value={node.displayId} /> : null}
-                          <strong>{node.title}</strong>
-                        </span>
-                        <span>{node.meta}</span>
-                        <small>{node.isGap ? node.gapLabel : `${node.count} ${node.linkLabel}`}</small>
-                      </button>
-                      <button aria-label={`Open ${node.title}`} className="project-traceability-open" onClick={() => onOpen(lane.kind, node.id)} title="Open workspace" type="button">↗</button>
-                    </article>
-                  );
-                })}
-                {!visibleNodes.length ? <div className="project-traceability-empty">{lane.empty}</div> : null}
-              </div>
-              {searchedNodes.length > 7 ? (
-                <button className="ghost-button compact project-traceability-more" onClick={() => setExpandedKinds((current) => current.includes(lane.kind) ? current.filter((kind) => kind !== lane.kind) : [...current, lane.kind])} type="button">
-                  {expandedKinds.includes(lane.kind) ? "Show less" : `Show ${searchedNodes.length - 7} more`}
-                </button>
+            <section className={`project-traceability-sprint${isExpanded ? " is-expanded" : ""}`} key={group.sprint.id}>
+              <button aria-expanded={isExpanded} className="project-traceability-sprint-toggle" onClick={() => toggleSprint(group.sprint.id)} type="button">
+                <span className="project-traceability-sprint-chevron" aria-hidden="true">›</span>
+                <span className="project-traceability-sprint-title">
+                  <strong>{group.sprint.jira_sprint_name || group.sprint.name}</strong>
+                  <small>{sprintState}{group.sprint.goal ? ` · ${group.sprint.goal}` : ""}</small>
+                </span>
+                <span className="project-traceability-sprint-facts">
+                  <span><strong>{group.paths.length}</strong> Stories</span>
+                  <span><strong>{moduleCount}</strong> Modules</span>
+                  <span><strong>{caseCount}</strong> Cases</span>
+                  <span><strong>{bugCount}</strong> Bugs</span>
+                </span>
+              </button>
+              {isExpanded ? (
+                <div className="project-traceability-sprint-body">
+                  <div className="project-traceability-path-head" aria-hidden="true">
+                    <span>Story</span><span>Linked modules</span><span>Linked test cases</span><span>Linked Bugs</span>
+                  </div>
+                  {group.paths.map((path) => {
+                    const isRequirementExpanded = expandedRequirementIds.includes(path.requirement.id);
+                    return (
+                      <article className={`project-traceability-path${path.isGap ? " is-gap" : ""}`} key={path.requirement.id}>
+                        <div className="project-traceability-path-story">
+                          <button aria-expanded={isRequirementExpanded} onClick={() => toggleRequirement(path.requirement.id)} type="button">
+                            <span className="project-traceability-path-chevron" aria-hidden="true">›</span>
+                            <span>
+                              {path.requirement.display_id ? <DisplayIdBadge value={path.requirement.display_id} /> : null}
+                              <strong>{path.requirement.title}</strong>
+                              <small>{path.requirement.status || "No status"}</small>
+                            </span>
+                          </button>
+                          <button aria-label={`Open ${path.requirement.title}`} className="project-traceability-open" onClick={() => onOpen("requirement", path.requirement.id)} title="Open Story" type="button">↗</button>
+                        </div>
+                        <div className="project-traceability-path-links">
+                          <TraceabilityLinkList empty="No linked module" items={path.modules.map((item) => ({ id: item.id, displayId: item.display_id, title: item.name, meta: `${graph.moduleCases.get(item.id)?.size || 0} cases` }))} kind="module" onOpen={onOpen} />
+                          <TraceabilityLinkList empty="No linked test case" items={path.cases.map((item) => ({ id: item.id, displayId: item.display_id, title: item.title, meta: item.automated === "yes" ? "Automated" : "Manual" }))} kind="case" onOpen={onOpen} />
+                          <TraceabilityLinkList empty="No linked Bug" items={path.bugs.map((item) => ({ id: item.id, displayId: item.jira_bug_key, title: item.title, meta: `${item.status || "No status"}${item.severity ? ` · ${item.severity}` : ""}` }))} kind="bug" onOpen={onOpen} />
+                        </div>
+                        {isRequirementExpanded ? (
+                          <div className="project-traceability-path-summary">
+                            <strong>Derived path</strong>
+                            <span>{path.modules.length} module{path.modules.length === 1 ? "" : "s"} · {path.cases.length} test case{path.cases.length === 1 ? "" : "s"} · {path.bugs.length} Bug{path.bugs.length === 1 ? "" : "s"}</span>
+                            <small>Module links are derived from the Story’s linked cases. Bugs include direct Story, module, and test-case references.</small>
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                  {!group.paths.length ? <div className="project-traceability-empty">No Stories match this sprint and filter.</div> : null}
+                </div>
               ) : null}
             </section>
           );
         })}
+        {!visibleSprintGroups.length ? <div className="project-traceability-empty">No sprint traceability paths match the current filters.</div> : null}
       </div>
       {hasMore ? (
         <div className={`project-traceability-continuation${loadMoreError ? " is-error" : ""}`} role="status">
-          <span><strong>{loadMoreError ? "The next work-item page could not be loaded." : "More work items are available."}</strong> {loadMoreError ? "The visible map is still usable but incomplete; retry when ready." : "Coverage is provisional until the remaining pages are loaded."}</span>
+          <span><strong>{loadMoreError ? "The next work-item page could not be loaded." : "More work items are available."}</strong> {loadMoreError ? "The visible paths remain usable but incomplete; retry when ready." : "Coverage remains provisional until every page is loaded."}</span>
           <button className="ghost-button compact" disabled={isLoadingMore} onClick={onLoadMore} type="button">{isLoadingMore ? "Loading…" : "Load more records"}</button>
         </div>
       ) : null}
-      <p className="project-traceability-footnote">Links are derived from loaded connected workspace and HelloTest Story, module, case, and Bug mappings. Faded items are outside the selected node’s connected neighborhood; gap counts never treat unloaded pages as complete.</p>
+      <p className="project-traceability-footnote">Sprint membership comes from loaded connected-workspace and HelloTest sprint assignments. Module and Bug relationships are derived through direct Story, module, and test-case links; unloaded pages are never treated as complete coverage.</p>
     </section>
+  );
+}
+
+function TraceabilityLinkList({
+  empty,
+  items,
+  kind,
+  onOpen
+}: {
+  empty: string;
+  items: Array<{ id: string; displayId?: string | null; title: string; meta: string }>;
+  kind: Exclude<NodeKind, "requirement">;
+  onOpen: (kind: NodeKind, id: string) => void;
+}) {
+  if (!items.length) return <div className="project-traceability-link-empty">{empty}</div>;
+  return (
+    <div className="project-traceability-link-list">
+      {items.map((item) => (
+        <button key={item.id} onClick={() => onOpen(kind, item.id)} title={`Open ${item.title}`} type="button">
+          <span>{item.displayId ? <DisplayIdBadge value={item.displayId} /> : null}<strong>{item.title}</strong></span>
+          <small>{item.meta}</small>
+        </button>
+      ))}
+    </div>
   );
 }

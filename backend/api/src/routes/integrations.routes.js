@@ -36,7 +36,7 @@ const sanitizeIntegration = (integration) => {
         owner: config.owner || null,
         repo: config.repo || null,
         branch: config.branch || "main",
-        directory: config.directory || "qaira-sync",
+        directory: config.directory || "hellotest-sync",
         schedule_mode: config.schedule_mode || "manual",
         last_synced_at: config.last_synced_at || null,
         last_sync_status: config.last_sync_status || null,
@@ -52,7 +52,7 @@ const sanitizeIntegration = (integration) => {
       config: {
         project_id: config.project_id || null,
         runner: config.runner || (integration.type === "local-desktop" ? "local" : "hybrid"),
-        dispatch_mode: config.dispatch_mode || "qaira-pull",
+        dispatch_mode: config.dispatch_mode || "hellotest-pull",
         execution_scope: config.execution_scope || "api+web",
         active_web_engine: config.active_web_engine || "playwright",
         browser: config.browser || "chromium",
@@ -71,7 +71,7 @@ const sanitizeIntegration = (integration) => {
         recovery_wait_ms: config.recovery_wait_ms ?? 750,
         max_video_attachment_mb: config.max_video_attachment_mb ?? 25,
         queue_poll_interval_minutes: config.queue_poll_interval_minutes ?? 5,
-        qaira_api_base_url: config.qaira_api_base_url || null,
+        hellotest_api_base_url: config.hellotest_api_base_url || null,
         promote_healed_patches: config.promote_healed_patches || "review",
         live_view_url: config.live_view_url || null,
         mobile_engine_url: config.mobile_engine_url || null,
@@ -113,7 +113,7 @@ const sanitizeIntegration = (integration) => {
         health_path: config.health_path || "/health",
         api_key_header: config.api_key_header || "Authorization",
         api_key_prefix: Object.prototype.hasOwnProperty.call(config, "api_key_prefix") ? config.api_key_prefix : "Bearer",
-        service_name: config.service_name || "qaira-testengine",
+        service_name: config.service_name || "hellotest-testengine",
         environment: config.environment || "production",
         timeout_ms: config.timeout_ms ?? 4000,
         emit_step_events: config.emit_step_events !== false,
@@ -238,7 +238,7 @@ module.exports = async function (fastify) {
       completed_at: response.exported_at
     });
     const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
-      file_name: "qaira-integrations-export.json",
+      file_name: "hellotest-integrations-export.json",
       mime_type: "application/json",
       content: JSON.stringify(response, null, 2)
     });

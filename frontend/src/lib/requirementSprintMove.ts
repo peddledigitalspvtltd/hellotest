@@ -2,15 +2,15 @@ import type { Requirement, RequirementIteration } from "../types";
 
 // Jira Software accepts at most 50 issues in a single Sprint move. Keeping the
 // UI batch aligned with that boundary also makes partial failures observable:
-// every fulfilled Qaira request represents one completed Jira mutation.
+// every fulfilled HelloTest request represents one completed Jira mutation.
 export const JIRA_SPRINT_MOVE_BATCH_SIZE = 50;
 export const REQUIREMENT_SPRINT_MOVE_PERSISTENCE_TTL_MS = 30 * 60_000;
 export const REQUIREMENT_SPRINT_MOVE_PERSISTENCE_LIMIT = 100;
 export const REQUIREMENT_SPRINT_SETTLEMENT_CONFIRMATIONS = 2;
 export const REQUIREMENT_SPRINT_SETTLEMENT_INTERVAL_MS = 1_500;
 
-const REQUIREMENT_SPRINT_MOVE_STORAGE_PREFIX = "qaira.requirements.confirmed-sprint-moves.v1";
-const REQUIREMENT_SPRINT_EXPANSION_STORAGE_PREFIX = "qaira.requirements.expanded-sprints.v1";
+const REQUIREMENT_SPRINT_MOVE_STORAGE_PREFIX = "hellotest.requirements.confirmed-sprint-moves.v1";
+const REQUIREMENT_SPRINT_EXPANSION_STORAGE_PREFIX = "hellotest.requirements.expanded-sprints.v1";
 const REQUIREMENT_SPRINT_EXPANSION_LIMIT = 12;
 
 type RequirementSprintMoveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -111,7 +111,7 @@ export function requirementMatchesSprint(
   }
 
   // A Jira Sprint id is authoritative. Do not accept a cached Sprint name or
-  // legacy Qaira iteration property as confirmation of a native Jira move.
+  // legacy HelloTest iteration property as confirmation of a native Jira move.
   if (move.targetSprintId) {
     return String(requirement.sprint_id || "") === move.targetSprintId;
   }
@@ -424,7 +424,7 @@ export function resolveRequirementSprintIteration(
     return scopedIteration;
   }
 
-  // Local membership remains available only for a legacy Qaira-owned
+  // Local membership remains available only for a legacy HelloTest-owned
   // iteration. Native Jira Sprints are derived from Jira's Sprint field/JQL;
   // stale project-property ids must never make an unassigned Story immovable.
   const explicitIteration = iterations.find((iteration) =>

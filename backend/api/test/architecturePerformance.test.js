@@ -24,10 +24,10 @@ test("shared PostgreSQL adapter compiles positional parameters without rewriting
 
 test("prepared statement identities are deterministic, bounded, and isolated by database namespace", () => {
   const sql = "SELECT * FROM requirements WHERE project_id = $1";
-  const mainName = createStatementName(sql, "qaira_main");
+  const mainName = createStatementName(sql, "hellotest_main");
 
-  assert.equal(mainName, createStatementName(sql, "qaira_main"));
-  assert.notEqual(mainName, createStatementName(sql, "qaira_obs"));
+  assert.equal(mainName, createStatementName(sql, "hellotest_main"));
+  assert.notEqual(mainName, createStatementName(sql, "hellotest_obs"));
   assert.ok(mainName.length <= 63);
 });
 

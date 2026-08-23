@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_RUN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-COMPOSE_FILE=${QAIRA_LOCAL_COMPOSE_FILE:-docker-compose.yml}
+COMPOSE_FILE=${HELLOTEST_LOCAL_COMPOSE_FILE:-docker-compose.yml}
 PID_FILE="$LOCAL_RUN_DIR/.testengine-autoscaler.pid"
 
 cd "$LOCAL_RUN_DIR"
@@ -13,8 +13,8 @@ set -a
 . ./.env
 set +a
 
-API_URL=${QAIRA_AUTOSCALER_API_URL:-http://localhost:${API_PORT:-3000}}
-SECRET=${TESTENGINE_SHARED_SECRET:-${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}}
+API_URL=${HELLOTEST_AUTOSCALER_API_URL:-http://localhost:${API_PORT:-3000}}
+SECRET=${TESTENGINE_SHARED_SECRET:-${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}}
 INTERVAL_SECONDS=${TESTENGINE_AUTOSCALE_INTERVAL_SECONDS:-15}
 API_MAX_WORKERS=${TESTENGINE_API_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}}
 WEB_MAX_WORKERS=${TESTENGINE_WEB_MAX_WORKERS:-${TESTENGINE_AUTOSCALE_MAX_WORKERS:-3}}
@@ -49,7 +49,7 @@ recommended_workers() {
         const min = Math.max(0, Number(process.env.MIN_WORKERS || 0));
         const max = Math.max(min, Number(process.env.MAX_WORKERS || min));
     const request = http.get(`${apiUrl}/testengine/internal/jobs/queue-stats`, {
-      headers: { "x-qaira-testengine-secret": secret }
+      headers: { "x-hellotest-testengine-secret": secret }
     }, (response) => {
       let body = "";
       response.on("data", (chunk) => body += chunk);

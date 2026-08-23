@@ -17,7 +17,7 @@
   align-items: center;
   gap: 6px;
   color: var(--issue-bug-accent);
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
 }
 
 .issue-bug-identity > svg {
@@ -145,7 +145,7 @@
 .issue-detail-heading h2 {
   margin: 0;
   color: var(--report-bug-ink, var(--catalog-ink));
-  font-family: var(--qaira-font-heading);
+  font-family: var(--hellotest-font-heading);
   font-size: 24px;
   font-weight: 600;
   line-height: 30px;
@@ -237,7 +237,7 @@
 
 .issue-detail-shell .issue-form-section-head strong {
   color: var(--report-bug-text, var(--catalog-text)) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -262,7 +262,7 @@
   min-width: 0;
   align-items: center;
   color: var(--report-bug-text, var(--catalog-text)) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   line-height: 14px !important;
@@ -294,7 +294,7 @@
   border-radius: 4px !important;
   background: var(--report-bug-surface, var(--catalog-surface)) !important;
   color: var(--report-bug-ink, var(--catalog-ink)) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 14px !important;
   line-height: 20px !important;
   box-shadow: none !important;
@@ -536,7 +536,7 @@
   gap: 8px;
   padding: 8px 20px;
   border-radius: 4px;
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
   font-size: 12px;
   font-weight: 600;
   line-height: 16px;

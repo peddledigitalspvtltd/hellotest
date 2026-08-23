@@ -1,22 +1,22 @@
-# QAira Test Engine
+# HelloTest Test Engine
 
-`testengine/` is a backend-only Playwright execution plane for QAira. QAira remains the only frontend, the only operator surface, and the system of record for authoring, runs, evidence history, and review.
+`testengine/` is a backend-only Playwright execution plane for HelloTest. HelloTest remains the only frontend, the only operator surface, and the system of record for authoring, runs, evidence history, and review.
 
 There should not be a second UI here. The right split is:
 
-- QAira frontend and backend: control plane
+- HelloTest frontend and backend: control plane
 - Test Engine: scalable Docker worker plane
 
 ## Why This Exists
 
-QAira already owns:
+HelloTest already owns:
 
 - requirements, suites, test cases, shared steps, environments, and data
 - run creation and run status
 - case snapshots and step snapshots
 - manual result review and preserved history
 
-What QAira does not yet own is an isolated execution runtime that can:
+What HelloTest does not yet own is an isolated execution runtime that can:
 
 - execute browser, API, and mobile automation inside Docker/Kubernetes
 - scale independently from the main app
@@ -28,24 +28,24 @@ That belongs in a separate backend service, not a separate product frontend.
 
 ## Product Boundary
 
-QAira control plane:
+HelloTest control plane:
 
-- user clicks Run from the existing QAira UI
-- QAira creates the run with `/executions`
-- QAira snapshots cases, steps, environment, configuration, and data
-- QAira hands automated cases to Test Engine
-- QAira records run status, case result, and evidence history
-- QAira remains the review surface for promoted healing patches
+- user clicks Run from the existing HelloTest UI
+- HelloTest creates the run with `/executions`
+- HelloTest snapshots cases, steps, environment, configuration, and data
+- HelloTest hands automated cases to Test Engine
+- HelloTest records run status, case result, and evidence history
+- HelloTest remains the review surface for promoted healing patches
 
 Test Engine worker plane:
 
-- continuously leases queued automated jobs from QAira
+- continuously leases queued automated jobs from HelloTest
 - splits workers by engine class: API, Web, and Android
 - resolves attached script versus manual handover generation
 - executes API requests, Playwright browser steps, and Android/Appium handoffs deterministically first
 - performs constrained repair only after failure
 - captures trace, screenshots, console, network, DOM, and summary artifacts
-- calls back into QAira with case result and step evidence payloads
+- calls back into HelloTest with case result and step evidence payloads
 
 ## Worker Pools
 
@@ -58,7 +58,7 @@ flow:
 - `android`: any job containing Android steps. This pool is capped lower because real devices, emulators, and Appium sessions are scarce resources.
 
 Each worker sets `TESTENGINE_WORKER_CLASS` and only leases matching orchestration
-jobs. QAira queue stats expose both `by_orchestration_class` for scaling current
+jobs. HelloTest queue stats expose both `by_orchestration_class` for scaling current
 worker deployments and `by_step_engine_class` for step-level demand visibility.
 Mixed cases therefore remain ordered and safe, while the model still records
 that API, Web, and Android capabilities are step-level concerns.
@@ -77,17 +77,17 @@ Recommended integration config keys:
 
 For Kubernetes, use `testengine/k8s/testengine-workers.yaml` as the base
 deployment shape. In production, pair these deployments with KEDA or an external
-metrics adapter that reads QAira's `/testengine/internal/jobs/queue-stats`
+metrics adapter that reads HelloTest's `/testengine/internal/jobs/queue-stats`
 endpoint and scales each deployment from the matching `by_orchestration_class`
 value. Idle pools should scale to zero; queued/running work keeps the matching
 pool alive until execution settles.
 
-## Current QAira API Mapping
+## Current HelloTest API Mapping
 
-QAira already has the core APIs needed to make this work:
+HelloTest already has the core APIs needed to make this work:
 
 - `POST /executions`
-  - open a run from QAira
+  - open a run from HelloTest
 - `POST /executions/:id/start`
   - mark the run as active when engine processing begins
 - `GET /executions/:id`
@@ -99,7 +99,7 @@ QAira already has the core APIs needed to make this work:
 - `POST /executions/:id/complete`
   - finish the run after all automated cases settle
 
-The important compatibility detail is that QAira already stores step-level statuses, notes, and image evidence inside `execution_results.logs` as structured JSON. Test Engine should use that shape first instead of inventing a second evidence model for the first integration pass.
+The important compatibility detail is that HelloTest already stores step-level statuses, notes, and image evidence inside `execution_results.logs` as structured JSON. Test Engine should use that shape first instead of inventing a second evidence model for the first integration pass.
 
 ## Evidence Strategy
 
@@ -113,8 +113,8 @@ Near-term compatibility path:
 Scale path for larger artifacts:
 
 - keep full trace, HAR, video, DOM, and console bundles in Test Engine artifact storage
-- send QAira a manifest plus an optional preview image per failed step
-- add a dedicated QAira artifact table later when we need durable large-object storage
+- send HelloTest a manifest plus an optional preview image per failed step
+- add a dedicated HelloTest artifact table later when we need durable large-object storage
 
 ## Core Decisions
 
@@ -124,7 +124,7 @@ Scale path for larger artifacts:
 - Execution policy: deterministic first, AI fallback second
 - Healing scope: locator, wait, popup, navigation recovery
 - Assertion policy: business assertions never change silently
-- Review policy: healed patches are proposed to QAira before promotion
+- Review policy: healed patches are proposed to HelloTest before promotion
 
 ## Folder Layout
 
@@ -149,8 +149,8 @@ The Playwright engine already has a separate Docker image definition at `testeng
 Build and run it directly:
 
 ```bash
-docker build -f testengine/backend/Dockerfile -t qaira-testengine ./testengine/backend
-docker run --rm -p 4301:4301 -e PORT=4301 -e ARTIFACT_ROOT=/artifacts qaira-testengine
+docker build -f testengine/backend/Dockerfile -t hellotest-testengine ./testengine/backend
+docker run --rm -p 4301:4301 -e PORT=4301 -e ARTIFACT_ROOT=/artifacts hellotest-testengine
 ```
 
 Or use Compose for local source builds:
@@ -162,31 +162,31 @@ docker compose -f testengine/docker-compose.yml up --build
 For a standalone image-based host deployment, use:
 
 ```bash
-./qaira.sh deploy --stack testengine
+./hellotest.sh deploy --stack testengine
 ```
 
-Use `--config <file>` or environment variables to override the QAira API URL,
+Use `--config <file>` or environment variables to override the HelloTest API URL,
 published engine URL, image tag, Selenium binds, and shared secret:
 
 ```bash
-QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
 ENGINE_PUBLIC_URL=http://13.55.32.201:4301 \
-./qaira.sh deploy --stack testengine --yes
+./hellotest.sh deploy --stack testengine --yes
 ```
 
 For a separate Test Engine host that should also align its OPS settings with the
-active QAira integrations and expose the local telemetry board on the same host,
+active HelloTest integrations and expose the local telemetry board on the same host,
 prefer:
 
 ```bash
-QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \
-QAIRA_AUTH_TOKEN=replace-with-a-qaira-token \
-QAIRA_PROJECT_ID=replace-with-project-id \
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
+HELLOTEST_AUTH_TOKEN=replace-with-a-hellotest-token \
+HELLOTEST_PROJECT_ID=replace-with-project-id \
 ./start-testengine-ops.sh
 ```
 
-`QAIRA_TESTENGINE_SECRET` is optional for this script. If omitted, the Test
-Engine uses the same development fallback as the QAira API.
+`HELLOTEST_TESTENGINE_SECRET` is optional for this script. If omitted, the Test
+Engine uses the same development fallback as the HelloTest API.
 
 If you do not want integration lookup, set `ENGINE_PUBLIC_URL` directly instead.
 When the stack is up, the Test Engine host serves:
@@ -200,28 +200,28 @@ When the stack is up, the Test Engine host serves:
 The `/ops-telemetry` board lets operators filter captured execution hierarchy
 events by `service_name`, status, event type, and execution identifiers.
 
-Queue pull mode polls QAira for queued automated API and web jobs every 5
+Queue pull mode polls HelloTest for queued automated API and web jobs every 5
 minutes by default. Configure `queue_poll_interval_minutes` on the active
-Test Engine integration in QAira; `start-testengine-ops.sh` resolves that value
+Test Engine integration in HelloTest; `start-testengine-ops.sh` resolves that value
 into `TESTENGINE_POLL_INTERVAL_MINUTES` / `TESTENGINE_POLL_INTERVAL_MS` for the
 standalone worker. When the queue is empty, the worker does not emit job events.
 Worker startup, poll failures, execution crashes, and failure-reporting issues
 are captured on the local OPS telemetry board.
 
-On Apple Silicon or other ARM64 hosts, QAira defaults the Selenium browser node to
+On Apple Silicon or other ARM64 hosts, HelloTest defaults the Selenium browser node to
 `selenium/node-chromium:4.22.0` because Selenium's official Chrome node images are
 AMD64-only. If you want to override the Grid images explicitly, set:
 
 ```bash
-QAIRA_SELENIUM_HUB_IMAGE=selenium/hub:4.22.0 \
-QAIRA_SELENIUM_NODE_IMAGE=selenium/node-chromium:4.22.0 \
-./qaira.sh up --stack testengine
+HELLOTEST_SELENIUM_HUB_IMAGE=selenium/hub:4.22.0 \
+HELLOTEST_SELENIUM_NODE_IMAGE=selenium/node-chromium:4.22.0 \
+./hellotest.sh up --stack testengine
 ```
 
 On an AMD64 host, you can opt back into Chrome with:
 
 ```bash
-QAIRA_SELENIUM_NODE_IMAGE=selenium/node-chrome:4.22.0 ./qaira.sh up --stack testengine
+HELLOTEST_SELENIUM_NODE_IMAGE=selenium/node-chrome:4.22.0 ./hellotest.sh up --stack testengine
 ```
 
 For image-based deployments, Selenium Grid and VNC bind to `127.0.0.1` by
@@ -230,7 +230,7 @@ debugging behind restrictive network rules.
 
 ## See Also
 
-- [QAira background operations strategy](../QAIRA_BACKGROUND_OPERATIONS_STRATEGY.md)
-- [QAira product operating model](../QAIRA_PRODUCT_OPERATING_MODEL.md)
+- [HelloTest background operations strategy](../HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
+- [HelloTest product operating model](../HELLOTEST_PRODUCT_OPERATING_MODEL.md)
 - [Architecture](./ARCHITECTURE.md)
-- [QAira handoff contract](./backend/src/contracts/qaira.ts)
+- [HelloTest handoff contract](./backend/src/contracts/hellotest.ts)

@@ -20,9 +20,9 @@ module.exports = async function (fastify) {
   fastify.post("/api/testengine/callbacks/runs", { preParsing: captureRawCallbackBody }, async (req) => {
     fastify.validate({
       engine_run_id: { required: true, type: "string" },
-      qaira_run_id: { required: false, type: "string" },
-      qaira_execution_id: { required: false, type: "string" },
-      qaira_test_case_id: { required: true, type: "string" },
+      hellotest_run_id: { required: false, type: "string" },
+      hellotest_execution_id: { required: false, type: "string" },
+      hellotest_test_case_id: { required: true, type: "string" },
       event: { required: false, type: "string" },
       summary: { required: false, type: "string" },
       state: { required: false, type: "string" },

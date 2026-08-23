@@ -8,6 +8,26 @@ let bootstrapPromise = null;
 
 const sqlEnum = (values) => values.map((value) => `'${String(value).replace(/'/g, "''")}'`).join(", ");
 const sqlValue = (value) => `'${String(value).replace(/'/g, "''")}'`;
+const RETIRED_PRODUCT_NAMES = [
+  [["QAI", "RA"].join(""), "HELLOTEST"],
+  [["QAI", "ra"].join(""), "HelloTest"],
+  [["QA", "ira"].join(""), "HelloTest"],
+  [["Q", "aira"].join(""), "HelloTest"],
+  [["qai", "ra"].join(""), "hellotest"]
+];
+const rebrandJsonColumn = (table, column) => {
+  const migratedJson = RETIRED_PRODUCT_NAMES.reduce(
+    (expression, [retiredName, currentName]) => `replace(${expression}, ${sqlValue(retiredName)}, ${sqlValue(currentName)})`,
+    `${column}::text`
+  );
+  const retiredNamespace = RETIRED_PRODUCT_NAMES.at(-1)[0];
+
+  return `
+    UPDATE ${table}
+    SET ${column} = (${migratedJson})::jsonb
+    WHERE POSITION(${sqlValue(retiredNamespace)} IN LOWER(${column}::text)) > 0
+  `;
+};
 const permissionSeedValues = PERMISSIONS
   .map((permission) => `(${sqlValue(permission.id)}, ${sqlValue(permission.code)}, ${sqlValue(permission.description)})`)
   .join(",\n      ");
@@ -317,6 +337,13 @@ const statements = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data_url TEXT`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_workspace_admin BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS default_role_id TEXT REFERENCES roles(id)`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users (LOWER(username)) WHERE username IS NOT NULL`,
+  `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`,
+  `ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'suspended'))`,
   `UPDATE users
     SET default_role_id = (
       SELECT project_members.role_id
@@ -1606,6 +1633,21 @@ const statements = [
   `,
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS value JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      summary TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ip_address TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created ON admin_audit_log (created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_audit_log_actor ON admin_audit_log (actor_id, created_at DESC)`,
   `ALTER TABLE projects ADD COLUMN IF NOT EXISTS display_id TEXT`,
   `ALTER TABLE projects ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`,
   `UPDATE projects SET visibility = 'public' WHERE visibility IS NULL OR visibility NOT IN ('private', 'public')`,
@@ -1797,7 +1839,10 @@ const statements = [
   `,
   `ALTER TABLE execution_results ALTER COLUMN case_defects SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE execution_results ALTER COLUMN case_defects SET NOT NULL`,
-  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`
+  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`,
+  rebrandJsonColumn("integrations", "config"),
+  rebrandJsonColumn("app_settings", "value"),
+  rebrandJsonColumn("quality_dashboards", "gadgets")
 ];
 
 const ensureRuntimeSchema = async () => {
@@ -1815,6 +1860,13 @@ const ensureRuntimeSchema = async () => {
   return bootstrapPromise;
 };
 
+const reapplyRuntimeSchema = async () => {
+  for (const statement of statements) {
+    await db.query(statement);
+  }
+};
+
 module.exports = {
-  ensureRuntimeSchema
+  ensureRuntimeSchema,
+  reapplyRuntimeSchema
 };

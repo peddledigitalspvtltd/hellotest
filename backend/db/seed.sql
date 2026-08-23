@@ -8,11 +8,11 @@ INSERT INTO roles (id, name) VALUES
 ('r2', 'member');
 
 -- Users (passwords hashed with PBKDF2-SHA256)
--- admin@testiny.ai - password: admin123
--- member@testiny.ai - password: member123
+-- admin@hellotest.ai - password: admin123
+-- member@hellotest.ai - password: member123
 INSERT INTO users (id, email, password_hash, name) VALUES
-('u1', 'admin@testiny.ai', '7752a0a257bd37b43d32b6e22132d60c6b065798e1ad9fb2c0ee68e65cac741c0e2e7dd599e3754f1de07e5b8c9038a8766f292a37fb0cf685b2020dd9339b02', 'Admin User'),
-('u2', 'member@testiny.ai', '4297827f5aa1cb1aba10577e664dcf1f5744f67c70f410f63f30da5c7493cf2c9f4bde7a197bd216d3da83e40c153d73c6cdb4ddb54b584575c3a8d4cb4d17f9', 'Member User');
+('u1', 'admin@hellotest.ai', '7752a0a257bd37b43d32b6e22132d60c6b065798e1ad9fb2c0ee68e65cac741c0e2e7dd599e3754f1de07e5b8c9038a8766f292a37fb0cf685b2020dd9339b02', 'Admin User'),
+('u2', 'member@hellotest.ai', '4297827f5aa1cb1aba10577e664dcf1f5744f67c70f410f63f30da5c7493cf2c9f4bde7a197bd216d3da83e40c153d73c6cdb4ddb54b584575c3a8d4cb4d17f9', 'Member User');
 
 -- =========================
 -- PROJECT: SAP PM Mobile Automation
@@ -597,7 +597,7 @@ VALUES
   '{
     "project_id":null,
     "runner":"hybrid",
-    "dispatch_mode":"qaira-pull",
+    "dispatch_mode":"hellotest-pull",
     "execution_scope":"api+web",
     "active_web_engine":"playwright",
     "browser":"chromium",
@@ -616,7 +616,7 @@ VALUES
     "recovery_wait_ms":750,
     "max_video_attachment_mb":25,
     "queue_poll_interval_minutes":1,
-    "qaira_api_base_url":"http://localhost:3000",
+    "hellotest_api_base_url":"http://localhost:3000",
     "promote_healed_patches":"review",
     "public_base_url":"http://localhost:4301",
     "recorder_public_base_url":"http://localhost:4301",
@@ -655,7 +655,7 @@ VALUES
     "health_path":"/health",
     "api_key_header":"Authorization",
     "api_key_prefix":"Bearer",
-    "service_name":"qaira-testengine",
+    "service_name":"hellotest-testengine",
     "environment":"local",
     "timeout_ms":4000,
     "emit_step_events":true,

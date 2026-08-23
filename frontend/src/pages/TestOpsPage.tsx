@@ -207,13 +207,13 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const watchedBatchStatusesRef = useRef<Map<string, string>>(new Map());
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
-  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
   const canBuildAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
   const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data);
   const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data);
   const canViewAutomationLearning = hasPermission(session, "automation.view")
     && canUseAutomationWorkspace
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.object_repository"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.object_repository"]);
   const canManageTransactions = hasPermission(session, "ops.manage");
   const canDownloadArtifacts = hasPermission(session, "transaction.artifact.download");
 
@@ -1090,7 +1090,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   getRowKey={(transaction) => transaction.id}
                   onRowClick={(transaction) => openBatchProcess(transaction.id)}
                   rows={filteredBatchTransactions}
-                  storageKey="qaira:testops:batch-process:list-columns"
+                  storageKey="hellotest:testops:batch-process:list-columns"
                 />
               ) : filteredBatchTransactions.length ? (
                 <div className="testops-operation-grid batch-process-browser-grid">

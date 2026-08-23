@@ -1,7 +1,7 @@
 /*
  * Scoped module-planning and navigation identity treatment.
  * Uses Atlassian-style semantic accents while keeping text, layout, and
- * interaction states within the existing QAira design system.
+ * interaction states within the existing HelloTest design system.
  */
 
 .app-shell .nav-link[data-nav-identity],

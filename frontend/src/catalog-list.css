@@ -7,8 +7,8 @@
  */
 
 :root {
-  --qaira-font-body: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --qaira-font-heading: "Hanken Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
+  --hellotest-font-body: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --hellotest-font-heading: "Hanken Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
   --catalog-ink: #0d1c2d;
   --catalog-text: #344563;
   --catalog-muted: #505f76;
@@ -39,7 +39,7 @@ button,
 input,
 select,
 textarea {
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
 }
 
 h1,
@@ -53,7 +53,7 @@ h6,
 .panel-heading,
 .modal-title,
 .requirement-sprint-heading > strong {
-  font-family: var(--qaira-font-heading);
+  font-family: var(--hellotest-font-heading);
 }
 
 /* Keep navigation typography on the same loaded family as every catalog,
@@ -61,7 +61,7 @@ h6,
  */
 .app-layout .sidebar,
 .sidebar {
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .sidebar :is(
@@ -180,7 +180,7 @@ h6,
   border-radius: 5px !important;
   background: var(--catalog-surface) !important;
   color: var(--catalog-ink) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -348,7 +348,7 @@ h6,
 .requirement-toolbar-actions .run-action-toggle {
   min-height: 32px !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -393,7 +393,7 @@ h6,
   border-radius: 4px !important;
   background-color: #f7f8fa !important;
   color: var(--catalog-text) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
 }
@@ -486,7 +486,7 @@ h6,
   gap: 7px;
   padding: 0 12px !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 650 !important;
   line-height: 16px;
@@ -607,7 +607,7 @@ h6,
 }
 
 .requirement-action-dropdown .run-action-option-title {
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -678,7 +678,7 @@ h6,
   min-height: 36px !important;
   padding: 0 11px !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -767,7 +767,7 @@ h6,
   border-spacing: 0 !important;
   background: var(--catalog-surface) !important;
   color: var(--catalog-text) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -789,7 +789,7 @@ h6,
   border-right: 0 !important;
   background: var(--catalog-surface) !important;
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -864,7 +864,7 @@ h6,
   border-right: 0 !important;
   background: transparent !important;
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -925,7 +925,7 @@ h6,
 
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .display-id-badge code {
   color: var(--catalog-blue) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -937,7 +937,7 @@ h6,
   min-height: 20px;
   padding: 2px 7px;
   border-radius: 2px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 10px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -1107,7 +1107,7 @@ h6,
 
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-heading > strong {
   color: var(--catalog-ink) !important;
-  font-family: var(--qaira-font-heading) !important;
+  font-family: var(--hellotest-font-heading) !important;
   font-size: 18px !important;
   font-weight: 600 !important;
   line-height: 26px !important;
@@ -1121,7 +1121,7 @@ h6,
   border-radius: 2px !important;
   background: var(--catalog-neutral-chip) !important;
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 10px !important;
   font-weight: 700 !important;
   line-height: 14px !important;
@@ -1132,7 +1132,7 @@ h6,
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-meta,
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-goal {
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
   line-height: 18px !important;
@@ -1178,7 +1178,7 @@ h6,
   border-radius: 2px !important;
   background: var(--catalog-surface) !important;
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   line-height: 14px !important;
 }
 
@@ -1187,7 +1187,7 @@ h6,
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric strong,
 .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric small {
   color: inherit !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -1228,7 +1228,7 @@ h6,
   background: var(--catalog-surface) !important;
   color: var(--catalog-text) !important;
   box-shadow: 0 12px 32px rgba(9, 30, 66, 0.18) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .data-table-config-head {
@@ -1254,7 +1254,7 @@ h6,
 
 .data-table-config-title-row strong {
   color: var(--catalog-ink) !important;
-  font-family: var(--qaira-font-heading) !important;
+  font-family: var(--hellotest-font-heading) !important;
   font-size: 15px !important;
   font-weight: 600 !important;
   line-height: 20px !important;
@@ -1332,7 +1332,7 @@ h6,
   border-radius: 3px !important;
   background: transparent !important;
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;
@@ -1570,7 +1570,7 @@ h6,
   align-content: start;
   gap: 3px;
   overflow: hidden;
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
 }
 
 .catalog-card-field-label {
@@ -1591,7 +1591,7 @@ h6,
   margin: 0;
   overflow: hidden !important;
   color: var(--catalog-muted);
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
   font-size: 13px;
   font-weight: 400;
   line-height: 18px;
@@ -1612,7 +1612,7 @@ h6,
   align-items: center;
   gap: 6px;
   color: #0c66e4;
-  font-family: var(--qaira-font-body);
+  font-family: var(--hellotest-font-body);
 }
 
 .requirement-story-identity > svg,
@@ -1668,7 +1668,7 @@ h6,
   border-radius: 8px !important;
   background: var(--catalog-surface) !important;
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .requirement-catalog-card.is-risk {
@@ -1693,7 +1693,7 @@ h6,
 
 .requirement-catalog-card .tile-card-main {
   gap: 12px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .requirement-tile-top-row {
@@ -1714,7 +1714,7 @@ h6,
 
 .requirement-catalog-card .display-id-badge code {
   color: #0c66e4 !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -1728,7 +1728,7 @@ h6,
 
 .requirement-catalog-card .tile-card-title-group strong {
   color: var(--catalog-ink) !important;
-  font-family: var(--qaira-font-heading) !important;
+  font-family: var(--hellotest-font-heading) !important;
   font-size: 15px !important;
   font-weight: 600 !important;
   line-height: 21px !important;
@@ -1738,7 +1738,7 @@ h6,
 .requirement-catalog-card .catalog-card-field-label,
 .requirement-catalog-card .requirement-progress-meter-header,
 .requirement-catalog-card .tile-card-facts {
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .requirement-catalog-card .catalog-card-description-summary {
@@ -1752,12 +1752,12 @@ h6,
   border-radius: 8px !important;
   background: var(--catalog-group) !important;
   box-shadow: none !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
 }
 
 .tile-browser-grid > .requirement-iteration-header .requirement-sprint-heading > strong {
   color: var(--catalog-ink) !important;
-  font-family: var(--qaira-font-heading) !important;
+  font-family: var(--hellotest-font-heading) !important;
   font-size: 16px !important;
   font-weight: 600 !important;
   line-height: 22px !important;
@@ -1766,14 +1766,14 @@ h6,
 .tile-browser-grid > .requirement-iteration-header .requirement-sprint-meta,
 .tile-browser-grid > .requirement-iteration-header .requirement-sprint-goal {
   color: var(--catalog-muted) !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   line-height: 16px !important;
 }
 
 .requirement-backlog-description {
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 400 !important;
   line-height: 16px !important;
@@ -2320,7 +2320,7 @@ h6,
 .story-detail-section-header h2 {
   margin: 0;
   color: var(--ds-text, var(--text));
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 18px;
   font-weight: 600;
   line-height: 26px;
@@ -2649,7 +2649,7 @@ h6,
 .quality-metric-value {
   flex: 0 0 auto;
   color: var(--catalog-ink);
-  font-family: var(--qaira-font-heading);
+  font-family: var(--hellotest-font-heading);
   font-size: 21px;
   font-weight: 650;
   letter-spacing: -0.025em;
@@ -2818,7 +2818,7 @@ h6,
 .catalog-command-toolbar .catalog-toolbar-actions .compact-select {
   min-height: 32px !important;
   border-radius: 4px !important;
-  font-family: var(--qaira-font-body) !important;
+  font-family: var(--hellotest-font-body) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   line-height: 14px !important;

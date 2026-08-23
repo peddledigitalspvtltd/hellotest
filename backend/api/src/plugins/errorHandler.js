@@ -69,5 +69,5 @@ async function errorHandlerPlugin(fastify) {
 }
 
 module.exports = fp(errorHandlerPlugin, {
-  name: "qaira-error-handler"
+  name: "hellotest-error-handler"
 });

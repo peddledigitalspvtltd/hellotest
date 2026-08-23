@@ -67,7 +67,7 @@ test("dashboard gadget count and visualization inputs are normalized", () => {
   const [gadget] = dashboards.normalizeGadgets([{ title: "Pass rate", type: "unknown", metric: "passRate" }]);
   assert.equal(gadget.type, "metric");
   assert.equal(gadget.metric, "passRate");
-  const [bounded] = dashboards.normalizeGadgets([{ data_source: "qaira", metric: "averageAgeDays", group_by: "unsafe", accent: "pink" }]);
+  const [bounded] = dashboards.normalizeGadgets([{ data_source: "hellotest", metric: "averageAgeDays", group_by: "unsafe", accent: "pink" }]);
   assert.equal(bounded.metric, "count");
   assert.equal(bounded.group_by, "status");
   assert.equal(bounded.accent, "blue");
@@ -135,8 +135,8 @@ test("execution assignments inherit from run through suite and module to case", 
 });
 
 test("new automation capabilities are disabled by default and run routes use specific permissions", () => {
-  const preview = featureFlags.FEATURE_DEFINITIONS.find((item) => item.key === "qaira.automation.preview");
-  const analyticsFlag = featureFlags.FEATURE_DEFINITIONS.find((item) => item.key === "qaira.automation.analytics");
+  const preview = featureFlags.FEATURE_DEFINITIONS.find((item) => item.key === "hellotest.automation.preview");
+  const analyticsFlag = featureFlags.FEATURE_DEFINITIONS.find((item) => item.key === "hellotest.automation.analytics");
   assert.equal(preview.default_enabled, false);
   assert.equal(analyticsFlag.default_enabled, false);
   assert.equal(ROUTE_PERMISSIONS.get("POST /executions"), "run.create");

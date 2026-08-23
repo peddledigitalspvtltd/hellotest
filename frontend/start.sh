@@ -3,7 +3,7 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-QAIRA_API_BASE_URL="${QAIRA_API_BASE_URL:-/api}"
+HELLOTEST_API_BASE_URL="${HELLOTEST_API_BASE_URL:-/api}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is required but was not found in PATH."
@@ -21,10 +21,10 @@ fi
 
 echo "Starting frontend service..."
 echo "Working directory: $SCRIPT_DIR"
-echo "Backend API URL: $QAIRA_API_BASE_URL"
+echo "Backend API URL: $HELLOTEST_API_BASE_URL"
 
 cd "$SCRIPT_DIR"
 
-export QAIRA_API_BASE_URL
+export HELLOTEST_API_BASE_URL
 
 exec sh -c "$COMPOSE_CMD up --build"

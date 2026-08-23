@@ -1,11 +1,14 @@
 {
-  "name": "qaira-frontend",
+  "name": "hellotest-frontend",
   "private": true,
   "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "vite --config vite.admin.config.ts",
     "build": "tsc -b && vite build",
+    "build:admin": "tsc -b && vite build --config vite.admin.config.ts",
+    "build:all": "npm run build && npm run build:admin",
     "preview": "vite preview",
     "test": "node --test test/*.test.mjs"
   },

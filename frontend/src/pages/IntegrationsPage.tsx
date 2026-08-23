@@ -64,7 +64,7 @@ type IntegrationDraft = {
   github_directory: string;
   github_file_extension: string;
   engine_project_id: string;
-  engine_qaira_api_base_url: string;
+  engine_hellotest_api_base_url: string;
   engine_callback_url: string;
   engine_callback_secret: string;
   engine_active_web_engine: "playwright" | "selenium";
@@ -226,10 +226,10 @@ const buildEmptyDraft = (
     github_owner: "",
     github_repo: "",
     github_branch: "main",
-    github_directory: "qaira-sync",
+    github_directory: "hellotest-sync",
     github_file_extension: "ts",
     engine_project_id: "",
-    engine_qaira_api_base_url: "",
+    engine_hellotest_api_base_url: "",
     engine_callback_url: "",
     engine_callback_secret: "",
     engine_active_web_engine: (typeof testEngineDefaults.active_web_engine === "string" ? testEngineDefaults.active_web_engine : "playwright") as IntegrationDraft["engine_active_web_engine"],
@@ -277,7 +277,7 @@ const buildEmptyDraft = (
     ops_health_path: typeof opsDefaults.health_path === "string" ? opsDefaults.health_path : "/health",
     ops_api_key_header: typeof opsDefaults.api_key_header === "string" ? opsDefaults.api_key_header : "Authorization",
     ops_api_key_prefix: typeof opsDefaults.api_key_prefix === "string" ? opsDefaults.api_key_prefix : "Bearer",
-    ops_service_name: typeof opsDefaults.service_name === "string" ? opsDefaults.service_name : "qaira-testengine",
+    ops_service_name: typeof opsDefaults.service_name === "string" ? opsDefaults.service_name : "hellotest-testengine",
     ops_environment: typeof opsDefaults.environment === "string" ? opsDefaults.environment : "production",
     ops_timeout_ms: String(opsDefaults.timeout_ms ?? "4000"),
     ops_emit_step_events: opsDefaults.emit_step_events !== false,
@@ -480,7 +480,7 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
       type,
       base_url: nextBaseUrl,
       github_branch: current.github_branch || "main",
-      github_directory: current.github_directory || "qaira-sync",
+      github_directory: current.github_directory || "hellotest-sync",
       github_file_extension: current.github_file_extension || "ts",
       sync_schedule_mode: current.sync_schedule_mode || "manual"
     };
@@ -523,7 +523,7 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
         current.ops_api_key_prefix === ""
           ? ""
           : current.ops_api_key_prefix || String(opsDefaults.api_key_prefix || "Bearer"),
-      ops_service_name: current.ops_service_name || String(opsDefaults.service_name || "qaira-testengine"),
+      ops_service_name: current.ops_service_name || String(opsDefaults.service_name || "hellotest-testengine"),
       ops_environment: current.ops_environment || String(opsDefaults.environment || "production"),
       ops_timeout_ms: current.ops_timeout_ms || String(opsDefaults.timeout_ms ?? "4000"),
       ops_emit_step_events: current.ops_emit_step_events,
@@ -593,7 +593,7 @@ function getDraftFromIntegration(
     github_directory: typeof config.directory === "string" ? config.directory : emptyDraft.github_directory,
     github_file_extension: typeof config.file_extension === "string" ? config.file_extension : emptyDraft.github_file_extension,
     engine_project_id: typeof config.project_id === "string" ? config.project_id : "",
-    engine_qaira_api_base_url: typeof config.qaira_api_base_url === "string" ? config.qaira_api_base_url : "",
+    engine_hellotest_api_base_url: typeof config.hellotest_api_base_url === "string" ? config.hellotest_api_base_url : "",
     engine_callback_url: typeof config.callback_url === "string" ? config.callback_url : "",
     engine_callback_secret: typeof config.callback_secret === "string" ? config.callback_secret : "",
     engine_active_web_engine: storedEngineProvider,
@@ -757,7 +757,7 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       owner: draft.github_owner.trim(),
       repo: draft.github_repo.trim(),
       branch: draft.github_branch.trim() || "main",
-      directory: draft.github_directory.trim() || "qaira-sync",
+      directory: draft.github_directory.trim() || "hellotest-sync",
       file_extension: draft.github_file_extension.trim() || "ts",
       schedule_mode: draft.sync_schedule_mode
     };
@@ -766,9 +766,9 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
   if (draft.type === "testengine") {
     return {
       project_id: draft.engine_project_id || undefined,
-      qaira_api_base_url: draft.engine_qaira_api_base_url.trim() || null,
+      hellotest_api_base_url: draft.engine_hellotest_api_base_url.trim() || null,
       runner: "hybrid",
-      dispatch_mode: "qaira-pull",
+      dispatch_mode: "hellotest-pull",
       execution_scope: "api+web",
       active_web_engine: draft.engine_active_web_engine,
       browser: draft.engine_browser,
@@ -829,7 +829,7 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       health_path: draft.ops_health_path.trim() || "/health",
       api_key_header: draft.ops_api_key_header.trim() || "Authorization",
       api_key_prefix: draft.ops_api_key_prefix,
-      service_name: draft.ops_service_name.trim() || "qaira-testengine",
+      service_name: draft.ops_service_name.trim() || "hellotest-testengine",
       environment: draft.ops_environment.trim() || "production",
       timeout_ms: Number.parseInt(draft.ops_timeout_ms, 10) || 4000,
       emit_step_events: draft.ops_emit_step_events,
@@ -898,8 +898,8 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
           ? Number.parseFloat(config.queue_poll_interval_minutes) || 5
           : 5;
 
-    const qairaApiBaseUrl = typeof config.qaira_api_base_url === "string" && config.qaira_api_base_url.trim()
-      ? config.qaira_api_base_url.trim()
+    const hellotestApiBaseUrl = typeof config.hellotest_api_base_url === "string" && config.hellotest_api_base_url.trim()
+      ? config.hellotest_api_base_url.trim()
       : "";
     const apiWorkers = typeof config.max_api_workers === "number" || typeof config.max_api_workers === "string" ? String(config.max_api_workers) : "10";
     const webWorkers = typeof config.max_web_workers === "number" || typeof config.max_web_workers === "string" ? String(config.max_web_workers) : "5";
@@ -907,7 +907,7 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
 
     return {
       primary: integration.base_url || "Engine host not set",
-      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · caps API ${apiWorkers}/Web ${webWorkers}${includeMobileAppium ? `/Android ${androidWorkers}` : ""} · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${qairaApiBaseUrl ? ` · HelloTest API ${qairaApiBaseUrl}` : ""}`
+      secondary: `${typeof config.project_id === "string" && config.project_id.trim() ? "project-specific" : "all projects"} · queue pull every ${pollIntervalMinutes} min · caps API ${apiWorkers}/Web ${webWorkers}${includeMobileAppium ? `/Android ${androidWorkers}` : ""} · ${String(activeWebEngine).toUpperCase()} web · video ${String(config.video_mode || "off")}${hellotestApiBaseUrl ? ` · HelloTest API ${hellotestApiBaseUrl}` : ""}`
     };
   }
 
@@ -1000,7 +1000,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canUseMobileAppium = hasPermission(session, "mobile.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const integrationTypeDefinitions = useMemo(
@@ -1411,7 +1411,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       const anchor = document.createElement("a");
 
       anchor.href = url;
-      anchor.download = `qaira-integrations-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `hellotest-integrations-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -1503,8 +1503,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         const supportedWebEngines = result.supported_web_engines.length
           ? result.supported_web_engines.join(", ")
           : "not reported";
-        const compatibility = result.qaira_result_log_compatibility
-          ? ` Logs ${result.qaira_result_log_compatibility}.`
+        const compatibility = result.hellotest_result_log_compatibility
+          ? ` Logs ${result.hellotest_result_log_compatibility}.`
           : "";
         const summary = `${result.service} responded in ${result.latency_ms} ms from ${result.base_url}. Runner ${result.runner}, scope ${result.execution_scope}, supported steps ${supportedStepTypes}, web engines ${supportedWebEngines}.${compatibility}`;
 
@@ -1732,7 +1732,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                     }}
                     rowGroups={integrationListRowGroups}
                     rows={[]}
-                    storageKey="qaira:integrations:list-columns:v2"
+                    storageKey="hellotest:integrations:list-columns:v2"
                   />
                 </div>
               ) : null}
@@ -2009,7 +2009,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
                           <FormField label="Directory">
                             <input
-                              placeholder="qaira-sync"
+                              placeholder="hellotest-sync"
                               value={draft.github_directory}
                               onChange={(event) => setDraft((current) => ({ ...current, github_directory: event.target.value }))}
                             />
@@ -2179,9 +2179,9 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
 
                       <FormField label="HelloTest API Base URL">
                         <input
-                          placeholder="https://qaira.company.internal/api"
-                          value={draft.engine_qaira_api_base_url}
-                          onChange={(event) => setDraft((current) => ({ ...current, engine_qaira_api_base_url: event.target.value }))}
+                          placeholder="https://hellotest.company.internal/api"
+                          value={draft.engine_hellotest_api_base_url}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_hellotest_api_base_url: event.target.value }))}
                         />
                       </FormField>
                     </div>
@@ -2568,7 +2568,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                     <div className="record-grid">
                       <FormField label="Service Name">
                         <input
-                          placeholder="qaira-testengine"
+                          placeholder="hellotest-testengine"
                           value={draft.ops_service_name}
                           onChange={(event) => setDraft((current) => ({ ...current, ops_service_name: event.target.value }))}
                         />
@@ -2643,7 +2643,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       <article className="integration-readable-card">
                         <span className="integration-readable-label">Telemetry profile</span>
                         <strong className="integration-readable-value">
-                          {`${draft.ops_service_name || "qaira-testengine"} · ${draft.ops_environment || "production"} · ${opsEmitSummary}`}
+                          {`${draft.ops_service_name || "hellotest-testengine"} · ${draft.ops_environment || "production"} · ${opsEmitSummary}`}
                         </strong>
                       </article>
                     </div>

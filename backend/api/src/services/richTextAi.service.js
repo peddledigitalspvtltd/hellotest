@@ -223,7 +223,7 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
       type: integration.type,
       model: integration.model || null
     } : {
-      id: "qaira-safe-fallback",
+      id: "hellotest-safe-fallback",
       name: "HelloTest safe fallback",
       type: "local",
       model: null

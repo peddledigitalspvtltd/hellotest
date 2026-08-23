@@ -1,10 +1,10 @@
-# QAira reference UI backend capability matrix
+# HelloTest reference UI backend capability matrix
 
-Source baseline: `/Users/jayarajumetta/Downloads/qaira-for-jira.zip`
+Source baseline: `/Users/jayarajumetta/Downloads/hellotest-for-jira.zip`
 
-The attached Forge frontend is the visual and interaction baseline. QAira keeps its standalone Fastify, PostgreSQL, MinIO/S3, native authentication, and project-membership architecture. Forge-only host behavior is translated to a native QAira contract instead of emulated.
+The attached Forge frontend is the visual and interaction baseline. HelloTest keeps its standalone Fastify, PostgreSQL, MinIO/S3, native authentication, and project-membership architecture. Forge-only host behavior is translated to a native HelloTest contract instead of emulated.
 
-| Reference screen or workflow | Native QAira backend support | Maturity controls |
+| Reference screen or workflow | Native HelloTest backend support | Maturity controls |
 | --- | --- | --- |
 | Overview and release readiness | Project-scoped quality analytics, saved dashboards, deterministic insights, live dashboard PDF and email reports | Bounded queries, completeness/methodology disclosure, permission checks, human release decision |
 | Projects | Native project CRUD, project membership, app types, provider sync | Project access validation and scoped permission catalog |
@@ -31,15 +31,15 @@ The attached Forge frontend is the visual and interaction baseline. QAira keeps 
 
 ## Forge-to-native translations
 
-| Forge/Jira host concept | QAira implementation |
+| Forge/Jira host concept | HelloTest implementation |
 | --- | --- |
 | Forge bridge invocation | Typed REST calls to `/api` with bearer authentication, timeout handling, cache invalidation, blob, and multipart support |
 | Jira project activation | Native project membership and immediate project selection; no activation gate is mounted |
 | Jira comments and attachments | Project- and entity-scoped PostgreSQL records plus MinIO/S3 binary storage |
-| Jira issue create/edit metadata | Native QAira Story and Bug field/workflow metadata derived from the domain catalog |
+| Jira issue create/edit metadata | Native HelloTest Story and Bug field/workflow metadata derived from the domain catalog |
 | Jira profile theme | Local standalone theme preference with working header control |
-| Atlassian identity authority | Native QAira users, roles, project members, login, signup, Google sign-in, and recovery |
-| Rovo entry point | QAira QA Agent handoff into the governed Agentic Workflows screen with review context carried into run input |
+| Atlassian identity authority | Native HelloTest users, roles, project members, login, signup, Google sign-in, and recovery |
+| Rovo entry point | HelloTest QA Agent handoff into the governed Agentic Workflows screen with review context carried into run input |
 | Forge realtime notification token | Authenticated notification polling and unread summary; no unavailable Forge token is required |
 
 ## Contract verification

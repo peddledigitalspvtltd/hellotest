@@ -358,7 +358,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const domainMetadataQuery = useDomainMetadata();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canUseMobileMetadata = hasPermission(session, "mobile.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -1181,7 +1181,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     onSelectedRowKeysChange={environmentSelection.setSelectedIds}
                     rows={filteredEnvironments}
                     selectedRowKeys={selectedActionEnvironmentIds}
-                    storageKey="qaira:test-environments:list-columns"
+                    storageKey="hellotest:test-environments:list-columns"
                   />
                 ) : null}
                 {!environmentsQuery.isLoading && !environments.length ? <div className="empty-state compact">No test environments defined for this scope yet.</div> : null}
@@ -1307,7 +1307,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     onSelectedRowKeysChange={configurationSelection.setSelectedIds}
                     rows={filteredConfigurations}
                     selectedRowKeys={selectedActionConfigurationIds}
-                    storageKey="qaira:test-configurations:list-columns"
+                    storageKey="hellotest:test-configurations:list-columns"
                   />
                 ) : null}
                 {!configurationsQuery.isLoading && !configurations.length ? <div className="empty-state compact">No test configurations defined for this scope yet.</div> : null}
@@ -1438,7 +1438,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                     onSelectedRowKeysChange={dataSetSelection.setSelectedIds}
                     rows={filteredDataSets}
                     selectedRowKeys={selectedActionDataSetIds}
-                    storageKey="qaira:test-data:list-columns"
+                    storageKey="hellotest:test-data:list-columns"
                   />
                 ) : null}
                 {!dataSetsQuery.isLoading && !dataSets.length ? <div className="empty-state compact">No test data sets defined for this scope yet.</div> : null}
@@ -1905,7 +1905,7 @@ function DataUtilityPicker({
   const [appTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canGenerateAiData = hasPermission(session, "data.ai")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.test_data_generation"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.test_data_generation"]);
   const { getPrompt, getLlmIntegrationId } = useAiPromptRegistry(Boolean(session) && canGenerateAiData);
   const [searchTerm, setSearchTerm] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");

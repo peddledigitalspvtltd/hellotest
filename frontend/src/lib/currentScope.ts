@@ -1,4 +1,4 @@
-const CURRENT_PROJECT_STORAGE_KEY = "qaira.current_project_id";
+const CURRENT_PROJECT_STORAGE_KEY = "hellotest.current_project_id";
 const LEGACY_CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
 
 const UNSCOPED_API_PATHS = [
@@ -45,7 +45,7 @@ export function appendCurrentProjectScope(path: string) {
     return path;
   }
 
-  const url = new URL(path, "https://qaira.local");
+  const url = new URL(path, "https://hellotest.local");
   if (!url.searchParams.has("project_id") && !url.searchParams.has("projectKey")) {
     url.searchParams.set("project_id", projectId);
   }
@@ -55,7 +55,7 @@ export function appendCurrentProjectScope(path: string) {
 export function projectAwareQueryKey(queryKey: readonly unknown[]) {
   const root = String(queryKey[0] || "");
   if (UNSCOPED_QUERY_ROOTS.has(root)) {
-    return ["qaira-global", queryKey] as const;
+    return ["hellotest-global", queryKey] as const;
   }
-  return ["qaira-project", readCurrentProjectId() || "unselected", queryKey] as const;
+  return ["hellotest-project", readCurrentProjectId() || "unselected", queryKey] as const;
 }

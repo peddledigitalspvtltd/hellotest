@@ -1,56 +1,61 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: qaira-postgres
+    container_name: hellotest-postgres
     ports:
-      - "${QAIRA_POSTGRES_BIND:-0.0.0.0}:${QAIRA_POSTGRES_PORT:-5432}:5432"
+      - "${HELLOTEST_POSTGRES_BIND:-0.0.0.0}:${HELLOTEST_POSTGRES_PORT:-5432}:5432"
     volumes:
-      - qaira-postgres-data:/var/lib/postgresql/data
+      - hellotest-postgres-data:/var/lib/postgresql/data
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-qaira}
-      POSTGRES_USER: ${POSTGRES_USER:-qaira}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qaira}
+      POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hellotest}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qaira} -d ${POSTGRES_DB:-qaira}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hellotest} -d ${POSTGRES_DB:-hellotest}"]
       interval: 5s
       timeout: 5s
       retries: 20
 
   minio:
     image: minio/minio:latest
-    container_name: qaira-minio
+    container_name: hellotest-minio
     command: server /data --console-address ":9001"
     expose:
       - "9000"
       - "9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-qaira}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-qaira-minio-dev-secret}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
     volumes:
-      - qaira-minio-data:/data
+      - hellotest-minio-data:/data
     restart: always
 
   api:
-    image: ${QAIRA_BACKEND_IMAGE:-jayarajumetta/qaira-backend:latest}
-    container_name: qaira-api
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
+    container_name: hellotest-api
     ports:
-      - "${QAIRA_API_BIND:-0.0.0.0}:${QAIRA_API_PORT:-3000}:3000"
+      - "${HELLOTEST_API_BIND:-0.0.0.0}:${HELLOTEST_API_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
-      SESSION_SECRET: ${SESSION_SECRET:-qaira-dev-secret}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      SESSION_SECRET: ${SESSION_SECRET:-hellotest-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost}
+      ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
+      ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
-      OTEL_SERVICE_NAME: qaira-api
+      OTEL_SERVICE_NAME: hellotest-api
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-qaira}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-qaira-minio-dev-secret}
-      MINIO_BUCKET: ${MINIO_BUCKET:-qaira-attachments}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hellotest}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hellotest-minio-dev-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
     depends_on:
@@ -66,15 +71,18 @@ services:
     restart: always
 
   frontend:
-    image: ${QAIRA_FRONTEND_IMAGE:-jayarajumetta/qaira-frontend:latest}
-    container_name: qaira-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}
+    container_name: hellotest-frontend
     environment:
-      QAIRA_API_BASE_URL: ${QAIRA_API_BASE_URL:-/api}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1 >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1 >/dev/null 2>&1 && wget -q -O - http://127.0.0.1:81 >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -82,46 +90,46 @@ services:
 
   haproxy:
     image: haproxy:3.0-alpine
-    container_name: qaira-haproxy
+    container_name: hellotest-haproxy
     depends_on:
       api:
         condition: service_healthy
       frontend:
         condition: service_healthy
     ports:
-      - "${QAIRA_HTTP_BIND:-0.0.0.0}:${QAIRA_HTTP_PORT:-80}:80"
-      - "${QAIRA_HAPROXY_STATS_BIND:-0.0.0.0}:${QAIRA_HAPROXY_STATS_PORT:-8404}:8404"
+      - "${HELLOTEST_HTTP_BIND:-0.0.0.0}:${HELLOTEST_HTTP_PORT:-80}:80"
+      - "${HELLOTEST_HAPROXY_STATS_BIND:-0.0.0.0}:${HELLOTEST_HAPROXY_STATS_PORT:-8404}:8404"
     volumes:
       - ./ops/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     restart: always
 
   prometheus:
     image: prom/prometheus:v2.54.1
-    container_name: qaira-prometheus
+    container_name: hellotest-prometheus
     depends_on:
       api:
         condition: service_healthy
       otel-collector:
         condition: service_started
     ports:
-      - "${QAIRA_PROMETHEUS_BIND:-0.0.0.0}:${QAIRA_PROMETHEUS_PORT:-9090}:9090"
+      - "${HELLOTEST_PROMETHEUS_BIND:-0.0.0.0}:${HELLOTEST_PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: always
 
   loki:
     image: grafana/loki:3.1.1
-    container_name: qaira-loki
+    container_name: hellotest-loki
     command: ["-config.file=/etc/loki/local-config.yaml"]
     ports:
-      - "${QAIRA_LOKI_BIND:-0.0.0.0}:${QAIRA_LOKI_PORT:-3100}:3100"
+      - "${HELLOTEST_LOKI_BIND:-0.0.0.0}:${HELLOTEST_LOKI_PORT:-3100}:3100"
     volumes:
       - ./ops/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
     restart: always
 
   promtail:
     image: grafana/promtail:3.1.1
-    container_name: qaira-promtail
+    container_name: hellotest-promtail
     depends_on:
       - loki
     command: ["-config.file=/etc/promtail/config.yml"]
@@ -133,12 +141,12 @@ services:
 
   grafana:
     image: grafana/grafana:11.1.0
-    container_name: qaira-grafana
+    container_name: hellotest-grafana
     depends_on:
       - prometheus
       - loki
     ports:
-      - "${QAIRA_GRAFANA_BIND:-0.0.0.0}:${QAIRA_GRAFANA_PORT:-3001}:3000"
+      - "${HELLOTEST_GRAFANA_BIND:-0.0.0.0}:${HELLOTEST_GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -149,17 +157,17 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
-    container_name: qaira-otel-collector
+    container_name: hellotest-otel-collector
     command: ["--config=/etc/otel-collector/config.yaml"]
     ports:
-      - "${QAIRA_OTEL_GRPC_BIND:-0.0.0.0}:${QAIRA_OTEL_GRPC_PORT:-4317}:4317"
-      - "${QAIRA_OTEL_HTTP_BIND:-0.0.0.0}:${QAIRA_OTEL_HTTP_PORT:-4318}:4318"
-      - "${QAIRA_OTEL_METRICS_BIND:-0.0.0.0}:${QAIRA_OTEL_METRICS_PORT:-9464}:9464"
+      - "${HELLOTEST_OTEL_GRPC_BIND:-0.0.0.0}:${HELLOTEST_OTEL_GRPC_PORT:-4317}:4317"
+      - "${HELLOTEST_OTEL_HTTP_BIND:-0.0.0.0}:${HELLOTEST_OTEL_HTTP_PORT:-4318}:4318"
+      - "${HELLOTEST_OTEL_METRICS_BIND:-0.0.0.0}:${HELLOTEST_OTEL_METRICS_PORT:-9464}:9464"
     volumes:
       - ./ops/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
     restart: always
 
 volumes:
-  qaira-postgres-data:
-  qaira-minio-data:
+  hellotest-postgres-data:
+  hellotest-minio-data:
   grafana-data:

@@ -46,7 +46,7 @@ const integrations: Integration[] = [{
   type: "llm",
   base_url: null,
   api_key: null,
-  model: "qaira-risk-review-v2",
+  model: "hellotest-risk-review-v2",
   project_key: null,
   username: null,
   config: null,
@@ -103,7 +103,7 @@ const scopeSuites: TestSuite[] = [{
 }];
 
 const preview: SmartExecutionPreviewResponse = {
-  integration: { id: "provider-1", name: "Governed QA model", type: "llm", model: "qaira-risk-review-v2" },
+  integration: { id: "provider-1", name: "Governed QA model", type: "llm", model: "hellotest-risk-review-v2" },
   app_type: { id: "app-1", name: "Web Project" },
   default_suite: { id: "direct-impact", name: "Direct impacted scope" },
   delivery_scope: { release: "2026.08", sprint: "Identity Sprint 18", build: "sha-88219" },

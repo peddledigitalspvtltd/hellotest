@@ -20,7 +20,7 @@
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
-        "group": "qaira-debug"
+        "group": "hellotest-debug"
       }
     },
     {
@@ -50,7 +50,7 @@
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
-        "group": "qaira-debug"
+        "group": "hellotest-debug"
       }
     }
   ]

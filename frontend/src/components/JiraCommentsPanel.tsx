@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { ToastMessage } from "./ToastMessage";
-import type { QairaEntityType } from "../types";
+import type { HelloTestEntityType } from "../types";
 
 const commentTimestamp = (value: string | null) => {
   if (!value) return "Time unavailable";
@@ -20,13 +20,13 @@ const initials = (name: string) => name
   .map((part) => part[0]?.toUpperCase())
   .join("") || "JU";
 
-export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment, onEvidenceChange }: { issueKey: string; projectId: string; entityType: QairaEntityType; entityId: string; canComment: boolean; onEvidenceChange?: () => void }) {
+export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment, onEvidenceChange }: { issueKey: string; projectId: string; entityType: HelloTestEntityType; entityId: string; canComment: boolean; onEvidenceChange?: () => void }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const scope = { project_id: projectId, entity_type: entityType, entity_id: entityId };
-  const queryKey = ["qaira-comments", projectId, entityType, entityId];
+  const queryKey = ["hellotest-comments", projectId, entityType, entityId];
   const comments = useQuery({
     queryKey,
     queryFn: () => api.comments.list(scope),

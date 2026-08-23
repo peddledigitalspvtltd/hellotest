@@ -1366,7 +1366,7 @@ export function SharedStepsPage() {
                     />
                   )}
                   rows={filteredGroups}
-                  storageKey="qaira:shared-steps:list-columns"
+                  storageKey="hellotest:shared-steps:list-columns"
                 />
               ) : null}
               {!sharedGroupsQuery.isLoading && !filteredGroups.length ? (

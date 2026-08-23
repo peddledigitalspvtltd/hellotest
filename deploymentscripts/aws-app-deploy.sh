@@ -9,7 +9,7 @@ usage() {
   cat <<EOF
 Usage: deploymentscripts/aws-app-deploy.sh [options]
 
-Deploys the QAira application/platform plane on an AWS EC2 host.
+Deploys the HelloTest application/platform plane on an AWS EC2 host.
 This is the preferred EC2 entrypoint for the app host.
 
 Options:
@@ -28,7 +28,7 @@ AWS defaults:
 Examples:
   deploymentscripts/aws-app-deploy.sh
   deploymentscripts/aws-app-deploy.sh --http-port 80
-  QAIRA_HTTP_BIND=127.0.0.1 deploymentscripts/aws-app-deploy.sh --http-port 8081
+  HELLOTEST_HTTP_BIND=127.0.0.1 deploymentscripts/aws-app-deploy.sh --http-port 8081
 EOF
 }
 
@@ -45,14 +45,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --http-port)
       [ "$#" -ge 2 ] || die "Missing value for --http-port"
-      QAIRA_HTTP_PORT="$2"
-      export QAIRA_HTTP_PORT
+      HELLOTEST_HTTP_PORT="$2"
+      export HELLOTEST_HTTP_PORT
       shift
       ;;
     --http-bind)
       [ "$#" -ge 2 ] || die "Missing value for --http-bind"
-      QAIRA_HTTP_BIND="$2"
-      export QAIRA_HTTP_BIND
+      HELLOTEST_HTTP_BIND="$2"
+      export HELLOTEST_HTTP_BIND
       shift
       ;;
     --skip-git-pull)
@@ -72,17 +72,17 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-export QAIRA_HTTP_PORT="${QAIRA_HTTP_PORT:-8081}"
-export QAIRA_HTTP_BIND="${QAIRA_HTTP_BIND:-0.0.0.0}"
-export QAIRA_API_BIND="${QAIRA_API_BIND:-127.0.0.1}"
-export QAIRA_POSTGRES_BIND="${QAIRA_POSTGRES_BIND:-127.0.0.1}"
-export QAIRA_HAPROXY_STATS_BIND="${QAIRA_HAPROXY_STATS_BIND:-127.0.0.1}"
-export QAIRA_PROMETHEUS_BIND="${QAIRA_PROMETHEUS_BIND:-127.0.0.1}"
-export QAIRA_LOKI_BIND="${QAIRA_LOKI_BIND:-127.0.0.1}"
-export QAIRA_GRAFANA_BIND="${QAIRA_GRAFANA_BIND:-127.0.0.1}"
-export QAIRA_OTEL_GRPC_BIND="${QAIRA_OTEL_GRPC_BIND:-127.0.0.1}"
-export QAIRA_OTEL_HTTP_BIND="${QAIRA_OTEL_HTTP_BIND:-127.0.0.1}"
-export QAIRA_OTEL_METRICS_BIND="${QAIRA_OTEL_METRICS_BIND:-127.0.0.1}"
+export HELLOTEST_HTTP_PORT="${HELLOTEST_HTTP_PORT:-8081}"
+export HELLOTEST_HTTP_BIND="${HELLOTEST_HTTP_BIND:-0.0.0.0}"
+export HELLOTEST_API_BIND="${HELLOTEST_API_BIND:-127.0.0.1}"
+export HELLOTEST_POSTGRES_BIND="${HELLOTEST_POSTGRES_BIND:-127.0.0.1}"
+export HELLOTEST_HAPROXY_STATS_BIND="${HELLOTEST_HAPROXY_STATS_BIND:-127.0.0.1}"
+export HELLOTEST_PROMETHEUS_BIND="${HELLOTEST_PROMETHEUS_BIND:-127.0.0.1}"
+export HELLOTEST_LOKI_BIND="${HELLOTEST_LOKI_BIND:-127.0.0.1}"
+export HELLOTEST_GRAFANA_BIND="${HELLOTEST_GRAFANA_BIND:-127.0.0.1}"
+export HELLOTEST_OTEL_GRPC_BIND="${HELLOTEST_OTEL_GRPC_BIND:-127.0.0.1}"
+export HELLOTEST_OTEL_HTTP_BIND="${HELLOTEST_OTEL_HTTP_BIND:-127.0.0.1}"
+export HELLOTEST_OTEL_METRICS_BIND="${HELLOTEST_OTEL_METRICS_BIND:-127.0.0.1}"
 
 DEPLOY_ARGS="--stack platform"
 
@@ -98,18 +98,18 @@ if [ "$SKIP_IMAGE_PULL" = "1" ]; then
   DEPLOY_ARGS="$DEPLOY_ARGS --skip-image-pull"
 fi
 
-info "Deploying QAira app/platform plane for AWS"
-info "Public entrypoint bind: ${QAIRA_HTTP_BIND}:${QAIRA_HTTP_PORT}"
+info "Deploying HelloTest app/platform plane for AWS"
+info "Public entrypoint bind: ${HELLOTEST_HTTP_BIND}:${HELLOTEST_HTTP_PORT}"
 info "Internal service binds: 127.0.0.1 by default"
 
 # shellcheck disable=SC2086
-"$REPO_ROOT/qaira.sh" deploy $DEPLOY_ARGS --yes
+"$REPO_ROOT/hellotest.sh" deploy $DEPLOY_ARGS --yes
 
-require_url "http://127.0.0.1:${QAIRA_HTTP_PORT}/health" "QAira API through HAProxy"
-require_url "http://127.0.0.1:${QAIRA_HTTP_PORT}/" "QAira frontend through HAProxy"
+require_url "http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health" "HelloTest API through HAProxy"
+require_url "http://127.0.0.1:${HELLOTEST_HTTP_PORT}/" "HelloTest frontend through HAProxy"
 
 info
 info "App/platform deployment complete."
-info "Local health: http://127.0.0.1:${QAIRA_HTTP_PORT}/health"
-info "Public entrypoint: ${QAIRA_HTTP_BIND}:${QAIRA_HTTP_PORT}"
+info "Local health: http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health"
+info "Public entrypoint: ${HELLOTEST_HTTP_BIND}:${HELLOTEST_HTTP_PORT}"
 info "Run deploymentscripts/aws-status.sh --stack app to audit containers."

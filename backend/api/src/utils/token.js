@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 12;
-const secret = process.env.SESSION_SECRET || "qaira-dev-secret";
+const secret = process.env.SESSION_SECRET || "hellotest-dev-secret";
 
 const base64url = (value) => Buffer.from(value).toString("base64url");
 
@@ -16,7 +16,7 @@ exports.hashPassword = (password) => {
   }
   
   // Use a fixed salt in dev mode, should use bcrypt in production
-  const salt = process.env.PASSWORD_SALT || "qaira-dev-salt";
+  const salt = process.env.PASSWORD_SALT || "hellotest-dev-salt";
   return crypto
     .pbkdf2Sync(password, salt, 100000, 64, "sha256")
     .toString("hex");

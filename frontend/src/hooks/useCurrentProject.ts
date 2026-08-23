@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { readCurrentProjectId, writeCurrentProjectId as persistCurrentProjectId } from "../lib/currentScope";
 
-const CURRENT_PROJECT_STORAGE_KEY = "qaira.current_project_id";
+const CURRENT_PROJECT_STORAGE_KEY = "hellotest.current_project_id";
 const LEGACY_CURRENT_PROJECT_STORAGE_KEY = "sidebar_project_id";
-const CURRENT_PROJECT_EVENT = "qaira:current-project-change";
-const CURRENT_APP_TYPE_STORAGE_KEY = "qaira.current_app_type_by_project";
+const CURRENT_PROJECT_EVENT = "hellotest:current-project-change";
+const CURRENT_APP_TYPE_STORAGE_KEY = "hellotest.current_app_type_by_project";
 const LEGACY_CURRENT_APP_TYPE_STORAGE_KEY = "sidebar_app_type_id";
-const CURRENT_APP_TYPE_EVENT = "qaira:current-app-type-change";
-const CURRENT_SCOPE_STATE_VERSION_KEY = "qaira_scope_state_version";
+const CURRENT_APP_TYPE_EVENT = "hellotest:current-app-type-change";
+const CURRENT_SCOPE_STATE_VERSION_KEY = "hellotest_scope_state_version";
 const CURRENT_SCOPE_STATE_VERSION = "3";
 
 type AppTypeChangeDetail = {

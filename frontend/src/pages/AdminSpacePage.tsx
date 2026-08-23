@@ -23,10 +23,10 @@ type AdminSpaceSection = "health" | "users" | "roles" | "integrations" | "settin
 
 const ADMIN_SECTIONS: AdminSpaceSection[] = ["health", "users", "roles", "integrations", "settings"];
 const ADMIN_SECTION_FEATURES: Record<AdminSpaceSection, string[]> = {
-  health: ["qaira.ops.admin"],
-  users: ["qaira.ops.admin"],
-  roles: ["qaira.ops.admin"],
-  integrations: ["qaira.api.integrations"],
+  health: ["hellotest.ops.admin"],
+  users: ["hellotest.ops.admin"],
+  roles: ["hellotest.ops.admin"],
+  integrations: ["hellotest.api.integrations"],
   settings: []
 };
 

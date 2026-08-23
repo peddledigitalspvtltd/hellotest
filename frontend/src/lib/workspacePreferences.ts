@@ -8,12 +8,12 @@ export type WorkspacePreferenceUpdate = {
 
 export const preferenceStorageKeys = {
   autoExport: "app_auto_export",
-  projectAutomationSettings: "qaira.project_automation_settings",
+  projectAutomationSettings: "hellotest.project_automation_settings",
   sidebarCollapsed: "sidebar_collapsed",
   theme: "app_theme"
 } as const;
 
-export const PREFERENCES_UPDATED_EVENT = "qaira:preferences-updated";
+export const PREFERENCES_UPDATED_EVENT = "hellotest:preferences-updated";
 
 export function readWorkspaceTheme(): WorkspaceTheme {
   if (typeof window === "undefined") {

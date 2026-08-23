@@ -7,11 +7,11 @@
  */
 
 .suite-authoring-backdrop.modal-backdrop {
-  --create-suite-border: var(--qaira-dialog-border, #d0d5dd);
-  --create-suite-ink: var(--qaira-dialog-text, #172b4d);
-  --create-suite-muted: var(--qaira-dialog-muted, #626f86);
-  --create-suite-surface: var(--qaira-dialog-surface, #ffffff);
-  --create-suite-subtle: var(--qaira-dialog-surface-subtle, #f7f8f9);
+  --create-suite-border: var(--hellotest-dialog-border, #d0d5dd);
+  --create-suite-ink: var(--hellotest-dialog-text, #172b4d);
+  --create-suite-muted: var(--hellotest-dialog-muted, #626f86);
+  --create-suite-surface: var(--hellotest-dialog-surface, #ffffff);
+  --create-suite-subtle: var(--hellotest-dialog-surface-subtle, #f7f8f9);
   align-items: center !important;
   padding: 24px !important;
   overflow: hidden !important;
@@ -89,7 +89,7 @@
   margin: 0 !important;
   overflow: hidden;
   color: var(--create-suite-ink) !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 20px !important;
   font-weight: 650 !important;
   line-height: 26px !important;
@@ -183,7 +183,7 @@
 .suite-authoring-modal .suite-reference-section-heading h3 {
   margin: 0;
   color: var(--create-suite-ink);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 16px;
   font-weight: 650;
   line-height: 22px;
@@ -347,7 +347,7 @@
 
 .suite-authoring-modal .suite-reference-picker-heading strong {
   color: var(--create-suite-ink);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 16px;
   font-weight: 650;
   line-height: 22px;

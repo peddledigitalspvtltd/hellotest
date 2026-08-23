@@ -80,7 +80,7 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "catalog.copyId": "Copy ID"
 };
 
-export const LOCALIZATION_STORAGE_KEY = "qaira.localization";
+export const LOCALIZATION_STORAGE_KEY = "hellotest.localization";
 
 const migrateLegacyStoryLabels = (overrides?: LocalizationStrings | null): LocalizationStrings => {
   const migrated = { ...(overrides || {}) };

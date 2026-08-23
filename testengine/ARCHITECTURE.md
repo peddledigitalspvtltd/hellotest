@@ -1,40 +1,40 @@
-# QAira Test Engine Architecture
+# HelloTest Test Engine Architecture
 
-See also: [QAira product operating model](../QAIRA_PRODUCT_OPERATING_MODEL.md)
-See also: [QAira background operations strategy](../QAIRA_BACKGROUND_OPERATIONS_STRATEGY.md)
+See also: [HelloTest product operating model](../HELLOTEST_PRODUCT_OPERATING_MODEL.md)
+See also: [HelloTest background operations strategy](../HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
 
 ## Control Plane
 
-QAira stays the single frontend. Users should start and inspect runs from QAira only.
+HelloTest stays the single frontend. Users should start and inspect runs from HelloTest only.
 
 That means:
 
 - no separate Playwright frontend
-- no separate operator dashboard outside QAira
+- no separate operator dashboard outside HelloTest
 - no second source of truth for results or evidence
 
-Test Engine exists only as a remote execution backend that QAira calls.
+Test Engine exists only as a remote execution backend that HelloTest calls.
 
 ## Run Flow
 
-### 1. Run start in QAira
+### 1. Run start in HelloTest
 
-When a user starts an automated case from the existing QAira run flow:
+When a user starts an automated case from the existing HelloTest run flow:
 
-1. QAira creates or reuses the run with `POST /executions`
-2. QAira marks it active with `POST /executions/:id/start`
-3. QAira reads the snapped run payload from `GET /executions/:id`
-4. QAira fans out only the automated cases to Test Engine
+1. HelloTest creates or reuses the run with `POST /executions`
+2. HelloTest marks it active with `POST /executions/:id/start`
+3. HelloTest reads the snapped run payload from `GET /executions/:id`
+4. HelloTest fans out only the automated cases to Test Engine
 
 The UI label can stay `Runs` while the backend API remains `/executions`.
 
 ### 2. Handoff to Test Engine
 
-QAira should send one automated case at a time to `POST /api/v1/runs`.
+HelloTest should send one automated case at a time to `POST /api/v1/runs`.
 
 That handoff should include:
 
-- QAira run id and execution id
+- HelloTest run id and execution id
 - project and app type
 - test case snapshot
 - execution step snapshots
@@ -64,13 +64,13 @@ Execution order should be:
 
 This keeps cost and nondeterminism low.
 
-## How Test Engine Updates QAira
+## How Test Engine Updates HelloTest
 
-QAira already has the primitives needed for first-pass integration.
+HelloTest already has the primitives needed for first-pass integration.
 
 ### Case result writeback
 
-Test Engine should callback into a QAira route that internally uses the existing execution services to:
+Test Engine should callback into a HelloTest route that internally uses the existing execution services to:
 
 - create the case result with `POST /execution-results` if none exists
 - update the same result with `PUT /execution-results/:id` on progress or completion
@@ -78,7 +78,7 @@ Test Engine should callback into a QAira route that internally uses the existing
 
 ### Step evidence writeback
 
-QAira already uses this structured payload inside `execution_results.logs`:
+HelloTest already uses this structured payload inside `execution_results.logs`:
 
 ```json
 {
@@ -105,7 +105,7 @@ Recommended policy:
 
 - inline only one preview image per relevant step
 - keep inline images small
-- store larger artifacts outside QAira and return them as artifact references
+- store larger artifacts outside HelloTest and return them as artifact references
 
 ## Artifact Model
 
@@ -120,27 +120,27 @@ Test Engine should always capture a full artifact bundle for failures:
 - locator map version
 - repair summary
 
-QAira should initially store:
+HelloTest should initially store:
 
 - inline step preview image when needed for fast review
 - case status and duration
 - result summary in logs
 - artifact manifest references for deep debugging
 
-QAira should later add a dedicated artifact table when traces, HARs, and videos need first-class browsing.
+HelloTest should later add a dedicated artifact table when traces, HARs, and videos need first-class browsing.
 
 ## Intelligent Automation Layer
 
 The smart automation agent inside this system should not be the runner itself. It should be a focused intelligence layer that supports the runner.
 
-Recommended name: `QAira Pilot`
+Recommended name: `HelloTest Pilot`
 
-`QAira Pilot` has four responsibilities:
+`HelloTest Pilot` has four responsibilities:
 
-- build Playwright code from QAira’s manual case model
+- build Playwright code from HelloTest’s manual case model
 - build API execution chains from structured API steps
 - repair only constrained automation failures
-- propose patches back to QAira for review
+- propose patches back to HelloTest for review
 
 ### Internal sub-agents
 
@@ -165,7 +165,7 @@ Recommended name: `QAira Pilot`
 `Patch Governor`
 
 - allows locator and wait changes automatically when confidence is high
-- blocks business assertion changes without QAira review
+- blocks business assertion changes without HelloTest review
 
 ## Token Optimization
 
@@ -239,7 +239,7 @@ Blocked without review:
 - changing expected business outcomes
 - adding hidden side-effect steps
 
-## QAira Backend Seam
+## HelloTest Backend Seam
 
 This repo now has the minimum callback seam to support the engine model:
 
@@ -255,8 +255,8 @@ This repo now has the minimum callback seam to support the engine model:
 
 The next backend additions should be:
 
-1. direct run handoff from QAira into Test Engine
+1. direct run handoff from HelloTest into Test Engine
 2. optional execution auto-complete policy for fully automated runs
 3. dedicated artifact manifest persistence for trace, HAR, and video browsing
 
-That is enough to make QAira the intelligent control plane and Test Engine the scalable Playwright backend.
+That is enough to make HelloTest the intelligent control plane and Test Engine the scalable Playwright backend.

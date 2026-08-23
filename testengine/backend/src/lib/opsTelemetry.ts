@@ -128,7 +128,7 @@ const buildConfig = (): TelemetryConfig => {
     serviceName:
       normalizeText(process.env.OPS_TELEMETRY_SERVICE_NAME)
       || normalizeText(process.env.OTEL_SERVICE_NAME)
-      || "qaira-testengine",
+      || "hellotest-testengine",
     environment:
       normalizeText(process.env.OPS_TELEMETRY_ENVIRONMENT)
       || normalizeText(process.env.OPS_ENVIRONMENT)
@@ -1147,7 +1147,7 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
       const storedEvent = storeEvent(
         request.body,
         normalizeText(request.ip),
-        normalizeText(request.headers["x-qaira-source"])
+        normalizeText(request.headers["x-hellotest-source"])
       )!;
 
       reply.code(202);

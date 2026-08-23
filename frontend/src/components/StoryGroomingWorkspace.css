@@ -86,7 +86,7 @@
 .story-grooming-empty h2 {
   margin: 0;
   color: var(--text-primary, #172b4d);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", Inter, sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", Inter, sans-serif);
 }
 
 .story-grooming-hero h2 { font-size: 1.22rem; line-height: 1.25; }

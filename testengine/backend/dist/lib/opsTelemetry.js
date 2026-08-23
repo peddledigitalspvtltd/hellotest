@@ -73,7 +73,7 @@ const buildConfig = () => {
         enabled: process.env.OPS_TELEMETRY_ENABLED !== "false",
         serviceName: normalizeText(process.env.OPS_TELEMETRY_SERVICE_NAME)
             || normalizeText(process.env.OTEL_SERVICE_NAME)
-            || "qaira-testengine",
+            || "hellotest-testengine",
         environment: normalizeText(process.env.OPS_TELEMETRY_ENVIRONMENT)
             || normalizeText(process.env.OPS_ENVIRONMENT)
             || process.env.NODE_ENV
@@ -1031,7 +1031,7 @@ export const createOpsTelemetry = async (logger) => {
                     message: "OPS telemetry expects a JSON object payload"
                 };
             }
-            const storedEvent = storeEvent(request.body, normalizeText(request.ip), normalizeText(request.headers["x-qaira-source"]));
+            const storedEvent = storeEvent(request.body, normalizeText(request.ip), normalizeText(request.headers["x-hellotest-source"]));
             reply.code(202);
             return {
                 accepted: true,

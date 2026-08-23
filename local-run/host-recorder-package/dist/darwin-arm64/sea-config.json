@@ -1,5 +1,5 @@
 {
-  "main": "/Users/jayarajumetta/MJ/qaira/local-run/host-recorder-package/dist/darwin-arm64/qaira-host-recorder.cjs",
-  "output": "/Users/jayarajumetta/MJ/qaira/local-run/host-recorder-package/dist/darwin-arm64/qaira-host-recorder.blob",
+  "main": "../../local-run/host-recorder-package/dist/darwin-arm64/hellotest-host-recorder.cjs",
+  "output": "../../local-run/host-recorder-package/dist/darwin-arm64/hellotest-host-recorder.blob",
   "disableExperimentalSEAWarning": true
 }

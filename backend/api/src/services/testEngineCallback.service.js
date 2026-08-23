@@ -359,9 +359,9 @@ const signatureMatches = (provided, expected) => {
 };
 
 const resolveCallbackSignature = (headers = {}) =>
-  headers["x-qaira-engine-signature"]
+  headers["x-hellotest-engine-signature"]
   || headers["x-testengine-signature"]
-  || headers["x-qaira-signature"]
+  || headers["x-hellotest-signature"]
   || "";
 
 const resolveCallbackSecret = (integration) =>
@@ -369,8 +369,7 @@ const resolveCallbackSecret = (integration) =>
   || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
   || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
   || normalizeText(process.env.HELLOTEST_TESTENGINE_SECRET)
-  || normalizeText(process.env.QAIRA_TESTENGINE_SECRET)
-  || "qaira-testengine-dev-secret";
+  || "hellotest-testengine-dev-secret";
 
 async function ensureTransaction({
   engineRunId,
@@ -447,13 +446,13 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
   }
 
   const engineRunId = normalizeText(payload.engine_run_id);
-  const executionId = normalizeText(payload.qaira_execution_id) || normalizeText(payload.qaira_run_id);
-  const testCaseId = normalizeText(payload.qaira_test_case_id);
+  const executionId = normalizeText(payload.hellotest_execution_id) || normalizeText(payload.hellotest_run_id);
+  const testCaseId = normalizeText(payload.hellotest_test_case_id);
   const event = normalizeText(payload.event) || "run.progress";
   const summary = normalizeText(payload.summary);
 
   if (!engineRunId || !executionId || !testCaseId) {
-    throw new Error("engine_run_id, qaira_execution_id or qaira_run_id, and qaira_test_case_id are required");
+    throw new Error("engine_run_id, hellotest_execution_id or hellotest_run_id, and hellotest_test_case_id are required");
   }
 
   const execution = await executionService.getExecution(executionId);

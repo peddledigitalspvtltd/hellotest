@@ -1,7 +1,7 @@
 import type { Location } from "react-router-dom";
 
-const CURRENT_WORKSPACE_ROUTE_KEY = "qaira.current_workspace_route";
-const AUTH_REDIRECT_ROUTE_KEY = "qaira.auth_redirect_route";
+const CURRENT_WORKSPACE_ROUTE_KEY = "hellotest.current_workspace_route";
+const AUTH_REDIRECT_ROUTE_KEY = "hellotest.auth_redirect_route";
 
 export function getRouteFromLocation(location: Pick<Location, "pathname" | "search" | "hash">) {
   return `${location.pathname}${location.search}${location.hash}`;

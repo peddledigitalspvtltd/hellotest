@@ -18,7 +18,7 @@ const traceExporter = otelUrl ? new OTLPTraceExporter({ url: otelUrl }) : undefi
 
 const sdk = new NodeSDK({
   resource: resourceFromAttributes({
-    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'qaira-api',
+    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'hellotest-api',
   }),
   traceExporter,
   instrumentations: [getNodeAutoInstrumentations()],

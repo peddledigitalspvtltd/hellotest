@@ -1,27 +1,27 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: qaira-local-postgres
+    container_name: hellotest-local-postgres
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - qaira-local-postgres-data:/var/lib/postgresql/data
+      - hellotest-local-postgres-data:/var/lib/postgresql/data
       - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ../backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
       - ./db/03-local-integrations.sql:/docker-entrypoint-initdb.d/03-local-integrations.sql:ro
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-qaira}
-      POSTGRES_USER: ${POSTGRES_USER:-qaira}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qaira}
+      POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hellotest}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qaira} -d ${POSTGRES_DB:-qaira}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hellotest} -d ${POSTGRES_DB:-hellotest}"]
       interval: 5s
       timeout: 5s
       retries: 20
 
   redis:
     image: redis:7-alpine
-    container_name: qaira-local-redis
+    container_name: hellotest-local-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -32,20 +32,20 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: qaira-local-minio
+    container_name: hellotest-local-minio
     command: server /data --console-address ":9001"
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-qaira}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-qaira-minio-dev-secret}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
     volumes:
-      - qaira-local-minio-data:/data
+      - hellotest-local-minio-data:/data
 
   jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: qaira-local-jaeger
+    container_name: hellotest-local-jaeger
     ports:
       - "16686:16686"
       - "4318:4318"
@@ -56,26 +56,28 @@ services:
     build:
       context: ../backend/api
       dockerfile: Dockerfile
-    container_name: qaira-local-api
+    container_name: hellotest-local-api
     ports:
       - "${API_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
-      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-      OTEL_SERVICE_NAME: "qaira-api"
-      SESSION_SECRET: ${SESSION_SECRET:-qaira-local-dev-secret}
+      OTEL_SERVICE_NAME: "hellotest-api"
+      SESSION_SECRET: ${SESSION_SECRET:-hellotest-local-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
-      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
-      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
+      ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-qaira}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-qaira-minio-dev-secret}
-      MINIO_BUCKET: ${MINIO_BUCKET:-qaira-attachments}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hellotest}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hellotest-minio-dev-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
       MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
     depends_on:
       postgres:
@@ -94,16 +96,17 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    container_name: qaira-local-frontend
+    container_name: hellotest-local-frontend
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+      - "${HELLOTEST_ADMIN_PORT:-8081}:81"
     environment:
-      QAIRA_API_BASE_URL: ${QAIRA_API_BASE_URL:-/api}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1 >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1 >/dev/null 2>&1 && wget -q -O - http://127.0.0.1:81 >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -116,21 +119,21 @@ services:
       - "4301"
     environment:
       PORT: 4301
-      ENGINE_NAME: qaira-local-testengine-api-worker
+      ENGINE_NAME: hellotest-local-testengine-api-worker
       TESTENGINE_WORKER_CLASS: api
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
-      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
-      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
-      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_WORKER_API_BASE_URL:-http://api:3000}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_API_POLL_INTERVAL_MS:-1000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_API_POLL_CONCURRENCY:-8}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-      OTEL_SERVICE_NAME: "qaira-testengine-api"
+      OTEL_SERVICE_NAME: "hellotest-testengine-api"
     volumes:
-      - qaira-local-testengine-artifacts:/artifacts
+      - hellotest-local-testengine-artifacts:/artifacts
     depends_on:
       api:
         condition: service_healthy
@@ -150,21 +153,21 @@ services:
       - "4301"
     environment:
       PORT: 4301
-      ENGINE_NAME: qaira-local-testengine-web-worker
+      ENGINE_NAME: hellotest-local-testengine-web-worker
       TESTENGINE_WORKER_CLASS: web
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
-      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
-      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
-      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_WORKER_API_BASE_URL:-http://api:3000}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_WEB_POLL_INTERVAL_MS:-1000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_WEB_POLL_CONCURRENCY:-2}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-      OTEL_SERVICE_NAME: "qaira-testengine-web"
+      OTEL_SERVICE_NAME: "hellotest-testengine-web"
     volumes:
-      - qaira-local-testengine-artifacts:/artifacts
+      - hellotest-local-testengine-artifacts:/artifacts
     depends_on:
       api:
         condition: service_healthy
@@ -184,12 +187,12 @@ services:
       - "4301"
     environment:
       PORT: 4301
-      ENGINE_NAME: qaira-local-testengine-android-worker
+      ENGINE_NAME: hellotest-local-testengine-android-worker
       TESTENGINE_WORKER_CLASS: android
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
-      QAIRA_API_BASE_URL: ${QAIRA_WORKER_API_BASE_URL:-http://api:3000}
-      QAIRA_TESTENGINE_SECRET: ${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
-      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-qaira-testengine-dev-secret}
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_WORKER_API_BASE_URL:-http://api:3000}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://mobile-engine:4312}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_ANDROID_POLL_INTERVAL_MS:-1000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_ANDROID_POLL_CONCURRENCY:-1}
@@ -197,9 +200,9 @@ services:
       RECORDER_HEADLESS: ${RECORDER_HEADLESS:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
-      OTEL_SERVICE_NAME: "qaira-testengine-android"
+      OTEL_SERVICE_NAME: "hellotest-testengine-android"
     volumes:
-      - qaira-local-testengine-artifacts:/artifacts
+      - hellotest-local-testengine-artifacts:/artifacts
     depends_on:
       api:
         condition: service_healthy
@@ -215,7 +218,7 @@ services:
 
   testengine:
     image: haproxy:2.9-alpine
-    container_name: qaira-local-testengine
+    container_name: hellotest-local-testengine
     ports:
       - "${TESTENGINE_PORT:-4301}:4301"
     volumes:
@@ -230,7 +233,7 @@ services:
     build:
       context: ./mobile-engine
       dockerfile: Dockerfile
-    container_name: qaira-local-mobile-engine
+    container_name: hellotest-local-mobile-engine
     ports:
       - "${MOBILE_ENGINE_PORT:-4312}:4312"
     environment:
@@ -246,6 +249,6 @@ services:
       retries: 10
 
 volumes:
-  qaira-local-postgres-data:
-  qaira-local-testengine-artifacts:
-  qaira-local-minio-data:
+  hellotest-local-postgres-data:
+  hellotest-local-testengine-artifacts:
+  hellotest-local-minio-data:

@@ -134,7 +134,7 @@ const makeSnapshot = (
   const schemaReady = ready || isMalformedPolicyRecovery;
   const issueTypes = status === "failed" ? nonstandardIssueTypes : standardIssueTypes;
   return {
-    schema: "qaira.projectActivation.v1",
+    schema: "hellotest.projectActivation.v1",
     project,
     status,
     schema_ready: schemaReady,
@@ -165,7 +165,7 @@ const makeSnapshot = (
       valid: featurePolicyReady,
       revision: isMalformedPolicyRecovery ? 3 : featurePolicyReady ? 1 : null,
       updated_at: isMalformedPolicyRecovery || featurePolicyReady ? "2026-08-02T09:45:00.000Z" : null,
-      missing_keys: featurePolicyReady ? [] : ["qaira.manual.requirements", "qaira.manual.test_cases"],
+      missing_keys: featurePolicyReady ? [] : ["hellotest.manual.requirements", "hellotest.manual.test_cases"],
       unknown_keys: []
     },
     registry: {

@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { JiraAttachment, QairaEntityType } from "../types";
+import type { JiraAttachment, HelloTestEntityType } from "../types";
 import { LoadingState } from "./LoadingState";
 import { ToastMessage } from "./ToastMessage";
 
@@ -55,7 +55,7 @@ export function JiraAttachmentPanel({
 }: {
   issueKey: string;
   projectId: string;
-  entityType: QairaEntityType;
+  entityType: HelloTestEntityType;
   entityId: string;
   canView: boolean;
   canUpload: boolean;
@@ -70,7 +70,7 @@ export function JiraAttachmentPanel({
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const scope = { project_id: projectId, entity_type: entityType, entity_id: entityId };
-  const queryKey = ["qaira-attachments", projectId, entityType, entityId];
+  const queryKey = ["hellotest-attachments", projectId, entityType, entityId];
   const attachmentMeta = useQuery({
     queryKey: ["jira-attachment-meta"],
     queryFn: api.attachments.meta,

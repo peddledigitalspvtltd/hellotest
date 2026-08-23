@@ -92,7 +92,7 @@ const extractLabeledSection = (value, labels) => {
 };
 
 const extractHeadedSection = (value, labels) => {
-  const headingMarker = "__QAIRA_HEADING__";
+  const headingMarker = "__HELLOTEST_HEADING__";
   const text = normalizeText(value, 18_000)
     .replace(/<h[1-6][^>]*>/gi, `\n${headingMarker}`)
     .replace(/<\/h[1-6]>/gi, "\n")

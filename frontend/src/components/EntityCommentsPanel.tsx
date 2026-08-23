@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { QairaEntityType } from "../types";
+import type { HelloTestEntityType } from "../types";
 import { ToastMessage } from "./ToastMessage";
 
 const commentTimestamp = (value: string | null) => {
@@ -14,7 +14,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 
 export function EntityCommentsPanel({ projectId, entityType, entityId, canView, canComment, title = "Comments" }: {
   projectId: string;
-  entityType: QairaEntityType;
+  entityType: HelloTestEntityType;
   entityId: string;
   canView: boolean;
   canComment: boolean;

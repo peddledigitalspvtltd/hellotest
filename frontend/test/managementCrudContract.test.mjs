@@ -93,14 +93,13 @@ test("project creation and catalog expose mature visibility, favorite, and locke
 });
 
 test("project platform icons and compressed attachments stay selected, scoped, and reviewable", async () => {
-  const [page, dropdown, editor, api, types, modalStyles, projectStyles] = await Promise.all([
+  const [page, dropdown, editor, api, types, modalStyles] = await Promise.all([
     readSource("../src/pages/ProjectsPage.tsx"),
     readSource("../src/components/AppTypeDropdown.tsx"),
     readSource("../src/components/RichTextEditor.tsx"),
     readSource("../src/lib/api.ts"),
     readSource("../src/types.ts"),
-    readSource("../src/modal-system.css"),
-    readSource("../src/pages/ProjectsPage.css")
+    readSource("../src/modal-system.css")
   ]);
 
   for (const kind of ["web", "api", "android", "ios"]) {
@@ -110,14 +109,18 @@ test("project platform icons and compressed attachments stay selected, scoped, a
   assert.match(page, /project-app-type-icon[\s\S]*data-platform-type=\{normalizeAppTypeKind/);
   assert.match(page, /<AppTypeIcon isUnified=\{appType\.is_unified\}[\s\S]*type=\{appType\.type\}/);
   assert.match(editor, /title: "Link"/);
+  assert.doesNotMatch(editor, /window\.prompt/);
+  assert.match(editor, /className="modal-card rich-text-link-dialog"/);
+  assert.match(editor, /DialogCloseButton label="Close add link dialog"/);
+  assert.match(editor, /Enter a valid http, https, or mailto link/);
   assert.match(editor, /title: "Attach files"/);
   assert.match(page, /gzip compressed on upload/);
   assert.match(page, /entityType="project"/);
-  assert.match(page, /<details className="project-detail-attachments">/);
+  assert.match(page, /section === "attachments"/);
+  assert.match(page, /<Panel title="Project attachments"/);
   assert.match(api, /entity_type: "project" \|/);
-  assert.match(types, /QairaEntityType = "project" \|/);
+  assert.match(types, /HelloTestEntityType = "project" \|/);
   assert.match(modalStyles, /\.project-create-attachments-section/);
-  assert.match(projectStyles, /\.project-detail-attachments\[open\]/);
 });
 
 test("project portfolio analytics are all-project, configurable, prioritized, flippable, and exportable", async () => {
@@ -145,6 +148,9 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
     page.indexOf("const formatProjectTimeAgo")
   );
   assert.match(snapshotCapture, /is-exporting-snapshot/);
+  assert.match(snapshotCapture, /rendered_snapshot_pages_data_urls/);
+  assert.match(snapshotCapture, /\.project-risk-project-card/);
+  assert.match(snapshotCapture, /for \(const fragment of fragments\)/);
   assert.match(snapshotCapture, /\.dialog-close-button, \.metric-methodology-info/);
   assert.doesNotMatch(snapshotCapture, /matches\("button/);
   const blobRequestHelper = api.slice(
@@ -165,17 +171,27 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
 });
 
 test("project traceability toolbar keeps compact app scope and embedded search controls", async () => {
-  const [traceability, styles] = await Promise.all([
+  const [traceability, styles, projectStyles, page] = await Promise.all([
     readSource("../src/components/ProjectTraceabilityMap.tsx"),
-    readSource("../src/styles.css")
+    readSource("../src/styles.css"),
+    readSource("../src/pages/ProjectsPage.css"),
+    readSource("../src/pages/ProjectsPage.tsx")
   ]);
 
   assert.match(traceability, /className="project-traceability-app-filter"/);
-  assert.match(traceability, /aria-label="Filter traceability by app type"/);
+  assert.match(traceability, /aria-label="Filter traceability by application"/);
   assert.match(traceability, /className="search-input-with-icon project-traceability-search"/);
   assert.match(traceability, /type="search"/);
+  assert.match(traceability, /className="project-traceability-sprints"/);
+  assert.match(traceability, /Backlog \/ No sprint/);
+  assert.match(traceability, /Module links are derived from the Story’s linked cases/);
+  assert.match(traceability, /Bugs include direct Story, module, and test-case references/);
+  assert.match(page, /traceabilitySprintsQuery/);
+  assert.match(page, /sprints=\{\(traceabilitySprintsQuery\.data \|\| \[\]\)/);
   assert.match(styles, /\.project-traceability-search > svg[\s\S]*position: absolute/);
   assert.match(styles, /\.project-traceability-app-filter[\s\S]*max-width: 12rem/);
+  assert.match(projectStyles, /\.project-traceability-sprint-toggle/);
+  assert.match(projectStyles, /\.project-traceability-path-links/);
 });
 
 test("native checkboxes retain a white surface across application themes", async () => {
@@ -184,4 +200,48 @@ test("native checkboxes retain a white surface across application themes", async
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*color-scheme: light !important/);
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*background-color: #ffffff !important/);
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*accent-color: var\(--brand-blue-600, #2563eb\) !important/);
+});
+
+test("Object Repository separates manual screen creation from the inspection workspace", async () => {
+  const [page, styles] = await Promise.all([
+    readSource("../src/pages/AutomationPage.tsx"),
+    readSource("../src/styles.css")
+  ]);
+
+  assert.match(page, /addRepositoryScreen\.mutate\(\{ inspectAfterSave: false \}\)/);
+  assert.match(page, /addRepositoryScreen\.mutate\(\{ inspectAfterSave: true \}\)/);
+  assert.match(page, /options\?\.inspectAfterSave[\s\S]*setIsInspectOpen\(true\)[\s\S]*setIsInspectOpen\(false\)/);
+  assert.match(page, /setQueryData<AutomationLearningCacheEntry\[\]>\([\s\S]*"automation-learning-cache"[\s\S]*currentEntry\.id !== entry\.id/);
+  assert.match(page, /Save screen/);
+  assert.match(page, /Save and inspect/);
+  assert.match(page, /className="object-repository-browser-tabs"|object-repository-browser-tabs/);
+  assert.ok(page.indexOf('className="object-repository-tab-picker object-repository-browser-tabs"') < page.indexOf('<iframe src={inspectRecorderLiveUrl}'));
+  assert.match(page, /object-repository-live-inspect object-repository-collapsible-section/);
+  assert.match(page, /DialogCloseButton label="Close object repository inspector"/);
+  assert.match(page, /className="object-repository-inspector-review-tabs"/);
+  assert.match(page, /Selected locators/);
+  assert.match(page, /Selector evidence/);
+  assert.match(page, /Highlight all/);
+  assert.match(page, /Remove all/);
+  assert.match(page, /className="object-repository-selected-fields object-repository-review-panel"/);
+  assert.match(page, /object-repository-inspector-preview object-repository-collapsible-section/);
+  assert.match(styles, /\.object-repository-inspector \{[\s\S]*width: min\(1480px/);
+  assert.match(styles, /\.object-repository-browser-tabs \{[\s\S]*display: flex/);
+  assert.match(styles, /\.object-repository-browser-preview iframe \{[\s\S]*height: clamp\(22rem, 48dvh, 35rem\)/);
+  assert.match(styles, /\.object-repository-field-actions \{[\s\S]*flex-wrap: nowrap/);
+});
+
+test("admin password replacement retains the form across awaits and sample setup reports administrator access", async () => {
+  const [admin, api] = await Promise.all([
+    readSource("../src/admin/AdminApp.tsx"),
+    readSource("../src/admin/api.ts")
+  ]);
+  const securityPage = admin.slice(admin.indexOf("function SecurityPage"), admin.indexOf("export function AdminApp"));
+
+  assert.match(securityPage, /const formElement = event\.currentTarget/);
+  assert.match(securityPage, /await adminApi\.changePassword[\s\S]*formElement\.reset\(\)[\s\S]*await onRefresh\(\)/);
+  assert.doesNotMatch(securityPage, /event\.currentTarget\.reset/);
+  assert.match(securityPage, /disabled=\{busy\}[\s\S]*Updating…/);
+  assert.match(admin, /granted \$\{result\.administrator_memberships\} active administrator/);
+  assert.match(api, /administrator_memberships: number/);
 });

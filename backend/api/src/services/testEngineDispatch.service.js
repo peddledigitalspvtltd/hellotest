@@ -701,9 +701,7 @@ const buildProviderLiveViewUrl = (integration, provider) => {
 
 const resolveDirectCallbackBaseUrl = (integration) =>
   normalizeText(process.env.HELLOTEST_LOCAL_CALLBACK_BASE_URL)
-  || normalizeText(process.env.QAIRA_LOCAL_CALLBACK_BASE_URL)
   || normalizeText(process.env.HELLOTEST_PUBLIC_API_BASE_URL)
-  || normalizeText(process.env.QAIRA_PUBLIC_API_BASE_URL)
   || normalizeText(integration?.config?.local_callback_base_url)
   || "http://localhost:3000";
 
@@ -712,8 +710,7 @@ const resolveCallbackSecret = (integration) =>
   || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
   || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
   || normalizeText(process.env.HELLOTEST_TESTENGINE_SECRET)
-  || normalizeText(process.env.QAIRA_TESTENGINE_SECRET)
-  || "qaira-testengine-dev-secret";
+  || "hellotest-testengine-dev-secret";
 
 const buildDirectCallback = (integration) => {
   const baseUrl = resolveDirectCallbackBaseUrl(integration).replace(/\/+$/, "");
@@ -1020,10 +1017,10 @@ const buildEngineEnvelope = async ({
 
   return {
     engine_run_id: engineRunId,
-    qaira_run_id: execution.id,
-    qaira_execution_id: execution.id,
-    qaira_test_case_id: caseSnapshot.test_case_id,
-    qaira_test_case_title: caseSnapshot.test_case_title,
+    hellotest_run_id: execution.id,
+    hellotest_execution_id: execution.id,
+    hellotest_test_case_id: caseSnapshot.test_case_id,
+    hellotest_test_case_title: caseSnapshot.test_case_title,
     external_references: normalizeStoredReferenceList(caseSnapshot.external_references),
     project: {
       id: project.id,
@@ -1507,12 +1504,12 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         title: `Automated handoff for ${item.case_snapshot.test_case_title}`,
         description: "Queued for Test Engine execution.",
         metadata: {
-          source: "qaira",
+          source: "hellotest",
           engine_run_id: item.engine_run_id,
           execution_id: plan.execution.id,
           test_case_id: item.case_snapshot.test_case_id,
           engine_host: normalizeEngineHostUrl(integration.base_url),
-          queue_mode: "qaira-pull",
+          queue_mode: "hellotest-pull",
           orchestration_class: orchestrationClass,
           step_engine_classes: stepEngineClasses,
           engine_max_workers: engineMaxWorkers,
@@ -1629,7 +1626,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
     const isApiOnlyRun = orchestrationClass === "api";
     const liveViewUrl = buildProviderLiveViewUrl(directIntegration, activeWebEngine);
     const transactionMetadata = {
-      source: "qaira.local-run",
+      source: "hellotest.local-run",
       engine_run_id: item.engine_run_id,
       execution_id: plan.execution.id,
       test_case_id: item.case_snapshot.test_case_id,
@@ -1798,14 +1795,14 @@ async function queueSingleStepDispatch({
     title: `Live step handoff for ${caseSnapshot.test_case_title}`,
     description: `Queued step ${step.order} for Test Engine execution.`,
     metadata: {
-      source: "qaira.execution-console",
+      source: "hellotest.execution-console",
       single_step: true,
       engine_run_id: engineRunId,
       execution_id: execution.id,
       test_case_id: caseSnapshot.test_case_id,
       step_id: step.id,
       engine_host: normalizeEngineHostUrl(integration.base_url),
-      queue_mode: "qaira-pull",
+      queue_mode: "hellotest-pull",
       orchestration_class: orchestrationClass,
       step_engine_classes: stepEngineClasses,
       engine_max_workers: engineMaxWorkers,

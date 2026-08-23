@@ -9,7 +9,7 @@ usage() {
   cat <<EOF
 Usage: deploymentscripts/aws-logs.sh [options]
 
-Shows logs for QAira app and Test Engine containers on the current host.
+Shows logs for HelloTest app and Test Engine containers on the current host.
 
 Options:
   --stack <app|testengine|all>  Log scope. Default: all.
@@ -56,13 +56,13 @@ done
 
 case "$STACK" in
   app)
-    CONTAINERS="qaira-api qaira-frontend qaira-haproxy qaira-postgres qaira-prometheus qaira-grafana qaira-loki qaira-promtail qaira-otel-collector"
+    CONTAINERS="hellotest-api hellotest-frontend hellotest-haproxy hellotest-postgres hellotest-prometheus hellotest-grafana hellotest-loki hellotest-promtail hellotest-otel-collector"
     ;;
   testengine)
-    CONTAINERS="qaira-testengine qaira-selenium-hub qaira-selenium-node-chrome"
+    CONTAINERS="hellotest-testengine hellotest-selenium-hub hellotest-selenium-node-chrome"
     ;;
   all)
-    CONTAINERS="qaira-api qaira-frontend qaira-haproxy qaira-postgres qaira-prometheus qaira-grafana qaira-loki qaira-promtail qaira-otel-collector qaira-testengine qaira-selenium-hub qaira-selenium-node-chrome"
+    CONTAINERS="hellotest-api hellotest-frontend hellotest-haproxy hellotest-postgres hellotest-prometheus hellotest-grafana hellotest-loki hellotest-promtail hellotest-otel-collector hellotest-testengine hellotest-selenium-hub hellotest-selenium-node-chrome"
     ;;
   *)
     die "Unsupported stack: $STACK. Expected app, testengine, or all."

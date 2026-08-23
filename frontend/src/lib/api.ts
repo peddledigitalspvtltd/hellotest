@@ -98,14 +98,14 @@ import { appendCurrentProjectScope, readCurrentProjectId } from "./currentScope"
 
 declare global {
   interface Window {
-    __QAIRA_CONFIG__?: {
+    __HELLOTEST_CONFIG__?: {
       API_BASE_URL?: string;
     };
   }
 }
 
 const API_BASE_URL =
-  window.__QAIRA_CONFIG__?.API_BASE_URL
+  window.__HELLOTEST_CONFIG__?.API_BASE_URL
   || import.meta.env.VITE_API_BASE_URL
   || "/api";
 
@@ -136,16 +136,16 @@ type AiRequirementCreationSuggestion = {
   gherkin_scenarios?: string[];
 };
 
-export type QairaEntityScope = {
+export type HelloTestEntityScope = {
   project_id: string;
   entity_type: "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";
   entity_id: string;
 };
 
-const normalizeEntityScope = (value: QairaEntityScope | string): QairaEntityScope => {
+const normalizeEntityScope = (value: HelloTestEntityScope | string): HelloTestEntityScope => {
   if (typeof value !== "string") return value;
   const normalized = value.toUpperCase();
-  const entityType: QairaEntityScope["entity_type"] = normalized.startsWith("TC-")
+  const entityType: HelloTestEntityScope["entity_type"] = normalized.startsWith("TC-")
     ? "test_case"
     : normalized.startsWith("RUN-") || normalized.startsWith("EXEC-")
       ? "execution"
@@ -190,14 +190,14 @@ type AiRequirementGenerationJobResponse = Partial<AiRequirementCreationPreviewRe
   updated_at?: string;
 };
 
-const SESSION_KEY = "qaira.session";
+const SESSION_KEY = "hellotest.session";
 const CLIENT_GET_CACHE_TTL_MS = 1_500;
 const CLIENT_GET_CACHE_MAX_ENTRIES = 120;
 
 const inFlightClientRequests = new Map<string, Promise<unknown>>();
 const clientGetResponseCache = new Map<string, { expiresAt: number; value: unknown }>();
-export const qairaAuthSessionEvents = {
-  refresh: "qaira-auth-session-refresh"
+export const hellotestAuthSessionEvents = {
+  refresh: "hellotest-auth-session-refresh"
 } as const;
 
 const stableStringify = (value: unknown): string => {
@@ -379,7 +379,7 @@ export type JiraIssueCreateMetadata = {
   project_key: string;
   issue_type_id: string;
   issue_type_name: string;
-  qaira_core_field_ids: string[];
+  hellotest_core_field_ids: string[];
   required_fields: JiraCreateFieldMetadata[];
   core_fields: JiraCreateFieldMetadata[];
   fields: JiraCreateFieldMetadata[];
@@ -420,7 +420,7 @@ export type JiraWorkflowStatusCatalog = {
 export type JiraBugCreateMetadata = JiraIssueCreateMetadata;
 
 type ForgeBlobPayload = {
-  __qaira_blob__: true;
+  __hellotest_blob__: true;
   base64: string;
   mimeType?: string;
   fileName?: string;
@@ -460,7 +460,7 @@ const isSessionAuthFailure = (path: string, message: string) => {
   ].some((needle) => message.toLowerCase().includes(needle));
 };
 
-export class QairaApiError extends Error {
+export class HelloTestApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly currentRevision?: number;
@@ -481,7 +481,7 @@ async function parseApiError(response: Response) {
   const message = error.message || (response.status === 403
     ? "You do not have permission to perform this action."
     : `Request failed with status ${response.status}`);
-  return new QairaApiError(message, response.status, error);
+  return new HelloTestApiError(message, response.status, error);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -632,6 +632,7 @@ type BatchQueueResponse = {
 
 type DashboardStyledReportPayload = {
   rendered_snapshot_data_url?: string;
+  rendered_snapshot_pages_data_urls?: string[];
   rendered_snapshot_name?: string;
   rendered_snapshot_captured_at?: string;
 };
@@ -771,11 +772,11 @@ export const api = {
   },
   attachments: {
     meta: () => request<{ enabled: boolean; provider: string; uploadLimit: number; compression: "gzip" | "none" | string }>("/attachments/meta"),
-    list: (scopeInput: QairaEntityScope | string) => {
+    list: (scopeInput: HelloTestEntityScope | string) => {
       const scope = normalizeEntityScope(scopeInput);
       return request<JiraAttachment[]>(`/attachments${toQueryString(scope)}`);
     },
-    upload: async (scopeInput: QairaEntityScope | string, file: File) => {
+    upload: async (scopeInput: HelloTestEntityScope | string, file: File) => {
       const scope = normalizeEntityScope(scopeInput);
       const formData = new FormData();
       formData.append("project_id", scope.project_id);
@@ -788,11 +789,11 @@ export const api = {
     delete: (attachmentId: string) => request<{ deleted: boolean; id: string }>(`/attachments/${attachmentId}`, { method: "DELETE" })
   },
   comments: {
-    list: (scopeInput: QairaEntityScope | string) => {
+    list: (scopeInput: HelloTestEntityScope | string) => {
       const scope = normalizeEntityScope(scopeInput);
       return request<JiraComment[]>(`/comments${toQueryString(scope)}`);
     },
-    create: (scopeInput: QairaEntityScope | string, body: string) => {
+    create: (scopeInput: HelloTestEntityScope | string, body: string) => {
       const text = body.trim();
       if (!text) throw new Error("Write a comment before posting.");
       const scope = normalizeEntityScope(scopeInput);
@@ -1289,7 +1290,7 @@ export const api = {
             execution_scope: string;
             supported_step_types: string[];
             supported_web_engines: string[];
-            qaira_result_log_compatibility?: string | null;
+            hellotest_result_log_compatibility?: string | null;
           }
         | {
             ok: boolean;

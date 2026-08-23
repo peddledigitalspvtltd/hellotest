@@ -32,30 +32,30 @@ const config = {
   postgres: {
     host: process.env.PGHOST || process.env.POSTGRES_HOST || serviceHost("postgres", "localhost"),
     port: normalizeNumber(process.env.PGPORT || process.env.POSTGRES_PORT, 5432),
-    user: process.env.PGUSER || process.env.POSTGRES_USER || "qaira",
-    password: process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD || "qaira",
-    database: process.env.PGDATABASE || process.env.POSTGRES_DB || "qaira"
+    user: process.env.PGUSER || process.env.POSTGRES_USER || "hellotest",
+    password: process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD || "hellotest",
+    database: process.env.PGDATABASE || process.env.POSTGRES_DB || "hellotest"
   },
   obsPostgresUrl: process.env.OBS_POSTGRES_URL || process.env.OBS_DATABASE_URL || "",
   obsPostgres: {
     host: process.env.OBS_PGHOST || process.env.OBS_POSTGRES_HOST || serviceHost("postgres", "localhost"),
     port: normalizeNumber(process.env.OBS_PGPORT || process.env.OBS_POSTGRES_PORT, 5432),
-    user: process.env.OBS_PGUSER || process.env.OBS_POSTGRES_USER || "qaira",
-    password: process.env.OBS_PGPASSWORD || process.env.OBS_POSTGRES_PASSWORD || "qaira",
-    database: process.env.OBS_PGDATABASE || process.env.OBS_POSTGRES_DB || "qaira_obs"
+    user: process.env.OBS_PGUSER || process.env.OBS_POSTGRES_USER || "hellotest",
+    password: process.env.OBS_PGPASSWORD || process.env.OBS_POSTGRES_PASSWORD || "hellotest",
+    database: process.env.OBS_PGDATABASE || process.env.OBS_POSTGRES_DB || "hellotest_obs"
   },
   redisUrl: process.env.REDIS_URL || `redis://${serviceHost("redis", "localhost")}:6379`,
   storageProvider: enumValue(process.env.STORAGE_PROVIDER, STORAGE_PROVIDERS, "local"),
-  evidenceLocalPath: process.env.EVIDENCE_LOCAL_PATH || "/tmp/qaira-evidence",
-  s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || "qaira-artifacts",
+  evidenceLocalPath: process.env.EVIDENCE_LOCAL_PATH || "/tmp/hellotest-evidence",
+  s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || "hellotest-artifacts",
   objectStorage: {
     endpoint: process.env.MINIO_ENDPOINT || process.env.S3_ENDPOINT || serviceHost("minio", "localhost"),
     port: normalizeNumber(process.env.MINIO_PORT || process.env.S3_PORT, 9000),
     useSsl: normalizeBoolean(process.env.MINIO_USE_SSL || process.env.S3_USE_SSL, false),
-    accessKey: process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || process.env.S3_ACCESS_KEY || "qaira",
-    secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || process.env.S3_SECRET_KEY || "qaira-minio-dev-secret",
+    accessKey: process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || process.env.S3_ACCESS_KEY || "hellotest",
+    secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || process.env.S3_SECRET_KEY || "hellotest-minio-dev-secret",
     region: process.env.MINIO_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.MINIO_BUCKET || process.env.S3_BUCKET || "qaira-attachments",
+    bucket: process.env.MINIO_BUCKET || process.env.S3_BUCKET || "hellotest-attachments",
     maxAttachmentBytes: normalizeNumber(process.env.MAX_ATTACHMENT_BYTES, 100 * 1024 * 1024)
   },
   queueProvider: enumValue(process.env.QUEUE_PROVIDER, QUEUE_PROVIDERS, "redis"),
@@ -70,11 +70,18 @@ const config = {
   retryMaxAttempts: normalizeNumber(process.env.RETRY_MAX_ATTEMPTS, 3),
   retryBackoffSeconds: normalizeNumber(process.env.RETRY_BACKOFF_SECONDS, 5),
   jobSleepSeconds: normalizeNumber(process.env.JOB_SLEEP_SECONDS, 1),
-  corsOrigins: (process.env.CORS_ORIGIN || (localOnly ? "http://localhost:5173,http://localhost:8080" : ""))
+  corsOrigins: (process.env.CORS_ORIGIN || (localOnly ? "http://localhost:5173,http://localhost:5174,http://localhost:8080,http://localhost:8081" : ""))
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
-  otelEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || ""
+  otelEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "",
+  adminPortal: {
+    port: normalizeNumber(process.env.ADMIN_PORTAL_PORT, 5174),
+    frontendInternalUrl: process.env.ADMIN_FRONTEND_INTERNAL_URL || serviceHost("frontend", "localhost") + (localOnly ? ":5174" : ":81"),
+    bootstrapEnabled: normalizeBoolean(process.env.ADMIN_BOOTSTRAP_ENABLED, true),
+    bootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME || "admin",
+    bootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD || "admin"
+  }
 };
 
 module.exports = {

@@ -8,9 +8,9 @@
   max-height: calc(100dvh - 32px) !important;
   padding: 0 !important;
   overflow: hidden !important;
-  border: 1px solid var(--qaira-dialog-border, #cbd5e1) !important;
+  border: 1px solid var(--hellotest-dialog-border, #cbd5e1) !important;
   border-radius: 10px !important;
-  background: var(--qaira-dialog-surface, #fff) !important;
+  background: var(--hellotest-dialog-surface, #fff) !important;
 }
 
 .test-case-create-module-header,
@@ -21,7 +21,7 @@
   justify-content: space-between;
   min-width: 0;
   padding: 0 20px !important;
-  border-bottom: 1px solid var(--qaira-dialog-border, #d8dee8) !important;
+  border-bottom: 1px solid var(--hellotest-dialog-border, #d8dee8) !important;
 }
 
 .test-case-create-module-title,
@@ -74,7 +74,7 @@
   padding: 28px;
   overflow: auto;
   background: #fff;
-  border-right: 1px solid var(--qaira-dialog-border, #d8dee8);
+  border-right: 1px solid var(--hellotest-dialog-border, #d8dee8);
 }
 
 .test-case-create-module-picker {
@@ -358,7 +358,7 @@
   gap: 12px !important;
   margin: 0 !important;
   padding: 9px 22px !important;
-  border-top: 1px solid var(--qaira-dialog-border, #d8dee8) !important;
+  border-top: 1px solid var(--hellotest-dialog-border, #d8dee8) !important;
   background: #fff !important;
 }
 
@@ -416,7 +416,7 @@
   overflow: hidden !important;
   flex-direction: column !important;
   color: #0d1c2d !important;
-  font-family: var(--qaira-font-body, "Inter", "Segoe UI", sans-serif);
+  font-family: var(--hellotest-font-body, "Inter", "Segoe UI", sans-serif);
   background: #fff !important;
   border: 1px solid #c6c6cd !important;
   border-radius: 16px !important;
@@ -459,7 +459,7 @@
 
 .test-case-create-module-header .dialog-title {
   color: #0d1c2d !important;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
   font-size: 24px !important;
   font-weight: 600 !important;
   letter-spacing: -0.01em !important;
@@ -538,7 +538,7 @@
 .test-case-create-module-section-heading h3 {
   margin: 0;
   color: #0d1c2d;
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0;
@@ -589,7 +589,7 @@
 .test-case-create-module-fields .form-field > .form-field-label {
   margin: 0 0 8px;
   color: #45464d !important;
-  font-family: var(--qaira-font-body, "Inter", sans-serif) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   letter-spacing: 0.08em !important;
@@ -1562,7 +1562,7 @@
   .test-case-create-module-details,
   .suite-reference-config {
     border-right: 0;
-    border-bottom: 1px solid var(--qaira-dialog-border, #d8dee8);
+    border-bottom: 1px solid var(--hellotest-dialog-border, #d8dee8);
   }
 
   .test-case-create-module-description .rich-text-editor {

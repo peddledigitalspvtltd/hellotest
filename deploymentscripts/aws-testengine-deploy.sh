@@ -9,14 +9,14 @@ usage() {
   cat <<EOF
 Usage: deploymentscripts/aws-testengine-deploy.sh [options]
 
-Deploys the QAira Test Engine worker plane on an AWS EC2 host.
+Deploys the HelloTest Test Engine worker plane on an AWS EC2 host.
 Run this on the separate Test Engine host.
 
 Required:
-  QAIRA_API_BASE_URL       Public QAira API base, for example https://qaira.qualipal.in/api
+  HELLOTEST_API_BASE_URL       Public HelloTest API base, for example https://hellotest.qualipal.in/api
 
 Options:
-  --api-base-url <url>     Same as QAIRA_API_BASE_URL.
+  --api-base-url <url>     Same as HELLOTEST_API_BASE_URL.
   --public-url <url>       Same as ENGINE_PUBLIC_URL.
   --port <port>            Host port for Test Engine. Default: 4301.
   --bind <address>         Host bind address for Test Engine. Default: 0.0.0.0.
@@ -29,8 +29,8 @@ AWS defaults:
   - auto-builds ENGINE_PUBLIC_URL from EC2 public IPv4 when possible
 
 Examples:
-  QAIRA_API_BASE_URL=https://qaira.qualipal.in/api deploymentscripts/aws-testengine-deploy.sh
-  deploymentscripts/aws-testengine-deploy.sh --api-base-url https://qaira.qualipal.in/api --public-url http://13.55.32.201:4301
+  HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api deploymentscripts/aws-testengine-deploy.sh
+  deploymentscripts/aws-testengine-deploy.sh --api-base-url https://hellotest.qualipal.in/api --public-url http://13.55.32.201:4301
 EOF
 }
 
@@ -40,8 +40,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --api-base-url)
       [ "$#" -ge 2 ] || die "Missing value for --api-base-url"
-      QAIRA_API_BASE_URL="$2"
-      export QAIRA_API_BASE_URL
+      HELLOTEST_API_BASE_URL="$2"
+      export HELLOTEST_API_BASE_URL
       shift
       ;;
     --public-url)
@@ -81,16 +81,16 @@ export TESTENGINE_BIND="${TESTENGINE_BIND:-0.0.0.0}"
 export SELENIUM_GRID_BIND="${SELENIUM_GRID_BIND:-127.0.0.1}"
 export SELENIUM_VNC_BIND="${SELENIUM_VNC_BIND:-127.0.0.1}"
 
-if [ -z "${QAIRA_API_BASE_URL:-}" ]; then
-  die "QAIRA_API_BASE_URL is required, for example https://qaira.qualipal.in/api"
+if [ -z "${HELLOTEST_API_BASE_URL:-}" ]; then
+  die "HELLOTEST_API_BASE_URL is required, for example https://hellotest.qualipal.in/api"
 fi
 
-case "$QAIRA_API_BASE_URL" in
+case "$HELLOTEST_API_BASE_URL" in
   */api|*/api/|http://*:3000|https://*:3000)
     ;;
   *)
-    warn "QAIRA_API_BASE_URL usually needs the /api suffix when it points at the public QAira web entrypoint."
-    warn "Use a bare origin only when that origin proxies directly to qaira-api."
+    warn "HELLOTEST_API_BASE_URL usually needs the /api suffix when it points at the public HelloTest web entrypoint."
+    warn "Use a bare origin only when that origin proxies directly to hellotest-api."
     ;;
 esac
 
@@ -106,8 +106,8 @@ if [ -z "${ENGINE_PUBLIC_URL:-}" ]; then
   die "ENGINE_PUBLIC_URL is required when EC2 public IPv4 metadata is unavailable."
 fi
 
-info "Deploying QAira Test Engine worker plane for AWS"
-info "QAira API base: $QAIRA_API_BASE_URL"
+info "Deploying HelloTest Test Engine worker plane for AWS"
+info "HelloTest API base: $HELLOTEST_API_BASE_URL"
 info "Engine public URL: $ENGINE_PUBLIC_URL"
 info "Engine bind: ${TESTENGINE_BIND}:${TESTENGINE_PORT}"
 info "Selenium Grid bind: ${SELENIUM_GRID_BIND}:${SELENIUM_GRID_PORT:-4444}"

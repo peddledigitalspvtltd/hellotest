@@ -3,30 +3,30 @@ import { areFeatureFlagsEnabled } from "./featureFlags";
 import { hasPermission } from "./permissions";
 
 export const AUTOMATION_CODE_FEATURE_FLAGS = [
-  "qaira.automation.workspace",
-  "qaira.automation.step_code"
+  "hellotest.automation.workspace",
+  "hellotest.automation.step_code"
 ] as const;
 
 export const AUTOMATION_BUILD_FEATURE_FLAGS = [
-  "qaira.automation.workspace",
-  "qaira.automation.builder",
-  "qaira.automation.step_code"
+  "hellotest.automation.workspace",
+  "hellotest.automation.builder",
+  "hellotest.automation.step_code"
 ] as const;
 
 export const AUTOMATION_PREVIEW_FEATURE_FLAGS = [
-  "qaira.automation.workspace",
-  "qaira.automation.preview",
-  "qaira.automation.step_code"
+  "hellotest.automation.workspace",
+  "hellotest.automation.preview",
+  "hellotest.automation.step_code"
 ] as const;
 
 export const AUTOMATION_AI_FEATURE_FLAGS = [
-  "qaira.automation.workspace",
-  "qaira.ai.automation"
+  "hellotest.automation.workspace",
+  "hellotest.ai.automation"
 ] as const;
 
 export const AUTOMATION_RECORDER_FEATURE_FLAGS = [
-  "qaira.automation.workspace",
-  "qaira.automation.step_recording"
+  "hellotest.automation.workspace",
+  "hellotest.automation.step_recording"
 ] as const;
 
 export function canViewAutomationCode(

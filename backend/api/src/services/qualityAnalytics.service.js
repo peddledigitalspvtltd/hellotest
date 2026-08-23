@@ -217,7 +217,7 @@ const evaluateGadget = async ({ projectId, gadget }) => {
     gadget: {
       id: gadget?.id || "preview",
       title: normalizeText(gadget?.title) || "Quality signal",
-      data_source: gadget?.data_source || "qaira",
+      data_source: gadget?.data_source || "hellotest",
       type: gadget?.type || "metric",
       group_by: gadget?.group_by || "status",
       metric,
@@ -312,7 +312,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     };
   }).sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || "")));
   return {
-    integration: { id: "qaira-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     generation_mode: "deterministic",
     generated_at: generatedAt,
     request_id: requestId,

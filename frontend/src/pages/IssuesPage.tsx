@@ -488,7 +488,7 @@ export function IssuesPage() {
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const canUseAiBugTriage = canManageBugs
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.bug_triage"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
   const [searchParams, setSearchParams] = useSearchParams();
   const bugReturnTo = safeBugReportReturnRoute(searchParams.get("returnTo"));
   const bugReturnLabel = String(searchParams.get("returnLabel") || "previous QA screen").slice(0, 80);
@@ -1076,7 +1076,7 @@ export function IssuesPage() {
         throw new Error("Some selected Bugs changed or became unavailable. Refresh the list and retry the export.");
       }
       downloadCsvRecords(
-        `qaira-bugs-${new Date().toISOString().slice(0, 10)}.csv`,
+        `hellotest-bugs-${new Date().toISOString().slice(0, 10)}.csv`,
         selectedItems.map((item) => ({
           ID: item.id,
           "Bug Title": item.title,
@@ -2338,7 +2338,7 @@ export function IssuesPage() {
                 hideToolbarCopy
                 onRowClick={(item) => openIssueWorkspace(item.id)}
                 rows={filteredItems}
-                storageKey="qaira:issues:list-columns"
+                storageKey="hellotest:issues:list-columns"
               />
             ) : null}
 

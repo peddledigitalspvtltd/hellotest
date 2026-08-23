@@ -1,4 +1,4 @@
-const ATLASSIAN_SITE_URL_KEY = "qaira.atlassian_site_url";
+const ATLASSIAN_SITE_URL_KEY = "hellotest.atlassian_site_url";
 
 function normalizeAtlassianSiteUrl(value?: string | null) {
   const candidate = String(value || "").trim();

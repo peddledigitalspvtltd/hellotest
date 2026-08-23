@@ -30,7 +30,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       integration_id: { required: false, type: "string" },
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
     }, req.body || {});
-    if (!await featureFlagService.isEnabled("qaira.ai.bug_triage", { user: req.user })) {
+    if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
       const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
       error.statusCode = 403;
       throw error;
@@ -82,7 +82,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       integration_id: { required: false, type: "string" },
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
     }, req.body);
-    if (!await featureFlagService.isEnabled("qaira.ai.bug_triage", { user: req.user })) {
+    if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
       const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
       error.statusCode = 403;
       throw error;

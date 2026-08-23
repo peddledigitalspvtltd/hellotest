@@ -24,11 +24,11 @@
         "PORT": "3000",
         "PGHOST": "localhost",
         "PGPORT": "5432",
-        "PGUSER": "qaira",
-        "PGPASSWORD": "qaira",
-        "PGDATABASE": "qaira",
-        "SESSION_SECRET": "qaira-dev-secret",
-        "TESTENGINE_SHARED_SECRET": "qaira-testengine-dev-secret",
+        "PGUSER": "hellotest",
+        "PGPASSWORD": "hellotest",
+        "PGDATABASE": "hellotest",
+        "SESSION_SECRET": "hellotest-dev-secret",
+        "TESTENGINE_SHARED_SECRET": "hellotest-testengine-dev-secret",
         "CORS_ORIGIN": "http://localhost:5173,http://127.0.0.1:5173"
       }
     },
@@ -65,11 +65,11 @@
       "env": {
         "NODE_ENV": "development",
         "PORT": "4301",
-        "ENGINE_NAME": "QAira Test Engine",
+        "ENGINE_NAME": "HelloTest Test Engine",
         "LOG_LEVEL": "debug",
         "ARTIFACT_ROOT": "${workspaceFolder}/testengine/backend/.artifacts",
-        "QAIRA_API_BASE_URL": "http://localhost:3000",
-        "QAIRA_TESTENGINE_SECRET": "qaira-testengine-dev-secret",
+        "HELLOTEST_API_BASE_URL": "http://localhost:3000",
+        "HELLOTEST_TESTENGINE_SECRET": "hellotest-testengine-dev-secret",
         "ENGINE_PUBLIC_URL": "http://localhost:4301"
       }
     },

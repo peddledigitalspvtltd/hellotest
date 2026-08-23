@@ -37,7 +37,7 @@ module.exports = async function (fastify) {
 
   fastify.post("/projects/portfolio-attention-report.pdf", async (req, reply) => {
     await fastify.authenticate(req);
-    const pdf = qualityDashboardReport.renderedSnapshotPdf(req.body || {}, { pageMode: "continuous" });
+    const pdf = qualityDashboardReport.renderedSnapshotPdf(req.body || {});
     if (!pdf) {
       const error = new Error("A rendered portfolio attention snapshot is required.");
       error.statusCode = 400;

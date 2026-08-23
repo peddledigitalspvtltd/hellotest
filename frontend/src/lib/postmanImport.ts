@@ -120,7 +120,7 @@ const stripHostLikeLeadingSegment = (segments: string[]) => {
   if (
     segments.length > 1
     && firstSegment
-    && (firstSegment === "qaira-variable" || firstSegment.includes(".") || firstSegment.startsWith("@"))
+    && (firstSegment === "hellotest-variable" || firstSegment.includes(".") || firstSegment.startsWith("@"))
   ) {
     return segments.slice(1);
   }
@@ -136,7 +136,7 @@ const getPathSegmentsFromRawUrl = (value: string) => {
   }
 
   try {
-    const parsedUrl = new URL(normalized.replace(/@([a-z0-9_.-]+)/gi, "qaira-variable"), "https://qaira.local");
+    const parsedUrl = new URL(normalized.replace(/@([a-z0-9_.-]+)/gi, "hellotest-variable"), "https://hellotest.local");
     return stripHostLikeLeadingSegment(parsedUrl.pathname.split("/").filter(Boolean));
   } catch {
     const segments = normalized

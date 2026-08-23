@@ -9,7 +9,7 @@ const LAYOUTS = new Set(["single", "two-column", "three-column"]);
 const TYPES = new Set(["metric", "donut", "bar", "stacked-bar", "line", "table"]);
 const GROUPS = new Set(["status", "statusCategory", "priority", "issuetype", "assignee", "reporter", "components", "fixVersion", "labels", "sprint", "resolution", "module", "createdWeek", "updatedWeek", "createdMonth", "updatedMonth"]);
 const METRICS = new Set(["count", "resolved", "unresolved", "highPriority", "unassigned", "overdue", "stale30d", "created30d", "resolved30d", "resolutionRate", "averageAgeDays", "averageResolutionDays", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"]);
-const QAIRA_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"]);
+const HELLOTEST_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"]);
 const ACCENTS = new Set(["blue", "green", "purple", "orange", "red", "teal", "slate"]);
 
 const normalizeGadgets = (items) => {
@@ -19,7 +19,7 @@ const normalizeGadgets = (items) => {
     throw error;
   }
   return items.map((item, index) => {
-    const dataSource = item?.data_source === "jira" ? "jira" : "qaira";
+    const dataSource = item?.data_source === "jira" ? "jira" : "hellotest";
     const requestedMetric = METRICS.has(item?.metric) ? item.metric : "count";
     return {
       id: String(item?.id || uuid()),
@@ -29,7 +29,7 @@ const normalizeGadgets = (items) => {
       type: TYPES.has(item?.type) ? item.type : "metric",
       jql: String(item?.jql || "").trim().slice(0, 1800),
       group_by: GROUPS.has(item?.group_by) ? item.group_by : "status",
-      metric: dataSource === "qaira" && !QAIRA_METRICS.has(requestedMetric) ? "count" : requestedMetric,
+      metric: dataSource === "hellotest" && !HELLOTEST_METRICS.has(requestedMetric) ? "count" : requestedMetric,
       accent: ACCENTS.has(item?.accent) ? item.accent : "blue"
     };
   });
@@ -148,10 +148,10 @@ const designPreview = ({ projectId, stakeholder = "executive", release = "", pro
     name: `${stakeholder.charAt(0).toUpperCase()}${stakeholder.slice(1)} quality dashboard`,
     description: String(prompt || "Evidence-backed QA decision signals.").trim().slice(0, 500),
     layout: "two-column",
-    gadgets: selected.map((metric) => ({ id: uuid(), title: metric.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase()), data_source: "qaira", release: release || undefined, type: "metric", jql: "", group_by: "status", metric, accent: metric.includes("failed") || metric.includes("Defect") ? "red" : "blue" }))
+    gadgets: selected.map((metric) => ({ id: uuid(), title: metric.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase()), data_source: "hellotest", release: release || undefined, type: "metric", jql: "", group_by: "status", metric, accent: metric.includes("failed") || metric.includes("Defect") ? "red" : "blue" }))
   };
   return {
-    integration: { id: "qaira-dashboard-designer", name: "HelloTest dashboard designer", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "hellotest-dashboard-designer", name: "HelloTest dashboard designer", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     generation_mode: "deterministic",
     generated_at: generatedAt,
     request_id: requestId,
@@ -268,7 +268,7 @@ const designPreviewWithAi = async ({ projectId, stakeholder = "executive", relea
       gadgets: normalizeGadgets(Array.isArray(candidate?.gadgets) ? candidate.gadgets.slice(0, 12).map((gadget) => ({
         ...gadget,
         id: uuid(),
-        data_source: "qaira",
+        data_source: "hellotest",
         jql: "",
         release: String(release || "").trim() || undefined
       })) : fallback.dashboard.gadgets)

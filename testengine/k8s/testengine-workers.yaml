@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: qaira-testengine-config
+  name: hellotest-testengine-config
 data:
   PORT: "4301"
-  QAIRA_API_BASE_URL: "http://qaira-api:3000"
-  ENGINE_PUBLIC_URL: "http://qaira-testengine-web:4301"
+  HELLOTEST_API_BASE_URL: "http://hellotest-api:3000"
+  ENGINE_PUBLIC_URL: "http://hellotest-testengine-web:4301"
   TESTENGINE_API_POLL_CONCURRENCY: "8"
   TESTENGINE_WEB_POLL_CONCURRENCY: "2"
   TESTENGINE_ANDROID_POLL_CONCURRENCY: "1"
@@ -16,32 +16,32 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qaira-testengine-api
+  name: hellotest-testengine-api
   labels:
-    app: qaira-testengine
+    app: hellotest-testengine
     engine-class: api
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: qaira-testengine
+      app: hellotest-testengine
       engine-class: api
   template:
     metadata:
       labels:
-        app: qaira-testengine
+        app: hellotest-testengine
         engine-class: api
     spec:
       containers:
         - name: worker
-          image: qaira-testengine:latest
+          image: hellotest-testengine:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: qaira-testengine-config
+                name: hellotest-testengine-config
           env:
             - name: ENGINE_NAME
-              value: qaira-testengine-api
+              value: hellotest-testengine-api
             - name: TESTENGINE_WORKER_CLASS
               value: api
             - name: TESTENGINE_POLL_INTERVAL_MS
@@ -49,12 +49,12 @@ spec:
             - name: TESTENGINE_POLL_CONCURRENCY
               valueFrom:
                 configMapKeyRef:
-                  name: qaira-testengine-config
+                  name: hellotest-testengine-config
                   key: TESTENGINE_API_POLL_CONCURRENCY
-            - name: QAIRA_TESTENGINE_SECRET
+            - name: HELLOTEST_TESTENGINE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-testengine-secret
+                  name: hellotest-testengine-secret
                   key: shared-secret
           ports:
             - containerPort: 4301
@@ -72,32 +72,32 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qaira-testengine-web
+  name: hellotest-testengine-web
   labels:
-    app: qaira-testengine
+    app: hellotest-testengine
     engine-class: web
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: qaira-testengine
+      app: hellotest-testengine
       engine-class: web
   template:
     metadata:
       labels:
-        app: qaira-testengine
+        app: hellotest-testengine
         engine-class: web
     spec:
       containers:
         - name: worker
-          image: qaira-testengine:latest
+          image: hellotest-testengine:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: qaira-testengine-config
+                name: hellotest-testengine-config
           env:
             - name: ENGINE_NAME
-              value: qaira-testengine-web
+              value: hellotest-testengine-web
             - name: TESTENGINE_WORKER_CLASS
               value: web
             - name: TESTENGINE_POLL_INTERVAL_MS
@@ -105,12 +105,12 @@ spec:
             - name: TESTENGINE_POLL_CONCURRENCY
               valueFrom:
                 configMapKeyRef:
-                  name: qaira-testengine-config
+                  name: hellotest-testengine-config
                   key: TESTENGINE_WEB_POLL_CONCURRENCY
-            - name: QAIRA_TESTENGINE_SECRET
+            - name: HELLOTEST_TESTENGINE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-testengine-secret
+                  name: hellotest-testengine-secret
                   key: shared-secret
           ports:
             - containerPort: 4301
@@ -128,10 +128,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: qaira-testengine-web
+  name: hellotest-testengine-web
 spec:
   selector:
-    app: qaira-testengine
+    app: hellotest-testengine
     engine-class: web
   ports:
     - name: http
@@ -141,47 +141,47 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qaira-testengine-android
+  name: hellotest-testengine-android
   labels:
-    app: qaira-testengine
+    app: hellotest-testengine
     engine-class: android
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: qaira-testengine
+      app: hellotest-testengine
       engine-class: android
   template:
     metadata:
       labels:
-        app: qaira-testengine
+        app: hellotest-testengine
         engine-class: android
     spec:
       containers:
         - name: worker
-          image: qaira-testengine:latest
+          image: hellotest-testengine:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: qaira-testengine-config
+                name: hellotest-testengine-config
           env:
             - name: ENGINE_NAME
-              value: qaira-testengine-android
+              value: hellotest-testengine-android
             - name: TESTENGINE_WORKER_CLASS
               value: android
             - name: MOBILE_ENGINE_URL
-              value: "http://qaira-mobile-engine:4312"
+              value: "http://hellotest-mobile-engine:4312"
             - name: TESTENGINE_POLL_INTERVAL_MS
               value: "1000"
             - name: TESTENGINE_POLL_CONCURRENCY
               valueFrom:
                 configMapKeyRef:
-                  name: qaira-testengine-config
+                  name: hellotest-testengine-config
                   key: TESTENGINE_ANDROID_POLL_CONCURRENCY
-            - name: QAIRA_TESTENGINE_SECRET
+            - name: HELLOTEST_TESTENGINE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-testengine-secret
+                  name: hellotest-testengine-secret
                   key: shared-secret
           ports:
             - containerPort: 4301
@@ -199,12 +199,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: qaira-testengine-api
+  name: hellotest-testengine-api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: qaira-testengine-api
+    name: hellotest-testengine-api
   minReplicas: 1
   maxReplicas: 10
   metrics:
@@ -218,12 +218,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: qaira-testengine-web
+  name: hellotest-testengine-web
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: qaira-testengine-web
+    name: hellotest-testengine-web
   minReplicas: 1
   maxReplicas: 5
   metrics:
@@ -237,12 +237,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: qaira-testengine-android
+  name: hellotest-testengine-android
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: qaira-testengine-android
+    name: hellotest-testengine-android
   minReplicas: 1
   maxReplicas: 2
   metrics:

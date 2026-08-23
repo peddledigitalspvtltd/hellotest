@@ -1,5 +1,5 @@
 import { buildAcceptedRun } from "./pipeline.js";
-import { completeQueuedJobWithMetadata, isQairaQueueConfigured, leaseNextQueuedJob, reportQueuedStep, startQueuedJob } from "./qairaClient.js";
+import { completeQueuedJobWithMetadata, isHelloTestQueueConfigured, leaseNextQueuedJob, reportQueuedStep, startQueuedJob } from "./hellotestClient.js";
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
@@ -84,7 +84,7 @@ function buildJobTelemetry(job, workerId, extra = {}) {
         },
         project_id: envelope.project?.id || null,
         execution: {
-            id: envelope.qaira_execution_id || envelope.qaira_run_id,
+            id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
             name: envelope.manual_spec?.title || job.test_case_title
         },
         test_case: {
@@ -180,11 +180,11 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             syncCapturedValuesToWebContext(report.captures, webRunSession);
         })
             .catch((error) => {
-            logger.error({ error, jobId: job.id, stepId }, "Unable to report queued step result back to QAira");
+            logger.error({ error, jobId: job.id, stepId }, "Unable to report queued step result back to HelloTest");
             emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
                 event_type: "testengine.queue.step.report.failed",
                 status: "failed",
-                summary: "Unable to report queued step result back to QAira.",
+                summary: "Unable to report queued step result back to HelloTest.",
                 error: serializeError(error)
             }));
         });
@@ -213,7 +213,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
     };
     try {
         await startQueuedJob(job.id, workerId);
-        updateRunState(accepted.id, "running", `Leased ${job.test_case_title} from QAira queue.`);
+        updateRunState(accepted.id, "running", `Leased ${job.test_case_title} from HelloTest queue.`);
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
             event_type: "testengine.queue.job.started",
             status: "running",
@@ -442,7 +442,7 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
                     kind: "script",
                     status: "review",
                     summary: `Step ${step.order} recovered after a headed browser retry. Review this step for locator or wait hardening before promoting the fix.`,
-                    target_path: `qaira://test-cases/${envelope.qaira_test_case_id}/steps/${step.id}`
+                    target_path: `hellotest://test-cases/${envelope.hellotest_test_case_id}/steps/${step.id}`
                 });
             }
             enqueueStepReport(step.id, {
@@ -545,11 +545,11 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
             });
         }
         catch (reportError) {
-            logger.error({ error: reportError, jobId: job.id }, "Unable to report queued job failure back to QAira");
+            logger.error({ error: reportError, jobId: job.id }, "Unable to report queued job failure back to HelloTest");
             emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
                 event_type: "testengine.queue.report.failed",
                 status: "failed",
-                summary: "Unable to report queued job failure back to QAira.",
+                summary: "Unable to report queued job failure back to HelloTest.",
                 error: serializeError(reportError)
             }));
         }
@@ -572,15 +572,15 @@ async function executeQueuedJob(job, workerId, logger, telemetry) {
     }
 }
 export function startQueueWorker(logger, telemetry) {
-    if (!isQairaQueueConfigured()) {
-        logger.info("QAira queue pull mode is disabled because QAIRA_API_BASE_URL is not configured.");
+    if (!isHelloTestQueueConfigured()) {
+        logger.info("HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.");
         emitTelemetry(telemetry, {
             event_type: "testengine.queue.worker.disabled",
             status: "disabled",
-            summary: "QAira queue pull mode is disabled because QAIRA_API_BASE_URL is not configured.",
+            summary: "HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.",
             configuration: {
-                qaira_api_base_url_configured: Boolean(process.env.QAIRA_API_BASE_URL),
-                qaira_testengine_secret_configured: Boolean(process.env.QAIRA_TESTENGINE_SECRET || process.env.TESTENGINE_SHARED_SECRET)
+                hellotest_api_base_url_configured: Boolean(process.env.HELLOTEST_API_BASE_URL),
+                hellotest_testengine_secret_configured: Boolean(process.env.HELLOTEST_TESTENGINE_SECRET || process.env.TESTENGINE_SHARED_SECRET)
             }
         });
         return;
@@ -592,11 +592,11 @@ export function startQueueWorker(logger, telemetry) {
         poll_interval_ms: POLL_INTERVAL_MS,
         poll_concurrency: POLL_CONCURRENCY,
         engine_class: workerEngineClass || "any"
-    }, "QAira queue pull worker started");
+    }, "HelloTest queue pull worker started");
     emitTelemetry(telemetry, {
         event_type: "testengine.queue.worker.started",
         status: "running",
-        summary: `QAira ${workerEngineClass || "general"} queue pull worker started. Polling every ${POLL_INTERVAL_MS}ms.`,
+        summary: `HelloTest ${workerEngineClass || "general"} queue pull worker started. Polling every ${POLL_INTERVAL_MS}ms.`,
         configuration: {
             poll_interval_ms: POLL_INTERVAL_MS,
             poll_concurrency: POLL_CONCURRENCY,
@@ -610,7 +610,7 @@ export function startQueueWorker(logger, telemetry) {
         isPolling = true;
         try {
             while (activeJobs.size < POLL_CONCURRENCY) {
-                const workerId = `${process.env.ENGINE_NAME || "qaira-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
+                const workerId = `${process.env.ENGINE_NAME || "hellotest-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
                 const job = await leaseNextQueuedJob(workerId, workerEngineClass);
                 if (!job || activeJobs.has(job.id)) {
                     break;
@@ -632,11 +632,11 @@ export function startQueueWorker(logger, telemetry) {
             }
         }
         catch (error) {
-            logger.error({ error }, "Unable to poll QAira queued jobs");
+            logger.error({ error }, "Unable to poll HelloTest queued jobs");
             emitTelemetry(telemetry, {
                 event_type: "testengine.queue.poll.failed",
                 status: "failed",
-                summary: "Unable to poll QAira queued jobs.",
+                summary: "Unable to poll HelloTest queued jobs.",
                 error: serializeError(error)
             });
         }

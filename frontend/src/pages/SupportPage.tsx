@@ -6,17 +6,17 @@ const supportChannels = [
   {
     title: "Platform support",
     description: "Reach the internal HelloTest workspace team for environment issues, access recovery, and platform bugs.",
-    value: "support@qaira.local"
+    value: "support@hellotest.local"
   },
   {
     title: "Release escalation",
     description: "Use this channel when active run blockers are affecting a release milestone or go-live decision.",
-    value: "release-ops@qaira.local"
+    value: "release-ops@hellotest.local"
   },
   {
     title: "Integration help",
     description: "Contact the integration desk for LLM keys, work-tracker connectivity, or webhook troubleshooting.",
-    value: "integrations@qaira.local"
+    value: "integrations@hellotest.local"
   }
 ];
 
@@ -41,7 +41,7 @@ export function SupportPage() {
           { label: "Status", value: "Monitoring" }
         ]}
         actions={
-          <a className="primary-button" href={`mailto:${supportChannels[0].value}?subject=QAIra%20Support%20Request`}>
+          <a className="primary-button" href={`mailto:${supportChannels[0].value}?subject=HelloTest%20Support%20Request`}>
             <MailIcon />
             Open Support Ticket
           </a>

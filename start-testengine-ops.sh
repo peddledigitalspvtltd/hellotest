@@ -10,22 +10,22 @@ usage() {
 Usage: ./start-testengine-ops.sh [options]
 
 Starts the standalone Test Engine stack and aligns its OPS telemetry settings with the
-current QAira integrations whenever auth is available.
+current HelloTest integrations whenever auth is available.
 
 Options:
   --no-pull       Reuse current local image references and skip docker pull.
   --help          Show this help message.
 
 Required environment variables:
-  QAIRA_API_BASE_URL       QAira public API base URL, for example https://qaira.qualipal.in/api
+  HELLOTEST_API_BASE_URL       HelloTest public API base URL, for example https://hellotest.qualipal.in/api
 
 Optional environment variables:
-  QAIRA_TESTENGINE_IMAGE   Default: jayarajumetta/qaira-testengine:latest
-  QAIRA_TESTENGINE_SECRET  Shared secret for QAira queue APIs. Defaults to the QAira dev fallback.
-  QAIRA_PROJECT_ID         Resolve project-scoped Test Engine and OPS integrations first
-  QAIRA_AUTH_TOKEN         Read active integrations from QAira with this bearer token
-  QAIRA_AUTH_EMAIL         Login email used when QAIRA_AUTH_TOKEN is not provided
-  QAIRA_AUTH_PASSWORD      Login password paired with QAIRA_AUTH_EMAIL
+  HELLOTEST_TESTENGINE_IMAGE   Default: jayarajumetta/hellotest-testengine:latest
+  HELLOTEST_TESTENGINE_SECRET  Shared secret for HelloTest queue APIs. Defaults to the HelloTest dev fallback.
+  HELLOTEST_PROJECT_ID         Resolve project-scoped Test Engine and OPS integrations first
+  HELLOTEST_AUTH_TOKEN         Read active integrations from HelloTest with this bearer token
+  HELLOTEST_AUTH_EMAIL         Login email used when HELLOTEST_AUTH_TOKEN is not provided
+  HELLOTEST_AUTH_PASSWORD      Login password paired with HELLOTEST_AUTH_EMAIL
   ENGINE_PUBLIC_URL        Public URL of this Test Engine host. Falls back to active integration, then localhost
   TESTENGINE_PORT          Host port for the engine container. Default: 4301
   TESTENGINE_POLL_INTERVAL_MINUTES
@@ -34,7 +34,7 @@ Optional environment variables:
                          Lower-level queue pull cadence override in milliseconds.
   OPS_OTLP_ENDPOINT        Optional OTLP endpoint to inject as OTEL_EXPORTER_OTLP_ENDPOINT
   OTEL_EXPORTER_OTLP_ENDPOINT
-  OTEL_SERVICE_NAME        Defaults to the active OPS service_name or qaira-testengine
+  OTEL_SERVICE_NAME        Defaults to the active OPS service_name or hellotest-testengine
   OTEL_RESOURCE_ATTRIBUTES Defaults to service.name + deployment.environment
   OPS_ENVIRONMENT          Defaults to the active OPS environment or production
   OPS_TELEMETRY_EVENTS_PATH
@@ -44,15 +44,15 @@ Optional environment variables:
   OPS_TELEMETRY_API_KEY_PREFIX
   OPS_TELEMETRY_MAX_EVENTS Default: 2000
   OPS_TELEMETRY_STORE_PATH Default: /artifacts/ops-telemetry-events.ndjson
-  QAIRA_SELENIUM_HUB_IMAGE
-  QAIRA_SELENIUM_NODE_IMAGE
+  HELLOTEST_SELENIUM_HUB_IMAGE
+  HELLOTEST_SELENIUM_NODE_IMAGE
   SELENIUM_GRID_PORT
   LOG_LEVEL
 
 Example:
-  QAIRA_API_BASE_URL=https://qaira.qualipal.in/api \\
-  QAIRA_AUTH_TOKEN=replace-with-a-qaira-token \\
-  QAIRA_PROJECT_ID=replace-with-project-id \\
+  HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \\
+  HELLOTEST_AUTH_TOKEN=replace-with-a-hellotest-token \\
+  HELLOTEST_PROJECT_ID=replace-with-project-id \\
   ./start-testengine-ops.sh
 EOF
 }
@@ -112,8 +112,8 @@ wait_for_url() {
 
 resolve_from_integrations() {
   if ! command -v node >/dev/null 2>&1; then
-    if [ -n "${QAIRA_AUTH_TOKEN:-}${QAIRA_AUTH_EMAIL:-}${QAIRA_AUTH_PASSWORD:-}${QAIRA_PROJECT_ID:-}" ]; then
-      echo "Node.js is required to resolve Test Engine and OPS settings from QAira integrations."
+    if [ -n "${HELLOTEST_AUTH_TOKEN:-}${HELLOTEST_AUTH_EMAIL:-}${HELLOTEST_AUTH_PASSWORD:-}${HELLOTEST_PROJECT_ID:-}" ]; then
+      echo "Node.js is required to resolve Test Engine and OPS settings from HelloTest integrations."
       exit 1
     fi
     return 0
@@ -146,24 +146,24 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-QAIRA_API_BASE_URL="${QAIRA_API_BASE_URL:-}"
-PROVIDED_TESTENGINE_SECRET="${QAIRA_TESTENGINE_SECRET:-${TESTENGINE_SHARED_SECRET:-}}"
-QAIRA_TESTENGINE_SECRET="${PROVIDED_TESTENGINE_SECRET:-qaira-testengine-dev-secret}"
-QAIRA_TESTENGINE_IMAGE="${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}"
+HELLOTEST_API_BASE_URL="${HELLOTEST_API_BASE_URL:-}"
+PROVIDED_TESTENGINE_SECRET="${HELLOTEST_TESTENGINE_SECRET:-${TESTENGINE_SHARED_SECRET:-}}"
+HELLOTEST_TESTENGINE_SECRET="${PROVIDED_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}"
+HELLOTEST_TESTENGINE_IMAGE="${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}"
 TESTENGINE_PORT="${TESTENGINE_PORT:-4301}"
 OPS_ENVIRONMENT="${OPS_ENVIRONMENT:-}"
 OTEL_EXPORTER_OTLP_ENDPOINT="${OPS_OTLP_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
 OPS_TELEMETRY_MAX_EVENTS="${OPS_TELEMETRY_MAX_EVENTS:-2000}"
 
-if [ -z "$QAIRA_API_BASE_URL" ]; then
-  echo "QAIRA_API_BASE_URL is required."
-  echo "Example: QAIRA_API_BASE_URL=https://qaira.qualipal.in/api ./start-testengine-ops.sh"
+if [ -z "$HELLOTEST_API_BASE_URL" ]; then
+  echo "HELLOTEST_API_BASE_URL is required."
+  echo "Example: HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api ./start-testengine-ops.sh"
   exit 1
 fi
 
 if [ -z "$PROVIDED_TESTENGINE_SECRET" ]; then
-  echo "Warning: QAIRA_TESTENGINE_SECRET was not set; using the QAira dev fallback secret."
-  echo "Warning: This works only when the QAira API host also uses its default fallback."
+  echo "Warning: HELLOTEST_TESTENGINE_SECRET was not set; using the HelloTest dev fallback secret."
+  echo "Warning: This works only when the HelloTest API host also uses its default fallback."
 fi
 
 resolve_from_integrations
@@ -175,7 +175,7 @@ TESTENGINE_POLL_INTERVAL_MS="${TESTENGINE_POLL_INTERVAL_MS:-${RESOLVED_TESTENGIN
 OPS_TELEMETRY_EVENTS_PATH="${OPS_TELEMETRY_EVENTS_PATH:-${RESOLVED_OPS_EVENTS_PATH:-/api/v1/events}}"
 OPS_TELEMETRY_BOARD_PATH="${OPS_TELEMETRY_BOARD_PATH:-${RESOLVED_OPS_BOARD_PATH:-/ops-telemetry}}"
 OPS_ENVIRONMENT="${OPS_ENVIRONMENT:-${RESOLVED_OPS_ENVIRONMENT:-production}}"
-OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-${RESOLVED_OPS_SERVICE_NAME:-qaira-testengine}}"
+OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-${RESOLVED_OPS_SERVICE_NAME:-hellotest-testengine}}"
 OPS_TELEMETRY_SERVICE_NAME="${OPS_TELEMETRY_SERVICE_NAME:-$OTEL_SERVICE_NAME}"
 OPS_TELEMETRY_ENVIRONMENT="${OPS_TELEMETRY_ENVIRONMENT:-$OPS_ENVIRONMENT}"
 OPS_TELEMETRY_API_KEY="${OPS_TELEMETRY_API_KEY:-${RESOLVED_OPS_API_KEY:-}}"
@@ -191,7 +191,7 @@ else
 fi
 
 if [ "$ENGINE_PUBLIC_URL" = "$DEFAULT_ENGINE_PUBLIC_URL" ] && [ -z "${RESOLVED_ENGINE_PUBLIC_URL:-}" ]; then
-  echo "Warning: Using the fallback engine URL ${ENGINE_PUBLIC_URL}. Set ENGINE_PUBLIC_URL or provide QAira auth if the active Test Engine integration already points at a hosted URL."
+  echo "Warning: Using the fallback engine URL ${ENGINE_PUBLIC_URL}. Set ENGINE_PUBLIC_URL or provide HelloTest auth if the active Test Engine integration already points at a hosted URL."
 fi
 
 LOCAL_OPS_EVENTS_PATH="$(normalize_path "$OPS_TELEMETRY_EVENTS_PATH" "/api/v1/events")"
@@ -204,9 +204,9 @@ PUBLIC_OPS_HEALTH_URL="${RESOLVED_OPS_HEALTH_URL:-${ENGINE_PUBLIC_URL}/health}"
 PUBLIC_OPS_EVENTS_URL="${RESOLVED_OPS_EVENTS_URL:-${PUBLIC_OPS_TRANSPORT_HOST}${LOCAL_OPS_EVENTS_PATH}}"
 PUBLIC_OPS_BOARD_URL="${RESOLVED_OPS_BOARD_URL:-${PUBLIC_OPS_TRANSPORT_HOST}${LOCAL_OPS_BOARD_PATH}}"
 
-export QAIRA_TESTENGINE_IMAGE
-export QAIRA_API_BASE_URL
-export QAIRA_TESTENGINE_SECRET
+export HELLOTEST_TESTENGINE_IMAGE
+export HELLOTEST_API_BASE_URL
+export HELLOTEST_TESTENGINE_SECRET
 export ENGINE_PUBLIC_URL
 export TESTENGINE_PORT
 export TESTENGINE_POLL_INTERVAL_MINUTES
@@ -228,7 +228,7 @@ export OPS_TELEMETRY_API_KEY_PREFIX
 ensure_docker
 
 echo "Starting Test Engine + OPS telemetry stack..."
-echo "QAira API base: $QAIRA_API_BASE_URL"
+echo "HelloTest API base: $HELLOTEST_API_BASE_URL"
 if [ -n "${RESOLVED_ENGINE_INTEGRATION_NAME:-}" ]; then
   echo "Active Test Engine integration: ${RESOLVED_ENGINE_INTEGRATION_NAME}"
 fi

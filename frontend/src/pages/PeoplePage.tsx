@@ -776,7 +776,7 @@ export function PeoplePage({
   };
 
   const handleExportUsers = () => {
-    downloadJsonFile(`qaira-users-${new Date().toISOString().slice(0, 10)}.json`, {
+    downloadJsonFile(`hellotest-users-${new Date().toISOString().slice(0, 10)}.json`, {
       exported_at: new Date().toISOString(),
       users: userItems.map((user) => ({
         id: user.id,
@@ -852,7 +852,7 @@ export function PeoplePage({
         };
       }));
 
-      downloadJsonFile(`qaira-roles-${new Date().toISOString().slice(0, 10)}.json`, {
+      downloadJsonFile(`hellotest-roles-${new Date().toISOString().slice(0, 10)}.json`, {
         exported_at: new Date().toISOString(),
         permission_catalog: permissionGroups.map((group) => ({
           key: group.key,
@@ -1009,7 +1009,7 @@ export function PeoplePage({
                   hideToolbarCopy
                   onRowClick={(user) => openUserWorkspace(user.id)}
                   rows={filteredUserItems}
-                  storageKey="qaira:users:list-columns"
+                  storageKey="hellotest:users:list-columns"
                 />
               ) : null}
               {!isUserCatalogLoading && !userItems.length ? <div className="empty-state compact">No users found yet.</div> : null}
@@ -1229,7 +1229,7 @@ export function PeoplePage({
                   hideToolbarCopy
                   onRowClick={(role) => openRoleWorkspace(role.id)}
                   rows={filteredRoleItems}
-                  storageKey="qaira:roles:list-columns"
+                  storageKey="hellotest:roles:list-columns"
                 />
               ) : null}
               {!isRoleCatalogLoading && !roleItems.length ? <div className="empty-state compact">No roles defined yet.</div> : null}

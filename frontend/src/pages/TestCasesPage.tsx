@@ -596,9 +596,9 @@ const buildTestCaseQualitySuggestions = ({
   return suggestions;
 };
 
-const TEST_CASE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.testCaseParameterDrafts.v1";
-const SUITE_PARAMETER_DRAFT_STORAGE_KEY = "qaira.suiteParameterDrafts.v1";
-const RUN_PARAMETER_PREVIEW_STORAGE_KEY = "qaira.runParameterPreviewDrafts.v1";
+const TEST_CASE_PARAMETER_DRAFT_STORAGE_KEY = "hellotest.testCaseParameterDrafts.v1";
+const SUITE_PARAMETER_DRAFT_STORAGE_KEY = "hellotest.suiteParameterDrafts.v1";
+const RUN_PARAMETER_PREVIEW_STORAGE_KEY = "hellotest.runParameterPreviewDrafts.v1";
 const TEST_CASE_RUN_POLL_INTERVAL_MS = 20_000;
 
 const normalizeScopedParameterValues = (
@@ -1734,17 +1734,17 @@ export function TestCasesPage() {
 	  const canDeleteAttachments = hasPermission(session, "attachment.delete");
 	  const canExportTestCases = hasPermission(session, "testcase.export");
 	  const canUseTestCaseAi = hasPermission(session, "testcase.ai")
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.test_authoring"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.test_authoring"]);
 	  const canCreateSuites = hasPermission(session, "suite.create")
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.suites"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
 	  const canUpdateSuites = hasPermission(session, "suite.update")
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.suites"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
 	  const canCreateRuns = hasPermission(session, "run.create")
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
 	  const canViewExecutionInsights = hasPermission(session, "run.view")
 	    && hasPermission(session, "result.view")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath("/executions"));
-	  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace"]);
+	  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
 	  const canViewAutomationInsights = hasPermission(session, "automation.view")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath("/automation"));
 	  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
@@ -1755,16 +1755,16 @@ export function TestCasesPage() {
 	  const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data);
 	  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
 	    && canUseAutomationWorkspace
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.local_execution"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
 	  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
 	    && canUseAutomationWorkspace
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.remote_execution"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
 	  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel")
 	    && canUseAutomationWorkspace
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.parallel_execution"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
 	  const canUseMobileAppium = hasPermission(session, "mobile.manage")
 	    && canUseAutomationWorkspace
-	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.mobile.appium"]);
+	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
 	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
@@ -6371,7 +6371,7 @@ export function TestCasesPage() {
         };
       });
       const safeLabel = (options?.fileLabel || "test-cases").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "test-cases";
-      downloadCsvRecords(`qaira-${safeLabel}.csv`, exportedRows);
+      downloadCsvRecords(`hellotest-${safeLabel}.csv`, exportedRows);
       showSuccess(
         options?.successMessage
           || `Test case export${options?.fileLabel ? ` for "${options.fileLabel}"` : ""} queued. Track progress in TestOps batch process ${response.transaction_id.slice(0, 8)}.`
@@ -8419,7 +8419,7 @@ export function TestCasesPage() {
             icon: <TestCaseRunIcon />,
             onClick: () => void handleRunTestCase(testCase.id),
             disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !canCreateRuns || !projectId || !appTypeId || !session?.user.id,
-            featureKeys: ["qaira.manual.runs"],
+            featureKeys: ["hellotest.manual.runs"],
             requiredPermissions: ["run.create"],
             tone: "primary" as const
           },
@@ -8433,7 +8433,7 @@ export function TestCasesPage() {
             icon: <TestCaseRunIcon />,
             onClick: () => void handleRunTestCase(testCase.id, "local"),
             disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalAutomation || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-            featureKeys: ["qaira.automation.workspace", "qaira.automation.local_execution"],
+            featureKeys: ["hellotest.automation.workspace", "hellotest.automation.local_execution"],
             requiredPermissions: ["automation.run.local"],
             tone: "primary" as const
           },
@@ -9649,7 +9649,7 @@ export function TestCasesPage() {
 		                        icon: <TestCaseRunIcon />,
 		                        onClick: () => void handleRunTestCase(testCase.id),
 		                        disabled: isRunningCase || isRunningLocalCase || isAcceptingCase || isRejectingCase || !canCreateRuns || !projectId || !appTypeId || !session?.user.id,
-	                        featureKeys: ["qaira.manual.runs"],
+	                        featureKeys: ["hellotest.manual.runs"],
 	                        requiredPermissions: ["run.create"],
 	                        tone: "primary" as const
 	                      },
@@ -9666,7 +9666,7 @@ export function TestCasesPage() {
 		                            icon: <TestCaseRunIcon />,
 		                            onClick: () => void handleRunTestCase(testCase.id, "local"),
 		                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalAutomation || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-		                            featureKeys: ["qaira.automation.workspace", "qaira.automation.local_execution"],
+		                            featureKeys: ["hellotest.automation.workspace", "hellotest.automation.local_execution"],
 		                            requiredPermissions: ["automation.run.local"],
 	                            tone: "primary" as const
 	                          },
@@ -9867,7 +9867,7 @@ export function TestCasesPage() {
                   renderRowActions={renderTestCaseRowActions}
                   rowGroups={testCaseListRowGroups}
                   rows={[]}
-                  storageKey="qaira:test-cases:list-columns:v2"
+                  storageKey="hellotest:test-cases:list-columns:v2"
                 />
               ) : null}
 	              {!isLibraryLoading && hasMoreVisibleTestCases ? (

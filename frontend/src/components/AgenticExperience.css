@@ -1008,7 +1008,7 @@ button.ai-feature-composer__brief-item:focus-visible { z-index: 1; outline: 2px 
 
 .agent-process-rail.is-vertical .agent-process-rail__head > span {
   color: var(--text-primary, #1f2328);
-  font-family: var(--qaira-font-heading, "Hanken Grotesk", "Inter", sans-serif);
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
   font-size: 0.78rem;
   letter-spacing: 0.055em;
   text-transform: uppercase;

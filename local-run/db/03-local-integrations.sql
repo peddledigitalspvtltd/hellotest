@@ -23,7 +23,7 @@ VALUES
   '{
     "project_id":null,
     "runner":"hybrid",
-    "dispatch_mode":"qaira-pull",
+    "dispatch_mode":"hellotest-pull",
     "execution_scope":"api+web",
     "active_web_engine":"playwright",
     "browser":"chromium",
@@ -42,7 +42,7 @@ VALUES
     "recovery_wait_ms":750,
     "max_video_attachment_mb":25,
     "queue_poll_interval_minutes":0.5,
-    "qaira_api_base_url":"http://api:3000",
+    "hellotest_api_base_url":"http://api:3000",
     "promote_healed_patches":"review",
     "public_base_url":"http://localhost:4301",
     "recorder_public_base_url":"http://localhost:4301",
@@ -57,7 +57,7 @@ VALUES
 (
   '382a96b2-fbed-4e1a-9a7a-50c0b399df60',
   'google_auth',
-  'QAira',
+  'HelloTest',
   'https://api.openai.com/v1',
   NULL,
   NULL,
@@ -69,7 +69,7 @@ VALUES
 (
   '08f12517-6229-4e4c-a6d2-4f88145fbff1',
   'ops',
-  'Qaira',
+  'HelloTest',
   'http://testengine:4301',
   NULL,
   NULL,
@@ -81,7 +81,7 @@ VALUES
     "health_path":"/health",
     "api_key_header":"Authorization",
     "api_key_prefix":"Bearer",
-    "service_name":"qaira-testengine",
+    "service_name":"hellotest-testengine",
     "environment":"local",
     "timeout_ms":4000,
     "emit_step_events":true,
@@ -106,7 +106,7 @@ VALUES
 (
   'df45e7d9-5167-4b30-a766-3c92a2a27a99',
   'email',
-  'QAira',
+  'HelloTest',
   'https://api.openai.com/v1',
   NULL,
   NULL,
@@ -118,7 +118,7 @@ VALUES
     "secure":false,
     "password":"********",
     "sender_email":"contact@qualipal.in",
-    "sender_name":"QAira Support"
+    "sender_name":"HelloTest Support"
   }'::jsonb,
   TRUE
 ),

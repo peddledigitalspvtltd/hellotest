@@ -46,11 +46,11 @@ export function CreateRunActionButton({
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canCreateManualRuns = hasPermission(session, "run.create")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.manual.runs"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
   const canCreateLocalRuns = hasPermission(session, "automation.run.local")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.local_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.local_execution"]);
   const canCreateRemoteRuns = hasPermission(session, "automation.run.remote")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.workspace", "qaira.automation.remote_execution"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
   const isManualDisabled = disabled || !canCreateManualRuns;
   const canOpenMenu = !disabled && (canCreateLocalRuns || canCreateRemoteRuns);
 

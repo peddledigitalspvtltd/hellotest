@@ -4,13 +4,13 @@ set -euo pipefail
 MODE="${1:-compose}"
 ACTION="${2:-up}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${QAIRA_ISOLATED_OUT_DIR:-${ROOT_DIR}/.qaira-isolated}"
+OUT_DIR="${HELLOTEST_ISOLATED_OUT_DIR:-${ROOT_DIR}/.hellotest-isolated}"
 
 mkdir -p "${OUT_DIR}"
 
-API_IMAGE="${QAIRA_BACKEND_IMAGE:-jayarajumetta/qaira-backend:latest}"
-FRONTEND_IMAGE="${QAIRA_FRONTEND_IMAGE:-jayarajumetta/qaira-frontend:latest}"
-TESTENGINE_IMAGE="${QAIRA_TESTENGINE_IMAGE:-jayarajumetta/qaira-testengine:latest}"
+API_IMAGE="${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}"
+FRONTEND_IMAGE="${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}"
+TESTENGINE_IMAGE="${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
 
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
@@ -22,76 +22,76 @@ SELENIUM_HOST_PORT="${SELENIUM_HOST_PORT:-4444}"
 SELENIUM_VNC_HOST_PORT="${SELENIUM_VNC_HOST_PORT:-7900}"
 
 COMPOSE_FILE="${OUT_DIR}/docker-compose.isolated.yml"
-K8S_FILE="${OUT_DIR}/qaira-isolated.k8s.yaml"
+K8S_FILE="${OUT_DIR}/hellotest-isolated.k8s.yaml"
 
 write_compose() {
   cat > "${COMPOSE_FILE}" <<YAML
 services:
   postgres:
     image: ${POSTGRES_IMAGE}
-    container_name: qaira-postgres-isolated
-    hostname: qaira-postgres
+    container_name: hellotest-postgres-isolated
+    hostname: hellotest-postgres
     ports:
       - "${POSTGRES_HOST_PORT}:5432"
     environment:
-      POSTGRES_DB: \${POSTGRES_DB:-qaira}
-      POSTGRES_USER: \${POSTGRES_USER:-qaira}
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-qaira}
+      POSTGRES_DB: \${POSTGRES_DB:-hellotest}
+      POSTGRES_USER: \${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-hellotest}
     volumes:
-      - qaira-isolated-postgres:/var/lib/postgresql/data
+      - hellotest-isolated-postgres:/var/lib/postgresql/data
       - ${ROOT_DIR}/backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ${ROOT_DIR}/backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-qaira} -d \${POSTGRES_DB:-qaira}"]
+      test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-hellotest} -d \${POSTGRES_DB:-hellotest}"]
       interval: 5s
       timeout: 5s
       retries: 24
     networks:
-      qaira-data:
+      hellotest-data:
         aliases:
           - postgres
 
   api:
     image: ${API_IMAGE}
-    container_name: qaira-api-isolated
-    hostname: qaira-api
+    container_name: hellotest-api-isolated
+    hostname: hellotest-api
     ports:
       - "${API_HOST_PORT}:3000"
     environment:
-      DATABASE_URL: \${DATABASE_URL:-postgresql://qaira:qaira@postgres:5432/qaira}
-      SESSION_SECRET: \${SESSION_SECRET:-qaira-dev-secret}
+      DATABASE_URL: \${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      SESSION_SECRET: \${SESSION_SECRET:-hellotest-dev-secret}
       CORS_ORIGIN: \${CORS_ORIGIN:-http://localhost:${FRONTEND_HOST_PORT},http://127.0.0.1:${FRONTEND_HOST_PORT}}
-      TESTENGINE_CALLBACK_SECRET: \${TESTENGINE_CALLBACK_SECRET:-qaira-testengine-dev-secret}
+      TESTENGINE_CALLBACK_SECRET: \${TESTENGINE_CALLBACK_SECRET:-hellotest-testengine-dev-secret}
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      qaira-data: {}
-      qaira-app:
+      hellotest-data: {}
+      hellotest-app:
         aliases:
           - api
     restart: unless-stopped
 
   frontend:
     image: ${FRONTEND_IMAGE}
-    container_name: qaira-frontend-isolated
-    hostname: qaira-frontend
+    container_name: hellotest-frontend-isolated
+    hostname: hellotest-frontend
     ports:
       - "${FRONTEND_HOST_PORT}:80"
     environment:
-      QAIRA_API_BASE_URL: \${QAIRA_API_BASE_URL:-/api}
+      HELLOTEST_API_BASE_URL: \${HELLOTEST_API_BASE_URL:-/api}
     depends_on:
       - api
     networks:
-      qaira-app:
+      hellotest-app:
         aliases:
           - frontend
     restart: unless-stopped
 
   selenium:
     image: selenium/standalone-chromium:latest
-    container_name: qaira-selenium-isolated
-    hostname: qaira-selenium
+    container_name: hellotest-selenium-isolated
+    hostname: hellotest-selenium
     shm_size: 2gb
     ports:
       - "${SELENIUM_HOST_PORT}:4444"
@@ -101,32 +101,32 @@ services:
       SE_NODE_OVERRIDE_MAX_SESSIONS: "true"
       SE_START_XVFB: "true"
     networks:
-      qaira-engine:
+      hellotest-engine:
         aliases:
           - selenium
 
   testengine:
     image: ${TESTENGINE_IMAGE}
-    container_name: qaira-testengine-isolated
-    hostname: qaira-testengine
+    container_name: hellotest-testengine-isolated
+    hostname: hellotest-testengine
     ports:
       - "${TESTENGINE_API_HOST_PORT}:4301"
     environment:
       PORT: 4301
-      QAIRA_API_BASE_URL: \${QAIRA_API_BASE_URL:-http://api:3000}
-      QAIRA_TESTENGINE_SECRET: \${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}
+      HELLOTEST_API_BASE_URL: \${HELLOTEST_API_BASE_URL:-http://api:3000}
+      HELLOTEST_TESTENGINE_SECRET: \${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
       SELENIUM_GRID_URL: \${SELENIUM_GRID_URL:-http://selenium:4444/wd/hub}
       TESTENGINE_POLL_CONCURRENCY: \${TESTENGINE_POLL_CONCURRENCY:-4}
       TESTENGINE_WORKER_CLASS: \${TESTENGINE_WORKER_CLASS:-hybrid}
       ARTIFACT_ROOT: /artifacts
     volumes:
-      - qaira-isolated-artifacts:/artifacts
+      - hellotest-isolated-artifacts:/artifacts
     depends_on:
       - api
       - selenium
     networks:
-      qaira-app: {}
-      qaira-engine:
+      hellotest-app: {}
+      hellotest-engine:
         aliases:
           - testengine
     restart: unless-stopped
@@ -134,32 +134,32 @@ services:
   mobile-engine:
     build:
       context: ${ROOT_DIR}/local-run/mobile-engine
-    container_name: qaira-mobile-engine-isolated
-    hostname: qaira-mobile-engine
+    container_name: hellotest-mobile-engine-isolated
+    hostname: hellotest-mobile-engine
     ports:
       - "${MOBILE_ENGINE_HOST_PORT}:4312"
     environment:
       PORT: 4312
       APPIUM_SERVER_URL: \${APPIUM_SERVER_URL:-http://host.docker.internal:4723}
-      QAIRA_API_BASE_URL: \${QAIRA_API_BASE_URL:-http://api:3000}
+      HELLOTEST_API_BASE_URL: \${HELLOTEST_API_BASE_URL:-http://api:3000}
     networks:
-      qaira-app: {}
-      qaira-engine:
+      hellotest-app: {}
+      hellotest-engine:
         aliases:
           - mobile-engine
     restart: unless-stopped
 
 networks:
-  qaira-data:
+  hellotest-data:
     driver: bridge
-  qaira-app:
+  hellotest-app:
     driver: bridge
-  qaira-engine:
+  hellotest-engine:
     driver: bridge
 
 volumes:
-  qaira-isolated-postgres:
-  qaira-isolated-artifacts:
+  hellotest-isolated-postgres:
+  hellotest-isolated-artifacts:
 YAML
 }
 
@@ -168,23 +168,23 @@ write_k8s() {
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: qaira-isolated
+  name: hellotest-isolated
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: qaira-secrets
-  namespace: qaira-isolated
+  name: hellotest-secrets
+  namespace: hellotest-isolated
 stringData:
-  postgres-password: "${POSTGRES_PASSWORD:-qaira}"
-  session-secret: "${SESSION_SECRET:-qaira-dev-secret}"
-  testengine-secret: "${QAIRA_TESTENGINE_SECRET:-qaira-testengine-dev-secret}"
+  postgres-password: "${POSTGRES_PASSWORD:-hellotest}"
+  session-secret: "${SESSION_SECRET:-hellotest-dev-secret}"
+  testengine-secret: "${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   replicas: 1
   selector:
@@ -202,20 +202,20 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: qaira
+              value: hellotest
             - name: POSTGRES_USER
-              value: qaira
+              value: hellotest
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: qaira-secrets
+                  name: hellotest-secrets
                   key: postgres-password
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   selector:
     app: postgres
@@ -227,7 +227,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   replicas: 1
   selector:
@@ -245,23 +245,23 @@ spec:
             - containerPort: 3000
           env:
             - name: DATABASE_URL
-              value: postgresql://qaira:qaira@postgres:5432/qaira
+              value: postgresql://hellotest:hellotest@postgres:5432/hellotest
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-secrets
+                  name: hellotest-secrets
                   key: session-secret
             - name: TESTENGINE_CALLBACK_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-secrets
+                  name: hellotest-secrets
                   key: testengine-secret
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: api
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   selector:
     app: api
@@ -273,7 +273,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: testengine
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   replicas: 3
   selector:
@@ -292,12 +292,12 @@ spec:
           env:
             - name: PORT
               value: "4301"
-            - name: QAIRA_API_BASE_URL
+            - name: HELLOTEST_API_BASE_URL
               value: http://api:3000
-            - name: QAIRA_TESTENGINE_SECRET
+            - name: HELLOTEST_TESTENGINE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: qaira-secrets
+                  name: hellotest-secrets
                   key: testengine-secret
             - name: SELENIUM_GRID_URL
               value: http://selenium:4444/wd/hub
@@ -308,7 +308,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: testengine
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -328,7 +328,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: selenium
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   replicas: 2
   selector:
@@ -355,7 +355,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: selenium
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   selector:
     app: selenium
@@ -371,7 +371,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   replicas: 1
   selector:
@@ -388,14 +388,14 @@ spec:
           ports:
             - containerPort: 80
           env:
-            - name: QAIRA_API_BASE_URL
+            - name: HELLOTEST_API_BASE_URL
               value: /api
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: qaira-isolated
+  namespace: hellotest-isolated
 spec:
   type: LoadBalancer
   selector:

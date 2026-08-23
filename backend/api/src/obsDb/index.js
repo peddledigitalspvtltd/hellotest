@@ -28,5 +28,5 @@ const poolConfig = config.obsPostgresUrl
 
 module.exports = createPostgresAdapter({
   poolConfig,
-  statementNamespace: "qaira_obs"
+  statementNamespace: "hellotest_obs"
 });

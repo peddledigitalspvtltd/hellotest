@@ -303,7 +303,7 @@ const testTestEngineConnection = async ({ base_url }) => {
     execution_scope: normalizeText(capabilitiesPayload.execution_scope) || normalizeText(healthPayload.execution_scope) || "unknown",
     supported_step_types: supportedStepTypes,
     supported_web_engines: supportedWebEngines,
-    qaira_result_log_compatibility: normalizeText(capabilitiesPayload.qaira_result_log_compatibility) || null
+    hellotest_result_log_compatibility: normalizeText(capabilitiesPayload.hellotest_result_log_compatibility) || null
   };
 };
 
@@ -473,7 +473,7 @@ const normalizeConfig = (type, input, username) => {
       owner,
       repo,
       branch: normalizeText(raw.branch) || "main",
-      directory: normalizeText(raw.directory) || "qaira-sync",
+      directory: normalizeText(raw.directory) || "hellotest-sync",
       file_extension: normalizeText(raw.file_extension) || "ts",
       schedule_mode: normalizeScheduleMode(raw.schedule_mode),
       next_sync_at: normalizeText(raw.next_sync_at),
@@ -491,7 +491,7 @@ const normalizeConfig = (type, input, username) => {
     return {
       project_id,
       runner: type === "local-desktop" ? "local" : "hybrid",
-      dispatch_mode: "qaira-pull",
+      dispatch_mode: "hellotest-pull",
       execution_scope: "api+web",
       active_web_engine,
       browser: normalizeTestEngineBrowser(raw.browser, String(integrationTypeConfig.browser || "chromium")),
@@ -532,7 +532,7 @@ const normalizeConfig = (type, input, username) => {
         raw.queue_poll_interval_minutes,
         integrationTypeConfig.queue_poll_interval_minutes ?? 5
       ),
-      qaira_api_base_url: normalizeText(raw.qaira_api_base_url),
+      hellotest_api_base_url: normalizeText(raw.hellotest_api_base_url),
       promote_healed_patches: normalizeText(raw.promote_healed_patches) || String(integrationTypeConfig.promote_healed_patches || "review"),
       public_base_url: normalizeText(raw.public_base_url),
       recorder_public_base_url: normalizeText(raw.recorder_public_base_url),
@@ -573,7 +573,7 @@ const normalizeConfig = (type, input, username) => {
       project_id: normalizeText(raw.project_id),
       events_path: normalizeText(raw.events_path) || String(integrationTypeConfig.events_path || "/api/v1/events"),
       health_path: normalizeText(raw.health_path) || String(integrationTypeConfig.health_path || "/health"),
-      service_name: normalizeText(raw.service_name) || String(integrationTypeConfig.service_name || "qaira-testengine"),
+      service_name: normalizeText(raw.service_name) || String(integrationTypeConfig.service_name || "hellotest-testengine"),
       environment: normalizeText(raw.environment) || String(integrationTypeConfig.environment || "production"),
       timeout_ms: Math.max(500, normalizeInteger(raw.timeout_ms) ?? Number(integrationTypeConfig.timeout_ms ?? 4000)),
       emit_step_events: raw.emit_step_events !== false,
@@ -592,13 +592,13 @@ const normalizeIntegration = (integration) => {
   }
 
   const config = isPlainObject(integration.config) ? { ...integration.config } : {};
-  if (/^qaira support$/i.test(String(config.sender_name || "").trim())) {
+  if (/^hellotest support$/i.test(String(config.sender_name || "").trim())) {
     config.sender_name = "HelloTest Support";
   }
 
   return {
     ...integration,
-    name: /^qaira$/i.test(String(integration.name || "").trim()) ? "HelloTest" : integration.name,
+    name: /^hellotest$/i.test(String(integration.name || "").trim()) ? "HelloTest" : integration.name,
     is_active: Boolean(integration.is_active),
     config
   };

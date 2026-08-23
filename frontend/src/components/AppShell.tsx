@@ -55,8 +55,8 @@ const navigation = [
   {
     label: "Workspace",
     items: [
-      { id: "overview", to: WORKSPACE_ROUTES.home, label: "Home", shortLabel: "Home", icon: DashboardIcon, matchPaths: [WORKSPACE_ROUTES.home], featureKeys: ["qaira.analytics.dashboards"] },
-      { id: "projects", to: WORKSPACE_ROUTES.projects, label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects", featureKeys: ["qaira.ops.projects"] }
+      { id: "overview", to: WORKSPACE_ROUTES.home, label: "Home", shortLabel: "Home", icon: DashboardIcon, matchPaths: [WORKSPACE_ROUTES.home], featureKeys: ["hellotest.analytics.dashboards"] },
+      { id: "projects", to: WORKSPACE_ROUTES.projects, label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects", featureKeys: ["hellotest.ops.projects"] }
     ]
   },
   {
@@ -69,7 +69,7 @@ const navigation = [
         shortLabel: "Requirements",
         icon: RequirementsManagementIcon,
         matchPaths: REQUIREMENTS_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.manual.requirements"],
+        featureKeys: ["hellotest.manual.requirements"],
         disabledWhenNoProjects: true
       },
       {
@@ -79,7 +79,7 @@ const navigation = [
         shortLabel: "Library",
         icon: FlaskIcon,
         matchPaths: TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.manual.requirements", "qaira.manual.test_cases", "qaira.manual.suites"],
+        featureKeys: ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.suites"],
         featureMatch: "any",
         disabledWhenNoProjects: true
       },
@@ -90,7 +90,7 @@ const navigation = [
         shortLabel: "Auto",
         icon: AutomationIcon,
         matchPaths: AUTOMATION_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.automation.workspace"],
+        featureKeys: ["hellotest.automation.workspace"],
         disabledWhenNoProjects: true
       },
       {
@@ -99,7 +99,7 @@ const navigation = [
         label: "Agentic Workflows",
         shortLabel: "Agents",
         icon: WorkflowIcon,
-        featureKeys: ["qaira.ai.agentic_workflows"],
+        featureKeys: ["hellotest.ai.agentic_workflows"],
         disabledWhenNoProjects: true
       },
       {
@@ -109,10 +109,10 @@ const navigation = [
         shortLabel: "Runs",
         icon: PlayIcon,
         matchPaths: ["/executions"],
-        featureKeys: ["qaira.manual.runs"],
+        featureKeys: ["hellotest.manual.runs"],
         disabledWhenNoProjects: true
       },
-      { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Bugs", shortLabel: "Bugs", icon: BugIcon, featureKeys: ["qaira.manual.bugs"] },
+      { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Bugs", shortLabel: "Bugs", icon: BugIcon, featureKeys: ["hellotest.manual.bugs"] },
       {
         id: "testops",
         to: WORKSPACE_ROUTES.testOps,
@@ -120,7 +120,7 @@ const navigation = [
         shortLabel: "TestOps",
         icon: ActivityIcon,
         matchPaths: TESTOPS_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.automation.batch_process", "qaira.ops.telemetry"],
+        featureKeys: ["hellotest.automation.batch_process", "hellotest.ops.telemetry"],
         featureMatch: "any",
         disabledWhenNoProjects: true
       },
@@ -131,10 +131,10 @@ const navigation = [
         shortLabel: "Env",
         icon: ServerIcon,
         matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["qaira.manual.environments"],
+        featureKeys: ["hellotest.manual.environments"],
         disabledWhenNoProjects: true
       },
-      { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["qaira.ai.knowledge"] }
+      { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["hellotest.ai.knowledge"] }
     ]
   },
   {
@@ -153,7 +153,7 @@ const navigation = [
   {
     label: "Settings",
     items: [
-      { id: "notifications", to: WORKSPACE_ROUTES.notifications, label: "Notifications", shortLabel: "Alerts", icon: BellIcon, featureKeys: ["qaira.ops.notifications"] },
+      { id: "notifications", to: WORKSPACE_ROUTES.notifications, label: "Notifications", shortLabel: "Alerts", icon: BellIcon, featureKeys: ["hellotest.ops.notifications"] },
       { id: "support", to: WORKSPACE_ROUTES.support, label: "Support", shortLabel: "Support", icon: SupportIcon }
     ]
   }

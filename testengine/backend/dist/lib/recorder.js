@@ -67,14 +67,14 @@ const buildBrowserUnavailableResponse = (error) => {
     if (lowerMessage.includes("executable doesn't exist") || lowerMessage.includes("please run the following command")) {
         return {
             code: "RECORDER_BROWSER_UNAVAILABLE",
-            message: "The Test Engine could not find its managed Chromium browser. Run the Playwright Test Engine container or install the Playwright browsers on the engine host; QAira frontend users do not need Chrome or Playwright locally.",
+            message: "The Test Engine could not find its managed Chromium browser. Run the Playwright Test Engine container or install the Playwright browsers on the engine host; HelloTest frontend users do not need Chrome or Playwright locally.",
             detail: message
         };
     }
     if (lowerMessage.includes("headed browser") || lowerMessage.includes("xserver") || lowerMessage.includes("display")) {
         return {
             code: "RECORDER_DISPLAY_UNAVAILABLE",
-            message: "The Test Engine cannot open a physical browser window on this host. Keep RECORDER_HEADLESS enabled and use the QAira live recorder view from the frontend.",
+            message: "The Test Engine cannot open a physical browser window on this host. Keep RECORDER_HEADLESS enabled and use the HelloTest live recorder view from the frontend.",
             detail: message
         };
     }
@@ -219,8 +219,8 @@ const serializeSession = (session, options = {}) => ({
 });
 const recorderInitScript = `
 (() => {
-  if (window.__qairaRecorderInstalled) return;
-  window.__qairaRecorderInstalled = true;
+  if (window.__hellotestRecorderInstalled) return;
+  window.__hellotestRecorderInstalled = true;
 
   const clean = (value) => String(value || "").replace(/\\s+/g, " ").trim();
   const cssEscape = (value) => {
@@ -293,11 +293,11 @@ const recorderInitScript = `
     if (text && text.length <= 80) return "getByText(" + quoted(text) + ")";
     return cssPath(element);
   };
-  window.__qairaRecorderLocatorFor = locatorFor;
-  window.__qairaRecorderVisibleTextFor = visibleText;
+  window.__hellotestRecorderLocatorFor = locatorFor;
+  window.__hellotestRecorderVisibleTextFor = visibleText;
   const emit = (event) => {
-    if (typeof window.__qairaRecorderEmit === "function") {
-      window.__qairaRecorderEmit({
+    if (typeof window.__hellotestRecorderEmit === "function") {
+      window.__hellotestRecorderEmit({
         ...event,
         source: "page-recorder",
         url: window.location.href,
@@ -466,9 +466,9 @@ const recorderInitScript = `
 `;
 const recorderExtensionContentScript = `
 (() => {
-  if (document.documentElement?.dataset.qairaRecorderExtension === "loaded") return;
+  if (document.documentElement?.dataset.hellotestRecorderExtension === "loaded") return;
   if (document.documentElement) {
-    document.documentElement.dataset.qairaRecorderExtension = "loaded";
+    document.documentElement.dataset.hellotestRecorderExtension = "loaded";
   }
   const script = document.createElement("script");
   script.src = chrome.runtime.getURL("page-recorder.js");
@@ -478,13 +478,13 @@ const recorderExtensionContentScript = `
 })();
 `;
 const createRecorderExtension = async (userDataDir) => {
-    const extensionDir = path.join(userDataDir, "qaira-recorder-extension");
+    const extensionDir = path.join(userDataDir, "hellotest-recorder-extension");
     await mkdir(extensionDir, { recursive: true });
     await writeFile(path.join(extensionDir, "manifest.json"), JSON.stringify({
         manifest_version: 3,
-        name: "QAira Recorder",
+        name: "HelloTest Recorder",
         version: "1.0.0",
-        description: "Captures browser actions and API calls for QAira automation authoring sessions.",
+        description: "Captures browser actions and API calls for HelloTest automation authoring sessions.",
         content_scripts: [
             {
                 matches: ["<all_urls>"],
@@ -632,9 +632,9 @@ const serializeRecorderPage = async (page) => ({
 const installInspectMode = async (page) => {
     await page.evaluate(() => {
         const inspectWindow = window;
-        inspectWindow.__qairaInspectCleanup?.();
-        inspectWindow.__qairaInspectResult = null;
-        inspectWindow.__qairaInspectSelections = [];
+        inspectWindow.__hellotestInspectCleanup?.();
+        inspectWindow.__hellotestInspectResult = null;
+        inspectWindow.__hellotestInspectSelections = [];
         const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
         const cssEscape = (value) => {
             if (window.CSS && typeof window.CSS.escape === "function")
@@ -647,7 +647,7 @@ const installInspectMode = async (page) => {
                 || element.getAttribute("name")
                 || element.getAttribute("id")
                 || element.getAttribute("data-testid")
-                || inspectWindow.__qairaRecorderVisibleTextFor?.(element)
+                || inspectWindow.__hellotestRecorderVisibleTextFor?.(element)
                 || element.tagName.toLowerCase());
             return text
                 .replace(/^text=/i, "")
@@ -665,11 +665,11 @@ const installInspectMode = async (page) => {
             const label = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
                 ? clean(element.labels?.[0]?.innerText || element.labels?.[0]?.textContent || "")
                 : "";
-            const accessibleName = aria || label || clean(inspectWindow.__qairaRecorderVisibleTextFor?.(element));
+            const accessibleName = aria || label || clean(inspectWindow.__hellotestRecorderVisibleTextFor?.(element));
             const id = clean(element.getAttribute("id"));
             const name = clean(element.getAttribute("name"));
             const placeholder = clean(element.getAttribute("placeholder"));
-            const text = inspectWindow.__qairaRecorderVisibleTextFor?.(element);
+            const text = inspectWindow.__hellotestRecorderVisibleTextFor?.(element);
             const tag = element.tagName.toLowerCase();
             const inputType = clean(element.getAttribute("type")).toLowerCase();
             const quoted = (value) => JSON.stringify(value);
@@ -688,37 +688,37 @@ const installInspectMode = async (page) => {
                 id ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88 } : null,
                 name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
                 text && ["button", "a"].includes(tag) ? { locator: `getByText(${quoted(text)})`, strategy: "playwright text", confidenceScore: 0.72 } : null,
-                { locator: inspectWindow.__qairaRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
+                { locator: inspectWindow.__hellotestRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
             ].filter((candidate) => Boolean(candidate))
                 .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
         };
         const restoreInspectStyle = (target) => {
-            const isRepositoryHighlighted = target.dataset.qairaRepositoryHighlight === "true";
-            const isInspectSelected = target.dataset.qairaInspectSelection === "true";
+            const isRepositoryHighlighted = target.dataset.hellotestRepositoryHighlight === "true";
+            const isInspectSelected = target.dataset.hellotestInspectSelection === "true";
             if (isRepositoryHighlighted || isInspectSelected) {
                 target.style.outline = "3px solid #2f6df6";
                 target.style.boxShadow = `0 0 0 6px ${isInspectSelected ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.2)"}`;
             }
             else {
-                target.style.outline = target.dataset.qairaInspectPreviousOutline || target.dataset.qairaPreviousOutline || "";
-                target.style.boxShadow = target.dataset.qairaInspectPreviousBoxShadow || target.dataset.qairaPreviousBoxShadow || "";
+                target.style.outline = target.dataset.hellotestInspectPreviousOutline || target.dataset.hellotestPreviousOutline || "";
+                target.style.boxShadow = target.dataset.hellotestInspectPreviousBoxShadow || target.dataset.hellotestPreviousBoxShadow || "";
             }
-            delete target.dataset.qairaInspectPreviousOutline;
-            delete target.dataset.qairaInspectPreviousBoxShadow;
-            delete target.dataset.qairaPreviousOutline;
-            delete target.dataset.qairaPreviousBoxShadow;
+            delete target.dataset.hellotestInspectPreviousOutline;
+            delete target.dataset.hellotestInspectPreviousBoxShadow;
+            delete target.dataset.hellotestPreviousOutline;
+            delete target.dataset.hellotestPreviousBoxShadow;
         };
         const clearHoverHighlight = () => {
-            document.querySelectorAll("[data-qaira-inspect-highlight='true']").forEach((node) => {
+            document.querySelectorAll("[data-hellotest-inspect-highlight='true']").forEach((node) => {
                 const target = node;
-                delete target.dataset.qairaInspectHighlight;
+                delete target.dataset.hellotestInspectHighlight;
                 restoreInspectStyle(target);
             });
         };
         const clearSelectionHighlight = () => {
-            document.querySelectorAll("[data-qaira-inspect-selection='true']").forEach((node) => {
+            document.querySelectorAll("[data-hellotest-inspect-selection='true']").forEach((node) => {
                 const target = node;
-                delete target.dataset.qairaInspectSelection;
+                delete target.dataset.hellotestInspectSelection;
                 restoreInspectStyle(target);
             });
         };
@@ -727,29 +727,29 @@ const installInspectMode = async (page) => {
             if (!(element instanceof HTMLElement))
                 return;
             clearHoverHighlight();
-            if (element.dataset.qairaRepositoryHighlight !== "true" && element.dataset.qairaInspectSelection !== "true") {
-                element.dataset.qairaInspectPreviousOutline = element.style.outline || "";
-                element.dataset.qairaInspectPreviousBoxShadow = element.style.boxShadow || "";
+            if (element.dataset.hellotestRepositoryHighlight !== "true" && element.dataset.hellotestInspectSelection !== "true") {
+                element.dataset.hellotestInspectPreviousOutline = element.style.outline || "";
+                element.dataset.hellotestInspectPreviousBoxShadow = element.style.boxShadow || "";
             }
             if (persistent) {
-                element.dataset.qairaInspectSelection = "true";
+                element.dataset.hellotestInspectSelection = "true";
             }
             else {
-                element.dataset.qairaInspectHighlight = "true";
+                element.dataset.hellotestInspectHighlight = "true";
             }
             element.style.outline = "3px solid #2f6df6";
             element.style.boxShadow = `0 0 0 6px ${persistent ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.22)"}`;
             element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
         };
         const queueSelection = (selection, locator) => {
-            const current = Array.isArray(inspectWindow.__qairaInspectSelections)
-                ? inspectWindow.__qairaInspectSelections
+            const current = Array.isArray(inspectWindow.__hellotestInspectSelections)
+                ? inspectWindow.__hellotestInspectSelections
                 : [];
-            inspectWindow.__qairaInspectSelections = [
+            inspectWindow.__hellotestInspectSelections = [
                 ...current.filter((item) => !item || typeof item !== "object" || item.locator !== locator),
                 selection
             ].slice(-80);
-            inspectWindow.__qairaInspectResult = selection;
+            inspectWindow.__hellotestInspectResult = selection;
         };
         const candidateElement = (target) => target instanceof Element
             ? target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || target
@@ -783,7 +783,7 @@ const installInspectMode = async (page) => {
                 locator_candidates: candidates,
                 dom_structure: domStructure,
                 ancestor_dom: ancestorDom,
-                text: inspectWindow.__qairaRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200),
+                text: inspectWindow.__hellotestRecorderVisibleTextFor?.(element) || clean(element.textContent).slice(0, 200),
                 rect: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
                 ancestor_rect: ancestorRect ? { x: ancestorRect.x + window.scrollX, y: ancestorRect.y + window.scrollY, width: ancestorRect.width, height: ancestorRect.height } : null
             };
@@ -792,7 +792,7 @@ const installInspectMode = async (page) => {
         };
         document.addEventListener("mousemove", hoverHandler, true);
         document.addEventListener("click", handler, true);
-        inspectWindow.__qairaInspectCleanup = () => {
+        inspectWindow.__hellotestInspectCleanup = () => {
             document.removeEventListener("mousemove", hoverHandler, true);
             document.removeEventListener("click", handler, true);
             clearHoverHighlight();
@@ -802,15 +802,15 @@ const installInspectMode = async (page) => {
 const highlightRepositoryElement = async (page, locator, label, retainExisting = false) => page.evaluate(({ targetLocator, targetLabel, keepExisting }) => {
     const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const clearHighlight = () => {
-        document.querySelectorAll("[data-qaira-repository-highlight='true']").forEach((node) => {
+        document.querySelectorAll("[data-hellotest-repository-highlight='true']").forEach((node) => {
             const element = node;
-            element.style.outline = element.dataset.qairaRepositoryPreviousOutline || "";
-            element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || "";
-            delete element.dataset.qairaRepositoryPreviousOutline;
-            delete element.dataset.qairaRepositoryPreviousBoxShadow;
-            delete element.dataset.qairaRepositoryHighlight;
+            element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
+            element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
+            delete element.dataset.hellotestRepositoryPreviousOutline;
+            delete element.dataset.hellotestRepositoryPreviousBoxShadow;
+            delete element.dataset.hellotestRepositoryHighlight;
         });
-        document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
+        document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
     };
     const resolveTarget = () => {
         const unescapeLiteral = (value) => value.replace(/\\(["'`\\])/g, "$1");
@@ -919,17 +919,17 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
     if (!(element instanceof HTMLElement)) {
         return { found: false, locator: targetLocator };
     }
-    if (element.dataset.qairaRepositoryHighlight !== "true") {
-        element.dataset.qairaRepositoryPreviousOutline = element.dataset.qairaPreviousOutline || element.style.outline || "";
-        element.dataset.qairaRepositoryPreviousBoxShadow = element.dataset.qairaPreviousBoxShadow || element.style.boxShadow || "";
+    if (element.dataset.hellotestRepositoryHighlight !== "true") {
+        element.dataset.hellotestRepositoryPreviousOutline = element.dataset.hellotestPreviousOutline || element.style.outline || "";
+        element.dataset.hellotestRepositoryPreviousBoxShadow = element.dataset.hellotestPreviousBoxShadow || element.style.boxShadow || "";
     }
-    element.dataset.qairaRepositoryHighlight = "true";
+    element.dataset.hellotestRepositoryHighlight = "true";
     element.style.outline = "3px solid #2f6df6";
     element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.2)";
     element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
     if (!keepExisting) {
         const badge = document.createElement("div");
-        badge.id = "__qairaRepositoryHighlightLabel";
+        badge.id = "__hellotestRepositoryHighlightLabel";
         badge.textContent = targetLabel || targetLocator;
         badge.style.cssText = "position:fixed;z-index:2147483647;padding:5px 9px;border-radius:6px;background:#2f6df6;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 6px 15px rgba(15,23,42,.2)";
         const rect = element.getBoundingClientRect();
@@ -940,36 +940,36 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
     return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase() };
 }, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting });
 const clearRepositoryHighlights = async (page) => page.evaluate(() => {
-    document.querySelectorAll("[data-qaira-repository-highlight='true'],[data-qaira-inspect-selection='true'],[data-qaira-inspect-highlight='true']").forEach((node) => {
+    document.querySelectorAll("[data-hellotest-repository-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-inspect-highlight='true']").forEach((node) => {
         const element = node;
-        element.style.outline = element.dataset.qairaRepositoryPreviousOutline || element.dataset.qairaInspectPreviousOutline || element.dataset.qairaPreviousOutline || "";
-        element.style.boxShadow = element.dataset.qairaRepositoryPreviousBoxShadow || element.dataset.qairaInspectPreviousBoxShadow || element.dataset.qairaPreviousBoxShadow || "";
-        delete element.dataset.qairaRepositoryPreviousOutline;
-        delete element.dataset.qairaRepositoryPreviousBoxShadow;
-        delete element.dataset.qairaRepositoryHighlight;
-        delete element.dataset.qairaInspectPreviousOutline;
-        delete element.dataset.qairaInspectPreviousBoxShadow;
-        delete element.dataset.qairaPreviousOutline;
-        delete element.dataset.qairaPreviousBoxShadow;
-        delete element.dataset.qairaInspectSelection;
-        delete element.dataset.qairaInspectHighlight;
+        element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || element.dataset.hellotestInspectPreviousOutline || element.dataset.hellotestPreviousOutline || "";
+        element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || element.dataset.hellotestInspectPreviousBoxShadow || element.dataset.hellotestPreviousBoxShadow || "";
+        delete element.dataset.hellotestRepositoryPreviousOutline;
+        delete element.dataset.hellotestRepositoryPreviousBoxShadow;
+        delete element.dataset.hellotestRepositoryHighlight;
+        delete element.dataset.hellotestInspectPreviousOutline;
+        delete element.dataset.hellotestInspectPreviousBoxShadow;
+        delete element.dataset.hellotestPreviousOutline;
+        delete element.dataset.hellotestPreviousBoxShadow;
+        delete element.dataset.hellotestInspectSelection;
+        delete element.dataset.hellotestInspectHighlight;
     });
-    document.getElementById("__qairaRepositoryHighlightLabel")?.remove();
+    document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
 });
 const stopInspectMode = async (page) => page.evaluate(() => {
     const inspectWindow = window;
-    inspectWindow.__qairaInspectCleanup?.();
+    inspectWindow.__hellotestInspectCleanup?.();
 });
 const enrichRemoteClickAction = async (session, page, actionIndex, x, y, logger) => {
     try {
         const target = await page.evaluate(({ x: clientX, y: clientY }) => {
             const element = document.elementFromPoint(clientX, clientY);
             const recorderWindow = window;
-            const locator = typeof recorderWindow.__qairaRecorderLocatorFor === "function"
-                ? recorderWindow.__qairaRecorderLocatorFor(element)
+            const locator = typeof recorderWindow.__hellotestRecorderLocatorFor === "function"
+                ? recorderWindow.__hellotestRecorderLocatorFor(element)
                 : null;
-            const text = typeof recorderWindow.__qairaRecorderVisibleTextFor === "function"
-                ? recorderWindow.__qairaRecorderVisibleTextFor(element)
+            const text = typeof recorderWindow.__hellotestRecorderVisibleTextFor === "function"
+                ? recorderWindow.__hellotestRecorderVisibleTextFor(element)
                 : String(element?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120);
             return {
                 locator: locator || null,
@@ -996,7 +996,7 @@ const enrichRemoteClickAction = async (session, page, actionIndex, x, y, logger)
 };
 const readRecorderToken = (request) => {
     const query = request.query;
-    const header = request.headers["x-qaira-recorder-token"];
+    const header = request.headers["x-hellotest-recorder-token"];
     return normalizeText(query?.token)
         || normalizeText(Array.isArray(header) ? header[0] : header)
         || null;
@@ -1009,7 +1009,7 @@ const renderLiveViewHtml = (session) => {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>QAira Recorder</title>
+  <title>HelloTest Recorder</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -1206,7 +1206,7 @@ const renderLiveViewHtml = (session) => {
 <body>
   <header>
     <div>
-      <strong>QAira live recorder</strong>
+      <strong>HelloTest live recorder</strong>
       <div class="meta">Session ${session.id.slice(0, 8)} · ${session.display_mode.replace(/-/g, " ")}</div>
     </div>
     <span class="status"><span class="dot"></span><span id="statusText">Connecting</span></span>
@@ -1275,7 +1275,7 @@ const renderLiveViewHtml = (session) => {
       try {
         const response = await fetch(inputUrl(), {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-QAira-Recorder-Token": token },
+          headers: { "Content-Type": "application/json", "X-HelloTest-Recorder-Token": token },
           body: JSON.stringify(payload)
         });
 
@@ -1607,13 +1607,13 @@ export const registerRecorderRoutes = async (app) => {
             const cacheKey = `${session.id}:${pageId || ""}`;
             const elements = await page.evaluate(() => {
                 const inspectWindow = window;
-                const queued = Array.isArray(inspectWindow.__qairaInspectSelections)
-                    ? inspectWindow.__qairaInspectSelections
+                const queued = Array.isArray(inspectWindow.__hellotestInspectSelections)
+                    ? inspectWindow.__hellotestInspectSelections
                     : [];
-                const latest = inspectWindow.__qairaInspectResult;
+                const latest = inspectWindow.__hellotestInspectResult;
                 const selections = queued.length ? queued : latest ? [latest] : [];
-                inspectWindow.__qairaInspectSelections = [];
-                inspectWindow.__qairaInspectResult = null;
+                inspectWindow.__hellotestInspectSelections = [];
+                inspectWindow.__hellotestInspectResult = null;
                 return selections;
             }).catch(() => []);
             const validElements = elements.filter((element) => element
@@ -1631,19 +1631,19 @@ export const registerRecorderRoutes = async (app) => {
                     if (!source)
                         return "";
                     const cloned = source.cloneNode(true);
-                    cloned.querySelectorAll("[data-qaira-inspect-highlight='true'],[data-qaira-inspect-selection='true'],[data-qaira-repository-highlight='true']").forEach((node) => {
+                    cloned.querySelectorAll("[data-hellotest-inspect-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-repository-highlight='true']").forEach((node) => {
                         const target = node;
-                        target.style.outline = target.dataset.qairaRepositoryPreviousOutline || target.dataset.qairaInspectPreviousOutline || target.dataset.qairaPreviousOutline || "";
-                        target.style.boxShadow = target.dataset.qairaRepositoryPreviousBoxShadow || target.dataset.qairaInspectPreviousBoxShadow || target.dataset.qairaPreviousBoxShadow || "";
-                        delete target.dataset.qairaRepositoryPreviousOutline;
-                        delete target.dataset.qairaRepositoryPreviousBoxShadow;
-                        delete target.dataset.qairaRepositoryHighlight;
-                        delete target.dataset.qairaInspectPreviousOutline;
-                        delete target.dataset.qairaInspectPreviousBoxShadow;
-                        delete target.dataset.qairaPreviousOutline;
-                        delete target.dataset.qairaPreviousBoxShadow;
-                        delete target.dataset.qairaInspectHighlight;
-                        delete target.dataset.qairaInspectSelection;
+                        target.style.outline = target.dataset.hellotestRepositoryPreviousOutline || target.dataset.hellotestInspectPreviousOutline || target.dataset.hellotestPreviousOutline || "";
+                        target.style.boxShadow = target.dataset.hellotestRepositoryPreviousBoxShadow || target.dataset.hellotestInspectPreviousBoxShadow || target.dataset.hellotestPreviousBoxShadow || "";
+                        delete target.dataset.hellotestRepositoryPreviousOutline;
+                        delete target.dataset.hellotestRepositoryPreviousBoxShadow;
+                        delete target.dataset.hellotestRepositoryHighlight;
+                        delete target.dataset.hellotestInspectPreviousOutline;
+                        delete target.dataset.hellotestInspectPreviousBoxShadow;
+                        delete target.dataset.hellotestPreviousOutline;
+                        delete target.dataset.hellotestPreviousBoxShadow;
+                        delete target.dataset.hellotestInspectHighlight;
+                        delete target.dataset.hellotestInspectSelection;
                     });
                     return cloned.outerHTML.slice(0, 100_000);
                 }).catch(() => ""),
@@ -2017,7 +2017,7 @@ export const registerRecorderRoutes = async (app) => {
             };
         }
         const id = randomUUID();
-        const userDataDir = await mkdtemp(path.join(os.tmpdir(), `qaira-recorder-${id}-`));
+        const userDataDir = await mkdtemp(path.join(os.tmpdir(), `hellotest-recorder-${id}-`));
         const headless = resolveHeadlessMode();
         let context = null;
         let recorderExtensionDir = null;
@@ -2071,7 +2071,7 @@ export const registerRecorderRoutes = async (app) => {
                 error: null,
                 capture
             };
-            await context.exposeBinding("__qairaRecorderEmit", async (source, event) => {
+            await context.exposeBinding("__hellotestRecorderEmit", async (source, event) => {
                 if (!event || typeof event !== "object" || Array.isArray(event)) {
                     return;
                 }

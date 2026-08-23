@@ -72,6 +72,24 @@ const normalizeArray = (value) => {
 };
 
 const percent = (numerator, denominator) => denominator ? Math.round((numerator / denominator) * 100) : 0;
+const calculatePassConfidence = ({ passedCases = 0, finalizedCases = 0, resolvedBugs = 0, totalBugs = 0 } = {}) => {
+  const caseTotal = Math.max(0, Number(finalizedCases) || 0);
+  const casePassed = Math.min(caseTotal, Math.max(0, Number(passedCases) || 0));
+  const bugTotal = Math.max(0, Number(totalBugs) || 0);
+  const bugResolved = Math.min(bugTotal, Math.max(0, Number(resolvedBugs) || 0));
+  const total = caseTotal + bugTotal;
+  const passed = casePassed + bugResolved;
+
+  return {
+    total,
+    passed,
+    percent: percent(passed, total),
+    case_total: caseTotal,
+    case_passed: casePassed,
+    bug_total: bugTotal,
+    bug_resolved: bugResolved
+  };
+};
 const timestamp = (value) => {
   const parsed = value ? new Date(value).getTime() : 0;
   return Number.isFinite(parsed) ? parsed : 0;
@@ -207,15 +225,22 @@ const buildPortfolioAnalytics = async (userId) => {
     const automatedCases = projectCases.filter((testCase) => testCase.automated === "yes").length;
     const latestFinalizedResults = [...latestResultByCase.values()];
     const passedCases = latestFinalizedResults.filter((result) => String(result.status).toLowerCase() === "passed").length;
+    const resolvedBugs = projectBugs.filter((bug) => CLOSED_BUG_STATUSES.has(String(bug.status || "").trim().toLowerCase())).length;
     const storyCoverage = percent(coveredStories, projectRequirements.length);
     const automationCoverage = percent(automatedCases, projectCases.length);
-    const passConfidence = percent(passedCases, latestFinalizedResults.length);
+    const passConfidenceMetric = calculatePassConfidence({
+      passedCases,
+      finalizedCases: latestFinalizedResults.length,
+      resolvedBugs,
+      totalBugs: projectBugs.length
+    });
+    const passConfidence = passConfidenceMetric.percent;
     const latestFailedResults = latestExecutionResults.filter((result) => String(result.status).toLowerCase() === "failed");
     const latestBlockedResults = latestExecutionResults.filter((result) => String(result.status).toLowerCase() === "blocked");
     const latestRunHasEvidence = latestExecution ? evidenceKeys.has(`execution:${latestExecution.id}`) : false;
     const evidencedLatestResults = latestExecutionResults.filter((result) => latestRunHasEvidence || evidenceKeys.has(`execution_result:${result.id}`)).length;
     const evidenceCoverage = percent(evidencedLatestResults, latestExecutionResults.length);
-    const assessable = Boolean(projectRequirements.length || projectCases.length);
+    const assessable = Boolean(projectRequirements.length || projectCases.length || projectBugs.length);
     const evidenceViolation = Boolean(evidenceThreshold > 0 && assessable && (latestExecutionResults.length === 0 || evidenceCoverage < evidenceThreshold));
     const openBugs = projectBugs.filter((bug) => !CLOSED_BUG_STATUSES.has(String(bug.status || "").trim().toLowerCase()));
     const openBugViolation = Boolean(openBugThreshold > 0 && openBugs.length >= openBugThreshold);
@@ -226,7 +251,7 @@ const buildPortfolioAnalytics = async (userId) => {
     )));
     const hardRisk = latestFailedResults.length > 0
       || latestBlockedResults.length > 0
-      || (latestFinalizedResults.length > 0 && passConfidence < riskPassThreshold);
+      || (passConfidenceMetric.total > 0 && passConfidence < riskPassThreshold);
     const health = !assessable && !projectBugs.length
       ? { health_tone: "neutral", health_label: "New", readiness_label: "Not assessed" }
       : hardRisk
@@ -289,7 +314,7 @@ const buildPortfolioAnalytics = async (userId) => {
       app_types: appTypesByProject.get(project.id) || [],
       story_coverage: { total: projectRequirements.length, covered: coveredStories, percent: storyCoverage },
       automation_coverage: { total: projectCases.length, automated: automatedCases, percent: automationCoverage },
-      pass_confidence: { total: latestFinalizedResults.length, passed: passedCases, percent: passConfidence },
+      pass_confidence: passConfidenceMetric,
       execution_evidence: {
         total: latestExecutionResults.length,
         evidenced: evidencedLatestResults,
@@ -372,5 +397,6 @@ const buildPortfolioAnalytics = async (userId) => {
 };
 
 exports.DEFAULT_FORMULA_VALUES = DEFAULT_FORMULA_VALUES;
+exports.calculatePassConfidence = calculatePassConfidence;
 exports.normalizeFormulaValues = normalizeFormulaValues;
 exports.buildPortfolioAnalytics = buildPortfolioAnalytics;

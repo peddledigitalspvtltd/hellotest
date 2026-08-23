@@ -92,7 +92,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
       max_api_workers: 10,
       max_web_workers: 5,
       max_android_workers: 2,
-      qaira_api_base_url: "",
+      hellotest_api_base_url: "",
       promote_healed_patches: "review"
     }
   },
@@ -120,7 +120,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
       recovery_wait_ms: 750,
       max_video_attachment_mb: 25,
       queue_poll_interval_minutes: 1,
-      qaira_api_base_url: "",
+      hellotest_api_base_url: "",
       promote_healed_patches: "review"
     }
   },
@@ -146,7 +146,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
       health_path: "/health",
       api_key_header: "Authorization",
       api_key_prefix: "Bearer",
-      service_name: "qaira-testengine",
+      service_name: "hellotest-testengine",
       environment: "production",
       timeout_ms: 4000,
       emit_step_events: true,

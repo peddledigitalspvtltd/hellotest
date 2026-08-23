@@ -1,4 +1,4 @@
-export type QairaForgeHostContext = {
+export type HelloTestForgeHostContext = {
   moduleKey: string;
   moduleType: string;
   projectId: string;
@@ -6,7 +6,7 @@ export type QairaForgeHostContext = {
   isProjectActivationConfig: boolean;
 };
 
-const EMPTY_HOST_CONTEXT: QairaForgeHostContext = {
+const EMPTY_HOST_CONTEXT: HelloTestForgeHostContext = {
   moduleKey: "",
   moduleType: "",
   projectId: "",
@@ -24,7 +24,7 @@ const text = (...values: unknown[]) => values
   .map((value) => String(value || "").trim())
   .find(Boolean) || "";
 
-export function rememberQairaForgeHostContext(value: unknown) {
+export function rememberHelloTestForgeHostContext(value: unknown) {
   const context = record(value);
   const extension = record(context.extension);
   const platformContext = record(context.platformContext);
@@ -48,7 +48,7 @@ export function rememberQairaForgeHostContext(value: unknown) {
     context.localId
   ].map((value) => String(value || "")).join(" ").toLowerCase();
   const explicitPreviewMode = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search).get("qairaHost")
+    ? new URLSearchParams(window.location.search).get("hellotestHost")
     : "";
 
   hostContext = {
@@ -56,8 +56,8 @@ export function rememberQairaForgeHostContext(value: unknown) {
     moduleType,
     projectId: text(project.id, extension.projectId, platformContext.projectId, issueProject.id),
     projectKey: text(project.key, extension.projectKey, platformContext.projectKey, issueProject.key),
-    isProjectActivationConfig: moduleKey === "qaira-project-activation-config"
-      || combinedModuleIdentity.includes("qaira-project-activation-config")
+    isProjectActivationConfig: moduleKey === "hellotest-project-activation-config"
+      || combinedModuleIdentity.includes("hellotest-project-activation-config")
       || combinedModuleIdentity.includes("jira:adminpage")
       || combinedModuleIdentity.includes("admin-page")
       || explicitPreviewMode === "admin"
@@ -66,6 +66,6 @@ export function rememberQairaForgeHostContext(value: unknown) {
   return hostContext;
 }
 
-export function readQairaForgeHostContext() {
+export function readHelloTestForgeHostContext() {
   return hostContext;
 }

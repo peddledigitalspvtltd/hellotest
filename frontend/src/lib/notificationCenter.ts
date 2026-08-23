@@ -1,8 +1,8 @@
 import { readNotificationPreferences, type NotificationPreferences } from "./notificationPreferences";
 
-export const NOTIFICATIONS_UPDATED_EVENT = "qaira:notifications-updated";
-const NOTIFICATION_READ_IDS_KEY = "qaira.notification_read_ids";
-const NOTIFICATION_CLEARED_IDS_KEY = "qaira.notification_cleared_ids";
+export const NOTIFICATIONS_UPDATED_EVENT = "hellotest:notifications-updated";
+const NOTIFICATION_READ_IDS_KEY = "hellotest.notification_read_ids";
+const NOTIFICATION_CLEARED_IDS_KEY = "hellotest.notification_cleared_ids";
 
 export type NotificationCenterItem = {
   id: string;

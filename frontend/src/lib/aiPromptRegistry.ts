@@ -313,12 +313,12 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Project portfolio health",
     surface: "Projects portfolio",
     aliases: ["overall health", "portfolio health"],
-    formula: "Arithmetic mean of each accessible project's readiness score. Readiness combines exact Story coverage, automation coverage, and latest finalized pass confidence using the configured weights.",
+    formula: "Arithmetic mean of each accessible project's readiness score. Readiness combines exact Story coverage, automation coverage, and quality pass rate using the configured weights. Quality pass rate is passed finalized Test Cases plus resolved Bugs divided by finalized Test Cases plus all Bugs.",
     criteria: "Treat every accessible project equally rather than weighting by record volume. Keep projects without assessable scope identified as new and disclose missing evidence.",
     parameters: [
       { key: "story_weight", label: "Story coverage weight", defaultValue: 35, min: 0, max: 100, suffix: "%", help: "Contribution of exact Story-to-Test-Case traceability to project readiness." },
       { key: "automation_weight", label: "Automation coverage weight", defaultValue: 25, min: 0, max: 100, suffix: "%", help: "Contribution of explicitly automated Test Cases to project readiness." },
-      { key: "pass_weight", label: "Pass confidence weight", defaultValue: 40, min: 0, max: 100, suffix: "%", help: "Contribution of latest finalized Test Case outcomes to project readiness." }
+      { key: "pass_weight", label: "Pass rate weight", defaultValue: 40, min: 0, max: 100, suffix: "%", help: "Contribution of finalized Test Case outcomes and resolved Bug outcomes to project readiness." }
     ]
   },
   {
@@ -326,10 +326,10 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Risky project classification",
     surface: "Projects portfolio",
     aliases: ["risky projects", "risky project classification"],
-    formula: "Count of assessable accessible projects whose newest run has a failed or blocked result, or whose latest finalized pass confidence is below the configured threshold.",
+    formula: "Count of assessable accessible projects whose newest run has a failed or blocked result, or whose combined Test Case and Bug pass rate is below the configured threshold.",
     criteria: "Use the latest recorded project run for hard failure signals and keep projects without Stories or Test Cases classified as new, not risky.",
     parameters: [
-      { key: "pass_confidence_threshold", label: "Risk pass threshold", defaultValue: 60, min: 0, max: 100, suffix: "%", help: "Projects below this finalized pass-confidence value are classified as risky." }
+      { key: "pass_confidence_threshold", label: "Risk pass threshold", defaultValue: 60, min: 0, max: 100, suffix: "%", help: "Projects below this combined Test Case and Bug pass-rate value are classified as risky." }
     ]
   },
   {

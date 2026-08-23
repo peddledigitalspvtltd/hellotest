@@ -7,7 +7,7 @@ export function BrandWordmark({
   subtitle?: string;
   className?: string;
 }) {
-  const classes = ["qaira-brand-wordmark", variant === "mark" ? "is-mark-only" : "", className].filter(Boolean).join(" ");
+  const classes = ["hellotest-brand-wordmark", variant === "mark" ? "is-mark-only" : "", className].filter(Boolean).join(" ");
 
   return (
     <div
@@ -15,7 +15,7 @@ export function BrandWordmark({
       className={classes}
       role="img"
     >
-      <span aria-hidden="true" className="qaira-brand-q">
+      <span aria-hidden="true" className="hellotest-brand-q">
         <svg className="hellotest-brand-icon" viewBox="0 0 64 64">
           <defs>
             <linearGradient id="hellotest-mark-gradient" x1="9" y1="7" x2="55" y2="57" gradientUnits="userSpaceOnUse">
@@ -31,7 +31,7 @@ export function BrandWordmark({
         </svg>
       </span>
       {variant === "wordmark" ? (
-        <span className="qaira-brand-copy">
+        <span className="hellotest-brand-copy">
           <strong>
             <span className="hellotest-brand-hello">Hello</span>
             <span className="hellotest-brand-test">Test</span>

@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hellotest-execution-engine-job
+  labels:
+    app: hellotest-execution-engine
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: hellotest-execution-engine
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hellotest-execution-engine
+          image: hellotest/hellotest-execution-engine:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENGINE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BACKEND_URL
+              value: "http://hellotest-backend:3000"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            - name: MINIO_ENDPOINT
+              value: "minio"
+            - name: MINIO_PORT
+              value: "9000"
+            - name: MINIO_USE_TLS
+              value: "false"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hellotest-minio-credentials
+                  key: accesskey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hellotest-minio-credentials
+                  key: secretkey
+            - name: MINIO_BUCKET
+              value: "hellotest-artifacts"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318/v1/traces"
+            - name: QUEUE_NAME
+              value: "hellotest-engine-runs"
+            - name: PARALLEL_ENABLED
+              value: "true"
+            - name: PARALLEL_COUNT
+              value: "2"
+            - name: HEARTBEAT_INTERVAL_SECONDS
+              value: "12"

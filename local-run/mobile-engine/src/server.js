@@ -518,7 +518,7 @@ function buildAndroidApi(driver, resolveSelector = (value) => value) {
 
 app.get("/health", async () => ({
   ok: true,
-  service: "qaira-mobile-engine",
+  service: "hellotest-mobile-engine",
   runner: "webdriverio+appium"
 }));
 

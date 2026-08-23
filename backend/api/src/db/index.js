@@ -28,5 +28,5 @@ const poolConfig = config.postgresUrl
 
 module.exports = createPostgresAdapter({
   poolConfig,
-  statementNamespace: "qaira_main"
+  statementNamespace: "hellotest_main"
 });

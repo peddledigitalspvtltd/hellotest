@@ -12,7 +12,6 @@ import {
   IconDownload,
   IconLock,
   IconPaperclip,
-  IconPencil,
   IconSearch,
   IconStar,
   IconUpload,
@@ -40,7 +39,7 @@ import { JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import { ProjectTraceabilityMap } from "../components/ProjectTraceabilityMap";
-import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
+import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
   TileCardCaseIcon,
   TileCardFact,
@@ -67,10 +66,10 @@ import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { hasPermission } from "../lib/permissions";
 import { resolveVisibleEmail } from "../lib/userDisplay";
-import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioImpact, Requirement, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
+import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioImpact, Requirement, RequirementIteration, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
 import "./ProjectsPage.css";
 
-type ProjectSection = "traceability" | "members" | "appTypes";
+type ProjectSection = "details" | "members" | "applications" | "attachments" | "traceability";
 
 type ProjectAppTypeDraft = {
   id: string;
@@ -136,6 +135,10 @@ type ProjectPassCoverage = {
   totalCases: number;
   passedCases: number;
   coveragePercent: number;
+  testCaseTotal: number;
+  testCasePassed: number;
+  bugTotal: number;
+  bugResolved: number;
 };
 
 type ProjectHealthTone = "success" | "warning" | "danger" | "neutral";
@@ -211,8 +214,16 @@ const emptyAutomationCoverage: ProjectAutomationCoverage = {
 const emptyPassCoverage: ProjectPassCoverage = {
   totalCases: 0,
   passedCases: 0,
-  coveragePercent: 0
+  coveragePercent: 0,
+  testCaseTotal: 0,
+  testCasePassed: 0,
+  bugTotal: 0,
+  bugResolved: 0
 };
+
+const formatPassCoverageDetail = (coverage: ProjectPassCoverage) => coverage.totalCases
+  ? `${coverage.testCasePassed}/${coverage.testCaseTotal} tests passed · ${coverage.bugResolved}/${coverage.bugTotal} Bugs resolved`
+  : "No finalized tests or Bugs available to measure pass rate";
 
 const getMetricTone = (covered: number, total: number) => {
   if (!total) {
@@ -244,35 +255,89 @@ const compactImpactEvidence = (label: string, impact: ProjectPortfolioImpact) =>
     : `${impact.total} impacted ${label}`;
 };
 
+const waitForSnapshotPaint = () => new Promise<void>((resolve) => {
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+});
+
+async function primeProjectAttentionScroll(container: HTMLElement) {
+  const originalScrollTop = container.scrollTop;
+  const maximumScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  const viewportStep = Math.max(240, Math.floor(container.clientHeight * 0.8));
+
+  try {
+    for (let scrollTop = 0; scrollTop < maximumScrollTop; scrollTop += viewportStep) {
+      container.scrollTop = scrollTop;
+      await waitForSnapshotPaint();
+    }
+    container.scrollTop = maximumScrollTop;
+    await waitForSnapshotPaint();
+    container.scrollTop = 0;
+    await waitForSnapshotPaint();
+  } catch (error) {
+    container.scrollTop = originalScrollTop;
+    throw error;
+  }
+
+  return () => {
+    container.scrollTop = originalScrollTop;
+  };
+}
+
 async function captureProjectAttentionSnapshot(node: HTMLElement) {
   await document.fonts?.ready;
+  const reportBody = node.querySelector<HTMLElement>(".project-risk-evidence-body");
+  const restoreScroll = reportBody ? await primeProjectAttentionScroll(reportBody) : () => undefined;
   node.classList.add("is-exporting-snapshot");
   try {
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
-    const reportHeader = node.querySelector<HTMLElement>(".project-risk-evidence-header");
-    const reportBody = node.querySelector<HTMLElement>(".project-risk-evidence-body");
-    const width = Math.max(760, Math.ceil(node.scrollWidth || node.getBoundingClientRect().width));
-    const expandedContentHeight = (reportHeader?.scrollHeight || 0) + (reportBody?.scrollHeight || 0);
-    const height = Math.max(520, Math.ceil(node.scrollHeight || node.getBoundingClientRect().height), expandedContentHeight);
-    const pixelRatio = Math.max(1, Math.min(1.5, Math.sqrt(7_000_000 / Math.max(1, width * height))));
-    const dataUrl = await toJpeg(node, {
-      backgroundColor: window.getComputedStyle(node).backgroundColor || "#f7f9ff",
-      cacheBust: true,
-      filter: (candidate) => !(candidate instanceof HTMLElement) || !candidate.matches(".dialog-close-button, .metric-methodology-info"),
-      height,
-      pixelRatio,
-      quality: 0.9,
-      style: { boxSizing: "border-box", height: `${height}px`, overflow: "visible", width: `${width}px` },
-      width
-    });
-    if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("Portfolio attention snapshot could not be encoded.");
+    await waitForSnapshotPaint();
+    const fragmentSelectors = [
+      ".project-risk-evidence-header",
+      ".project-risk-summary-grid",
+      ".project-risk-method",
+      ".project-risk-section-heading",
+      ".project-risk-project-card",
+      ".project-risk-empty-state"
+    ];
+    const fragments = fragmentSelectors.flatMap((selector) => Array.from(node.querySelectorAll<HTMLElement>(selector)));
+    if (!fragments.length) throw new Error("Portfolio attention report has no rendered content to export.");
+    const reportWidth = Math.max(760, Math.ceil(node.getBoundingClientRect().width || node.scrollWidth));
+    const renderedPages: string[] = [];
+    for (const fragment of fragments) {
+      await waitForSnapshotPaint();
+      const height = Math.max(1, Math.ceil(fragment.scrollHeight || fragment.getBoundingClientRect().height));
+      const width = Math.max(1, reportWidth);
+      const maximumCanvasPixels = 4_000_000;
+      const captureScale = Math.min(
+        window.devicePixelRatio || 1,
+        1.35,
+        Math.sqrt(maximumCanvasPixels / Math.max(1, width * height)),
+        12_000 / width,
+        12_000 / height
+      );
+      const dataUrl = await toJpeg(fragment, {
+        backgroundColor: window.getComputedStyle(fragment).backgroundColor || "#f7f9ff",
+        cacheBust: true,
+        canvasHeight: Math.max(1, Math.floor(height * captureScale)),
+        canvasWidth: Math.max(1, Math.floor(width * captureScale)),
+        filter: (candidate) => !(candidate instanceof HTMLElement) || !candidate.matches(".dialog-close-button, .metric-methodology-info, .project-risk-open-button"),
+        height,
+        pixelRatio: 1,
+        preferredFontFormat: "woff2",
+        quality: 0.86,
+        style: { boxSizing: "border-box", height: `${height}px`, margin: "0", overflow: "visible", width: `${width}px` },
+        width
+      });
+      if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("Portfolio attention report page could not be encoded.");
+      renderedPages.push(dataUrl);
+    }
     return {
-      rendered_snapshot_data_url: dataUrl,
+      rendered_snapshot_pages_data_urls: renderedPages,
       rendered_snapshot_name: "Projects needing attention",
       rendered_snapshot_captured_at: new Date().toISOString()
     };
   } finally {
     node.classList.remove("is-exporting-snapshot");
+    restoreScroll();
   }
 }
 
@@ -397,7 +462,7 @@ const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
   }
 
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent >= 80) {
-    return "Execution confidence is strong. Keep monitoring high-risk app types for regressions.";
+    return "Quality confidence is strong. Keep monitoring high-risk applications and Bugs for regressions.";
   }
 
   return "Project scope is available. Add recent execution evidence to improve readiness confidence.";
@@ -442,8 +507,8 @@ const getProjectRiskSignals = (item: ProjectPortfolioItem) => {
 
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60) {
     signals.push({
-      label: "Pass confidence below threshold",
-      detail: `${item.passCoverage.coveragePercent}% latest pass confidence is below the 60% risk threshold.`,
+      label: "Pass rate below threshold",
+      detail: `${item.passCoverage.coveragePercent}% combined Test Case and Bug pass rate is below the 60% risk threshold.`,
       tone: "danger"
     });
   }
@@ -575,9 +640,9 @@ export function ProjectsPage() {
   const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canViewProjectAutomationCoverage = hasPermission(session, "automation.analytics.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.automation.analytics"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.analytics"]);
   const [focusedProjectId, setFocusedProjectId] = useState("");
-  const [section, setSection] = useState<ProjectSection>("traceability");
+  const [section, setSection] = useState<ProjectSection>("details");
   const [traceabilityAppTypeId, setTraceabilityAppTypeId] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -608,7 +673,6 @@ export function ProjectsPage() {
     [appTypeTypeOptions]
   );
   const [projectDraft, setProjectDraft] = useState<ProjectCreateDraft>(() => createInitialProjectDraft(defaultAppTypeValue));
-  const [isEditingProjectDetails, setIsEditingProjectDetails] = useState(false);
   const [projectDetailsDraft, setProjectDetailsDraft] = useState<ProjectDetailsDraft>({ name: "", description: "" });
   const [quickAddAppTypeType, setQuickAddAppTypeType] = useState(defaultAppTypeValue);
   const projectAttachmentMetaQuery = useQuery({
@@ -692,6 +756,13 @@ export function ProjectsPage() {
   const scopedProject = focusedProject || selectedProject;
   const projectId = scopedProject?.id || "";
   const [, setCurrentAppTypeId] = useCurrentAppType(projectId);
+
+  useEffect(() => {
+    setProjectDetailsDraft({
+      name: focusedProject?.name || "",
+      description: focusedProject?.description || ""
+    });
+  }, [focusedProject?.description, focusedProject?.id, focusedProject?.name]);
 
   useEffect(() => {
     if (focusedProjectId && !projectItems.some((project) => String(project.id) === String(focusedProjectId))) {
@@ -935,7 +1006,11 @@ export function ProjectsPage() {
       coverageByProjectId[project.id] = {
         totalCases: 0,
         passedCases: 0,
-        coveragePercent: 0
+        coveragePercent: 0,
+        testCaseTotal: 0,
+        testCasePassed: 0,
+        bugTotal: 0,
+        bugResolved: 0
       };
     });
 
@@ -949,10 +1024,17 @@ export function ProjectsPage() {
         return;
       }
 
-      coverageByProjectId[owningProjectId].totalCases += 1;
+      const latestResult = latestExecutionResultByCaseId[testCase.id];
+      if (!latestResult || !["passed", "failed", "blocked"].includes(String(latestResult.status || "").toLowerCase())) {
+        return;
+      }
 
-      if (latestExecutionResultByCaseId[testCase.id]?.status === "passed") {
+      coverageByProjectId[owningProjectId].totalCases += 1;
+      coverageByProjectId[owningProjectId].testCaseTotal += 1;
+
+      if (String(latestResult.status).toLowerCase() === "passed") {
         coverageByProjectId[owningProjectId].passedCases += 1;
+        coverageByProjectId[owningProjectId].testCasePassed += 1;
       }
     });
 
@@ -990,7 +1072,11 @@ export function ProjectsPage() {
       const passCoverage = exactMetric ? {
         totalCases: exactMetric.pass_confidence.total,
         passedCases: exactMetric.pass_confidence.passed,
-        coveragePercent: exactMetric.pass_confidence.percent
+        coveragePercent: exactMetric.pass_confidence.percent,
+        testCaseTotal: exactMetric.pass_confidence.case_total,
+        testCasePassed: exactMetric.pass_confidence.case_passed,
+        bugTotal: exactMetric.pass_confidence.bug_total,
+        bugResolved: exactMetric.pass_confidence.bug_resolved
       } : passCoverageByProjectId[project.id] || emptyPassCoverage;
       const latestExecution = exactMetric?.latest_execution || latestExecutionByProjectId[project.id] || null;
       const latestExecutionResults = latestExecution ? executionResultsByExecutionId[latestExecution.id] || [] : [];
@@ -1013,7 +1099,7 @@ export function ProjectsPage() {
       });
       const appTypeSummary = projectAppTypes.length
         ? projectAppTypes.map((appType) => appType.is_unified ? `${appType.name} unified` : `${appType.name} ${appType.type}`).join(", ")
-        : "No app types";
+        : "No applications";
       const baseItem = {
         project,
         memberCount: exactMetric?.counts.members ?? memberCountByProjectId[project.id] ?? 0,
@@ -1280,6 +1366,12 @@ export function ProjectsPage() {
     enabled: Boolean(projectId && traceabilityAppTypeId && loadProjectMetrics),
     staleTime: 30_000
   });
+  const traceabilitySprintsQuery = useQuery({
+    queryKey: ["project-traceability-sprints", projectId],
+    queryFn: () => api.requirementIterations.list({ project_id: projectId }),
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    staleTime: 30_000
+  });
   const traceabilityRequirementsQuery = useInfiniteQuery({
     queryKey: ["project-traceability-requirements", projectId],
     queryFn: ({ pageParam }) => api.requirements.listPage({
@@ -1340,8 +1432,8 @@ export function ProjectsPage() {
     () => traceabilityBugsQuery.data?.pages?.flatMap((page) => page.items) || [],
     [traceabilityBugsQuery.data]
   );
-  const isTraceabilityLoading = traceabilityRequirementsQuery.isLoading || traceabilityCasesQuery.isLoading || traceabilityBugsQuery.isLoading || traceabilityModulesQuery.isLoading;
-  const isTraceabilityError = traceabilityRequirementsQuery.isError || traceabilityCasesQuery.isError || traceabilityBugsQuery.isError || traceabilityModulesQuery.isError;
+  const isTraceabilityLoading = traceabilityRequirementsQuery.isLoading || traceabilityCasesQuery.isLoading || traceabilityBugsQuery.isLoading || traceabilityModulesQuery.isLoading || traceabilitySprintsQuery.isLoading;
+  const isTraceabilityError = traceabilityRequirementsQuery.isError || traceabilityCasesQuery.isError || traceabilityBugsQuery.isError || traceabilityModulesQuery.isError || traceabilitySprintsQuery.isError;
   const hasMoreTraceability = Boolean(traceabilityRequirementsQuery.hasNextPage || traceabilityCasesQuery.hasNextPage || traceabilityBugsQuery.hasNextPage);
   const isLoadingMoreTraceability = traceabilityRequirementsQuery.isFetchingNextPage || traceabilityCasesQuery.isFetchingNextPage || traceabilityBugsQuery.isFetchingNextPage;
   const traceabilityLoadMoreError = traceabilityRequirementsQuery.isFetchNextPageError || traceabilityCasesQuery.isFetchNextPageError || traceabilityBugsQuery.isFetchNextPageError;
@@ -1411,10 +1503,19 @@ export function ProjectsPage() {
   const selectedProjectRequirementCount = selectedPortfolioMetric?.counts.stories ?? (projectId ? requirementCountByProjectId[projectId] || 0 : 0);
   const selectedProjectTestCaseCount = selectedPortfolioMetric?.counts.cases ?? (projectId ? testCaseCountByProjectId[projectId] || 0 : 0);
   const selectedProjectAppTypeCount = selectedPortfolioMetric?.counts.app_types ?? (projectId ? appTypeCountByProjectId[projectId] || 0 : 0);
+  const selectedProjectBugCount = selectedPortfolioMetric?.counts.bugs ?? scopedProject?.bug_count ?? 0;
+  const isProjectDetailsDirty = focusedProject !== null && (
+    projectDetailsDraft.name !== focusedProject.name
+    || projectDetailsDraft.description !== (focusedProject.description || "")
+  );
   const selectedProjectPassCoverage = selectedPortfolioMetric ? {
     totalCases: selectedPortfolioMetric.pass_confidence.total,
     passedCases: selectedPortfolioMetric.pass_confidence.passed,
-    coveragePercent: selectedPortfolioMetric.pass_confidence.percent
+    coveragePercent: selectedPortfolioMetric.pass_confidence.percent,
+    testCaseTotal: selectedPortfolioMetric.pass_confidence.case_total,
+    testCasePassed: selectedPortfolioMetric.pass_confidence.case_passed,
+    bugTotal: selectedPortfolioMetric.pass_confidence.bug_total,
+    bugResolved: selectedPortfolioMetric.pass_confidence.bug_resolved
   } : projectId ? passCoverageByProjectId[projectId] || emptyPassCoverage : emptyPassCoverage;
   const focusedProjectSyncIntegrations = useMemo(
     () =>
@@ -1499,10 +1600,10 @@ export function ProjectsPage() {
       const hasWarnings = Boolean(provisioningErrorCount || attachmentErrorCount);
       setMessageTone(hasWarnings ? "error" : "success");
       setMessage(provisioningErrorCount
-        ? `Project created, but ${provisioningErrorCount} access or app-type item${provisioningErrorCount === 1 ? " needs" : "s need"} attention. Open the project and retry the missing setup.`
+        ? `Project created, but ${provisioningErrorCount} access or application item${provisioningErrorCount === 1 ? " needs" : "s need"} attention. Open the project and retry the missing setup.`
         : attachmentErrorCount
           ? `Project created with ${response.attachments_uploaded} attachment${response.attachments_uploaded === 1 ? "" : "s"}. ${attachmentErrorCount} file${attachmentErrorCount === 1 ? " needs" : "s need"} to be retried from Project Details.`
-          : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"}, ${response.app_types_created} app type${response.app_types_created === 1 ? "" : "s"}, and ${response.attachments_uploaded} compressed attachment${response.attachments_uploaded === 1 ? "" : "s"} are ready.`);
+          : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"}, ${response.app_types_created} application${response.app_types_created === 1 ? "" : "s"}, and ${response.attachments_uploaded} compressed attachment${response.attachments_uploaded === 1 ? "" : "s"} are ready.`);
       queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) => {
         const createdProject: Project = {
           id: response.id,
@@ -1550,10 +1651,13 @@ export function ProjectsPage() {
   const updateProjectDetails = useMutation({
     mutationFn: ({ id, input }: { id: string; input: { name: string; description: string } }) =>
       api.projects.update(id, input),
-    onSuccess: async () => {
+    onSuccess: async (_response, { id, input }) => {
+      queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) =>
+        current?.map((project) => project.id === id ? { ...project, ...input } : project)
+      );
+      setProjectDetailsDraft(input);
       setMessageTone("success");
       setMessage("Project details updated.");
-      setIsEditingProjectDetails(false);
       await invalidate();
     },
     onError: (error) => {
@@ -1592,12 +1696,12 @@ export function ProjectsPage() {
     mutationFn: api.appTypes.create,
     onSuccess: async () => {
       setMessageTone("success");
-      setMessage("App type added.");
+      setMessage("Application added.");
       await invalidate();
     },
     onError: (error) => {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to add app type");
+      setMessage(error instanceof Error ? error.message : "Unable to add application");
     }
   });
   const queueProjectSync = useMutation({
@@ -1779,23 +1883,17 @@ export function ProjectsPage() {
     if (event.dataTransfer.files.length) stageProjectAttachments(event.dataTransfer.files);
   };
 
-  const openProjectDetailsEditor = () => {
-    if (!focusedProject || !canManageProjects) return;
+  const resetProjectDetailsDraft = () => {
+    if (!focusedProject || updateProjectDetails.isPending) return;
     setProjectDetailsDraft({
       name: focusedProject.name,
       description: focusedProject.description || ""
     });
-    setIsEditingProjectDetails(true);
-  };
-
-  const closeProjectDetailsEditor = () => {
-    if (updateProjectDetails.isPending) return;
-    setIsEditingProjectDetails(false);
   };
 
   const handleProjectDetailsSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!focusedProject || !canManageProjects || updateProjectDetails.isPending) return;
+    if (!focusedProject || !canManageProjects || !isProjectDetailsDirty || updateProjectDetails.isPending) return;
 
     const name = projectDetailsDraft.name.trim();
     if (!name) {
@@ -1917,7 +2015,7 @@ export function ProjectsPage() {
 
     if (!normalizedAppTypes.length) {
       setMessageTone("error");
-      setMessage("At least one app type is required.");
+      setMessage("At least one application is required.");
       return;
     }
 
@@ -1973,7 +2071,7 @@ export function ProjectsPage() {
 
   const openPortfolioProject = useCallback((item: ProjectPortfolioItem) => {
     if (item.project.has_access === false) return;
-    setIsEditingProjectDetails(false);
+    setSection("details");
     setSelectedProjectId(item.project.id);
     setFocusedProjectId(item.project.id);
   }, [setSelectedProjectId]);
@@ -1996,13 +2094,13 @@ export function ProjectsPage() {
       icon: <OpenIcon />,
       onClick: () => openPortfolioProject(item),
       requiredPermissions: ["project.view"],
-      description: "Open members, app types, integrations, and project summary."
+      description: "Open project details, members, applications, attachments, and traceability."
     },
     {
       label: "Open stories",
       icon: <TileCardRequirementIcon />,
       onClick: () => openPortfolioProjectPath(item, "/requirements"),
-      featureKeys: ["qaira.manual.requirements"],
+      featureKeys: ["hellotest.manual.requirements"],
       requiredPermissions: ["requirement.view"],
       description: "Review story scope and coverage links."
     },
@@ -2010,7 +2108,7 @@ export function ProjectsPage() {
       label: "Open test cases",
       icon: <TileCardCaseIcon />,
       onClick: () => openPortfolioProjectPath(item, "/test-cases"),
-      featureKeys: ["qaira.manual.test_cases"],
+      featureKeys: ["hellotest.manual.test_cases"],
       requiredPermissions: ["testcase.view"],
       description: "Review manual and automated test cases for this project."
     },
@@ -2018,7 +2116,7 @@ export function ProjectsPage() {
       label: "Create run",
       icon: <PlayIcon />,
       onClick: () => openPortfolioProjectPath(item, "/executions"),
-      featureKeys: ["qaira.manual.runs"],
+      featureKeys: ["hellotest.manual.runs"],
       requiredPermissions: ["run.create"],
       description: "Move to the execution console with this project selected.",
       tone: "primary" as const
@@ -2164,7 +2262,7 @@ export function ProjectsPage() {
       sortValue: (item) => item.appTypeCount,
       render: (item) => item.project.has_access === false ? "—" : (
         <div className="projects-list-meta-cell">
-          <strong>{item.appTypeCount} app types</strong>
+          <strong>{item.appTypeCount} applications</strong>
           <span>{item.suiteCount} suites / {item.requirementCount} stories / {item.testCaseCount} cases</span>
         </div>
       )
@@ -2283,7 +2381,7 @@ export function ProjectsPage() {
               caption="Needs immediate review"
               evidence={[
                 `${portfolioSummary.executionFailureCases} failed and ${portfolioSummary.executionBlockedCases} blocked latest outcomes`,
-                `${portfolioSummary.riskyLowPassProjects} below the ${portfolioSummary.riskPassThreshold}% pass-confidence threshold`
+                `${portfolioSummary.riskyLowPassProjects} below the ${portfolioSummary.riskPassThreshold}% Test Case and Bug pass-rate threshold`
               ]}
               label="Risky Projects"
               criteriaKey="metric.project.risky_classification"
@@ -2336,7 +2434,7 @@ export function ProjectsPage() {
             className="projects-catalog-panel"
             title="Project Portfolio"
             titleVariant="eyebrow"
-            subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or app types."
+            subtitle="Browse workspace scope, then open a focused project workspace when you want to edit members or applications."
             actions={(
               <div className="projects-catalog-actions catalog-command-toolbar">
                 <div className="catalog-toolbar-discovery" aria-label="Project views, search, and selection">
@@ -2346,18 +2444,18 @@ export function ProjectsPage() {
                     ariaLabel="Search projects"
                     onChange={setProjectSearch}
                     placeholder="Search projects"
-                    subtitle="Filter projects by app type scope or project members."
+                    subtitle="Filter projects by application scope or project members."
                     title="Filter projects"
                     type="search"
                     value={projectSearch}
                   >
                     <div className="catalog-filter-grid">
                       <label className="catalog-filter-field">
-                        <span>App type</span>
+                        <span>Application</span>
                         <select onChange={(event) => setProjectAppTypeFilter(event.target.value)} value={projectAppTypeFilter}>
-                          <option value="all">All app types</option>
-                          <option value="with-app-types">Has app types</option>
-                          <option value="without-app-types">No app types</option>
+                          <option value="all">All applications</option>
+                          <option value="with-app-types">Has applications</option>
+                          <option value="without-app-types">No applications</option>
                           {appTypeTypeOptions.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
@@ -2442,9 +2540,7 @@ export function ProjectsPage() {
                     const automationCoverageDetail = automationCoverage.totalCases
                       ? `${automationCoverage.automatedCases}/${automationCoverage.totalCases} cases automated`
                       : "No test cases available to measure automation coverage";
-                    const passCoverageDetail = passCoverage.totalCases
-                      ? `${passCoverage.passedCases}/${passCoverage.totalCases} cases are currently passing`
-                      : "No test cases available to measure pass rate";
+                    const passCoverageDetail = formatPassCoverageDetail(passCoverage);
 
                     return (
                       <article
@@ -2567,7 +2663,7 @@ export function ProjectsPage() {
                           />
                           <ProjectProgressBar
                             detail={passCoverageDetail}
-                            label="Latest pass rate"
+                            label="Pass rate"
                             tone={getMetricTone(passCoverage.passedCases, passCoverage.totalCases)}
                             value={passCoverage.coveragePercent}
                           />
@@ -2623,11 +2719,11 @@ export function ProjectsPage() {
                   )}
                   rowGroups={projectListRowGroups}
                   rows={filteredProjectItems}
-                  storageKey="qaira:projects:list-columns"
+                  storageKey="hellotest:projects:list-columns"
                 />
               ) : null
             ) : null}
-            {!isProjectCatalogLoading && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, app types, and the initial team in one flow.</div> : null}
+            {!isProjectCatalogLoading && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, applications, and the initial team in one flow.</div> : null}
             {!isProjectCatalogLoading && projectItems.length > 0 && !filteredProjectItems.length ? <div className="empty-state compact">No projects match the current search or filters.</div> : null}
           </Panel>
         )}
@@ -2635,29 +2731,37 @@ export function ProjectsPage() {
           <div className="stack-grid">
             <Panel
               actions={<WorkspaceBackButton label="Back to projects list" onClick={() => {
-                setIsEditingProjectDetails(false);
                 setFocusedProjectId("");
               }} />}
               title={focusedProject ? focusedProject.name : "Project summary"}
               subtitle={focusedProject ? "Quick orientation before you dive into related records." : "Select a project to reveal its scoped data."}
             >
               {focusedProject ? (
-                <div className="detail-stack">
-                  {isEditingProjectDetails ? (
+                <>
+                  <SubnavTabs
+                    value={section}
+                    onChange={setSection}
+                    items={[
+                      { value: "details", label: "Project details" },
+                      { value: "members", label: "Members", meta: `${scopedMembers.length}` },
+                      { value: "applications", label: "Applications", meta: `${scopedAppTypes.length}` },
+                      { value: "attachments", label: "Attachments" },
+                      { value: "traceability", label: "Traceability", meta: traceabilityAppTypeId ? "Live" : "—" }
+                    ]}
+                  />
+                  {section === "details" ? <div className="detail-stack">
                     <form className="project-details-edit-form" onSubmit={handleProjectDetailsSave}>
                       <div className="project-details-edit-heading">
                         <div>
                           <span className="project-details-eyebrow">Project details</span>
-                          <h3>Edit name and description</h3>
+                          <h3>Name and description</h3>
                           <p>Keep the description concise and scannable so the team understands the project scope quickly.</p>
                         </div>
-                        <span className="project-details-edit-badge"><IconPencil aria-hidden="true" size={15} stroke={2} /> Editing</span>
                       </div>
                       <div className="project-details-edit-fields">
                         <FormField label="Project name" inputId="project-details-name" required>
                           <input
-                            autoFocus
-                            disabled={updateProjectDetails.isPending}
+                            disabled={!canManageProjects || updateProjectDetails.isPending}
                             id="project-details-name"
                             onChange={(event) => setProjectDetailsDraft((current) => ({ ...current, name: event.target.value }))}
                             value={projectDetailsDraft.name}
@@ -2675,7 +2779,7 @@ export function ProjectsPage() {
                             aria-label="Project description"
                             appearance="canonical"
                             className="project-details-description-editor"
-                            disabled={updateProjectDetails.isPending}
+                            disabled={!canManageProjects || updateProjectDetails.isPending}
                             id="project-details-description"
                             onChange={(description) => setProjectDetailsDraft((current) => ({ ...current, description }))}
                             placeholder="Describe the goals, scope, systems, and intended quality outcomes..."
@@ -2684,60 +2788,16 @@ export function ProjectsPage() {
                           />
                         </FormField>
                       </div>
-                      <div className="project-details-edit-actions">
-                        <span>AI suggestions remain editable and require explicit acceptance.</span>
-                        <button className="ghost-button" disabled={updateProjectDetails.isPending} onClick={closeProjectDetailsEditor} type="button">Cancel</button>
-                        <button className="primary-button" disabled={!projectDetailsDraft.name.trim() || updateProjectDetails.isPending} type="submit">
-                          {updateProjectDetails.isPending ? "Saving…" : "Save changes"}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <article className="project-detail-overview">
-                      <div className="project-detail-overview-head">
-                        <div>
-                          <span className="project-details-eyebrow">Project details</span>
-                          <strong>{focusedProject.name}</strong>
-                        </div>
-                        {canManageProjects ? (
-                          <button
-                            aria-label={`Edit details for ${focusedProject.name}`}
-                            className="ghost-button project-details-edit-button"
-                            onClick={openProjectDetailsEditor}
-                            type="button"
-                          >
-                            <IconPencil aria-hidden="true" size={16} stroke={2} />
-                            <span>Edit details</span>
+                      {canManageProjects && isProjectDetailsDirty ? (
+                        <div className="project-details-edit-actions">
+                          <span>You have unsaved changes.</span>
+                          <button className="ghost-button" disabled={updateProjectDetails.isPending} onClick={resetProjectDetailsDraft} type="button">Cancel</button>
+                          <button className="primary-button" disabled={!projectDetailsDraft.name.trim() || updateProjectDetails.isPending} type="submit">
+                            {updateProjectDetails.isPending ? "Saving…" : "Save changes"}
                           </button>
-                        ) : null}
-                      </div>
-                      <RichTextContent value={focusedProject.description} fallback="No description provided yet." />
-                    </article>
-                  )}
-                  {canViewAttachments ? (
-                    <details className="project-detail-attachments">
-                      <summary>
-                        <span className="project-detail-attachments-icon"><IconPaperclip aria-hidden="true" size={17} stroke={2} /></span>
-                        <span>
-                          <strong>Attachments</strong>
-                          <small>Project briefs, references, and supporting files</small>
-                        </span>
-                        <IconChevronDown aria-hidden="true" className="project-detail-attachments-chevron" size={18} stroke={2} />
-                      </summary>
-                      <div className="project-detail-attachments-content">
-                        <JiraAttachmentPanel
-                          canDelete={canDeleteAttachments}
-                          canUpload={canCreateAttachments}
-                          canView={canViewAttachments}
-                          entityId={focusedProject.id}
-                          entityType="project"
-                          issueKey={focusedProject.display_id || focusedProject.id}
-                          projectId={focusedProject.id}
-                          title="Project attachments"
-                        />
-                      </div>
-                    </details>
-                  ) : null}
+                        </div>
+                      ) : null}
+                    </form>
                   <div className="metric-strip">
                     <button
                       aria-label={`Open members for ${focusedProject.name}`}
@@ -2750,13 +2810,13 @@ export function ProjectsPage() {
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
-                      aria-label={`Open app types for ${focusedProject.name}`}
+                      aria-label={`Open applications for ${focusedProject.name}`}
                       className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
-                      onClick={() => openProjectSection("appTypes")}
+                      onClick={() => openProjectSection("applications")}
                       type="button"
                     >
                       <strong>{selectedProjectAppTypeCount}</strong>
-                      <span>App types</span>
+                      <span>Applications</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
@@ -2780,6 +2840,16 @@ export function ProjectsPage() {
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
+                      aria-label={`Open bugs for ${focusedProject.name}`}
+                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
+                      onClick={() => openProjectWorkspacePage("/issues")}
+                      type="button"
+                    >
+                      <strong>{selectedProjectBugCount}</strong>
+                      <span>Total Bugs</span>
+                      <span className="metric-evidence-hint">Open evidence</span>
+                    </button>
+                    <button
                       aria-label={`Open execution results for ${focusedProject.name}`}
                       className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectWorkspacePage("/executions")}
@@ -2788,7 +2858,7 @@ export function ProjectsPage() {
                       <strong>{`${selectedProjectPassCoverage.coveragePercent}%`}</strong>
                       <span>
                         {selectedProjectPassCoverage.totalCases
-                          ? `Pass rate · ${selectedProjectPassCoverage.passedCases}/${selectedProjectPassCoverage.totalCases} passed`
+                          ? `Pass rate · ${formatPassCoverageDetail(selectedProjectPassCoverage)}`
                           : "Pass rate"}
                       </span>
                       <span className="metric-evidence-hint">Open evidence</span>
@@ -2824,26 +2894,34 @@ export function ProjectsPage() {
                       </button>
                     ) : null}
                   </div>
-                </div>
+                  </div> : null}
+                </>
               ) : (
                 <div className="empty-state compact">Choose a project to continue.</div>
               )}
             </Panel>
 
-            <SubnavTabs
-              value={section}
-              onChange={setSection}
-              items={[
-                { value: "traceability", label: "Traceability Map", meta: traceabilityAppTypeId ? "Live" : "—" },
-                { value: "members", label: "Members", meta: `${scopedMembers.length}` },
-                { value: "appTypes", label: "App Types", meta: `${scopedAppTypes.length}` }
-              ]}
-            />
+            {section === "attachments" && focusedProject ? (
+              <Panel title="Project attachments" subtitle="Project briefs, references, and supporting files.">
+                {canViewAttachments ? (
+                  <JiraAttachmentPanel
+                    canDelete={canDeleteAttachments}
+                    canUpload={canCreateAttachments}
+                    canView={canViewAttachments}
+                    entityId={focusedProject.id}
+                    entityType="project"
+                    issueKey={focusedProject.display_id || focusedProject.id}
+                    projectId={focusedProject.id}
+                    title="Project attachments"
+                  />
+                ) : <div className="empty-state compact">Permission required: attachment.view</div>}
+              </Panel>
+            ) : null}
 
             {section === "traceability" ? (
-              <Panel title="Traceability map" subtitle="Explore Story-to-Bug coverage for one app type without leaving the project.">
+              <Panel title="Traceability map" subtitle="Explore Story-to-Bug coverage for one application without leaving the project.">
                 {scopedAppTypes.length && traceabilityAppTypeId ? (
-                  isTraceabilityLoading ? <LoadingState label="Loading app-type traceability" /> : isTraceabilityError ? (
+                  isTraceabilityLoading ? <LoadingState label="Loading application traceability" /> : isTraceabilityError ? (
                     <div className="empty-state compact">
                       <strong>Traceability data could not be loaded.</strong>
                       <span>Retry the Story, module, test case, and Bug queries without leaving this project.</span>
@@ -2852,6 +2930,7 @@ export function ProjectsPage() {
                         void traceabilityCasesQuery.refetch();
                         void traceabilityBugsQuery.refetch();
                         void traceabilityModulesQuery.refetch();
+                        void traceabilitySprintsQuery.refetch();
                       }} type="button">Retry map</button>
                     </div>
                   ) : <ProjectTraceabilityMap
@@ -2882,9 +2961,10 @@ export function ProjectsPage() {
                     }}
                     requirements={traceabilityRequirements}
                     selectedAppTypeId={traceabilityAppTypeId}
+                    sprints={(traceabilitySprintsQuery.data || []) as RequirementIteration[]}
                     testCases={traceabilityCases}
                   />
-                ) : <div className="empty-state compact">Add an app type to build its traceability map.</div>}
+                ) : <div className="empty-state compact">Add an application to build its traceability map.</div>}
               </Panel>
             ) : null}
 
@@ -2956,8 +3036,8 @@ export function ProjectsPage() {
               </Panel>
             ) : null}
 
-            {section === "appTypes" ? (
-              <Panel title="App types" subtitle="Keep platform boundaries readable and lightweight.">
+            {section === "applications" ? (
+              <Panel title="Applications" subtitle="Keep application platform boundaries readable and lightweight.">
               <form
                 className="elevated-toolbar"
 	                onSubmit={(event) => {
@@ -2976,7 +3056,7 @@ export function ProjectsPage() {
               >
                 <input name="name" required placeholder="Web app" />
                 <AppTypeDropdown
-                  ariaLabel="Select an app type platform"
+                  ariaLabel="Select an application platform"
                   name="type"
                   onChange={setQuickAddAppTypeType}
                   options={appTypeDropdownOptions}
@@ -2984,7 +3064,7 @@ export function ProjectsPage() {
                   value={quickAddAppTypeType}
                 />
                 <button className="primary-button" disabled={!canManageAppTypes || !projectId || createAppType.isPending} type="submit">
-                  {createAppType.isPending ? "Adding…" : "Add app type"}
+                  {createAppType.isPending ? "Adding…" : "Add application"}
                 </button>
               </form>
 
@@ -3000,7 +3080,7 @@ export function ProjectsPage() {
                       disabled={!canManageAppTypes}
                       onClick={() => void api.appTypes.delete(item.id).then(() => {
                         setMessageTone("success");
-                        setMessage("App type deleted.");
+                        setMessage("Application deleted.");
                         return invalidate();
                       }).catch((error: Error) => {
                         setMessageTone("error");
@@ -3013,7 +3093,7 @@ export function ProjectsPage() {
                   </article>
                 ))}
               </div>
-              {!scopedAppTypes.length ? <div className="empty-state compact">No app types defined yet.</div> : null}
+              {!scopedAppTypes.length ? <div className="empty-state compact">No applications defined yet.</div> : null}
               </Panel>
             ) : null}
           </div>
@@ -3082,15 +3162,15 @@ export function ProjectsPage() {
                   value={portfolioSummary.executionFailureCases}
                 />
                 <EvidenceFlipCard
-                  caption="Latest finalized outcomes"
+                  caption="Finalized Test Case and Bug outcomes"
                   className="project-risk-summary-card"
                   evidence={[
                     `${portfolioAnalyticsQuery.data?.projects.filter((item) => item.pass_confidence.total > 0).length || 0} projects have finalized pass evidence`,
                     `${portfolioSummary.executionFailureCases} failed · ${portfolioSummary.executionBlockedCases} blocked latest-run cases`,
-                    "Running and unknown outcomes are excluded from pass confidence"
+                    "Running and unknown tests are excluded; resolved Bugs count as passed Bug outcomes"
                   ]}
                   frontIcon={<IconChartBar size={18} stroke={1.9} />}
-                  label="Average pass confidence"
+                  label="Average pass rate"
                   tone="info"
                   value={`${portfolioSummary.averagePassCoverage}%`}
                 />
@@ -3117,7 +3197,7 @@ export function ProjectsPage() {
                   <div>
                     <h3 id="project-risk-method-title">How the signal is calculated</h3>
                     <p>
-                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and latest finalized pass confidence at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
+                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Bug pass rate at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
                       Evidence policy requires {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.execution_evidence"]?.minimum_coverage_percent ?? 80)}% latest-run evidence coverage.
                     </p>
                   </div>
@@ -3125,7 +3205,7 @@ export function ProjectsPage() {
                 <dl>
                   <div>
                     <dt>Risky</dt>
-                    <dd>Latest failures or blockers, or pass confidence below {portfolioSummary.riskPassThreshold}%.</dd>
+                    <dd>Latest failures or blockers, or combined Test Case and Bug pass rate below {portfolioSummary.riskPassThreshold}%.</dd>
                   </div>
                   <div>
                     <dt>Watch</dt>
@@ -3178,7 +3258,7 @@ export function ProjectsPage() {
                               <strong>{item.readinessScore}%</strong>
                             </div>
                             <ProjectProgressBar
-                              detail="Configured Story coverage, automation coverage, and latest finalized pass-confidence weights"
+                              detail="Configured Story coverage, automation coverage, and combined Test Case and Bug pass-rate weights"
                               label="Weighted readiness"
                               tone={item.healthTone === "danger" ? "danger" : "info"}
                               value={item.readinessScore}
@@ -3197,9 +3277,9 @@ export function ProjectsPage() {
                               <small>{item.automationCoverage.automatedCases}/{item.automationCoverage.totalCases} automated</small>
                             </div>
                             <div>
-                              <dt>Pass confidence</dt>
+                              <dt>Pass rate</dt>
                               <dd>{item.passCoverage.coveragePercent}%</dd>
-                              <small>{item.passCoverage.passedCases}/{item.passCoverage.totalCases} latest passed</small>
+                              <small>{formatPassCoverageDetail(item.passCoverage)}</small>
                             </div>
                             <div>
                               <dt>Latest blockers</dt>
@@ -3290,7 +3370,7 @@ export function ProjectsPage() {
                     <div>
                       <h3 className="project-create-step-title" id="project-app-configurations-title">
                         <span aria-hidden="true" className="project-create-step-number">1</span>
-                        <span>App Configurations</span>
+                        <span>Applications</span>
                       </h3>
                       <p>Define the applications involved in this project to set up appropriate test environments.</p>
                     </div>
@@ -3344,7 +3424,7 @@ export function ProjectsPage() {
                           </FormField>
                           <FormField label="Platform Type">
                             <AppTypeDropdown
-                              ariaLabel={`Select platform type for app type ${index + 1}`}
+                              ariaLabel={`Select platform type for application ${index + 1}`}
                               inlineMenu
                               onChange={(value) => updateProjectAppType(appType.id, {
                                 type: value as AppType["type"],

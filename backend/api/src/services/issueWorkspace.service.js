@@ -59,7 +59,7 @@ exports.previewTriage = async ({ project, issueIds = [] }) => {
     triage,
     review_sequence: ["Review highest-impact recommendations first.", "Validate reproduction and linked evidence.", "Apply priority or status changes only after human approval."],
     limitations: ["Recommendations use the current HelloTest record and traceability fields; unrecorded production impact is not inferred."],
-    integration: { id: "qaira-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     provenance,
     generation_mode: "deterministic",
     generated_at: generatedAt,

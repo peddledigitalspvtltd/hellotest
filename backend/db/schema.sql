@@ -18,8 +18,15 @@ CREATE TABLE users (
   auth_provider TEXT NOT NULL DEFAULT 'local',
   google_sub TEXT UNIQUE,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  username TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX idx_users_username_unique
+  ON users (LOWER(username)) WHERE username IS NOT NULL;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_role_id TEXT REFERENCES roles(id);
 
@@ -737,6 +744,21 @@ CREATE TABLE app_settings (
   value JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE admin_audit_log (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  summary TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip_address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_admin_audit_log_created
+  ON admin_audit_log (created_at DESC);
 
 -- =========================
 -- LATEST RUNTIME CONTRACT

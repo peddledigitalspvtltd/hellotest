@@ -448,7 +448,7 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
       "This preview does not infer unrecorded telemetry, production impact, duplicate relationships, or root cause.",
       ...(boundedContext.boundaries.partial_sources ? [`${boundedContext.boundaries.omissions.length} Bug field or traceability list exceeded its explicit prompt limit; omitted counts are disclosed in the processing boundary.`] : [])
     ],
-    integration: { id: integration?.id || "qaira-evidence-graph", name: integration?.name || "HelloTest evidence graph", type: integration ? "llm" : "deterministic", model: integration?.model || null, generation_mode: generationMode, direct_model_invocation: Boolean(integration && !providerError) },
+    integration: { id: integration?.id || "hellotest-evidence-graph", name: integration?.name || "HelloTest evidence graph", type: integration ? "llm" : "deterministic", model: integration?.model || null, generation_mode: generationMode, direct_model_invocation: Boolean(integration && !providerError) },
     provenance,
     generation_mode: generationMode,
     generated_at: generatedAt,

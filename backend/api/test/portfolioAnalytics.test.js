@@ -24,6 +24,26 @@ test("portfolio metric formula values are bounded and readiness weights remain a
   assert.equal(values["metric.project.needs_attention"].priority_project_limit, 8);
 });
 
+test("project pass confidence combines finalized test outcomes with resolved Bug outcomes", () => {
+  assert.deepEqual(analytics.calculatePassConfidence({
+    passedCases: 7,
+    finalizedCases: 10,
+    resolvedBugs: 2,
+    totalBugs: 5
+  }), {
+    total: 15,
+    passed: 9,
+    percent: 60,
+    case_total: 10,
+    case_passed: 7,
+    bug_total: 5,
+    bug_resolved: 2
+  });
+
+  assert.equal(analytics.calculatePassConfidence({ passedCases: 4, finalizedCases: 4 }).percent, 100);
+  assert.equal(analytics.calculatePassConfidence({ resolvedBugs: 0, totalBugs: 2 }).percent, 0);
+});
+
 test("portfolio analytics uses complete accessible-project evidence and preserves compact impact contracts", async () => {
   const [service, routes, permissions, settingsRoutes, settingsService] = await Promise.all([
     readSource("../src/services/portfolioAnalytics.service.js"),
@@ -43,10 +63,31 @@ test("portfolio analytics uses complete accessible-project evidence and preserve
   assert.match(service, /failure_impacts/);
   assert.match(service, /bug_impacts/);
   assert.match(routes, /fastify\.get\("\/projects\/portfolio-analytics"/);
-  assert.match(routes, /renderedSnapshotPdf\(req\.body \|\| \{\}, \{ pageMode: "continuous" \}\)/);
+  assert.match(routes, /renderedSnapshotPdf\(req\.body \|\| \{\}\)/);
   assert.match(permissions, /\["GET", "\/projects\/portfolio-analytics", "project\.view"\]/);
   assert.match(permissions, /\["POST", "\/projects\/portfolio-attention-report\.pdf", "run\.report\.export"\]/);
   assert.match(settingsRoutes, /"ai_metric_formula_values"/);
   assert.match(settingsService, /WORKSPACE_METRIC_FORMULA_VALUES_KEY/);
   assert.match(settingsService, /metricFormulaRow/);
+});
+
+test("project workspace exposes editable project details, the requested tabs, and project metrics", async () => {
+  const [page, styles] = await Promise.all([
+    readSource("../../../frontend/src/pages/ProjectsPage.tsx"),
+    readSource("../../../frontend/src/pages/ProjectsPage.css")
+  ]);
+
+  assert.match(page, /value: "details", label: "Project details"[\s\S]*value: "members", label: "Members"[\s\S]*value: "applications", label: "Applications"[\s\S]*value: "attachments", label: "Attachments"[\s\S]*value: "traceability", label: "Traceability"/);
+  assert.match(page, /section === "attachments"/);
+  assert.match(page, /section === "applications"/);
+  assert.match(page, /isProjectDetailsDirty[\s\S]*You have unsaved changes\.[\s\S]*Cancel[\s\S]*Save changes/);
+  assert.match(page, /selectedProjectBugCount[\s\S]*Total Bugs/);
+  assert.match(page, /primeProjectAttentionScroll[\s\S]*maximumScrollTop[\s\S]*captureProjectAttentionSnapshot/);
+  assert.match(page, /fragmentSelectors[\s\S]*for \(const fragment of fragments\)[\s\S]*canvasHeight[\s\S]*canvasWidth/);
+  assert.match(page, /rendered_snapshot_pages_data_urls: renderedPages/);
+  assert.match(styles, /is-exporting-snapshot \.evidence-flip-card-inner[\s\S]*transform: none !important/);
+  assert.match(styles, /is-exporting-snapshot \.evidence-flip-card-back[\s\S]*display: none !important/);
+  assert.match(page, /formatPassCoverageDetail/);
+  assert.doesNotMatch(page, /Edit details/);
+  assert.doesNotMatch(page, /label: "App Types"/);
 });

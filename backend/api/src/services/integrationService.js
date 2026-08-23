@@ -19,12 +19,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  qaira-tests:
+  hellotest-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger HelloTest Execution
         run: |
-          curl -X POST "https://api.qaira.io/v1/executions/trigger" \\
+          curl -X POST "https://api.hellotest.io/v1/executions/trigger" \\
                -H "Authorization: Bearer \${{ secrets.HELLOTEST_API_KEY }}" \\
                -H "Content-Type: application/json" \\
                -d '{

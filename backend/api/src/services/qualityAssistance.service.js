@@ -35,7 +35,7 @@ const assisted = ({ capability, input, evidence, confidence, payload }) => {
   };
   return {
     ...payload,
-    integration: { id: "qaira-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    integration: { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     provenance,
     generation_mode: "deterministic",
     generated_at: generatedAt,

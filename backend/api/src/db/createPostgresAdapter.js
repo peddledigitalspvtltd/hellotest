@@ -113,7 +113,7 @@ const createStatementName = (sql, namespace) => {
   return `${namespace}_${digest}`.slice(0, 63);
 };
 
-function createPostgresAdapter({ poolConfig, statementNamespace = "qaira" }) {
+function createPostgresAdapter({ poolConfig, statementNamespace = "hellotest" }) {
   const transactionContext = new AsyncLocalStorage();
   const placeholderCache = new Map();
   const pool = new Pool(poolConfig);

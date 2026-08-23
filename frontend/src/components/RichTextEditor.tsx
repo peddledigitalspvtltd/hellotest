@@ -1,4 +1,5 @@
-import { type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconPaperclip, IconPhoto } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject } from "../hooks/useCurrentProject";
@@ -6,7 +7,9 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { AiEvidenceButton, AiEvidenceFlyout } from "./AgenticExperience";
+import { DialogCloseButton } from "./DialogCloseButton";
 
 type RichTextEditorProps = {
   id?: string;
@@ -429,10 +432,13 @@ export function RichTextEditor({
   const [aiProposal, setAiProposal] = useState<string | null>(null);
   const [aiEvidence, setAiEvidence] = useState<AiRephraseEvidence | null>(null);
   const [isAiEvidenceOpen, setIsAiEvidenceOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState<{ text: string; url: string } | null>(null);
+  const [linkError, setLinkError] = useState("");
+  const pendingLinkRangeRef = useRef<Range | null>(null);
   const isEmpty = !richTextToPlainText(value);
   const canUseDefaultAiRephrase = Boolean(projectId)
     && hasPermission(session, "content.ai")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["qaira.ai.content_rephrase"]);
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.content_rephrase"]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -512,6 +518,16 @@ export function RichTextEditor({
     insertHtml(`<code>${escapeHtml(selectedText)}</code>`);
   }, [disabled, insertHtml]);
 
+  const closeLinkDialog = useCallback(() => {
+    setLinkDraft(null);
+    setLinkError("");
+    pendingLinkRangeRef.current = null;
+  }, []);
+  const linkDialogRef = useDialogFocus<HTMLDivElement>({
+    active: Boolean(linkDraft),
+    onClose: closeLinkDialog
+  });
+
   const createLink = useCallback(() => {
     const editor = editorRef.current;
     if (!editor || disabled) {
@@ -521,24 +537,37 @@ export function RichTextEditor({
     editor.focus();
     const selection = window.getSelection();
     const selectedText = selection?.toString() || "link";
-    const url = window.prompt("Link URL", "https://");
-    if (url === null) {
-      return;
-    }
+    pendingLinkRangeRef.current = selection?.rangeCount && !selection.isCollapsed && isSelectionInside(editor)
+      ? selection.getRangeAt(0).cloneRange()
+      : null;
+    setLinkError("");
+    setLinkDraft({ text: selectedText, url: "https://" });
+  }, [disabled]);
 
-    const safeUrl = sanitizeUrl(url);
+  const applyLink = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!linkDraft) return;
+    const safeUrl = sanitizeUrl(linkDraft.url);
     if (!safeUrl) {
+      setLinkError("Enter a valid http, https, or mailto link.");
       return;
     }
 
-    if (selection?.rangeCount && !selection.isCollapsed && isSelectionInside(editor)) {
+    const editor = editorRef.current;
+    const pendingRange = pendingLinkRangeRef.current;
+    if (editor && pendingRange && editor.contains(pendingRange.commonAncestorContainer)) {
+      editor.focus();
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(pendingRange);
       document.execCommand("createLink", false, safeUrl);
       emitChange();
-      return;
+    } else {
+      const linkText = linkDraft.text.trim() || safeUrl;
+      insertHtml(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${escapeHtml(linkText)}</a>`);
     }
-
-    insertHtml(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${escapeHtml(selectedText)}</a>`);
-  }, [disabled, emitChange, insertHtml]);
+    closeLinkDialog();
+  }, [closeLinkDialog, emitChange, insertHtml, linkDraft]);
 
   const handleAiRephrase = useCallback(async () => {
     if (disabled || isRephrasing) {
@@ -804,6 +833,52 @@ export function RichTextEditor({
         ) : null}
         <p className="ai-evidence-flyout__boundary">This panel shows the supplied context, enforced constraints, and observable processing metadata. It does not expose hidden model reasoning.</p>
       </AiEvidenceFlyout>
+      {linkDraft && typeof document !== "undefined" ? createPortal(
+        <div className="modal-backdrop rich-text-link-backdrop" onClick={closeLinkDialog} role="presentation">
+          <div
+            aria-labelledby="rich-text-link-dialog-title"
+            aria-modal="true"
+            className="modal-card rich-text-link-dialog"
+            onClick={(event) => event.stopPropagation()}
+            ref={linkDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <header className="resource-modal-header">
+              <div className="resource-modal-title">
+                <h2 className="dialog-title" id="rich-text-link-dialog-title">Add link</h2>
+                <p>Link the selected text without leaving the current editor.</p>
+              </div>
+              <DialogCloseButton label="Close add link dialog" onClick={closeLinkDialog} />
+            </header>
+            <form className="rich-text-link-form" noValidate onSubmit={applyLink}>
+              <label className="form-field">
+                <span>Text to display</span>
+                <input disabled={Boolean(pendingLinkRangeRef.current)} onChange={(event) => setLinkDraft((current) => current ? { ...current, text: event.target.value } : current)} value={linkDraft.text} />
+                {pendingLinkRangeRef.current ? <small>The selected editor text will be linked.</small> : null}
+              </label>
+              <label className="form-field">
+                <span>Link URL</span>
+                <input
+                  aria-invalid={Boolean(linkError)}
+                  data-autofocus="true"
+                  inputMode="url"
+                  onChange={(event) => { setLinkDraft((current) => current ? { ...current, url: event.target.value } : current); setLinkError(""); }}
+                  placeholder="https://example.com or mailto:name@example.com"
+                  type="text"
+                  value={linkDraft.url}
+                />
+                {linkError ? <small className="form-field-error" role="alert">{linkError}</small> : <small>Supported protocols: http, https, and mailto.</small>}
+              </label>
+              <footer className="rich-text-link-actions">
+                <button className="ghost-button" onClick={closeLinkDialog} type="button">Cancel</button>
+                <button className="primary-button" type="submit">Add link</button>
+              </footer>
+            </form>
+          </div>
+        </div>,
+        document.body
+      ) : null}
     </div>
   );
 }
