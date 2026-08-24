@@ -5,6 +5,7 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { SubnavTabs } from "./SubnavTabs";
 import { TileCardRequirementIcon } from "./TileCardPrimitives";
+import { BacklogIcon, ReleaseIcon, SprintIcon, StoryIcon } from "./AppIcons";
 import { useLocalization } from "../context/LocalizationContext";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { hasAnyPermission, requiredPermissionsForPath } from "../lib/permissions";
@@ -64,6 +65,14 @@ function resolveWorkspaceSectionIcon(icon?: string) {
   );
 
   switch (icon) {
+    case "stories":
+      return <StoryIcon size={16} />;
+    case "backlog":
+      return <BacklogIcon size={16} strokeWidth={1.8} />;
+    case "sprint":
+      return <SprintIcon size={16} />;
+    case "release":
+      return <ReleaseIcon size={16} strokeWidth={1.8} />;
     case "requirements":
       return <TileCardRequirementIcon />;
     case "cases":

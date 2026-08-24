@@ -171,9 +171,14 @@ const TEST_CASE_AUTOMATED_OPTIONS = freezeOptions([
 
 const REQUIREMENT_STATUS_OPTIONS = freezeOptions([
   { value: "open", label: "Open", description: "Captured but not yet ready for delivery." },
-  { value: "in_progress", label: "In Progress", description: "Being refined or implemented." },
-  { value: "ready", label: "Ready", description: "Ready for testing and release coverage." },
-  { value: "blocked", label: "Blocked", description: "Waiting on a decision, dependency, or missing detail." },
+  { value: "dev_ready", label: "Dev Ready", description: "Refined and ready for implementation." },
+  { value: "dev_in_progress", label: "Dev In Progress", description: "Implementation is in progress." },
+  { value: "dev_blocked", label: "Dev Blocked", description: "Implementation is blocked by a dependency or decision." },
+  { value: "dev_done", label: "Dev Done", description: "Implementation is complete and ready for quality verification." },
+  { value: "qa_ready", label: "QA Ready", description: "Ready for quality verification." },
+  { value: "qa_in_progress", label: "QA In Progress", description: "Quality verification is in progress." },
+  { value: "qa_blocked", label: "QA Blocked", description: "Quality verification is blocked." },
+  { value: "qa_done", label: "QA Done", description: "Quality verification is complete." },
   { value: "done", label: "Done", description: "Completed and accepted." }
 ]);
 

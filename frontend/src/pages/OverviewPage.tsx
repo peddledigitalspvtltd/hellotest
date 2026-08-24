@@ -473,7 +473,7 @@ function QualityAnalyticsDashboard() {
         title: "Close coverage gaps",
         detail: "Map missing stories to reusable cases or AI-assisted drafts before the next review.",
         meta: `${coverageGapCount} uncovered ${coverageGapCount === 1 ? "story" : "stories"}`,
-        to: "/requirements",
+        to: "/backlog",
         tone: coverageGapCount ? "error" as const : "success" as const
       },
       {
@@ -534,7 +534,7 @@ function QualityAnalyticsDashboard() {
       detail: `Priority P${requirement.priority ?? 3} story still has no reusable test coverage attached.`,
       label: "Design coverage",
       tone: (requirement.priority ?? 3) <= 2 ? "error" as const : "info" as const,
-      to: "/requirements"
+      to: "/backlog"
     }));
 
     const designItems = casesWithoutSteps.slice(0, 2).map((testCase) => ({

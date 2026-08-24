@@ -36,6 +36,11 @@ const DISPLAY_ID_CONFIG = {
     prefix: "ITER-",
     minDigits: 1
   },
+  requirement_release: {
+    table: "requirement_releases",
+    prefix: "REL-",
+    minDigits: 1
+  },
   issue: {
     table: "feedback",
     prefix: "BUG-",

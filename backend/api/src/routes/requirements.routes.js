@@ -118,6 +118,11 @@ module.exports = async function (fastify) {
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
+      dev_completion_target_date: { required: false, type: "string" },
+      qa_completion_target_date: { required: false, type: "string" },
+      scrum_team: { required: false, type: "string", maxLength: 255 },
+      specification_format: { required: false, type: "string", enum: ["gherkin", "speckit"] },
+      specification_content: { required: false, type: "string", maxLength: 40000 },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", maxLength: 100 }
     }, req.body);
@@ -270,6 +275,11 @@ module.exports = async function (fastify) {
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
+      dev_completion_target_date: { required: false, type: "string" },
+      qa_completion_target_date: { required: false, type: "string" },
+      scrum_team: { required: false, type: "string", maxLength: 255 },
+      specification_format: { required: false, type: "string", enum: ["gherkin", "speckit"] },
+      specification_content: { required: false, type: "string", maxLength: 40000 },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string" },
       expected_revision: { required: false, type: "number" }
@@ -283,6 +293,14 @@ module.exports = async function (fastify) {
       ...req.body,
       updated_by: req.user.id
     });
+  });
+
+  fastify.put("/requirements/:id/related-requirements", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ requirement_ids: { required: true, type: "array", items: "string" } }, req.body || {});
+    const requirement = await service.getRequirement(req.params.id);
+    await projectService.getProject(requirement.project_id, req.user.id);
+    return service.replaceRelatedRequirements(req.params.id, req.body.requirement_ids);
   });
 
   fastify.post("/requirements/:id/ai-optimize-preview", async (req) => {

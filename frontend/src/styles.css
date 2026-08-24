@@ -47736,6 +47736,10 @@ body > .nested-modal-backdrop {
   width: 100%;
 }
 
+.requirements-health-strip:is(.is-backlog, .is-sprints) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .requirements-health-card {
   display: grid;
   align-content: start;
@@ -47805,6 +47809,16 @@ body > .nested-modal-backdrop {
 
 @media (max-width: 900px) {
   .requirements-health-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .requirements-health-strip:is(.is-backlog, .is-sprints) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .requirements-health-strip:is(.is-backlog, .is-sprints) {
     grid-template-columns: 1fr;
   }
 }

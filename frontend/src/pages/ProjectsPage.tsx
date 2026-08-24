@@ -2072,8 +2072,11 @@ export function ProjectsPage() {
   const openPortfolioProject = useCallback((item: ProjectPortfolioItem) => {
     if (item.project.has_access === false) return;
     setSection("details");
-    setSelectedProjectId(item.project.id);
+    // Establish the local master-detail transition before broadcasting the
+    // project scope change. The scope event is synchronous and otherwise can
+    // consume the first catalog click while the page is still in browse mode.
     setFocusedProjectId(item.project.id);
+    setSelectedProjectId(item.project.id);
   }, [setSelectedProjectId]);
 
   const openPortfolioProjectPath = useCallback((item: ProjectPortfolioItem, path: string) => {
@@ -2099,7 +2102,7 @@ export function ProjectsPage() {
     {
       label: "Open stories",
       icon: <TileCardRequirementIcon />,
-      onClick: () => openPortfolioProjectPath(item, "/requirements"),
+      onClick: () => openPortfolioProjectPath(item, "/backlog"),
       featureKeys: ["hellotest.manual.requirements"],
       requiredPermissions: ["requirement.view"],
       description: "Review story scope and coverage links."
@@ -2822,7 +2825,7 @@ export function ProjectsPage() {
                     <button
                       aria-label={`Open stories for ${focusedProject.name}`}
                       className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
-                      onClick={() => openProjectWorkspacePage("/requirements")}
+                      onClick={() => openProjectWorkspacePage("/backlog")}
                       type="button"
                     >
                       <strong>{selectedProjectRequirementCount}</strong>
@@ -2946,7 +2949,7 @@ export function ProjectsPage() {
                     }}
                     onOpen={(kind, id) => {
                       const target = kind === "requirement"
-                        ? `/requirements?requirement=${encodeURIComponent(id)}`
+                        ? `/backlog?requirement=${encodeURIComponent(id)}`
                         : kind === "bug"
                           ? `/issues?issue=${encodeURIComponent(id)}`
                           : kind === "module"

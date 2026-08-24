@@ -32,6 +32,24 @@ const validateDateRange = (startDate, endDate) => {
   if (startDate && endDate && endDate <= startDate) throw new Error("Iteration end date must be after its start date");
 };
 
+const COMPLETED_STORY_STATUSES = ["qa_done", "qa done", "done", "closed", "resolved", "accepted", "complete", "completed"];
+
+const ensureSprintStoriesComplete = async (iteration, requirementIds = null) => {
+  const effectiveRequirementIds = Array.isArray(requirementIds) ? requirementIds : null;
+  const incomplete = effectiveRequirementIds && !effectiveRequirementIds.length ? [] : await db.prepare(`
+    SELECT id, display_id, title, status
+    FROM requirements
+    WHERE ${effectiveRequirementIds ? `id IN (${effectiveRequirementIds.map(() => "?").join(",")})` : "iteration_id = ?"}
+      AND LOWER(TRIM(COALESCE(status, ''))) NOT IN (${COMPLETED_STORY_STATUSES.map(() => "?").join(",")})
+    ORDER BY COALESCE(updated_at, created_at) DESC, title ASC
+  `).all(...(effectiveRequirementIds || [iteration.id]), ...COMPLETED_STORY_STATUSES);
+  if (!incomplete.length) return;
+  const error = new Error(`Sprint “${iteration.name}” cannot be completed because ${incomplete.length} ${incomplete.length === 1 ? "Story is" : "Stories are"} unfinished. Move every Story to QA Done, Done, Resolved, Accepted, or Closed, then try again.`);
+  error.statusCode = 409;
+  error.code = "DELIVERY_STORIES_INCOMPLETE";
+  throw error;
+};
+
 const selectProject = db.prepare(`
   SELECT id
   FROM projects
@@ -222,6 +240,7 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
 exports.updateIteration = async (id, data = {}) => {
   const existing = await exports.getIteration(id);
   const nextName = data.name !== undefined ? normalizeText(data.name) : existing.name;
+  const nextState = data.state !== undefined ? normalizeState(data.state, existing.state) : normalizeState(existing.state);
 
   if (!nextName) {
     throw new Error("Iteration name is required");
@@ -243,6 +262,10 @@ exports.updateIteration = async (id, data = {}) => {
     await ensureRequirementsMatchProject(requirementIds, existing.project_id);
   }
 
+  if (nextState === "closed" && (normalizeState(existing.state) !== "closed" || requirementIds !== null)) {
+    await ensureSprintStoriesComplete(existing, requirementIds);
+  }
+
   const transaction = db.transaction(async () => {
     await db.prepare(`
       UPDATE requirement_iterations
@@ -254,7 +277,7 @@ exports.updateIteration = async (id, data = {}) => {
       data.goal !== undefined ? normalizeText(data.goal) : existing.goal,
       data.labels !== undefined ? JSON.stringify(normalizeTextList(data.labels)) : JSON.stringify(existing.labels || []),
       data.external_references !== undefined ? JSON.stringify(normalizeTextList(data.external_references)) : JSON.stringify(existing.external_references || []),
-      data.state !== undefined ? normalizeState(data.state, existing.state) : normalizeState(existing.state),
+      nextState,
       startDate,
       endDate,
       normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,

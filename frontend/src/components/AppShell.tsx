@@ -7,14 +7,16 @@ import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AppTypeInlineValue } from "./AppTypeDropdown";
 import { AppErrorBoundary } from "./AppErrorBoundary";
-import { RefreshIcon, StoryIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
+import { BacklogIcon, RefreshIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
 import { LoadingState } from "./LoadingState";
+import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
 import "./module-navigation.css";
 import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useWorkspaceScrollRestoration } from "../hooks/useWorkspaceScrollRestoration";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
@@ -37,7 +39,7 @@ import {
   AGENTIC_WORKFLOW_SECTION_ITEMS,
   AUTOMATION_SECTION_ITEMS,
   DASHBOARD_SECTION_ITEMS,
-  REQUIREMENTS_MANAGEMENT_SECTION_ITEMS,
+  PRODUCT_MANAGEMENT_SECTION_ITEMS,
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
   TEST_RUNS_SECTION_ITEMS,
@@ -63,12 +65,12 @@ const navigation = [
     label: "Create",
     items: [
       {
-        id: "requirements-management",
-        to: WORKSPACE_ROUTES.requirements,
-        label: "Requirements Management",
-        shortLabel: "Requirements",
+        id: "product-management",
+        to: WORKSPACE_ROUTES.stories,
+        label: "Product Management",
+        shortLabel: "Product",
         icon: RequirementsManagementIcon,
-        matchPaths: REQUIREMENTS_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
+        matchPaths: PRODUCT_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
         featureKeys: ["hellotest.manual.requirements"],
         disabledWhenNoProjects: true
       },
@@ -527,6 +529,7 @@ function WorkspaceLocalizationLoader() {
 
 function ReadyAppShell() {
   const location = useLocation();
+  useWorkspaceScrollRestoration();
   const routeNavigation = useNavigation();
   const { session, error, clearError, logout } = useAuth();
   const { t } = useLocalization();
@@ -737,7 +740,7 @@ function ReadyAppShell() {
         return t("nav.projects", defaultLabel);
       case "authoring":
         return t("nav.testAuthoring", defaultLabel);
-      case "requirements-management":
+      case "product-management":
         return defaultLabel;
       case "runs":
         return t("nav.testRuns", defaultLabel);
@@ -778,8 +781,8 @@ function ReadyAppShell() {
   const resolveSidebarSubItems = (item: { id: string }) => {
     const items = item.id === "overview"
       ? DASHBOARD_SECTION_ITEMS
-      : item.id === "requirements-management"
-      ? REQUIREMENTS_MANAGEMENT_SECTION_ITEMS
+      : item.id === "product-management"
+      ? PRODUCT_MANAGEMENT_SECTION_ITEMS
       : item.id === "authoring"
       ? TEST_AUTHORING_SECTION_ITEMS
       : item.id === "automation"
@@ -873,15 +876,13 @@ function ReadyAppShell() {
         <nav className="nav-list" aria-label="Main navigation">
           {navigation.map((group) => (
             <div className="nav-group" key={group.label}>
-              {!shouldCollapseSidebar ? (
+              {!shouldCollapseSidebar && group.label !== "Create" ? (
                 <p className="nav-group-label">
                   {group.label === "Workspace"
                     ? t("nav.section.main", group.label)
-                    : group.label === "Create"
-                      ? t("nav.section.testManagement", group.label)
-                      : group.label === "Connect"
-                        ? t("nav.section.administration", group.label)
-                        : t("nav.section.settings", group.label)}
+                    : group.label === "Connect"
+                      ? t("nav.section.administration", group.label)
+                      : t("nav.section.settings", group.label)}
                 </p>
               ) : null}
               <div className="nav-group-items">
@@ -1098,10 +1099,10 @@ function ReadyAppShell() {
           </div>
         ) : null}
         {featureFlagsQuery.isPending && currentFeatureKeys.length ? (
-          <LoadingState label="Loading project capabilities" />
+          <WorkspacePageSkeleton label="Loading project capabilities" />
         ) : canAccessCurrentRoute && canAccessCurrentFeature ? (
           <AppErrorBoundary key={location.pathname}>
-            <Suspense fallback={<LoadingState label={`Loading ${currentSection}`} />}>
+            <Suspense fallback={<WorkspacePageSkeleton label={`Loading ${currentSection}`} />}>
               <Outlet />
             </Suspense>
           </AppErrorBoundary>
@@ -1200,6 +1201,14 @@ function SharedStepsIcon() {
 
 function getWorkspaceSubItemIcon(icon?: string) {
   switch (icon) {
+    case "stories":
+      return StoryIcon;
+    case "backlog":
+      return BacklogIcon;
+    case "sprint":
+      return SprintIcon;
+    case "release":
+      return ReleaseIcon;
     case "analytics":
       return ActivityIcon;
     case "dashboard":

@@ -7,6 +7,9 @@ import {
   IconChecklist,
   IconDatabase,
   IconLibraryPlus,
+  IconFlagCheck,
+  IconNotes,
+  IconPlayerPlay,
   IconRefresh,
   IconSettings,
   IconX
@@ -32,6 +35,7 @@ import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import { DeliveryCompletionGuardDialog } from "../components/DeliveryCompletionGuardDialog";
 import { DialogCloseButton } from "../components/DialogCloseButton";
 import { DetailSectionTabs } from "../components/DetailSectionTabs";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
@@ -81,6 +85,8 @@ import { formatReferenceList, parseReferenceList } from "../lib/externalReferenc
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
 import { downloadCsvRecords } from "../lib/csvExport";
+import { loadAllCursorPages } from "../lib/cursorPagination";
+import { isDeliveryStatusComplete } from "../lib/deliveryStatus";
 import { hasPermission } from "../lib/permissions";
 import { getJiraBrowseUrl } from "../lib/jiraBrowseUrl";
 import { chunkHierarchyMoveIds, readHierarchyDragPayload, resolveHierarchyDragIds, writeHierarchyDragPayload } from "../lib/hierarchyDrag";
@@ -126,6 +132,11 @@ type RequirementDraft = {
   fixVersion: string;
   release: string;
   iterationId: string;
+  devCompletionTargetDate: string;
+  qaCompletionTargetDate: string;
+  scrumTeam: string;
+  specificationFormat: "gherkin" | "speckit";
+  specificationContent: string;
   priority: number;
   status: string;
   additionalFields: Record<string, unknown>;
@@ -208,10 +219,43 @@ const createEmptyRequirementDraft = (defaultStatus = "To Do"): RequirementDraft 
   fixVersion: "",
   release: "",
   iterationId: "",
+  devCompletionTargetDate: "",
+  qaCompletionTargetDate: "",
+  scrumTeam: "",
+  specificationFormat: "gherkin",
+  specificationContent: "",
   priority: 3,
   status: defaultStatus,
   additionalFields: {}
 });
+
+const STORY_STATUS_RANK: Record<string, number> = {
+  open: 0,
+  in_progress: 2,
+  ready: 4,
+  blocked: 2,
+  dev_ready: 1,
+  dev_in_progress: 2,
+  dev_blocked: 2,
+  dev_done: 3,
+  qa_ready: 4,
+  qa_in_progress: 5,
+  qa_blocked: 5,
+  qa_done: 6,
+  done: 7
+};
+
+const storyStatusRank = (value?: string | null) => STORY_STATUS_RANK[String(value || "").trim().toLowerCase()] ?? 0;
+const isStoryAssignedToSprint = (story?: Requirement | null) => Boolean(
+  story?.iteration_id || story?.sprint_id || String(story?.sprint || "").trim()
+);
+const deriveStoryDeliveryRisk = (story: Requirement, now = Date.now()) => {
+  const devTarget = story.dev_completion_target_date ? Date.parse(story.dev_completion_target_date) : Number.NaN;
+  const qaTarget = story.qa_completion_target_date ? Date.parse(story.qa_completion_target_date) : Number.NaN;
+  const devSlipped = Number.isFinite(devTarget) && devTarget < now && storyStatusRank(story.status) < storyStatusRank("dev_done");
+  const qaSlipped = Number.isFinite(qaTarget) && qaTarget < now && storyStatusRank(story.status) < storyStatusRank("qa_done");
+  return { isRisk: devSlipped || qaSlipped, devSlipped, qaSlipped };
+};
 
 const toDateTimeInputValue = (date: Date) => {
   const year = date.getFullYear();
@@ -276,9 +320,17 @@ const sprintDateRangeLabel = (start?: string | null, end?: string | null) => {
 
 const sprintStateLabel = (state?: string | null) => ({
   future: "Planned",
-  active: "Active",
-  closed: "Completed"
+  active: "In Progress",
+  closed: "Completed",
+  overdue: "Overdue"
 })[String(state || "").toLowerCase()] || "Status unavailable";
+
+const deriveSprintLifecycleState = (iteration: RequirementIteration) => {
+  const persisted = String(iteration.state || iteration.status || "future").toLowerCase();
+  if (persisted === "closed") return "closed";
+  if (iteration.end_date && Date.parse(iteration.end_date) < Date.now()) return "overdue";
+  return persisted === "active" ? "active" : "future";
+};
 
 const sprintOptionLabel = (sprint: { name: string; state?: string | null; start_date?: string | null; end_date?: string | null }) =>
   [sprint.name, sprintStateLabel(sprint.state), sprintDateRangeLabel(sprint.start_date, sprint.end_date)].join(" · ");
@@ -611,7 +663,7 @@ function getKnownSprintRequirementCount(iteration: RequirementIteration) {
   return Number(count);
 }
 
-export function RequirementsPage() {
+export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?: "stories" | "backlog" | "sprints" }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -641,6 +693,7 @@ export function RequirementsPage() {
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedRequirementId, setSelectedRequirementId] = useState("");
+  const dismissedRequirementRouteRef = useRef("");
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
   const [linkedPreviewCaseId, setLinkedPreviewCaseId] = useState("");
@@ -671,6 +724,9 @@ export function RequirementsPage() {
   const [sprintPageCursorsById, setSprintPageCursorsById] = useState<Record<string, Array<string | null>>>({});
   const [selectedIterationIds, setSelectedIterationIds] = useState<string[]>([]);
   const [deletingIterationId, setDeletingIterationId] = useState("");
+  const [retrospectiveIteration, setRetrospectiveIteration] = useState<RequirementIteration | null>(null);
+  const [completionBlockedSprint, setCompletionBlockedSprint] = useState<{ iteration: RequirementIteration; stories: Requirement[] } | null>(null);
+  const [completionCheckSprintId, setCompletionCheckSprintId] = useState("");
   const [draggingRequirementIds, setDraggingRequirementIds] = useState<string[]>([]);
   const confirmedSprintMoveScope = session?.user.id && projectId ? `${session.user.id}:${projectId}` : "";
   const [confirmedSprintMoveState, setConfirmedSprintMoveState] = useState<{
@@ -814,7 +870,13 @@ export function RequirementsPage() {
       const nextCursor = getVerifiedNextPageCursor(lastPage);
       return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
     },
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && workspaceMode !== "stories")
+  });
+  const allStoriesQuery = useQuery({
+    queryKey: ["requirements-all-stories", projectId],
+    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId, projection: "summary" })),
+    enabled: Boolean(projectId && workspaceMode === "stories"),
+    staleTime: 30_000
   });
   const sprintStoryPickerQuery = useInfiniteQuery({
     queryKey: ["create-sprint-story-picker", projectId],
@@ -1023,7 +1085,6 @@ export function RequirementsPage() {
     });
     return byId;
   }, [requirementSprintHealthQueries]);
-  const requirementBacklogHealth = requirementSprintHealthQueries[0]?.data?.backlog || null;
   const pendingRequirementSprintHealthIds = useMemo(() => {
     const pending = new Set<string>();
     requirementSprintHealthQueries.forEach((query, index) => {
@@ -1291,6 +1352,10 @@ export function RequirementsPage() {
     mutationFn: ({ requirementId, issueIds }: { requirementId: string; issueIds: string[] }) =>
       api.requirementDefects.replace(requirementId, issueIds)
   });
+  const replaceRelatedRequirements = useMutation({
+    mutationFn: ({ requirementId, requirementIds }: { requirementId: string; requirementIds: string[] }) =>
+      api.requirements.replaceRelatedRequirements(requirementId, requirementIds)
+  });
   const previewDesignedCases = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1] }) =>
       api.requirements.previewDesignedTestCases(requirementId, input)
@@ -1349,12 +1414,14 @@ export function RequirementsPage() {
   const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const loadedRequirementEvidence = useMemo(() => {
-    const evidence = asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
+    const evidence = workspaceMode === "stories"
+      ? [...asArray(allStoriesQuery.data)]
+      : asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
     for (const query of sprintRequirementQueries) evidence.push(...asArray(query.data?.items));
     if (requestedRequirementQuery.data) evidence.push(requestedRequirementQuery.data);
     if (requirementDetailQuery.data) evidence.push(requirementDetailQuery.data);
     return evidence;
-  }, [requirementDetailQuery.data, requestedRequirementQuery.data, requirementsQuery.data, sprintRequirementQueries]);
+  }, [allStoriesQuery.data, requirementDetailQuery.data, requestedRequirementQuery.data, requirementsQuery.data, sprintRequirementQueries, workspaceMode]);
   const sprintStoryPickerRequirements = useMemo(() => {
     const byId = new Map<string, Requirement>();
     asArray(sprintStoryPickerQuery.data?.pages).forEach((page) => {
@@ -1363,7 +1430,9 @@ export function RequirementsPage() {
     return [...byId.values()];
   }, [sprintStoryPickerQuery.data]);
   const loadedRequirementSettlementEvidence = useMemo(() => {
-    const evidence = asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
+    const evidence = workspaceMode === "stories"
+      ? [...asArray(allStoriesQuery.data)]
+      : asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
     sprintRequirementQueries.forEach((query, queryIndex) => {
       const scopedIteration = sprintPageRequests[queryIndex]?.iteration;
       asArray(query.data?.items).forEach((requirement) => {
@@ -1376,11 +1445,13 @@ export function RequirementsPage() {
     if (requirementDetailQuery.data) evidence.push(requirementDetailQuery.data);
     return evidence;
   }, [
+    allStoriesQuery.data,
     requirementDetailQuery.data,
     requestedRequirementQuery.data,
     requirementsQuery.data,
     sprintPageRequests,
-    sprintRequirementQueries
+    sprintRequirementQueries,
+    workspaceMode
   ]);
   const loadedRequirements = useMemo(() => {
     const byId = new Map<string, Requirement>();
@@ -1502,7 +1573,7 @@ export function RequirementsPage() {
   );
   const isRequirementCatalogLoading =
     projectsQuery.isLoading ||
-    (Boolean(projectId) && requirementsQuery.isLoading);
+    (Boolean(projectId) && (workspaceMode === "stories" ? allStoriesQuery.isLoading : requirementsQuery.isLoading));
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -1663,6 +1734,10 @@ export function RequirementsPage() {
     }
 
     const requestedRequirementId = searchParams.get("requirement");
+    if (requestedRequirementId && requestedRequirementId === dismissedRequirementRouteRef.current) {
+      return;
+    }
+    if (!requestedRequirementId) dismissedRequirementRouteRef.current = "";
     const requestedRequirement = findByRoutableId(requirements, requestedRequirementId);
 
     if (requestedRequirement) {
@@ -1701,6 +1776,11 @@ export function RequirementsPage() {
     [requirements, selectedRequirementId]
   );
   const selectedRequirement = requirementDetailQuery.data || selectedRequirementSummary;
+  const selectedRequirementHasSprint = isStoryAssignedToSprint(selectedRequirement);
+  useEffect(() => {
+    if (selectedRequirementHasSprint || !["cases", "defects", "history"].includes(activeTraceabilityTab)) return;
+    setActiveTraceabilityTab("details");
+  }, [activeTraceabilityTab, selectedRequirementHasSprint]);
   const selectedRequirementSprintValue = requirementSprintSelectionValue(selectedRequirement);
   const storyDetailSprintOptions = useMemo(
     () => getStoryDetailSprintOptions(requirementIterations, selectedRequirementSprintValue),
@@ -1729,6 +1809,7 @@ export function RequirementsPage() {
   const openRequirementWorkspace = (requirementId: string) => {
     const targetRequirement = requirements.find((item) => item.id === requirementId) || null;
 
+    dismissedRequirementRouteRef.current = "";
     syncRequirementSearchParams(getRoutableId(targetRequirement) || requirementId);
     setSelectedRequirementId(requirementId);
   };
@@ -2348,6 +2429,13 @@ export function RequirementsPage() {
               : exactFields.has("pass_percent")
                 ? `${health.passed_cases}/${health.executed_linked_cases} distinct linked Test Cases have a latest terminal outcome of passed for ${scopeLabel}.${partialDisclosure}`
                 : `${health.observed.passed_cases}/${health.observed.executed_linked_cases} observed distinct linked Test Cases have a latest terminal outcome of passed. ${partialTitle}`
+          },
+          {
+            icon: <ActivityIcon aria-hidden="true" size={13} strokeWidth={1.8} />,
+            label: "Slippage",
+            value: exactFields.has("slippage_stories") ? String(health.slippage_stories ?? 0) : "—",
+            tone: Number(health.slippage_stories || 0) > 0 ? "danger" : "success",
+            title: `${health.slippage_stories ?? health.observed.slippage_stories ?? 0}/${health.total_stories ?? health.observed.stories_scanned} Stories missed a Dev or QA target before reaching the corresponding Done stage.`
           }
         ]}
       />
@@ -2399,29 +2487,34 @@ export function RequirementsPage() {
     return renderDeferredSprintMetrics({ isLoading, reason, scopeLabel: `Sprint “${iteration.name}”` });
   };
   const renderBacklogMetrics = () => {
-    if (requirementBacklogHealth) {
-      return renderAuthoritativeSprintMetrics(requirementBacklogHealth, "Backlog / No Sprint");
-    }
-    const backlogQuery = requirementSprintHealthQueries[0];
-    const isLoading = Boolean(
-      canViewRequirementIterations
-      && (backlogQuery?.isPending || backlogQuery?.isFetching)
+    const backlogStories = requirementIterationGroups.unassignedRequirements;
+    const groomed = backlogStories.filter((item) => Boolean(
+      richTextToPlainText(item.description).trim()
+      && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
+      && item.priority
+      && item.status
+    )).length;
+    const specified = backlogStories.filter((item) => Boolean(
+      asArray(item.gherkin_scenarios).length || item.specification_content?.trim()
+    )).length;
+    const highPriority = backlogStories.filter((item) => (item.priority || 3) <= 2).length;
+    const teamAssigned = backlogStories.filter((item) => Boolean(String(item.scrum_team || "").trim())).length;
+    return (
+      <HierarchyQuickInsights
+        count={backlogStories.length}
+        countLabel={backlogStories.length === 1 ? "Story" : "Stories"}
+        metrics={[
+          { icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />, label: "Groomed", value: String(groomed), tone: groomed === backlogStories.length ? "success" : "warning", title: `${groomed}/${backlogStories.length} Stories have description, priority, status, and a reviewable specification.` },
+          { icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />, label: "Specification ready", value: String(specified), tone: specified === backlogStories.length ? "success" : "warning", title: `${specified}/${backlogStories.length} Stories have Gherkin or Spec Kit acceptance intent.` },
+          { icon: <ActivityIcon aria-hidden="true" size={13} strokeWidth={1.8} />, label: "P1 / P2", value: String(highPriority), tone: highPriority ? "warning" : "neutral", title: `${highPriority} high-priority Stories need Product Owner sequencing.` },
+          { icon: <SprintIcon size={13} />, label: "Team assigned", value: String(teamAssigned), tone: teamAssigned === backlogStories.length ? "success" : "neutral", title: `${teamAssigned}/${backlogStories.length} Stories have Scrum team ownership before Sprint planning.` }
+        ]}
+      />
     );
-    const responseReason = backlogQuery?.data?.completeness?.reasons
-      .map((reason) => reason.replace(/_/g, " "))
-      .join(", ");
-    const reason = !canViewRequirementIterations
-      ? "Backlog-health permission is unavailable."
-      : backlogQuery?.isError
-        ? "Server-backed Backlog health could not be loaded."
-        : responseReason
-          ? `Backlog health could not be resolved (${responseReason}).`
-          : "Server-backed Backlog health is unavailable.";
-    return renderDeferredSprintMetrics({ isLoading, reason, scopeLabel: "Backlog / No Sprint" });
   };
 
   const renderSprintIdentity = (iteration: RequirementIteration) => {
-    const state = String(iteration.state || iteration.status || "unknown").toLowerCase();
+    const state = deriveSprintLifecycleState(iteration);
     const goal = richTextToPlainText(iteration.goal || iteration.description).trim();
     return (
       <div className="requirement-sprint-identity">
@@ -2447,20 +2540,21 @@ export function RequirementsPage() {
       | { kind: "requirement"; requirement: Requirement }
     > = [];
 
-    requirementIterationGroups.groups.forEach(({ iteration, requirements: groupRequirements }) => {
-      entries.push({ kind: "iteration", iteration, count: groupRequirements.length });
-      if (expandedIterationIds.includes(iteration.id)) {
-        groupRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
-      }
-    });
-
-    entries.push({ kind: "unassigned", count: requirementIterationGroups.unassignedRequirements.length });
-    if (isBacklogExpanded) {
+    if (workspaceMode === "sprints") {
+      requirementIterationGroups.groups.forEach(({ iteration, requirements: groupRequirements }) => {
+        entries.push({ kind: "iteration", iteration, count: groupRequirements.length });
+        if (expandedIterationIds.includes(iteration.id)) {
+          groupRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
+        }
+      });
+    } else if (workspaceMode === "backlog") {
       requirementIterationGroups.unassignedRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
+    } else {
+      filteredRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
     }
 
     return entries;
-  }, [expandedIterationIds, isBacklogExpanded, requirementIterationGroups, requirementsQuery.hasNextPage]);
+  }, [expandedIterationIds, filteredRequirements, requirementIterationGroups, workspaceMode]);
 
   const hasIncompleteRequirementReferenceSearch = Boolean(deferredRequirementSearchTerm.trim())
     && requirements.some((requirement) => requirement.detail_complete === false);
@@ -2487,22 +2581,28 @@ export function RequirementsPage() {
     Number(requirementPriorityFilter !== "all") +
     Number(requirementLabelFilter !== "all") +
     Number(requirementSprintFilter !== "all") +
-    Number(requirementFixVersionFilter !== "all") +
-    Number(requirementReleaseFilter !== "all") +
-    Number(requirementCoverageFilter !== "all");
+    Number(workspaceMode !== "backlog" && requirementFixVersionFilter !== "all") +
+    Number(workspaceMode !== "backlog" && requirementReleaseFilter !== "all") +
+    Number(workspaceMode !== "backlog" && requirementCoverageFilter !== "all");
 
+  const workspaceVisibleRequirements = workspaceMode === "backlog"
+    ? requirementIterationGroups.unassignedRequirements
+    : workspaceMode === "stories"
+      ? filteredRequirements
+      : requirementIterationGroups.groups.flatMap(({ requirements: groupRequirements }) => groupRequirements);
+  const workspaceVisibleIterations = workspaceMode === "sprints"
+    ? requirementIterationGroups.groups.map(({ iteration }) => iteration)
+    : [];
   const areAllFilteredRequirementsSelected =
-    (filteredRequirements.length > 0 || requirementIterationGroups.groups.length > 0)
-    && filteredRequirements.every((item) => deleteSelectedRequirementIds.includes(item.id))
-    && requirementIterationGroups.groups.every(({ iteration }) => selectedIterationIds.includes(iteration.id));
+    (workspaceVisibleRequirements.length > 0 || workspaceVisibleIterations.length > 0)
+    && workspaceVisibleRequirements.every((item) => deleteSelectedRequirementIds.includes(item.id))
+    && workspaceVisibleIterations.every((iteration) => selectedIterationIds.includes(iteration.id));
 
   const selectedExportRequirements = selectedRequirementRecords;
   const openRequirementIterations = requirementIterations.filter((iteration) =>
     String(iteration.state || iteration.status || "").toLowerCase() !== "closed"
   );
-  const hasSelectableRequirementItems = Boolean(
-    filteredRequirements.length || requirementIterationGroups.groups.length
-  );
+  const hasSelectableRequirementItems = Boolean(workspaceVisibleRequirements.length || workspaceVisibleIterations.length);
   const selectedRequirementActionCount = deleteSelectedRequirementIds.length + selectedIterationIds.length;
 
   const setRequirementIdsSelected = (requirementIds: string[], checked: boolean) => {
@@ -2512,8 +2612,8 @@ export function RequirementsPage() {
   };
 
   const setAllFilteredRequirementItemsSelected = (checked: boolean) => {
-    const requirementIds = filteredRequirements.map((item) => item.id);
-    const iterationIds = requirementIterationGroups.groups.map(({ iteration }) => iteration.id);
+    const requirementIds = workspaceVisibleRequirements.map((item) => item.id);
+    const iterationIds = workspaceVisibleIterations.map((iteration) => iteration.id);
 
     setRequirementIdsSelected(requirementIds, checked);
     setSelectedIterationIds((current) => checked
@@ -2777,6 +2877,15 @@ export function RequirementsPage() {
     passCoverageByRequirementId,
     userById
   ]);
+  const workspaceRequirementListColumns = useMemo(
+    () => workspaceMode === "backlog"
+      ? requirementListColumns.filter((column) => ![
+          "sprint", "fixVersion", "release", "linkedCases", "linkedDefects",
+          "passRate", "automationCoverage", "bugResolution"
+        ].includes(column.key))
+      : requirementListColumns,
+    [requirementListColumns, workspaceMode]
+  );
 
   const renderRequirementListRowActions = (item: Requirement) => (
     <div className="catalog-row-actions" onClick={(event) => event.stopPropagation()}>
@@ -2789,7 +2898,7 @@ export function RequirementsPage() {
             requiredPermissions: ["requirement.view"],
             onClick: () => openRequirementWorkspace(item.id)
           },
-          {
+          ...(isStoryAssignedToSprint(item) ? [{
             label: "AI Test Cases Generation",
             description: "Generate or review AI-designed test cases for this Story.",
             icon: <SparkIcon />,
@@ -2797,7 +2906,7 @@ export function RequirementsPage() {
             permissionMode: "all" as const,
             requiredPermissions: ["requirement.ai", "testcase.create"],
             onClick: () => openRequirementAiStudio(item.id)
-          },
+          }] : []),
           {
             label: "AI Complete Story",
             description: "Use AI to improve missing or weak Story details.",
@@ -2831,6 +2940,15 @@ export function RequirementsPage() {
   const selectedRequirementBugResolution = selectedRequirement
     ? bugResolutionByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
     : { total: 0, covered: 0, percent: 0 };
+  const selectedRequirementTestCoverage = selectedRequirement && selectedTestCaseIds.length ? 100 : 0;
+  const selectedRequirementBugHealth = selectedRequirementBugResolution.total
+    ? selectedRequirementBugResolution.percent
+    : 100;
+  const selectedRequirementReadiness = Math.round(
+    selectedRequirementTestCoverage * 0.3
+    + selectedRequirementPassCoverage.percent * 0.5
+    + selectedRequirementBugHealth * 0.2
+  );
   const selectedRequirementRunHistory = selectedRequirement
     ? runHistoryByRequirementId[selectedRequirement.id] || []
     : [];
@@ -2861,7 +2979,7 @@ export function RequirementsPage() {
         `${selectedRequirementFailureContext.length} recent failed or blocked linked case${selectedRequirementFailureContext.length === 1 ? "" : "s"} selected as bounded evidence.`,
         ...evidenceLines
       ].join("\n"),
-      returnTo: `/requirements?requirement=${encodeURIComponent(requirementRouteId)}`,
+      returnTo: `/backlog?requirement=${encodeURIComponent(requirementRouteId)}`,
       returnLabel: "Story details"
     }, "ai"));
   };
@@ -2981,6 +3099,11 @@ export function RequirementsPage() {
       fixVersion: selectedRequirement.fix_version || "",
       release: selectedRequirement.release || "",
       iterationId: selectedRequirement.iteration_id || requirementIterationById.get(selectedRequirement.id)?.id || "",
+      devCompletionTargetDate: sprintDateTimeInputValue(selectedRequirement.dev_completion_target_date),
+      qaCompletionTargetDate: sprintDateTimeInputValue(selectedRequirement.qa_completion_target_date),
+      scrumTeam: selectedRequirement.scrum_team || "",
+      specificationFormat: selectedRequirement.specification_format || "gherkin",
+      specificationContent: selectedRequirement.specification_content || "",
       priority: selectedRequirement.priority ?? 3,
       status: selectedRequirement.status || defaultRequirementStatus,
       additionalFields: {}
@@ -3123,19 +3246,24 @@ export function RequirementsPage() {
     }
   };
 
-  const openCreateRequirementModal = () => {
+  const openCreateRequirementModal = (iteration?: RequirementIteration) => {
     if (!canCreateRequirements) {
       showError(null, "Permission required to create Stories.");
       return;
     }
 
-    setCreateDraft(emptyRequirementDraft);
+    setCreateDraft(iteration ? {
+      ...emptyRequirementDraft,
+      sprint: requirementSprintOptionValue(iteration),
+      iterationId: iteration.id
+    } : emptyRequirementDraft);
     setIsCreateModalOpen(true);
   };
 
   const closeRequirementDetail = () => {
-    syncRequirementSearchParams(null);
+    dismissedRequirementRouteRef.current = searchParams.get("requirement") || getRoutableId(selectedRequirement) || selectedRequirementId;
     setSelectedRequirementId("");
+    syncRequirementSearchParams(null);
     setDraft(emptyRequirementDraft);
     setSelectedTestCaseIds([]);
     setSelectedDefectIds([]);
@@ -3246,6 +3374,7 @@ export function RequirementsPage() {
     }
 
     try {
+      const createSprintAssignment = resolveRequirementSprintAssignment(createDraft.sprint, requirementIterations);
       const response = await createRequirement.mutateAsync({
         project_id: projectId,
         title: createDraft.title,
@@ -3253,17 +3382,20 @@ export function RequirementsPage() {
         gherkin_scenarios: parseGherkinScenarios(createDraft.gherkinScenariosText),
         external_references: parseReferenceList(createDraft.externalReferencesText),
         labels: parseReferenceList(createDraft.labelsText),
-        sprint: createDraft.sprint || undefined,
+        ...createSprintAssignment.input,
         fix_version: createDraft.fixVersion || undefined,
         release: createDraft.release || undefined,
+        dev_completion_target_date: toSprintDateTimeIsoValue(createDraft.devCompletionTargetDate) || undefined,
+        qa_completion_target_date: toSprintDateTimeIsoValue(createDraft.qaCompletionTargetDate) || undefined,
+        scrum_team: createDraft.scrumTeam || undefined,
+        specification_format: createDraft.specificationFormat,
+        specification_content: createDraft.specificationContent || undefined,
         priority: createDraft.priority,
         status: createDraft.status,
         additional_fields: createDraft.additionalFields
       });
 
-      const targetIteration = createDraft.sprint
-        ? requirementIterations.find((iteration) => String(iteration.jira_sprint_id || "") === createDraft.sprint) || null
-        : null;
+      const targetIteration = createSprintAssignment.iteration;
       if (targetIteration) {
         recordConfirmedRequirementAssignments([{
           id: response.id,
@@ -3492,6 +3624,30 @@ export function RequirementsPage() {
       // secondary HelloTest query failure must never invite duplicate Sprint creation.
       setMessageTone(creationTone);
       setMessage(`${creationMessage} HelloTest could not refresh every workspace panel yet; Sprint membership will revalidate automatically.`);
+    }
+  };
+
+  const changeSprintLifecycle = async (iteration: RequirementIteration, state: "active" | "closed") => {
+    if (!canUpdateRequirementIterations || updateRequirementIteration.isPending) return;
+    try {
+      if (state === "closed") {
+        setCompletionCheckSprintId(iteration.id);
+        const sprintStories = await loadAllCursorPages<Requirement>((cursor) =>
+          api.requirementIterations.listRequirements(iteration.id, { page_size: 200, cursor, projection: "summary" })
+        );
+        const incompleteStories = sprintStories.filter((story) => !isDeliveryStatusComplete(story.status));
+        if (incompleteStories.length) {
+          setCompletionBlockedSprint({ iteration, stories: sprintStories });
+          return;
+        }
+      }
+      await updateRequirementIteration.mutateAsync({ id: iteration.id, input: { state } });
+      showSuccess(state === "active" ? `Sprint “${iteration.name}” started.` : `Sprint “${iteration.name}” completed.`);
+      await refresh();
+    } catch (error) {
+      showError(error, state === "active" ? "Unable to start Sprint" : "Unable to complete Sprint");
+    } finally {
+      setCompletionCheckSprintId("");
     }
   };
 
@@ -3796,6 +3952,11 @@ export function RequirementsPage() {
 	          ...(sprintChanged ? sprintAssignment.input : {}),
 	          fix_version: draft.fixVersion,
           release: draft.release,
+          dev_completion_target_date: toSprintDateTimeIsoValue(draft.devCompletionTargetDate) || "",
+          qa_completion_target_date: toSprintDateTimeIsoValue(draft.qaCompletionTargetDate) || "",
+          scrum_team: draft.scrumTeam,
+          specification_format: draft.specificationFormat,
+          specification_content: draft.specificationContent,
           priority: draft.priority,
           status: draft.status,
           additional_fields: draft.additionalFields,
@@ -4739,6 +4900,11 @@ export function RequirementsPage() {
       fixVersion: fullRequirement.fix_version || "",
       release: fullRequirement.release || "",
       iterationId: fullRequirement.iteration_id || requirementIterationById.get(fullRequirement.id)?.id || "",
+      devCompletionTargetDate: sprintDateTimeInputValue(fullRequirement.dev_completion_target_date),
+      qaCompletionTargetDate: sprintDateTimeInputValue(fullRequirement.qa_completion_target_date),
+      scrumTeam: fullRequirement.scrum_team || "",
+      specificationFormat: fullRequirement.specification_format || "gherkin",
+      specificationContent: fullRequirement.specification_content || "",
       priority: fullRequirement.priority ?? 3,
       status: fullRequirement.status || defaultRequirementStatus,
       additionalFields: {}
@@ -4760,6 +4926,11 @@ export function RequirementsPage() {
 	      fixVersion: baseDraft.fixVersion,
 	      release: baseDraft.release,
 	      iterationId: baseDraft.iterationId,
+	      devCompletionTargetDate: baseDraft.devCompletionTargetDate,
+	      qaCompletionTargetDate: baseDraft.qaCompletionTargetDate,
+	      scrumTeam: baseDraft.scrumTeam,
+	      specificationFormat: baseDraft.specificationFormat,
+	      specificationContent: baseDraft.specificationContent,
 	      priority: optimizationFields.priority ? optimizationSuggestion.priority : baseDraft.priority,
       status: optimizationFields.status ? optimizationSuggestion.status : baseDraft.status,
       additionalFields: {}
@@ -4951,18 +5122,51 @@ export function RequirementsPage() {
     { key: "gherkin", label: "Gherkin scenarios", value: asArray(optimizationSuggestion.gherkin_scenarios).length ? `${asArray(optimizationSuggestion.gherkin_scenarios).length} generated` : "No scenario returned", checked: optimizationFields.gherkin }
   ] : [];
 
+  const retrospectiveStories = useMemo(() => retrospectiveIteration
+    ? requirements.filter((story) => requirementIterationById.get(story.id)?.id === retrospectiveIteration.id || story.iteration_id === retrospectiveIteration.id)
+    : [], [requirementIterationById, requirements, retrospectiveIteration]);
+  const retrospectiveCommentQueries = useQueries({
+    queries: retrospectiveStories.slice(0, 50).map((story) => ({
+      queryKey: ["comments", projectId, "requirement", story.id],
+      queryFn: () => api.comments.list({ project_id: projectId, entity_type: "requirement", entity_id: story.id }),
+      enabled: Boolean(projectId && retrospectiveIteration),
+      staleTime: 30_000
+    }))
+  });
+  const retrospectiveCommentCount = retrospectiveCommentQueries.reduce((sum, query) => sum + asArray(query.data).length, 0);
+
   const metrics = useMemo(() => {
-    const mapped = requirements.filter((item) => (item.test_case_ids || []).length).length;
-    const highPriority = requirements.filter((item) => (item.priority || 3) <= 2).length;
-    const open = requirements.filter((item) => (item.status || "open") !== "done").length;
-    const completed = requirements.filter((item) => String(item.status || "").trim().toLowerCase() === "done").length;
-    const totalDefects = requirements.reduce((sum, requirement) => sum + (defectsByRequirementId[requirement.id] || []).length, 0);
-    const completionPercent = requirements.length ? Math.round((completed / requirements.length) * 100) : 0;
-    const coveragePercent = requirements.length ? Math.round((mapped / requirements.length) * 100) : 0;
-    const defectDensity = requirements.length ? totalDefects / requirements.length : 0;
+    const scopedStories = workspaceMode === "backlog"
+      ? requirementIterationGroups.unassignedRequirements
+      : workspaceMode === "stories"
+        ? filteredRequirements
+        : requirementIterationGroups.groups.flatMap((group) => group.requirements);
+    const mapped = scopedStories.filter((item) => (item.test_case_ids || []).length).length;
+    const highPriority = scopedStories.filter((item) => (item.priority || 3) <= 2).length;
+    const open = scopedStories.filter((item) => storyStatusRank(item.status) < storyStatusRank("qa_done")).length;
+    const completed = scopedStories.filter((item) => storyStatusRank(item.status) >= storyStatusRank("qa_done")).length;
+    const totalDefects = scopedStories.reduce((sum, requirement) => sum + (defectsByRequirementId[requirement.id] || []).length, 0);
+    const completionPercent = scopedStories.length ? Math.round((completed / scopedStories.length) * 100) : 0;
+    const coveragePercent = scopedStories.length ? Math.round((mapped / scopedStories.length) * 100) : 0;
+    const defectDensity = scopedStories.length ? totalDefects / scopedStories.length : 0;
+    const groomed = scopedStories.filter((item) => Boolean(
+      richTextToPlainText(item.description).trim()
+      && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
+      && item.priority
+      && item.status
+    )).length;
+    const described = scopedStories.filter((item) => Boolean(richTextToPlainText(item.description).trim())).length;
+    const specified = scopedStories.filter((item) => Boolean(
+      asArray(item.gherkin_scenarios).length || item.specification_content?.trim()
+    )).length;
+    const teamAssigned = scopedStories.filter((item) => Boolean(String(item.scrum_team || "").trim())).length;
+    const slipped = scopedStories.filter((item) => deriveStoryDeliveryRisk(item).isRisk).length;
+    const sprintCommitted = scopedStories.filter(isStoryAssignedToSprint).length;
+    const releaseScoped = scopedStories.filter((item) => Boolean(String(item.fix_version || item.release || "").trim())).length;
+    const backlog = scopedStories.filter((item) => !isStoryAssignedToSprint(item)).length;
 
     return {
-      total: requirements.length,
+      total: scopedStories.length,
       mapped,
       highPriority,
       open,
@@ -4970,9 +5174,19 @@ export function RequirementsPage() {
       totalDefects,
       completionPercent,
       coveragePercent,
-      defectDensity
+      defectDensity,
+      groomed,
+      notGroomed: Math.max(scopedStories.length - groomed, 0),
+      described,
+      specified,
+      teamAssigned,
+      slipped,
+      onCourse: Math.max(scopedStories.length - slipped, 0),
+      sprintCommitted,
+      releaseScoped,
+      backlog
     };
-  }, [defectsByRequirementId, requirements]);
+  }, [defectsByRequirementId, filteredRequirements, requirementIterationGroups, workspaceMode]);
   const selectedRequirementAssuranceProposedChange = useMemo(() => ({
     title: draft.title,
     description: richTextToPlainText(draft.description),
@@ -5140,7 +5354,7 @@ export function RequirementsPage() {
     || selectedIterationIds.length
   );
   const requirementListRowGroups = [
-    ...requirementIterationGroups.groups.map(({ iteration, requirements: groupRequirements }) => {
+    ...(workspaceMode === "sprints" ? requirementIterationGroups.groups.map(({ iteration, requirements: groupRequirements }) => {
       const isCollapsed = !expandedIterationIds.includes(iteration.id);
       const sprintPageState = sprintPageStateById[iteration.id];
       const isSelected = selectedIterationIds.includes(iteration.id);
@@ -5189,6 +5403,14 @@ export function RequirementsPage() {
             </button>
             {renderSprintIdentity(iteration)}
             <div className="action-row hierarchy-parent-actions">
+              <button className="ghost-button compact" disabled={!canCreateRequirements} onClick={() => openCreateRequirementModal(iteration)} title="Create Story in this Sprint" type="button"><AddIcon size={15} /></button>
+              {deriveSprintLifecycleState(iteration) === "future" || deriveSprintLifecycleState(iteration) === "overdue" ? (
+                <button aria-label={`Start sprint ${iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button>
+              ) : null}
+              {deriveSprintLifecycleState(iteration) === "active" || deriveSprintLifecycleState(iteration) === "overdue" ? (
+                <button aria-label={`Complete sprint ${iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === iteration.id} onClick={() => void changeSprintLifecycle(iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button>
+              ) : null}
+              <button aria-label={`Open retrospective for ${iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(iteration)} title="Open Sprint retrospective" type="button"><IconNotes size={16} /></button>
               <button
                 aria-label={`Edit ${iteration.name}`}
                 className="ghost-button compact sprint-edit-button"
@@ -5239,8 +5461,8 @@ export function RequirementsPage() {
           </div>
         ) : null
       };
-    }),
-    ...[{
+    }) : []),
+    ...(workspaceMode === "backlog" ? [{
       key: "backlog",
       isCollapsed: !isBacklogExpanded,
       rows: isBacklogExpanded ? requirementIterationGroups.unassignedRequirements : [],
@@ -5284,7 +5506,7 @@ export function RequirementsPage() {
           />
         </div>
       ) : null
-    }]
+    }] : [])
   ];
 
   return (
@@ -5293,46 +5515,98 @@ export function RequirementsPage() {
       {!isRequirementWorkspaceOpen ? (
         <>
           <PageHeader
-            eyebrow="Test authoring"
-            title="Stories"
-            description="Organize reusable Story scope, keep coverage visible, and hand selected Stories into AI-assisted case design."
-            meta={[
-              { label: "Stories", value: metrics.total },
-              { label: "Mapped", value: metrics.mapped },
-              { label: "High priority", value: metrics.highPriority }
-            ]}
+            eyebrow="Product Management"
+            title={workspaceMode === "stories" ? "Stories" : workspaceMode === "backlog" ? "Backlog" : "Sprints"}
+            description={workspaceMode === "stories"
+              ? "Review every Story in the project across Backlog, Sprint, and Release scope from one delivery catalog."
+              : workspaceMode === "backlog"
+                ? "Refine unscheduled Stories into groomed, testable delivery scope without Sprint noise."
+                : "Plan delivery windows, monitor slippage and quality, and create Stories directly in Sprint context."}
+            meta={workspaceMode === "stories" ? [
+              { label: "All Stories", value: metrics.total },
+              { label: "Sprint committed", value: metrics.sprintCommitted },
+              { label: "Release scoped", value: metrics.releaseScoped }
+            ] : workspaceMode === "backlog" ? [
+                { label: "Backlog", value: metrics.total },
+                { label: "Groomed", value: metrics.groomed },
+                { label: "Not groomed", value: metrics.notGroomed }
+              ] : [
+                { label: "Sprint Stories", value: metrics.total },
+                { label: "Slipped", value: metrics.slipped },
+                { label: "On course", value: metrics.onCourse }
+              ]}
           />
-          <section className="requirements-health-strip metric-strip page-metric-strip" aria-label="Story health metrics" role="group">
-            <article className="requirements-health-card metric-ribbon-card tone-progress">
-              <div>
-                <span>Completion Status</span>
-                <strong>{metrics.completionPercent}%</strong>
-              </div>
-              <p>{metrics.completed} of {metrics.total} {metrics.total === 1 ? "Story" : "Stories"} marked Done.</p>
-              <div className="requirements-health-meter" aria-hidden="true">
-                <span style={{ width: `${metrics.completionPercent}%` }} />
-              </div>
-            </article>
-            <article className="requirements-health-card metric-ribbon-card tone-coverage">
-              <div>
-                <span>Test Coverage</span>
-                <strong>{metrics.coveragePercent}%</strong>
-              </div>
-              <p>{metrics.mapped} {metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.</p>
-              <div className="requirements-health-meter" aria-hidden="true">
-                <span style={{ width: `${metrics.coveragePercent}%` }} />
-              </div>
-            </article>
-            <article className="requirements-health-card metric-ribbon-card tone-defects">
-              <div>
-                <span>Bug Density</span>
-                <strong>{metrics.defectDensity.toFixed(1)}</strong>
-              </div>
-              <p>{metrics.totalDefects} linked bug{metrics.totalDefects === 1 ? "" : "s"} across {metrics.total || 0} {metrics.total === 1 ? "Story" : "Stories"}.</p>
-              <div className="requirements-health-meter is-density" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, Math.round(metrics.defectDensity * 25))}%` }} />
-              </div>
-            </article>
+          <section className={`requirements-health-strip metric-strip page-metric-strip is-${workspaceMode}`} aria-label="Story health metrics" role="group">
+            {workspaceMode === "backlog" ? (
+              <>
+                <article className="requirements-health-card metric-ribbon-card tone-progress">
+                  <div><span>Grooming readiness</span><strong>{metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%</strong></div>
+                  <p>{metrics.groomed} of {metrics.total} Stories have description, priority, status, and reviewable specification.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-coverage">
+                  <div><span>Specification ready</span><strong>{metrics.specified}</strong></div>
+                  <p>{metrics.specified} of {metrics.total} Stories have Gherkin or Spec Kit acceptance intent ready for refinement.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.specified / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-defects">
+                  <div><span>High-priority demand</span><strong>{metrics.highPriority}</strong></div>
+                  <p>P1 and P2 Stories requiring Product Owner sequencing before Sprint commitment.</p>
+                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.highPriority / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-progress">
+                  <div><span>Team ownership</span><strong>{metrics.teamAssigned}</strong></div>
+                  <p>{Math.max(metrics.total - metrics.teamAssigned, 0)} Stories still need a Scrum team before planning.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.teamAssigned / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+              </>
+            ) : workspaceMode === "stories" ? (
+              <>
+                <article className="requirements-health-card metric-ribbon-card tone-progress">
+                  <div><span>Backlog inventory</span><strong>{metrics.backlog}</strong></div>
+                  <p>{metrics.backlog} of {metrics.total} Stories remain available for Product Owner refinement and Sprint planning.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.backlog / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-coverage">
+                  <div><span>Sprint commitment</span><strong>{metrics.sprintCommitted}</strong></div>
+                  <p>{metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.sprintCommitted / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-progress">
+                  <div><span>Release scope</span><strong>{metrics.releaseScoped}</strong></div>
+                  <p>{metrics.releaseScoped} Stories carry a Release or Fix Version for versioned delivery governance.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.releaseScoped / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-coverage">
+                  <div><span>QA completion</span><strong>{metrics.completionPercent}%</strong></div>
+                  <p>{metrics.completed} of {metrics.total} Stories have reached QA Done across the complete project catalog.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.completionPercent}%` }} /></div>
+                </article>
+              </>
+            ) : (
+              <>
+                <article className="requirements-health-card metric-ribbon-card tone-progress">
+                  <div><span>Completion Status</span><strong>{metrics.completionPercent}%</strong></div>
+                  <p>{metrics.completed} of {metrics.total} {metrics.total === 1 ? "Story" : "Stories"} reached QA Done.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.completionPercent}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-coverage">
+                  <div><span>Test Coverage</span><strong>{metrics.coveragePercent}%</strong></div>
+                  <p>{metrics.mapped} {metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.</p>
+                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.coveragePercent}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-defects">
+                  <div><span>Bug Density</span><strong>{metrics.defectDensity.toFixed(1)}</strong></div>
+                  <p>{metrics.totalDefects} linked bug{metrics.totalDefects === 1 ? "" : "s"} across {metrics.total || 0} {metrics.total === 1 ? "Story" : "Stories"}.</p>
+                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round(metrics.defectDensity * 25))}%` }} /></div>
+                </article>
+                <article className="requirements-health-card metric-ribbon-card tone-defects">
+                  <div><span>Slippage</span><strong>{metrics.slipped}</strong></div>
+                  <p>{metrics.onCourse} of {metrics.total} Sprint Stories are on course or complete.</p>
+                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.slipped / metrics.total) * 100) : 0}%` }} /></div>
+                </article>
+              </>
+            )}
           </section>
         </>
       ) : null}
@@ -5341,7 +5615,11 @@ export function RequirementsPage() {
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Stories" titleVariant="eyebrow" subtitle="Start in the visual catalog, scan coverage quickly, then open one Story in a focused editor view.">
+          <Panel
+            title={workspaceMode === "stories" ? "All Stories" : workspaceMode === "backlog" ? "Backlog Stories" : "Sprint workspace"}
+            titleVariant="eyebrow"
+            subtitle={workspaceMode === "stories" ? "Search, filter, and manage every Story regardless of Sprint or Release membership." : workspaceMode === "backlog" ? "Refine unscheduled Stories, then plan them into delivery when ready." : "Expand a Sprint to review Story scope, lifecycle, slippage, and quality evidence."}
+          >
             <div className="design-list-toolbar catalog-command-toolbar requirement-catalog-toolbar">
               <div className="catalog-toolbar-discovery requirement-toolbar-discovery" aria-label="Story views, search, and selection">
                 <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
@@ -5391,7 +5669,7 @@ export function RequirementsPage() {
                     </select>
                   </label>
 
-                  <label className="catalog-filter-field">
+                  {workspaceMode !== "backlog" ? <label className="catalog-filter-field">
                     <span>Sprint</span>
                     <select value={requirementSprintFilter} onChange={(event) => setRequirementSprintFilter(event.target.value)}>
                       <option value="all">All sprints</option>
@@ -5401,9 +5679,9 @@ export function RequirementsPage() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </label> : null}
 
-                  <label className="catalog-filter-field">
+                  {workspaceMode !== "backlog" ? <label className="catalog-filter-field">
                     <span>Fix Version</span>
                     <select value={requirementFixVersionFilter} onChange={(event) => setRequirementFixVersionFilter(event.target.value)}>
                       <option value="all">All fix versions</option>
@@ -5413,9 +5691,9 @@ export function RequirementsPage() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </label> : null}
 
-                  <label className="catalog-filter-field">
+                  {workspaceMode !== "backlog" ? <label className="catalog-filter-field">
                     <span>Release</span>
                     <select value={requirementReleaseFilter} onChange={(event) => setRequirementReleaseFilter(event.target.value)}>
                       <option value="all">All releases</option>
@@ -5425,9 +5703,9 @@ export function RequirementsPage() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </label> : null}
 
-                  <label className="catalog-filter-field">
+                  {workspaceMode !== "backlog" ? <label className="catalog-filter-field">
                     <span>Linked cases</span>
                     <select
                       value={requirementCoverageFilter}
@@ -5437,7 +5715,7 @@ export function RequirementsPage() {
                       <option value="linked">With linked cases</option>
                       <option value="unlinked">Without linked cases</option>
                     </select>
-                  </label>
+                  </label> : null}
 
                     <div className="catalog-filter-actions">
                       <button
@@ -5506,7 +5784,7 @@ export function RequirementsPage() {
                       })}
                   </select>
                 </label>
-              <button
+              {workspaceMode === "sprints" ? <button
                 className="ghost-button catalog-selection-button"
                 disabled={!canCreateRequirementIterations || !projectId}
                 onClick={() => openCreateIteration(deleteSelectedRequirementIds)}
@@ -5514,6 +5792,10 @@ export function RequirementsPage() {
               >
                 <SprintIcon size={16} />
                 <span>Create sprint</span>
+              </button> : null}
+              <button className="primary-button catalog-selection-button" disabled={!canCreateRequirements || !projectId} onClick={() => openCreateRequirementModal()} type="button">
+                <AddIcon size={16} />
+                <span>Create Story</span>
               </button>
               <button
                 className="catalog-selection-button requirement-ai-complete-button"
@@ -5525,16 +5807,16 @@ export function RequirementsPage() {
                 <SparkIcon size={16} />
                 <span>AI Complete Story</span>
               </button>
-              <button
+              {workspaceMode !== "backlog" ? <button
                 className="catalog-selection-button requirement-ai-test-button"
-                disabled={!canUseRequirementAi || !canCreateTestCases || deleteSelectedRequirementIds.length !== 1 || !appTypeId}
+                disabled={!canUseRequirementAi || !canCreateTestCases || deleteSelectedRequirementIds.length !== 1 || !isStoryAssignedToSprint(selectedRequirementRecords[0]) || !appTypeId}
                 onClick={() => openRequirementAiStudio(deleteSelectedRequirementIds[0])}
-                title={deleteSelectedRequirementIds.length === 1 ? "Open AI Test Cases Generation for the selected Story" : "Select exactly one Story to use AI Test Cases Generation"}
+                title={deleteSelectedRequirementIds.length !== 1 ? "Select exactly one Story to use AI Test Cases Generation" : !isStoryAssignedToSprint(selectedRequirementRecords[0]) ? "Assign this Story to a Sprint before generating Test Cases" : "Open AI Test Cases Generation for the selected Story"}
                 type="button"
               >
                 <SparkIcon size={16} />
                 <span>AI Test Cases Generation</span>
-              </button>
+              </button> : null}
               <RequirementSplitActionButton
                 disabled={!canUseRequirementAi || !canCreateRequirements || !projectId}
                 icon={<SparkIcon size={16} />}
@@ -5606,7 +5888,7 @@ export function RequirementsPage() {
                 ? `Moving ${draggingRequirementIds.length} selected ${draggingRequirementIds.length === 1 ? "Story" : "Stories"}. Choose an available Sprint.`
                 : ""}
             </div>
-            <TileBrowserPane className="requirement-card-list">
+            <TileBrowserPane className="requirement-card-list" scrollKey={`requirements:${projectId}:${workspaceMode}:${catalogViewMode}`}>
               {isRequirementCatalogLoading ? <TileCardSkeletonGrid /> : null}
 
               {!isRequirementCatalogLoading && iterationTileEntries.length && catalogViewMode === "tile" ? (
@@ -5656,6 +5938,10 @@ export function RequirementsPage() {
                           </button>
                           {renderSprintIdentity(entry.iteration)}
                           <div className="action-row hierarchy-parent-actions">
+                            <button className="ghost-button compact" disabled={!canCreateRequirements} onClick={() => openCreateRequirementModal(entry.iteration)} title="Create Story in this Sprint" type="button"><AddIcon size={15} /></button>
+                            {deriveSprintLifecycleState(entry.iteration) === "future" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Start sprint ${entry.iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(entry.iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button> : null}
+                            {deriveSprintLifecycleState(entry.iteration) === "active" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Complete sprint ${entry.iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === entry.iteration.id} onClick={() => void changeSprintLifecycle(entry.iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button> : null}
+                            <button aria-label={`Open retrospective for ${entry.iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(entry.iteration)} title="Open Sprint retrospective" type="button"><IconNotes size={16} /></button>
                             <button
                               aria-label={`Edit ${entry.iteration.name}`}
                               className="ghost-button compact sprint-edit-button"
@@ -5750,10 +6036,12 @@ export function RequirementsPage() {
                     const passCoverage = passCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
                     const automationCoverage = automationCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
                     const hasCompleteAutomationCoverage = automationCoverage.complete !== false;
-                    const readinessScore = canUseAutomationWorkspace && hasCompleteAutomationCoverage
-                      ? Math.round((passCoverage.percent * 0.55) + (automationCoverage.percent * 0.45))
-                      : Math.round(passCoverage.percent);
-                    const isCoverageRisk = !linkedCaseCount || (item.priority ?? 3) <= 2 && readinessScore < 70;
+                    const linkedBugCount = (defectsByRequirementId[item.id] || []).length;
+                    const testCoveragePercent = linkedCaseCount ? 100 : 0;
+                    const bugHealthPercent = Math.max(0, 100 - linkedBugCount * 25);
+                    const readinessScore = Math.round((testCoveragePercent * 0.3) + (passCoverage.percent * 0.5) + (bugHealthPercent * 0.2));
+                    const deliveryRisk = deriveStoryDeliveryRisk(item);
+                    const isCoverageRisk = deliveryRisk.isRisk || !linkedCaseCount || (item.priority ?? 3) <= 2 && readinessScore < 70;
                     const passCoverageTitle = passCoverage.total
                       ? `${passCoverage.covered}/${passCoverage.total} linked test cases passed`
                       : "No linked test cases to measure pass coverage";
@@ -5761,7 +6049,14 @@ export function RequirementsPage() {
                       ? `${automationCoverage.known || 0}/${automationCoverage.total} linked test case summaries loaded; open the Story for complete automation details`
                       : automationCoverage.total
                         ? `${automationCoverage.covered}/${automationCoverage.total} linked test cases automated`
-                      : "No linked test cases to measure automation coverage";
+                        : "No linked test cases to measure automation coverage";
+                    const isGroomedStory = Boolean(
+                      richTextToPlainText(item.description).trim()
+                      && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
+                      && item.priority
+                      && item.status
+                    );
+                    const isDeliveryStory = workspaceMode === "sprints" || (workspaceMode === "stories" && isStoryAssignedToSprint(item));
                     const tileActions = [
 	                      {
 	                        label: "Open Story",
@@ -5770,7 +6065,7 @@ export function RequirementsPage() {
 	                        requiredPermissions: ["requirement.view"],
 	                        onClick: () => openRequirementWorkspace(item.id)
 	                      },
-		                      {
+		                      ...(isStoryAssignedToSprint(item) ? [{
 		                        label: "AI Test Cases Generation",
 	                        description: "Generate or review AI-designed test cases for this Story.",
 		                        icon: <SparkIcon />,
@@ -5778,7 +6073,7 @@ export function RequirementsPage() {
 		                        permissionMode: "all" as const,
 		                        requiredPermissions: ["requirement.ai", "testcase.create"],
 		                        onClick: () => openRequirementAiStudio(item.id)
-		                      },
+		                      }] : []),
 		                      {
 	                        label: "AI Complete Story",
 	                        description: "Use AI to improve missing or weak Story details.",
@@ -5806,7 +6101,9 @@ export function RequirementsPage() {
                         key={item.id}
                         className={[
                           "record-card tile-card requirement-catalog-card",
-                          isCoverageRisk ? "is-risk" : linkedCaseCount ? "is-healthy" : "is-warning",
+                          !isDeliveryStory
+                            ? isGroomedStory ? "is-healthy" : "is-warning"
+                            : isCoverageRisk ? "is-risk" : linkedCaseCount ? "is-healthy" : "is-warning",
                           isActive ? "is-active" : "",
                           isSelectedForDelete ? "is-marked-for-delete" : ""
                         ].filter(Boolean).join(" ")}
@@ -5840,7 +6137,7 @@ export function RequirementsPage() {
 	                                }
 		                                type="checkbox"
 		                              />
-		                            </label>
+                            </label>
                             <span className="requirement-story-identity">
                               <StoryIcon size={16} />
                               <DisplayIdBadge value={item.display_id || item.id} href={getJiraBrowseUrl(item.display_id || item.id, item.jira_url)} />
@@ -5860,10 +6157,10 @@ export function RequirementsPage() {
                             profile="story"
                             value={item.description}
                           />
-                          <div className="requirement-progress-stack">
+                          {isDeliveryStory ? <div className="requirement-progress-stack">
                             <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />
                             {canUseAutomationWorkspace ? <RequirementProgressBar detail={automationCoverageTitle} label="Automation coverage" metric={automationCoverage} /> : null}
-                          </div>
+                          </div> : null}
                           <div className="tile-card-facts" aria-label={`${item.title} facts`}>
                             <TileCardFact
                               label={`P${item.priority ?? 3}`}
@@ -5872,24 +6169,49 @@ export function RequirementsPage() {
                             >
                               <TileCardPriorityIcon />
                             </TileCardFact>
-                            <TileCardFact
+                            {!isDeliveryStory ? <TileCardFact
+                              label={isGroomedStory ? "Groomed" : "Needs grooming"}
+                              title={isGroomedStory ? "Description, priority, status, and acceptance specification are ready." : "Complete the description and acceptance specification before Sprint planning."}
+                              tone={isGroomedStory ? "success" : "warning"}
+                            >
+                              <IconCheck size={15} />
+                            </TileCardFact> : <TileCardFact
                               label={String(linkedCaseCount)}
                               title={`${linkedCaseCount} linked test case${linkedCaseCount === 1 ? "" : "s"}`}
                               tone={linkedCaseCount ? "success" : "neutral"}
                             >
                               <TileCardLinkIcon />
                             </TileCardFact>
-                            <TileCardFact
+                            }
+                            {!isDeliveryStory ? <TileCardFact
+                              label={asArray(item.gherkin_scenarios).length || item.specification_content?.trim() ? "Specified" : "No spec"}
+                              title="Acceptance intent in Gherkin or Spec Kit format."
+                              tone={asArray(item.gherkin_scenarios).length || item.specification_content?.trim() ? "success" : "neutral"}
+                            >
+                              <IconChecklist size={15} />
+                            </TileCardFact> : <TileCardFact
                               label={`${readinessScore}%`}
-                              title={canUseAutomationWorkspace && hasCompleteAutomationCoverage
-                                ? "Release readiness contribution from linked case pass rate and automation coverage"
-                                : canUseAutomationWorkspace
-                                  ? "Release readiness currently uses pass rate; complete automation details load when the Story is opened"
-                                  : "Release readiness contribution from linked case pass rate"}
+                              title="Release readiness: 30% test coverage + 50% latest pass rate + 20% open-Bug health. Automation progress is informational."
                               tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
                             >
                               <SparkIcon />
                             </TileCardFact>
+                            }
+                            {!isDeliveryStory ? <TileCardFact
+                              label={String(item.scrum_team || "Unassigned")}
+                              title={item.scrum_team ? `Owned by ${item.scrum_team}` : "Assign a Scrum team before Sprint planning."}
+                              tone={item.scrum_team ? "info" : "neutral"}
+                            >
+                              <SprintIcon size={15} />
+                            </TileCardFact> : <TileCardFact
+                              label={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"}
+                              title={`${linkedBugCount} linked Bug${linkedBugCount === 1 ? "" : "s"} / ${linkedCaseCount} linked Test Case${linkedCaseCount === 1 ? "" : "s"}`}
+                              tone={linkedBugCount ? "danger" : "success"}
+                            >
+                              <BugIcon size={15} />
+                            </TileCardFact>
+                            }
+                            {isDeliveryStory && deliveryRisk.isRisk ? <TileCardFact label={deliveryRisk.devSlipped && deliveryRisk.qaSlipped ? "Dev + QA risk" : deliveryRisk.devSlipped ? "Dev risk" : "QA risk"} title="A completion target passed before the Story reached the corresponding Done stage." tone="danger"><ActivityIcon size={15} /></TileCardFact> : null}
                           </div>
                         </div>
                       </article>
@@ -5907,9 +6229,15 @@ export function RequirementsPage() {
                   />
                 </div>
               ) : null}
-              {!isRequirementCatalogLoading && (filteredRequirements.length || requirementIterationGroups.groups.length || requirementsQuery.hasNextPage) && catalogViewMode === "list" ? (
+              {!isRequirementCatalogLoading && (
+                workspaceMode === "backlog"
+                  ? requirementIterationGroups.unassignedRequirements.length || requirementsQuery.hasNextPage
+                  : workspaceMode === "stories"
+                    ? filteredRequirements.length
+                    : requirementIterationGroups.groups.length
+              ) && catalogViewMode === "list" ? (
                 <DataTable
-                  columns={requirementListColumns}
+                  columns={workspaceRequirementListColumns}
                   enableColumnResize
                   enableHeaderColumnReorder
                   emptyMessage="No Stories match the current search and filters."
@@ -5920,21 +6248,21 @@ export function RequirementsPage() {
                   onRowDragStart={(item, event) => startDraggingRequirements(item.id, event.dataTransfer)}
                   onRowClick={(item) => openRequirementWorkspace(item.id)}
                   renderRowActions={renderRequirementListRowActions}
-                  rowGroups={requirementListRowGroups}
-                  rows={[]}
+                  rowGroups={workspaceMode === "sprints" ? requirementListRowGroups : undefined}
+                  rows={workspaceMode === "backlog" ? requirementIterationGroups.unassignedRequirements : workspaceMode === "stories" ? filteredRequirements : []}
                   storageKey="hellotest:requirements:list-columns:v2"
                 />
               ) : null}
-              {!isRequirementCatalogLoading && !requirements.length && !requirementIterationGroups.groups.length && !requirementsQuery.hasNextPage ? (
+              {!isRequirementCatalogLoading && !iterationTileEntries.length && !requirementsQuery.hasNextPage ? (
                 <div className="empty-state compact">
-                  <div>No Stories yet for this project.</div>
+                  <div>{workspaceMode === "stories" ? "No Stories exist in this project yet." : workspaceMode === "backlog" ? "No Stories are waiting in the Backlog." : "No Sprints yet for this project."}</div>
 	                  <button className="primary-button" disabled={!canUseRequirementAi || !canCreateRequirements || !projectId} onClick={openAiRequirementCreation} type="button">
                       <SparkIcon size={16} />
                       <span>Create Stories using AI</span>
                     </button>
                 </div>
               ) : null}
-              {!isRequirementCatalogLoading && requirements.length && !filteredRequirements.length && !requirementIterationGroups.groups.length ? <div className="empty-state compact">No Stories match the current search.</div> : null}
+              {!isRequirementCatalogLoading && requirements.length && !filteredRequirements.length && (workspaceMode === "stories" || !requirementIterationGroups.groups.length) ? <div className="empty-state compact">No Stories match the current search.</div> : null}
             </TileBrowserPane>
           </Panel>
         )}
@@ -5945,10 +6273,10 @@ export function RequirementsPage() {
                 <WorkspaceBackButton label="Back to Story tiles" onClick={closeRequirementDetail} />
                 {selectedRequirement ? (
                   <>
-		                  <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
+		                  {selectedRequirementHasSprint ? <button className="primary-button" disabled={!canCreateTestCases || !appTypeId} onClick={() => openNewTestCase(selectedRequirement)} type="button">
                       <AddIcon />
                       <span>New Test Case</span>
-                    </button>
+                    </button> : null}
                     <button
                       className="ghost-button requirement-detail-ai-action requirement-detail-ai-complete"
                       disabled={!canUseRequirementAi || !canUpdateRequirements || previewRequirementOptimization.isPending}
@@ -5968,7 +6296,7 @@ export function RequirementsPage() {
                       <SparkIcon />
                       <span>{previewStoryGrooming.isPending && storyGroomingMutationMatchesSelection ? "Grooming…" : "AI Groom Story"}</span>
                     </button>
-                    <button
+                    {selectedRequirementHasSprint ? <button
                       className="ghost-button requirement-detail-ai-action requirement-detail-ai-test"
                       disabled={!canUseRequirementAi || !canCreateTestCases || !appTypeId}
                       onClick={() => openRequirementAiStudio(selectedRequirement.id)}
@@ -5977,8 +6305,8 @@ export function RequirementsPage() {
                     >
                       <SparkIcon />
                       <span>AI Test Cases Generation</span>
-                    </button>
-                    {canUseAiBugCreation ? (
+                    </button> : null}
+                    {selectedRequirementHasSprint && canUseAiBugCreation ? (
                       <button
                         className="ghost-button requirement-ai-bug-button"
                         disabled={!selectedRequirementFailureContext.length}
@@ -6016,16 +6344,30 @@ export function RequirementsPage() {
                     ...(storyGroomingRequestMatchesSelection
                       ? [{ value: "grooming" as const, label: "AI Grooming", icon: <SparkIcon /> }]
                       : []),
-                    { value: "cases", label: "Linked test cases", icon: <LayersIcon />, count: selectedTestCaseIds.length },
-                    { value: "defects", label: "Linked bugs", icon: <BugIcon />, count: selectedDefectIds.length },
-                    { value: "history", label: "Historical runs", icon: <ActivityIcon /> },
+                    ...(selectedRequirementHasSprint ? [
+                      { value: "cases" as const, label: "Linked test cases", icon: <LayersIcon />, count: selectedTestCaseIds.length },
+                      { value: "defects" as const, label: "Linked bugs", icon: <BugIcon />, count: selectedDefectIds.length },
+                      { value: "history" as const, label: "Historical runs", icon: <ActivityIcon /> }
+                    ] : []),
                     { value: "evidence", label: "Attachments", icon: <AttachmentTabIcon /> }
                   ]}
                   onChange={setActiveTraceabilityTab}
                 />
                 {activeTraceabilityTab === "details" ? (
                   <div className="detail-section-panel">
-                <section className="requirements-health-strip metric-strip page-metric-strip requirement-metric-strip" aria-label="Selected Story health metrics" role="group">
+                {selectedRequirementHasSprint ? <section className="requirements-health-strip metric-strip page-metric-strip requirement-metric-strip" aria-label="Selected Story health metrics" role="group">
+                  <article className="requirements-health-card metric-ribbon-card tone-coverage">
+                    <div>
+                      <span>Test coverage</span>
+                      <strong>{selectedRequirementTestCoverage}%</strong>
+                    </div>
+                    <p>{selectedTestCaseIds.length
+                      ? `${selectedTestCaseIds.length} test case${selectedTestCaseIds.length === 1 ? " is" : "s are"} linked to this Story.`
+                      : "No test cases are linked to this Story."}</p>
+                    <div className="requirements-health-meter" aria-hidden="true">
+                      <span style={{ width: `${selectedRequirementTestCoverage}%` }} />
+                    </div>
+                  </article>
                   <article className="requirements-health-card metric-ribbon-card tone-progress">
                     <div>
                       <span>Pass rate</span>
@@ -6040,14 +6382,14 @@ export function RequirementsPage() {
                   </article>
                   <article className="requirements-health-card metric-ribbon-card tone-coverage">
                     <div>
-                      <span>Automation</span>
+                      <span>Automation progress</span>
                       <strong>{selectedRequirementAutomationCoverage.complete === false ? "—" : `${selectedRequirementAutomationCoverage.percent}%`}</strong>
                     </div>
                     <p>{selectedRequirementAutomationCoverage.complete === false
                       ? `${selectedRequirementAutomationCoverage.known || 0} of ${selectedRequirementAutomationCoverage.total} linked case summaries loaded.`
                       : selectedRequirementAutomationCoverage.total
                         ? `${selectedRequirementAutomationCoverage.covered} of ${selectedRequirementAutomationCoverage.total} linked test cases automated.`
-                        : "No linked test cases to measure automation."}</p>
+                        : "No linked test cases to measure automation."} Automation is informational and is not part of readiness.</p>
                     <div className="requirements-health-meter" aria-hidden="true">
                       <span style={{ width: `${selectedRequirementAutomationCoverage.complete === false ? 0 : selectedRequirementAutomationCoverage.percent}%` }} />
                     </div>
@@ -6064,7 +6406,17 @@ export function RequirementsPage() {
                       <span style={{ width: `${selectedRequirementBugResolution.percent}%` }} />
                     </div>
                   </article>
-                </section>
+                  <article className="requirements-health-card metric-ribbon-card tone-progress">
+                    <div>
+                      <span>Release readiness</span>
+                      <strong>{selectedRequirementReadiness}%</strong>
+                    </div>
+                    <p>30% test coverage + 50% latest pass rate + 20% open-Bug health.</p>
+                    <div className="requirements-health-meter" aria-hidden="true">
+                      <span style={{ width: `${selectedRequirementReadiness}%` }} />
+                    </div>
+                  </article>
+                </section> : null}
                 <section aria-labelledby="story-details-heading" className="story-detail-section">
                   <header className="story-detail-section-header">
                     <h2 id="story-details-heading">Story details</h2>
@@ -6155,28 +6507,21 @@ export function RequirementsPage() {
                           </select>
                         </FormField>
                       </div>
+                      <div className="record-grid story-delivery-target-grid">
+                        <FormField label="Dev Completion Target Date"><input type="datetime-local" value={draft.devCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
+                        <FormField label="QA Completion Target Date"><input min={draft.devCompletionTargetDate || undefined} type="datetime-local" value={draft.qaCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
+                        <FormField label="Scrum team"><input value={draft.scrumTeam} onChange={(event) => setDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
+                      </div>
+                      <section className="story-specification-editor">
+                        <div className="story-specification-head"><div><strong>Acceptance specification</strong><span>Gherkin and Spec Kit are stored as explicit Story authoring formats.</span></div><div className="segmented-control"><button aria-pressed={draft.specificationFormat === "gherkin"} className={draft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={draft.specificationFormat === "speckit"} className={draft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div>
+                        {draft.specificationFormat === "gherkin" ? <textarea className="requirement-gherkin-editor" onChange={(event) => setDraft((current) => ({ ...current, gherkinScenariosText: event.target.value }))} placeholder={"Feature: …\nScenario: …\nGiven …\nWhen …\nThen …"} rows={9} spellCheck={false} value={draft.gherkinScenariosText} /> : <textarea className="requirement-gherkin-editor story-speckit-editor" onChange={(event) => setDraft((current) => ({ ...current, specificationContent: event.target.value }))} placeholder={"# Intent\n## User outcomes\n## Functional requirements\n## Acceptance criteria\n## Edge cases\n## Non-functional requirements"} rows={10} spellCheck value={draft.specificationContent} />}
+                      </section>
                       <ExternalReferencesField
                         className="story-detail-external-references story-create-external-references"
                         placeholder="Paste work-item links or external IDs here and press Enter..."
                         value={draft.externalReferencesText}
                         onChange={(externalReferencesText) => setDraft((current) => ({ ...current, externalReferencesText }))}
                       />
-                      {draft.gherkinScenariosText ? (
-                        <FormField
-                          className="requirement-gherkin-field"
-                          hint="AI-generated scenarios are stored separately from the Story description. Keep Feature, Scenario, Given, When, and Then keywords when editing."
-                          label="Gherkin scenarios"
-                        >
-                          <textarea
-                            className="requirement-gherkin-editor"
-                            onChange={(event) => setDraft((current) => ({ ...current, gherkinScenariosText: event.target.value }))}
-                            rows={9}
-                            spellCheck={false}
-                            value={draft.gherkinScenariosText}
-                          />
-                        </FormField>
-                      ) : null}
-
                       {requirementEditMetadataQuery.isLoading || requirementEditMetadataQuery.isError || requiredJiraRequirementEditFields.length ? (
                         <section className="issue-form-section">
                           <div className="issue-form-section-head">
@@ -6212,8 +6557,16 @@ export function RequirementsPage() {
                 {activeTraceabilityTab === "related" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <RequirementRelatedItemsPanel
+                      allStories={requirements}
+                      canUpdate={canUpdateRequirements}
+                      deliveryEvidenceVisible={selectedRequirementHasSprint}
                       items={selectedRequirement.related_items || []}
                       navigate={navigate}
+                      onReplace={async (requirementIds) => {
+                        await replaceRelatedRequirements.mutateAsync({ requirementId: selectedRequirement.id, requirementIds });
+                        await refresh();
+                      }}
+                      selectedStoryId={selectedRequirement.id}
                       testCases={testCases}
                     />
                   </div>
@@ -6262,7 +6615,7 @@ export function RequirementsPage() {
                     />
                   </div>
                 ) : null}
-                {activeTraceabilityTab === "cases" ? (
+                {selectedRequirementHasSprint && activeTraceabilityTab === "cases" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <RequirementTestCasePicker
                       compactTitlesOnly
@@ -6283,7 +6636,7 @@ export function RequirementsPage() {
                     />
                   </div>
                 ) : null}
-                {activeTraceabilityTab === "defects" ? (
+                {selectedRequirementHasSprint && activeTraceabilityTab === "defects" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <LinkedDefectsPanel
                       canUpdate={canUpdateRequirements}
@@ -6295,7 +6648,7 @@ export function RequirementsPage() {
                     />
                   </div>
                 ) : null}
-                {activeTraceabilityTab === "history" ? (
+                {selectedRequirementHasSprint && activeTraceabilityTab === "history" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <TraceabilityRunHistory
                       appTypeId={appTypeId || undefined}
@@ -6405,7 +6758,11 @@ export function RequirementsPage() {
                       <select
                         required={jiraRequirementCoreRequired.sprint}
                         value={createDraft.sprint}
-                        onChange={(event) => setCreateDraft((current) => ({ ...current, sprint: event.target.value, iterationId: "" }))}
+                        onChange={(event) => {
+                          const sprint = event.target.value;
+                          const iteration = requirementIterations.find((candidate) => requirementSprintOptionValue(candidate) === sprint || candidate.id === sprint);
+                          setCreateDraft((current) => ({ ...current, sprint, iterationId: iteration && !iteration.jira_sprint_id ? iteration.id : "" }));
+                        }}
                       >
                         <option value="">No sprint</option>
                         {assignableJiraSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprintOptionLabel(sprint)}</option>)}
@@ -6451,6 +6808,15 @@ export function RequirementsPage() {
                       </select>
                     </FormField>
                   </div>
+                  <div className="record-grid story-delivery-target-grid">
+                    <FormField label="Dev Completion Target Date"><input type="datetime-local" value={createDraft.devCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
+                    <FormField label="QA Completion Target Date"><input min={createDraft.devCompletionTargetDate || undefined} type="datetime-local" value={createDraft.qaCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
+                    <FormField label="Scrum team"><input placeholder="e.g. Checkout Phoenix" value={createDraft.scrumTeam} onChange={(event) => setCreateDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
+                  </div>
+                  <section className="story-specification-editor">
+                    <div className="story-specification-head"><div><strong>Acceptance specification</strong><span>Choose the review format that best matches this Story.</span></div><div className="segmented-control"><button aria-pressed={createDraft.specificationFormat === "gherkin"} className={createDraft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={createDraft.specificationFormat === "speckit"} className={createDraft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div>
+                    {createDraft.specificationFormat === "gherkin" ? <textarea className="requirement-gherkin-editor" onChange={(event) => setCreateDraft((current) => ({ ...current, gherkinScenariosText: event.target.value }))} placeholder={"Feature: Delivery behavior\nScenario: Expected outcome\nGiven …\nWhen …\nThen …"} rows={8} spellCheck={false} value={createDraft.gherkinScenariosText} /> : <textarea className="requirement-gherkin-editor story-speckit-editor" onChange={(event) => setCreateDraft((current) => ({ ...current, specificationContent: event.target.value }))} placeholder={"# Intent\n## User outcomes\n## Functional requirements\n## Acceptance criteria\n## Edge cases\n## Non-functional requirements"} rows={10} spellCheck value={createDraft.specificationContent} />}
+                  </section>
                   <ExternalReferencesField
                     className="story-create-external-references"
                     placeholder="Paste work-item links or external IDs here and press Enter..."
@@ -8015,6 +8381,49 @@ export function RequirementsPage() {
         title="Preview Story change impact"
       />
 
+      {completionBlockedSprint ? (
+        <DeliveryCompletionGuardDialog
+          entityLabel="Sprint"
+          entityName={completionBlockedSprint.iteration.name}
+          incompleteStories={completionBlockedSprint.stories.filter((story) => !isDeliveryStatusComplete(story.status)).map((story) => ({ id: story.id, displayId: story.display_id, title: story.title, status: story.status }))}
+          onClose={() => setCompletionBlockedSprint(null)}
+          totalStories={completionBlockedSprint.stories.length}
+        />
+      ) : null}
+
+      {retrospectiveIteration ? (() => {
+        const health = requirementSprintHealthById.get(retrospectiveIteration.id);
+        const slipped = retrospectiveStories.filter((story) => deriveStoryDeliveryRisk(story).isRisk);
+        const covered = retrospectiveStories.filter((story) => (linkedCaseIdsByRequirementId[story.id] || []).length);
+        const totalBugs = retrospectiveStories.reduce((sum, story) => sum + (defectsByRequirementId[story.id] || []).length, 0);
+        const completed = retrospectiveStories.filter((story) => storyStatusRank(story.status) >= storyStatusRank("qa_done")).length;
+        const blocked = retrospectiveStories.filter((story) => String(story.status || "").toLowerCase().includes("blocked")).length;
+        const coveragePercent = retrospectiveStories.length ? Math.round((covered.length / retrospectiveStories.length) * 100) : 0;
+        const maturityPercent = retrospectiveStories.length ? Math.round((completed / retrospectiveStories.length) * 100) : 0;
+        const bugDensity = retrospectiveStories.length ? totalBugs / retrospectiveStories.length : 0;
+        return (
+          <div className="modal-backdrop" onClick={() => setRetrospectiveIteration(null)} role="presentation">
+            <div aria-modal="true" className="modal-card sprint-retrospective-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+              <div className="modal-card-head"><div><span className="eyebrow">Sprint retrospective</span><h2>{retrospectiveIteration.name}</h2><p>Evidence-backed review of delivery, quality, and collaboration from the current Sprint scope.</p></div><DialogCloseButton label="Close Sprint retrospective" onClick={() => setRetrospectiveIteration(null)} /></div>
+              <div className="sprint-retrospective-score-grid">
+                <article><span>On course</span><strong>{Math.max(retrospectiveStories.length - slipped.length, 0)}/{retrospectiveStories.length}</strong><small>Stories without missed Dev/QA targets</small></article>
+                <article><span>Completion maturity</span><strong>{maturityPercent}%</strong><small>{completed} reached QA Done</small></article>
+                <article><span>Test coverage</span><strong>{health?.coverage_percent ?? coveragePercent}%</strong><small>{covered.length} Stories have linked tests</small></article>
+                <article><span>Pass rate</span><strong>{health?.pass_percent ?? 0}%</strong><small>Latest terminal outcomes</small></article>
+                <article><span>Bug density</span><strong>{bugDensity.toFixed(2)}</strong><small>{totalBugs} Bugs / {retrospectiveStories.length} Stories</small></article>
+                <article><span>Collaboration</span><strong>{retrospectiveCommentCount}</strong><small>Comments across loaded Sprint Stories</small></article>
+              </div>
+              <div className="sprint-retrospective-columns">
+                <section><h3>What went well</h3><ul><li>{Math.max(retrospectiveStories.length - slipped.length, 0)} Stories stayed on course.</li><li>{covered.length} Stories had traceable Test Case coverage.</li><li>{completed} Stories reached QA Done; {retrospectiveCommentCount} comments recorded collaborative review.</li></ul></section>
+                <section><h3>Improve next Sprint</h3><ul>{slipped.length ? <li>{slipped.length} Stories missed a Dev or QA target.</li> : <li>No target-date slippage is visible.</li>}{blocked ? <li>{blocked} Stories are blocked and need explicit owners or dependencies.</li> : <li>No Stories are currently blocked.</li>}{totalBugs ? <li>{totalBugs} linked Bugs produced a density of {bugDensity.toFixed(2)} per Story.</li> : <li>No linked Bugs are visible in this Sprint scope.</li>}{coveragePercent < 100 ? <li>{retrospectiveStories.length - covered.length} Stories need test coverage before delivery review.</li> : null}</ul></section>
+              </div>
+              <section className="sprint-retrospective-actions"><h3>Carry-forward actions</h3><ol>{slipped.slice(0, 5).map((story) => <li key={story.id}><button className="link-button" onClick={() => { setRetrospectiveIteration(null); openRequirementWorkspace(story.id); }} type="button">{story.display_id || story.id} · {story.title}</button> — reset the missed target or advance the correct delivery state.</li>)}{!slipped.length && coveragePercent === 100 && !blocked ? <li>Preserve this planning and review cadence in the next Sprint.</li> : null}</ol></section>
+              <div className="modal-card-actions"><button className="primary-button" onClick={() => setRetrospectiveIteration(null)} type="button">Done</button></div>
+            </div>
+          </div>
+        );
+      })() : null}
+
       {linkedPreviewCase ? (
         <LinkedTestCaseModal
           appTypeName={currentAppTypeName}
@@ -8030,14 +8439,44 @@ export function RequirementsPage() {
 }
 
 function RequirementRelatedItemsPanel({
+  allStories,
+  canUpdate,
+  deliveryEvidenceVisible,
   items,
   navigate,
+  onReplace,
+  selectedStoryId,
   testCases
 }: {
+  allStories: Requirement[];
+  canUpdate: boolean;
+  deliveryEvidenceVisible: boolean;
   items: RequirementRelatedItem[];
   navigate: (to: string) => void;
+  onReplace: (requirementIds: string[]) => Promise<void>;
+  selectedStoryId: string;
   testCases: TestCase[];
 }) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [view, setView] = useState<"grid" | "list">("list");
+  const [isSaving, setIsSaving] = useState(false);
+  const visibleItems = deliveryEvidenceVisible ? items : items.filter((item) => item.hellotest_kind === "requirement");
+  const linkedStoryIds = visibleItems.filter((item) => item.hellotest_kind === "requirement").map((item) => item.id);
+  const normalizedSearch = search.trim().toLowerCase();
+  const relatedStoryStatusOptions = [...new Set(allStories.map((story) => String(story.status || "open")))].sort();
+  const candidateStories = allStories.filter((story) => story.id !== selectedStoryId
+    && (statusFilter === "all" || String(story.status || "open") === statusFilter)
+    && (!normalizedSearch || [story.display_id || story.id, story.title, story.status || "", story.scrum_team || ""].some((value) => value.toLowerCase().includes(normalizedSearch))));
+  const toggleStory = async (storyId: string) => {
+    if (!canUpdate || isSaving) return;
+    setIsSaving(true);
+    try {
+      await onReplace(linkedStoryIds.includes(storyId) ? linkedStoryIds.filter((id) => id !== storyId) : [...linkedStoryIds, storyId]);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const testCaseByReference = new Map(testCases.flatMap((testCase) => [
     [String(testCase.id), testCase] as const,
     ...(testCase.display_id ? [[String(testCase.display_id), testCase] as const] : [])
@@ -8047,7 +8486,7 @@ function RequirementRelatedItemsPanel({
     if (item.hellotest_kind === "test-suite") return `/design?suite=${encodeURIComponent(item.id)}`;
     if (item.hellotest_kind === "test-run") return `/executions?execution=${encodeURIComponent(item.id)}`;
     if (item.hellotest_kind === "bug") return `/issues?issue=${encodeURIComponent(item.id)}`;
-    if (item.hellotest_kind === "requirement") return `/requirements?requirement=${encodeURIComponent(item.id)}`;
+    if (item.hellotest_kind === "requirement") return `/backlog?requirement=${encodeURIComponent(item.id)}`;
     return "";
   };
 
@@ -8056,12 +8495,27 @@ function RequirementRelatedItemsPanel({
       <div className="requirement-related-head">
         <div>
           <strong>related work items</strong>
-          <span>Bidirectional work-item links, with HelloTest test status and ownership kept visible.</span>
+          <span>{deliveryEvidenceVisible ? "Bidirectional work-item links, with HelloTest delivery status and ownership kept visible." : "Product relationships between Backlog Stories; delivery evidence becomes available after Sprint planning."}</span>
         </div>
-        <span className="count-pill">{items.length} linked</span>
+        <span className="count-pill">{visibleItems.length} linked</span>
+      </div>
+      <div className="requirement-related-toolbar">
+        <label><SearchIcon /><input aria-label="Search Stories to link" onChange={(event) => setSearch(event.target.value)} placeholder="Search ID, title, status, or scrum team" value={search} /></label>
+        <select aria-label="Filter related Story candidates by status" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+          <option value="all">All statuses</option>
+          {relatedStoryStatusOptions.map((status) => <option key={status} value={status}>{formatTileCardLabel(status, "Open")}</option>)}
+        </select>
+        <div className="segmented-control"><button aria-pressed={view === "list"} className={view === "list" ? "is-active" : ""} onClick={() => setView("list")} type="button">List</button><button aria-pressed={view === "grid"} className={view === "grid" ? "is-active" : ""} onClick={() => setView("grid")} type="button">Grid</button></div>
+      </div>
+      <div className={`requirement-related-candidate-list is-${view}`}>
+        {candidateStories.slice(0, 100).map((story) => {
+          const linked = linkedStoryIds.includes(story.id);
+          return <article className={linked ? "is-linked" : ""} key={story.id}><div><span>{story.display_id || story.id}</span><strong>{story.title}</strong><small>{story.status || "Open"}{story.scrum_team ? ` · ${story.scrum_team}` : ""}</small></div><button className={linked ? "ghost-button" : "primary-button"} disabled={!canUpdate || isSaving} onClick={() => void toggleStory(story.id)} type="button">{linked ? "Unlink" : "Link Story"}</button></article>;
+        })}
+        {!candidateStories.length ? <div className="empty-state compact">No Stories match this search.</div> : null}
       </div>
       <div className="requirement-related-list">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const linkedTestCase = item.hellotest_kind === "test-case"
             ? testCaseByReference.get(item.id) || testCaseByReference.get(item.display_id || "")
             : null;
@@ -8096,7 +8550,7 @@ function RequirementRelatedItemsPanel({
             </article>
           );
         })}
-        {!items.length ? <div className="empty-state compact">No related work items are visible for this Story.</div> : null}
+        {!visibleItems.length ? <div className="empty-state compact">No related Stories are visible for this Backlog item.</div> : null}
       </div>
     </section>
   );

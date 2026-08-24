@@ -157,6 +157,11 @@ CREATE TABLE requirements (
   sprint TEXT,
   fix_version TEXT,
   release TEXT,
+  dev_completion_target_date TIMESTAMPTZ,
+  qa_completion_target_date TIMESTAMPTZ,
+  scrum_team TEXT,
+  specification_format TEXT NOT NULL DEFAULT 'gherkin' CHECK (specification_format IN ('gherkin', 'speckit')),
+  specification_content TEXT,
   priority INTEGER DEFAULT 3,
   status TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -783,6 +788,54 @@ ALTER TABLE requirements ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT 
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS sprint TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS fix_version TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS release TEXT;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS dev_completion_target_date TIMESTAMPTZ;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS qa_completion_target_date TIMESTAMPTZ;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS scrum_team TEXT;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_format TEXT NOT NULL DEFAULT 'gherkin';
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_content TEXT;
+
+CREATE TABLE IF NOT EXISTS requirement_releases (
+  id TEXT PRIMARY KEY,
+  display_id TEXT UNIQUE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  fix_version TEXT NOT NULL,
+  target_date_label TEXT,
+  target_date TIMESTAMPTZ,
+  external_link TEXT,
+  state TEXT NOT NULL DEFAULT 'planned' CHECK (state IN ('planned', 'in_progress', 'released')),
+  sprint_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS requirement_release_items (
+  release_id TEXT NOT NULL REFERENCES requirement_releases(id) ON DELETE CASCADE,
+  requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'sprint')),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (release_id, requirement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_requirement_releases_project
+  ON requirement_releases (project_id, target_date, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_requirement_release_items_requirement
+  ON requirement_release_items (requirement_id, release_id);
+
+CREATE TABLE IF NOT EXISTS requirement_relations (
+  requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+  related_requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+  relation TEXT NOT NULL DEFAULT 'relates to',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (requirement_id, related_requirement_id),
+  CHECK (requirement_id <> related_requirement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_requirement_relations_reverse
+  ON requirement_relations (related_requirement_id, requirement_id);
 
 CREATE TABLE IF NOT EXISTS requirement_defects (
   requirement_id TEXT NOT NULL,

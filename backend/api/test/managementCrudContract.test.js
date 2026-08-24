@@ -38,9 +38,65 @@ test("Sprint persistence and API support complete CRUD with an empty Story selec
   assert.match(service, /assignment: requirementIds\.length \? \{/);
   assert.match(service, /: null/);
   assert.match(service, /sprint,\s*assignment:/);
+  assert.match(service, /ensureSprintStoriesComplete/);
+  assert.match(service, /DELIVERY_STORIES_INCOMPLETE/);
   assert.match(schema, /start_date TIMESTAMPTZ/);
   assert.match(schema, /external_references JSONB NOT NULL DEFAULT '\[\]'::jsonb/);
   assert.match(bootstrap, /data_type = 'date'/);
+});
+
+test("Product Management persists releases, Story delivery targets, related Stories, and evidence-based readiness", async () => {
+  const [releaseRoutes, releaseService, storyRoutes, storyService, iterationRoutes, catalog, schema, bootstrap, permissions] = await Promise.all([
+    readSource("../src/routes/requirementReleases.routes.js"),
+    readSource("../src/services/requirementRelease.service.js"),
+    readSource("../src/routes/requirements.routes.js"),
+    readSource("../src/services/requirement.service.js"),
+    readSource("../src/routes/requirementIterations.routes.js"),
+    readSource("../src/domain/catalog.js"),
+    readSource("../../db/schema.sql"),
+    readSource("../src/db/bootstrap.js"),
+    readSource("../src/security/permissions.catalog.js")
+  ]);
+
+  for (const route of [
+    'fastify.get("/requirement-releases"',
+    'fastify.post("/requirement-releases"',
+    'fastify.get("/requirement-releases/readiness"',
+    'fastify.get("/requirement-releases/:id/readiness"',
+    'fastify.put("/requirement-releases/:id"',
+    'fastify.delete("/requirement-releases/:id"'
+  ]) assert.match(releaseRoutes, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  assert.match(releaseRoutes, /project_id: \{ required: true, type: "string" \}/);
+  assert.match(releaseService, /sprint_ids/);
+  assert.match(releaseService, /LEFT JOIN requirement_release_items/);
+  assert.match(releaseService, /requirements\.iteration_id IN/);
+  assert.match(releaseService, /release_membership_source/);
+  assert.match(releaseService, /UPDATE requirements[\s\S]*release = \?, fix_version = \?/);
+  assert.match(releaseService, /testCoverage \|\| 0\) \* 0\.3/);
+  assert.match(releaseService, /passRate \|\| 0\) \* 0\.5/);
+  assert.match(releaseService, /bugHealth \* 0\.2/);
+  assert.match(releaseService, /automation_is_informational: true/);
+  assert.match(releaseService, /exports\.listReadiness/);
+  assert.match(releaseService, /Promise\.all\(releases\.map/);
+  assert.match(releaseService, /ensureReleaseStoriesComplete/);
+  assert.match(releaseService, /DELIVERY_STORIES_INCOMPLETE/);
+  assert.match(storyRoutes, /\/requirements\/:id\/related-requirements/);
+  assert.match(storyService, /requirement_relations/);
+  assert.match(iterationRoutes, /slippage_stories/);
+  assert.match(iterationRoutes, /on_course_stories/);
+  for (const status of ["dev_ready", "dev_in_progress", "dev_blocked", "dev_done", "qa_ready", "qa_in_progress", "qa_blocked", "qa_done"]) {
+    assert.match(catalog, new RegExp(`value: "${status}"`));
+  }
+  for (const field of ["dev_completion_target_date", "qa_completion_target_date", "scrum_team", "specification_format", "specification_content"]) {
+    assert.match(schema, new RegExp(field));
+    assert.match(bootstrap, new RegExp(field));
+  }
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS requirement_releases/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS requirement_release_items/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS requirement_relations/);
+  assert.match(permissions, /\["GET", "\/requirement-releases\/:id\/readiness", "requirement_iteration\.view"\]/);
+  assert.match(permissions, /\["GET", "\/requirement-releases\/readiness", "requirement_iteration\.view"\]/);
 });
 
 test("Bug creation requires a project so saved Bugs remain visible in project lists", async () => {
@@ -56,6 +112,11 @@ test("Bug creation requires a project so saved Bugs remain visible in project li
   assert.match(service, /if \(!project_id \|\| !user_id \|\| !title \|\| !message\)/);
   assert.match(service, /const project = await db\.prepare\("SELECT id FROM projects WHERE id = \?"\)\.get\(project_id\)/);
   assert.match(service, /displayIdService\.createDisplayId\("issue"\)/);
+  assert.match(service, /deriveTestCaseImpactScope/);
+  assert.match(service, /test_case_module_cases\.module_id/);
+  assert.match(service, /requirement_test_cases\.requirement_id/);
+  assert.match(service, /resolvedModuleIds/);
+  assert.match(service, /resolvedRequirementIds/);
   assert.match(service, /feedback\.display_id/);
   assert.doesNotMatch(service, /project_id \|\| null/);
   assert.match(schema, /CREATE TABLE feedback \([\s\S]*?display_id TEXT UNIQUE,[\s\S]*?project_id TEXT NOT NULL,/);

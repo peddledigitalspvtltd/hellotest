@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   IconAlertTriangle,
   IconArrowRight,
@@ -87,18 +87,20 @@ function ScopeSelect({
   value,
   options,
   emptyLabel,
-  onChange
+  onChange,
+  disabled = false
 }: {
   label: string;
   value: string;
   options: string[];
   emptyLabel: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="readiness-scope-field">
       <span>{label}</span>
-      <select onChange={(event) => onChange(event.target.value)} value={value}>
+      <select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">{emptyLabel}</option>
         {options.map((option) => <option key={option} value={option}>{option}</option>)}
       </select>
@@ -140,11 +142,15 @@ function MetricCard({
 
 export function ReleaseReadinessDashboard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [projectId] = useCurrentProject();
-  const [release, setRelease] = useState("");
-  const [sprint, setSprint] = useState("");
+  const requestedReleaseId = searchParams.get("release_id") || "";
+  const requestedRelease = searchParams.get("release") || "";
+  const requestedSprint = searchParams.get("sprint") || "";
+  const [release, setRelease] = useState(requestedRelease);
+  const [sprint, setSprint] = useState(requestedSprint);
   const [activeView, setActiveView] = useState<ReadinessView>("brief");
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -181,6 +187,17 @@ export function ReleaseReadinessDashboard() {
   const projects = asArray(workspace.projects.data);
   const activeProjectId = String(projectId || projects[0]?.id || "");
   const selectedProject = projects.find((project) => String(project.id) === activeProjectId) || null;
+  const releaseContextQuery = useQuery({
+    queryKey: ["release-readiness-context", requestedReleaseId],
+    queryFn: () => api.requirementReleases.get(requestedReleaseId),
+    enabled: Boolean(requestedReleaseId),
+    staleTime: 30_000
+  });
+  const releaseContext = releaseContextQuery.data && String(releaseContextQuery.data.project_id) === activeProjectId
+    ? releaseContextQuery.data
+    : null;
+  const deepLinkedRelease = releaseContext?.fix_version || requestedRelease;
+  const isReleaseScopeLocked = Boolean(requestedReleaseId && releaseContext);
   const requirementsPageQuery = useQuery({
     queryKey: ["release-readiness-stories", activeProjectId],
     queryFn: () => api.requirements.listPage({
@@ -219,21 +236,34 @@ export function ReleaseReadinessDashboard() {
       run_limit: 10,
       result_limit: 300
     }),
-    enabled: Boolean(activeProjectId && canViewRuns && canViewResults),
+    enabled: Boolean(
+      activeProjectId
+      && canViewRuns
+      && canViewResults
+      && (!requestedReleaseId || releaseContext || releaseContextQuery.isError)
+    ),
     staleTime: 30_000
   });
   useEffect(() => {
-    setRelease("");
-    setSprint("");
+    setRelease(deepLinkedRelease);
+    setSprint(requestedSprint);
     setSelectedGateId("");
     setSelectedHotspotId("");
     setSelectedExecutionId("");
     setIsAiOpen(false);
-  }, [activeProjectId]);
+  }, [activeProjectId, deepLinkedRelease, requestedSprint]);
   const requirements = useMemo(
     () => (requirementsPageQuery.data?.items || []).filter((requirement) => String(requirement.project_id) === activeProjectId),
     [activeProjectId, requirementsPageQuery.data?.items]
   );
+  const readinessRequirements = useMemo(() => {
+    if (!releaseContext) return requirements;
+    return asArray(releaseContext.requirements).map((requirement) => ({
+      ...requirement,
+      fix_version: releaseContext.fix_version,
+      release: releaseContext.name
+    }));
+  }, [releaseContext, requirements]);
   const executions = useMemo(
     () => (executionEvidenceQuery.data?.executions || []).filter((execution) => String(execution.project_id) === activeProjectId),
     [activeProjectId, executionEvidenceQuery.data?.executions]
@@ -259,7 +289,7 @@ export function ReleaseReadinessDashboard() {
     return [...idsByName.entries()].filter(([, ids]) => ids.size > 1).map(([name]) => name);
   })();
   const incompleteEvidenceSources = [
-    requirementsPageQuery.data?.is_last === false ? `Stories are paged (${requirements.length} of ${requirementsPageQuery.data.total} loaded)` : "",
+    !releaseContext && requirementsPageQuery.data?.is_last === false ? `Stories are paged (${requirements.length} of ${requirementsPageQuery.data.total} loaded)` : "",
     testCasesPageQuery.data?.is_last === false ? `Test Cases are paged (${testCases.length} of ${testCasesPageQuery.data.total} loaded)` : "",
     issuesPageQuery.data?.is_last === false ? `Bugs are paged (${issues.length} of ${issuesPageQuery.data.total} loaded)` : "",
     executionEvidenceQuery.data?.complete === false
@@ -289,28 +319,33 @@ export function ReleaseReadinessDashboard() {
     || unavailableEvidenceSources.length > 0
     || !scopeIsExplicit;
   const scopeOptions = useMemo(
-    () => releaseReadinessScopeOptions(requirements, executions, issues),
-    [executions, issues, requirements]
+    () => {
+      const options = releaseReadinessScopeOptions(readinessRequirements, executions, issues);
+      return releaseContext && !options.releases.includes(releaseContext.fix_version)
+        ? { ...options, releases: [releaseContext.fix_version, ...options.releases] }
+        : options;
+    },
+    [executions, issues, readinessRequirements, releaseContext]
   );
   const sprintOptions = useMemo(() => {
     if (!release) return scopeOptions.sprints;
     const matchesRelease = (value: string | null | undefined) => String(value || "").trim().toLowerCase() === release.trim().toLowerCase();
     return releaseReadinessScopeOptions(
-      requirements.filter((requirement) => matchesRelease(requirement.fix_version || requirement.release)),
+      readinessRequirements.filter((requirement) => matchesRelease(requirement.fix_version || requirement.release)),
       executions.filter((execution) => matchesRelease(execution.release)),
       issues.filter((issue) => matchesRelease(issue.fix_version || issue.release))
     ).sprints;
-  }, [executions, issues, release, requirements, scopeOptions.sprints]);
+  }, [executions, issues, readinessRequirements, release, scopeOptions.sprints]);
   const model = useMemo(() => deriveReleaseReadiness({
     release,
     sprint,
-    requirements,
+    requirements: readinessRequirements,
     testCases,
     executions,
     executionResults: results,
     issues,
     evidenceComplete: !evidenceIsProvisional
-  }), [evidenceIsProvisional, executions, issues, release, requirements, results, sprint, testCases]);
+  }), [evidenceIsProvisional, executions, issues, readinessRequirements, release, results, sprint, testCases]);
   const canUseAi = hasPermission(session, "quality_insight.view")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
   const qualityInsightPreview = useMutation({
@@ -366,7 +401,8 @@ export function ReleaseReadinessDashboard() {
   const reviewAttentionCount = model.testCases.filter((testCase) => (
     testCase.review_status === "pending" || testCase.review_status === "changes_requested"
   )).length;
-  const loading = (canViewStories && requirementsPageQuery.isPending)
+  const loading = Boolean(requestedReleaseId && releaseContextQuery.isPending)
+    || (canViewStories && requirementsPageQuery.isPending)
     || (canViewCases && testCasesPageQuery.isPending)
     || (canViewBugs && issuesPageQuery.isPending)
     || (canViewRuns && canViewResults && executionEvidenceQuery.isPending);
@@ -450,6 +486,7 @@ export function ReleaseReadinessDashboard() {
 
         <div className="readiness-command-scope" aria-label="Release scope">
           <ScopeSelect
+            disabled={isReleaseScopeLocked}
             emptyLabel="All releases"
             label="Fix Version"
             onChange={(value) => {
@@ -474,7 +511,7 @@ export function ReleaseReadinessDashboard() {
             options={sprintOptions}
             value={sprint}
           />
-          {release || sprint ? (
+          {(release || sprint) && !isReleaseScopeLocked ? (
             <button
               className="readiness-clear-scope"
               onClick={() => {
@@ -734,7 +771,7 @@ export function ReleaseReadinessDashboard() {
                   </span>
                 </div>
                 <div className="readiness-command-main-actions">
-                  <button disabled={!canViewStories} onClick={() => navigate("/requirements")} type="button">
+                  <button disabled={!canViewStories} onClick={() => navigate("/backlog")} type="button">
                     <IconFlag aria-hidden="true" size={16} stroke={1.9} />
                     <span>Stories</span>
                   </button>
@@ -750,7 +787,7 @@ export function ReleaseReadinessDashboard() {
                   <>
                     <section className="readiness-command-trace-path" aria-label="Release traceability path">
                       {[
-                        { label: "Stories", value: model.metrics.requirementCount, detail: "delivery scope", to: "/requirements", enabled: canViewStories, icon: <IconFlag size={17} stroke={1.9} /> },
+                        { label: "Stories", value: model.metrics.requirementCount, detail: "delivery scope", to: "/backlog", enabled: canViewStories, icon: <IconFlag size={17} stroke={1.9} /> },
                         { label: "Covered", value: model.metrics.coveredRequirementCount, detail: `${model.metrics.coverage}% mapped`, to: "/test-cases", enabled: canViewStories && canViewCases, icon: <IconGitBranch size={17} stroke={1.9} /> },
                         { label: "Scoped tests", value: model.metrics.plannedCaseCount, detail: "Linked cases", to: "/test-cases", enabled: canViewCases, icon: <IconTestPipe size={17} stroke={1.9} /> },
                         { label: "Executed", value: model.metrics.executedCaseCount, detail: `${model.metrics.completion}% complete`, to: "/executions", enabled: canViewRuns && canViewResults, icon: <IconListCheck size={17} stroke={1.9} /> },
@@ -927,7 +964,7 @@ export function ReleaseReadinessDashboard() {
                             <span><strong>{selectedHotspot.failedCount + selectedHotspot.blockedCount}</strong><small>Failed/blocked</small></span>
                             <span><strong>{selectedHotspot.openBugCount}</strong><small>Open Bugs</small></span>
                           </div>
-                          <button disabled={!canViewStories} onClick={() => navigate(`/requirements?requirement=${encodeURIComponent(selectedHotspot.id)}`)} type="button">
+                          <button disabled={!canViewStories} onClick={() => navigate(`/backlog?requirement=${encodeURIComponent(selectedHotspot.id)}`)} type="button">
                             Open Story evidence <IconArrowRight aria-hidden="true" size={16} stroke={1.9} />
                           </button>
                         </article>

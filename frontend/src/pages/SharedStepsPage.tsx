@@ -1244,7 +1244,7 @@ export function SharedStepsPage() {
               </div>
             </div>
 
-            <TileBrowserPane className="test-case-library-scroll">
+            <TileBrowserPane className="test-case-library-scroll" scrollKey={`shared-steps:${projectId}:${appTypeId}`}>
               {sharedGroupsQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
               {!sharedGroupsQuery.isLoading && !executionResultsQuery.isLoading && filteredGroups.length && catalogViewMode === "tile" ? (
                 <div className="tile-browser-grid">

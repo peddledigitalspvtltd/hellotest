@@ -4129,7 +4129,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <div className="empty-state compact">No automation cases yet. Create one from a manual case, AI guidance, recorder capture, or a blank canvas.</div>
             ) : null}
             {!testCasesQuery.isLoading && automatedCases.length ? (
-              <TileBrowserPane className="automation-case-tile-browser">
+              <TileBrowserPane className="automation-case-tile-browser" scrollKey={`automation-cases:${projectId}:${appTypeId}`}>
                 {automationCatalogViewMode === "tile" && filteredAutomationCases.length ? (
                   <div className="tile-browser-grid">
                     {filteredAutomationCases.map((testCase) => {

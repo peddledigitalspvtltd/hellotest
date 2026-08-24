@@ -541,6 +541,11 @@ export type Requirement = {
   sprint_complete_date?: string | null;
   fix_version?: string | null;
   release?: string | null;
+  dev_completion_target_date?: string | null;
+  qa_completion_target_date?: string | null;
+  scrum_team?: string | null;
+  specification_format?: "gherkin" | "speckit";
+  specification_content?: string | null;
   priority: number | null;
   status: string | null;
   status_category?: string | null;
@@ -548,6 +553,7 @@ export type Requirement = {
   defect_ids?: string[];
   defects?: RequirementDefectLink[];
   related_items?: RequirementRelatedItem[];
+  release_membership_source?: "manual" | "sprint";
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -596,6 +602,47 @@ export type RequirementIteration = {
   updated_at?: string;
 };
 
+export type RequirementRelease = {
+  id: string;
+  display_id?: string | null;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  fix_version: string;
+  target_date_label?: string | null;
+  target_date?: string | null;
+  external_link?: string | null;
+  state: "planned" | "in_progress" | "released" | "overdue";
+  persisted_state?: "planned" | "in_progress" | "released";
+  sprint_ids: string[];
+  requirement_ids: string[];
+  requirement_count: number;
+  requirements?: Requirement[];
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type RequirementReleaseReadiness = {
+  release_id: string;
+  total_stories: number;
+  covered_stories: number;
+  test_coverage_percent: number | null;
+  linked_cases: number;
+  executed_cases: number;
+  passed_cases: number;
+  pass_rate_percent: number | null;
+  total_bugs: number;
+  open_bugs: number;
+  bug_density: number | null;
+  automated_cases?: number;
+  automation_coverage_percent: number | null;
+  readiness_score: number;
+  readiness_state: "ready" | "at_risk" | "not_ready";
+  methodology?: Record<string, string | number | boolean>;
+};
+
 export type RequirementIterationHealthSourceState =
   | "complete"
   | "partial"
@@ -617,6 +664,8 @@ export type RequirementIterationHealth = {
   passed_cases: number | null;
   pass_percent: number | null;
   at_risk_stories: number | null;
+  slippage_stories?: number | null;
+  on_course_stories?: number | null;
   open_p1_p2_bugs: number | null;
   total_bugs: number | null;
   observed: {
@@ -627,6 +676,8 @@ export type RequirementIterationHealth = {
     executed_linked_cases: number;
     passed_cases: number;
     at_risk_stories: number;
+    slippage_stories?: number;
+    on_course_stories?: number;
     open_p1_p2_bugs: number;
     total_bugs: number;
   };

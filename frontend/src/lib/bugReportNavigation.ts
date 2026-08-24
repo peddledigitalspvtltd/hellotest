@@ -21,7 +21,9 @@ const SAFE_RETURN_ROUTES = new Set([
   "/executions",
   "/test-cases",
   "/design",
-  "/requirements"
+  "/requirements",
+  "/backlog",
+  "/sprints"
 ]);
 
 const uniqueIds = (values: string[] | undefined) =>

@@ -141,7 +141,7 @@ const FEATURE_GROUPS = [
     label: "Manual Testing",
     description: "Requirements, manual cases, suites, shared steps, manual execution, and evidence review.",
     features: [
-      { key: "hellotest.manual.requirements", label: "Requirements", routes: ["/requirements"] },
+      { key: "hellotest.manual.requirements", label: "Product Management", routes: ["/backlog", "/sprints", "/releases"] },
       { key: "hellotest.manual.test_cases", label: "Test cases", routes: ["/test-cases", "/shared-steps", "/design"] },
       { key: "hellotest.manual.suites", label: "Suites and shared steps", routes: ["/design", "/shared-steps"] },
       { key: "hellotest.manual.runs", label: "Manual runs and reports", routes: ["/executions"] },

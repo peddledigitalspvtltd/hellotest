@@ -16,18 +16,116 @@ test("People management exposes user CRUD and role editors without Jira-specific
   assert.match(page, /api\.users\.delete/);
 });
 
-test("Requirements Management appears above Product Management authoring and owns Stories", async () => {
-  const [shell, sections] = await Promise.all([
+test("Product Management replaces Requirements Management and separates Stories, Backlog, Sprints, and Releases", async () => {
+  const [shell, sections, navigationStyles, icons, sectionTabs] = await Promise.all([
     readSource("../src/components/AppShell.tsx"),
-    readSource("../src/lib/workspaceSections.ts")
+    readSource("../src/lib/workspaceSections.ts"),
+    readSource("../src/components/module-navigation.css"),
+    readSource("../src/components/AppIcons.tsx"),
+    readSource("../src/components/WorkspaceSectionTabs.tsx")
   ]);
 
-  assert.match(shell, /label: "Requirements Management"/);
+  assert.match(shell, /id: "product-management"/);
+  assert.match(shell, /label: "Product Management"/);
   assert.match(shell, /icon: RequirementsManagementIcon/);
-  assert.ok(shell.indexOf('label: "Requirements Management"') < shell.indexOf('id: "authoring"'));
-  assert.match(sections, /REQUIREMENTS_MANAGEMENT_SECTION_ITEMS[\s\S]*label: "Stories"/);
+  assert.doesNotMatch(shell, /label: "Requirements Management"/);
+  assert.ok(shell.indexOf('label: "Product Management"') < shell.indexOf('id: "authoring"'));
+  assert.match(sections, /PRODUCT_MANAGEMENT_SECTION_ITEMS[\s\S]*label: "Stories"[\s\S]*label: "Backlog"[\s\S]*label: "Sprints"[\s\S]*label: "Releases"/);
+  assert.match(sections, /to: WORKSPACE_ROUTES\.stories[\s\S]*icon: "stories"/);
+  assert.match(sections, /to: WORKSPACE_ROUTES\.backlog[\s\S]*icon: "backlog"/);
+  assert.match(sections, /to: WORKSPACE_ROUTES\.sprints[\s\S]*icon: "sprint"/);
+  assert.match(sections, /to: WORKSPACE_ROUTES\.releases[\s\S]*icon: "release"/);
+  assert.match(shell, /case "backlog":[\s\S]*return BacklogIcon/);
+  assert.match(shell, /case "sprint":[\s\S]*return SprintIcon/);
+  assert.match(shell, /case "release":[\s\S]*return ReleaseIcon/);
+  assert.match(sectionTabs, /case "sprint":[\s\S]*<SprintIcon/);
+  assert.match(sectionTabs, /case "release":[\s\S]*<ReleaseIcon/);
+  assert.match(icons, /export function SprintIcon/);
+  assert.match(icons, /export function ReleaseIcon/);
+  assert.match(navigationStyles, /data-nav-identity="backlog"[\s\S]*backlog-entity-icon__iteration[\s\S]*backlog-entity-icon__list/);
+  assert.match(navigationStyles, /data-nav-identity="sprint"/);
+  assert.match(navigationStyles, /data-nav-identity="release"/);
   const authoring = sections.slice(sections.indexOf("TEST_AUTHORING_SECTION_ITEMS"), sections.indexOf("TEST_ENVIRONMENT_SECTION_ITEMS"));
-  assert.doesNotMatch(authoring, /label: "Stories"/);
+  assert.doesNotMatch(authoring, /label: "Stories"|label: "Backlog"|label: "Sprints"|label: "Releases"/);
+});
+
+test("Product Management workspaces expose delivery governance without using automation as readiness", async () => {
+  const [app, stories, releases, readiness, issues, completionGuard, projects, api, types] = await Promise.all([
+    readSource("../src/App.tsx"),
+    readSource("../src/pages/RequirementsPage.tsx"),
+    readSource("../src/pages/ReleasesPage.tsx"),
+    readSource("../src/components/ReleaseReadinessDashboard.tsx"),
+    readSource("../src/pages/IssuesPage.tsx"),
+    readSource("../src/components/DeliveryCompletionGuardDialog.tsx"),
+    readSource("../src/pages/ProjectsPage.tsx"),
+    readSource("../src/lib/api.ts"),
+    readSource("../src/types.ts")
+  ]);
+
+  assert.match(app, /workspaceMode="backlog"/);
+  assert.match(app, /workspaceMode="sprints"/);
+  assert.match(app, /workspaceMode="stories"/);
+  assert.match(app, /import\("\.\/pages\/ReleasesPage"\)/);
+  for (const capability of [
+    "Dev completion target", "QA completion target", "Scrum team", "Spec Kit",
+    "Test coverage", "Release readiness", "Automation progress", "Retrospective",
+    "Slipped", "On course", "Groomed", "Not groomed", "Link Story"
+  ]) assert.match(stories, new RegExp(capability, "i"));
+  assert.match(stories, /selectedRequirementTestCoverage \* 0\.3/);
+  assert.match(stories, /selectedRequirementPassCoverage\.percent \* 0\.5/);
+  assert.match(stories, /selectedRequirementBugHealth \* 0\.2/);
+  assert.match(stories, /Automation is informational and is not part of readiness/);
+  for (const productMetric of ["Grooming readiness", "Specification ready", "High-priority demand", "Team ownership"]) {
+    assert.match(stories, new RegExp(productMetric, "i"));
+  }
+  assert.match(stories, /isStoryAssignedToSprint/);
+  assert.match(stories, /selectedRequirementHasSprint \? <button[\s\S]*AI Test Cases Generation/);
+  assert.match(stories, /selectedRequirementHasSprint \? \[[\s\S]*Linked test cases[\s\S]*Linked bugs[\s\S]*Historical runs/);
+  assert.match(stories, /workspaceMode === "backlog"[\s\S]*<StoryIcon size=\{16\}/);
+  assert.match(stories, /IconPlayerPlay[\s\S]*IconFlagCheck[\s\S]*IconNotes/);
+  assert.match(stories, /listRequirements\(iteration\.id, \{ page_size: 200, cursor, projection: "summary" \}\)/);
+  assert.match(stories, /dismissedRequirementRouteRef/);
+  assert.match(stories, /setSelectedRequirementId\(""\);[\s\S]*syncRequirementSearchParams\(null\)/);
+  for (const metric of ["Backlog inventory", "Sprint commitment", "Release scope", "QA completion"]) assert.match(stories, new RegExp(metric));
+  assert.match(stories, /workspaceMode === "stories"[\s\S]*filteredRequirements/);
+  assert.match(releases, /Create release/);
+  assert.match(releases, /Fix Version/);
+  assert.match(releases, /Release target date/);
+  assert.match(releases, /Open release readiness board/);
+  assert.match(releases, /release_id=/);
+  assert.match(releases, /Release portfolio health/i);
+  for (const metric of ["Release ready", "At risk", "Story completion", "Test coverage", "Open Bugs"]) {
+    assert.match(releases, new RegExp(metric, "i"));
+  }
+  assert.match(releases, /visibleReleases\.map/);
+  assert.match(releases, /CatalogViewToggle/);
+  assert.match(releases, /CatalogSearchFilter/);
+  assert.match(releases, /CatalogSelectionControls/);
+  assert.match(releases, /Select release/);
+  assert.match(releases, /Delete selected/);
+  assert.match(releases, /requirementReleases\.get\(release\.id\)/);
+  assert.match(releases, /TileBrowserPane/);
+  assert.match(releases, /DataTable/);
+  assert.match(releases, /rowGroups=\{releaseRowGroups\}/);
+  assert.match(releases, /requirement-iteration-header release-iteration-header/);
+  assert.match(releases, /HierarchyQuickInsights/);
+  assert.match(releases, /requirement-catalog-card release-story-tile/);
+  assert.match(releases, /sprint-create-dialog sprint-new-dialog release-create-dialog/);
+  assert.match(releases, /included by Sprint/);
+  assert.match(readiness, /requestedReleaseId/);
+  assert.match(readiness, /releaseContext\.requirements/);
+  assert.match(readiness, /disabled=\{isReleaseScopeLocked\}/);
+  assert.match(readiness, /setRelease\(deepLinkedRelease\)/);
+  assert.match(issues, /autoModuleIds/);
+  assert.match(issues, /autoRequirementIds/);
+  assert.match(completionGuard, /Completion blocked/);
+  assert.match(completionGuard, /Close and review Stories/);
+  const openProjectHandler = projects.slice(projects.indexOf("const openPortfolioProject"), projects.indexOf("const openPortfolioProjectPath"));
+  assert.ok(openProjectHandler.indexOf("setFocusedProjectId(item.project.id)") < openProjectHandler.indexOf("setSelectedProjectId(item.project.id)"));
+  assert.doesNotMatch(releases, /window\.confirm/);
+  assert.match(api, /requirementReleases:/);
+  assert.match(api, /replaceRelatedRequirements/);
+  assert.match(types, /specification_format\?: "gherkin" \| "speckit"/);
 });
 
 test("manual test-case details place mature automation cards beside Details", async () => {

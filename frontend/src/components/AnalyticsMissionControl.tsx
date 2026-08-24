@@ -143,9 +143,9 @@ type AnalyticsMissionControlProps = {
 
 const projectTabs = [
   { label: "Summary", to: "/?view=analytics" },
-  { label: "List", to: "/requirements" },
-  { label: "Active sprints", to: "/requirements" },
-  { label: "Backlog", to: "/requirements" },
+  { label: "Backlog", to: "/backlog" },
+  { label: "Active sprints", to: "/sprints" },
+  { label: "Releases", to: "/releases" },
   { label: "Timeline", to: "/executions" },
   { label: "Docs", to: "/knowledge-repo" }
 ];

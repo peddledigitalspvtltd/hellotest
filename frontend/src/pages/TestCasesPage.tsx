@@ -9376,7 +9376,7 @@ export function TestCasesPage() {
                 ? `Moving ${draggingCaseIds.length} selected test case${draggingCaseIds.length === 1 ? "" : "s"}. Choose an available module.`
                 : ""}
             </div>
-            <TileBrowserPane className="test-case-library-scroll">
+            <TileBrowserPane className="test-case-library-scroll" scrollKey={`test-cases:${projectId}:${appTypeId}`}>
               {isLibraryLoading ? <TileCardSkeletonGrid /> : null}
 
               {!isLibraryLoading && (filteredCases.length || visibleModuleCaseGroups.length || testCasesQuery.hasNextPage) && catalogViewMode === "tile" ? (

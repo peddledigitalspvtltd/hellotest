@@ -43,13 +43,50 @@
   --nav-identity-color: var(--ds-icon-accent-purple, #6e5dc6);
 }
 
-.app-shell .nav-submenu-link[data-nav-identity="requirements"] {
+.app-shell .nav-submenu-link[data-nav-identity="requirements"],
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] {
   --nav-identity-color: var(--ds-icon-accent-green, #1f845a);
 }
 
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon {
+  position: relative;
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+  overflow: visible;
+}
+
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > svg {
+  position: absolute;
+  display: block;
+  max-width: none;
+  overflow: visible;
+}
+
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > .backlog-entity-icon__iteration {
+  z-index: 2;
+  top: -0.05rem;
+  left: 0.05rem;
+  width: 1.05rem;
+  height: 0.75rem;
+}
+
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > .backlog-entity-icon__list {
+  z-index: 1;
+  bottom: 0;
+  left: 0.22rem;
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
 .app-shell .nav-link[data-nav-identity="runs"],
+.app-shell .nav-submenu-link[data-nav-identity="sprint"],
 .app-shell .nav-submenu-link[data-nav-identity="executions"] {
   --nav-identity-color: var(--ds-icon-accent-blue, #0c66e4);
+}
+
+.app-shell .nav-submenu-link[data-nav-identity="release"] {
+  --nav-identity-color: var(--ds-icon-accent-purple, #5e4db2);
 }
 
 .app-shell .nav-link[data-nav-identity="issues"] {
@@ -136,13 +173,19 @@
   --nav-identity-color: var(--ds-icon-accent-red, #fd9891);
 }
 
-:root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="requirements"] {
+:root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="requirements"],
+:root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="backlog"] {
   --nav-identity-color: var(--ds-icon-accent-green, #7ee2b8);
 }
 
 :root[data-theme="dark"] .app-shell .nav-link[data-nav-identity="runs"],
+:root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="sprint"],
 :root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="executions"] {
   --nav-identity-color: var(--ds-icon-accent-blue, #85b8ff);
+}
+
+:root[data-theme="dark"] .app-shell .nav-submenu-link[data-nav-identity="release"] {
+  --nav-identity-color: var(--ds-icon-accent-purple, #b8acf6);
 }
 
 :root[data-theme="dark"] .app-shell .nav-link[data-nav-identity="testops"],

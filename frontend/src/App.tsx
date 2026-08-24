@@ -7,10 +7,11 @@ import {
   useRouteError
 } from "react-router-dom";
 import { Suspense, lazy, useEffect, useRef } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AppErrorState } from "./components/AppErrorBoundary";
 import { AppShell } from "./components/AppShell";
+import { WorkspacePageSkeleton } from "./components/WorkspacePageSkeleton";
 import { LocalizationProvider, useLocalization } from "./context/LocalizationContext";
 import {
   getRouteFromLocation,
@@ -22,17 +23,9 @@ import {
 } from "./lib/routeHistory";
 import { readWorkspaceTheme, writeWorkspaceTheme } from "./lib/workspacePreferences";
 import { WORKSPACE_ROUTES, workspaceChildPath } from "./lib/workspaceRoutes";
+import { createAppQueryClient } from "./lib/appQueryClient";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      gcTime: 10 * 60_000,
-      refetchOnWindowFocus: false,
-      retry: 1,
-      staleTime: 30_000
-    }
-  }
-});
+const queryClient = createAppQueryClient();
 
 const AuthPage = lazy(() => import("./pages/AuthPage").then((module) => ({ default: module.AuthPage })));
 
@@ -43,7 +36,10 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/projects": { key: "page.projects", fallback: "Projects" },
   "/integrations": { key: "page.integrations", fallback: "Integrations" },
   "/design": { key: "page.design", fallback: "Test Design" },
-  "/requirements": { key: "page.requirements", fallback: "Requirements" },
+  "/requirements": { key: "page.requirements", fallback: "Backlog" },
+  "/backlog": { fallback: "Backlog" },
+  "/sprints": { fallback: "Sprints" },
+  "/releases": { fallback: "Releases" },
   "/issues": { key: "page.issues", fallback: "Report Issue" },
   "/feedback": { key: "page.issues", fallback: "Report Issue" },
   "/support": { key: "page.support", fallback: "Support" },
@@ -119,7 +115,7 @@ function ProtectedLayout() {
   const location = useLocation();
 
   if (isLoading) {
-    return <div className="splash-screen">Loading workspace…</div>;
+    return <div className="splash-screen"><WorkspacePageSkeleton label="Loading workspace" /></div>;
   }
 
   if (!session) {
@@ -183,7 +179,7 @@ const router = createBrowserRouter([
     path: "/",
     element: <ProtectedLayout />,
     errorElement: <WorkspaceRouteError />,
-    hydrateFallbackElement: <div className="splash-screen">Loading workspace…</div>,
+    hydrateFallbackElement: <div className="splash-screen"><WorkspacePageSkeleton label="Loading workspace" /></div>,
     children: [
       { index: true, lazy: () => import("./pages/OverviewPage").then(({ OverviewPage }) => ({ Component: OverviewPage })) },
       { path: workspaceChildPath(WORKSPACE_ROUTES.adminSpace), lazy: () => import("./pages/AdminSpacePage").then(({ AdminSpacePage }) => ({ Component: AdminSpacePage })) },
@@ -191,7 +187,11 @@ const router = createBrowserRouter([
       { path: workspaceChildPath(WORKSPACE_ROUTES.projects), lazy: () => import("./pages/ProjectsPage").then(({ ProjectsPage }) => ({ Component: ProjectsPage })) },
       { path: workspaceChildPath(WORKSPACE_ROUTES.integrations), lazy: () => import("./pages/IntegrationsPage").then(({ IntegrationsPage }) => ({ Component: IntegrationsPage })) },
       { path: workspaceChildPath(WORKSPACE_ROUTES.design), lazy: () => import("./pages/DesignPage").then(({ DesignPage }) => ({ Component: DesignPage })) },
-      { path: workspaceChildPath(WORKSPACE_ROUTES.requirements), lazy: () => import("./pages/RequirementsPage").then(({ RequirementsPage }) => ({ Component: RequirementsPage })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.requirements), element: <Navigate to={WORKSPACE_ROUTES.stories} replace /> },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.stories), lazy: () => import("./pages/RequirementsPage").then(({ RequirementsPage }) => ({ Component: () => <RequirementsPage workspaceMode="stories" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.backlog), lazy: () => import("./pages/RequirementsPage").then(({ RequirementsPage }) => ({ Component: () => <RequirementsPage workspaceMode="backlog" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.sprints), lazy: () => import("./pages/RequirementsPage").then(({ RequirementsPage }) => ({ Component: () => <RequirementsPage workspaceMode="sprints" /> })) },
+      { path: workspaceChildPath(WORKSPACE_ROUTES.releases), lazy: () => import("./pages/ReleasesPage").then(({ ReleasesPage }) => ({ Component: ReleasesPage })) },
       { path: workspaceChildPath(WORKSPACE_ROUTES.issues), lazy: () => import("./pages/IssuesPage").then(({ IssuesPage }) => ({ Component: IssuesPage })) },
       { path: workspaceChildPath(WORKSPACE_ROUTES.feedback), element: <Navigate to={WORKSPACE_ROUTES.issues} replace /> },
       { path: workspaceChildPath(WORKSPACE_ROUTES.support), lazy: () => import("./pages/SupportPage").then(({ SupportPage }) => ({ Component: SupportPage })) },

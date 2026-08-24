@@ -28,6 +28,20 @@ const normalizeText = (value) => {
   return normalized || null;
 };
 
+const normalizeDeliveryDate = (value) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Invalid Story completion target date");
+  return parsed.toISOString();
+};
+
+const normalizeSpecificationFormat = (value, fallback = "gherkin") => {
+  const normalized = normalizeText(value) || fallback;
+  if (!["gherkin", "speckit"].includes(normalized)) throw new Error("Invalid Story specification format");
+  return normalized;
+};
+
 const STORY_AI_PROCESS_STAGE_IDS = ["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"];
 
 const compactStoryEvidenceText = (value, limit = 520) => String(value || "")
@@ -870,7 +884,7 @@ const hydrateRequirements = async (requirements) => {
   }
 
   const placeholders = placeholdersFor(ids);
-  const [testCaseRows, defectRows] = await Promise.all([
+  const [testCaseRows, defectRows, relatedRows] = await Promise.all([
     db.prepare(`
       SELECT requirement_id, test_case_id
       FROM requirement_test_cases
@@ -889,10 +903,27 @@ const hydrateRequirements = async (requirements) => {
       JOIN feedback ON feedback.id = requirement_defects.issue_id
       WHERE requirement_defects.requirement_id IN (${placeholders})
       ORDER BY requirement_defects.requirement_id ASC, feedback.created_at DESC, feedback.title ASC
-    `).all(...ids)
+    `).all(...ids),
+    db.prepare(`
+      SELECT requirement_relations.requirement_id AS owner_id,
+             related.id, related.display_id, related.title, related.status,
+             requirement_relations.relation, 'outward' AS direction
+      FROM requirement_relations
+      JOIN requirements related ON related.id = requirement_relations.related_requirement_id
+      WHERE requirement_relations.requirement_id IN (${placeholders})
+      UNION ALL
+      SELECT requirement_relations.related_requirement_id AS owner_id,
+             related.id, related.display_id, related.title, related.status,
+             requirement_relations.relation, 'inward' AS direction
+      FROM requirement_relations
+      JOIN requirements related ON related.id = requirement_relations.requirement_id
+      WHERE requirement_relations.related_requirement_id IN (${placeholders})
+      ORDER BY title
+    `).all(...ids, ...ids)
   ]);
   const testCasesByRequirement = groupRows(testCaseRows, "requirement_id");
   const defectsByRequirement = groupRows(defectRows, "requirement_id");
+  const relatedByRequirement = groupRows(relatedRows, "owner_id");
 
   return requirements.map((requirement) => {
     const defects = defectsByRequirement.get(requirement.id) || [];
@@ -905,9 +936,32 @@ const hydrateRequirements = async (requirements) => {
       labels: normalizeStoredReferenceList(requirement.labels),
       test_case_ids: (testCasesByRequirement.get(requirement.id) || []).map((row) => row.test_case_id),
       defect_ids: defects.map((defect) => defect.id),
-      defects: defects.map(({ requirement_id, ...defect }) => defect)
+      defects: defects.map(({ requirement_id, ...defect }) => defect),
+      related_items: (relatedByRequirement.get(requirement.id) || []).map(({ owner_id, ...item }) => ({
+        ...item,
+        issue_type: "Story",
+        hellotest_kind: "requirement"
+      }))
     };
   });
+};
+
+exports.replaceRelatedRequirements = async (id, relatedRequirementIds = []) => {
+  const requirement = await exports.getRequirement(id);
+  const normalizedIds = normalizeReferenceList(relatedRequirementIds).filter((relatedId) => relatedId !== id);
+  await ensureStoriesInProject(normalizedIds, requirement.project_id);
+  const transaction = db.transaction(async () => {
+    await db.prepare("DELETE FROM requirement_relations WHERE requirement_id = ?").run(id);
+    for (const relatedId of normalizedIds) {
+      await db.prepare(`
+        INSERT INTO requirement_relations (requirement_id, related_requirement_id, relation)
+        VALUES (?, ?, 'relates to')
+        ON CONFLICT (requirement_id, related_requirement_id) DO NOTHING
+      `).run(id, relatedId);
+    }
+  });
+  await transaction();
+  return { updated: true, related_requirement_ids: normalizedIds };
 };
 
 const hydrateTestCaseIds = async (requirement) => {
@@ -1358,7 +1412,15 @@ const ensureIterationBelongsToProject = async (iterationId, projectId) => {
   return iteration;
 };
 
-exports.createRequirement = async ({ project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, priority, status, created_by }) => {
+const ensureStoriesInProject = async (requirementIds, projectId) => {
+  for (const requirementId of requirementIds) {
+    const story = await db.prepare("SELECT id, project_id FROM requirements WHERE id = ?").get(requirementId);
+    if (!story) throw new Error(`Story not found: ${requirementId}`);
+    if (story.project_id !== projectId) throw new Error("Related Stories must belong to the same project");
+  }
+};
+
+exports.createRequirement = async ({ project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, created_by }) => {
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
@@ -1374,8 +1436,8 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
   const display_id = await displayIdService.createDisplayId("requirement");
 
   await db.prepare(`
-    INSERT INTO requirements (id, display_id, project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, priority, status, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO requirements (id, display_id, project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     display_id,
@@ -1391,6 +1453,11 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
     normalizeText(fix_version),
     normalizeText(release),
     normalizeText(iteration_id),
+    normalizeDeliveryDate(dev_completion_target_date),
+    normalizeDeliveryDate(qa_completion_target_date),
+    normalizeText(scrum_team),
+    normalizeSpecificationFormat(specification_format),
+    normalizeText(specification_content),
     priority ?? 3,
     status || null,
     created_by || null,
@@ -1461,7 +1528,7 @@ exports.updateRequirement = async (id, data) => {
 
     await db.prepare(`
       UPDATE requirements
-      SET project_id = ?, title = ?, description = ?, gherkin_scenarios = ?, additional_fields = ?, ai_review = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, iteration_id = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
+      SET project_id = ?, title = ?, description = ?, gherkin_scenarios = ?, additional_fields = ?, ai_review = ?, external_references = ?, labels = ?, sprint = ?, fix_version = ?, release = ?, iteration_id = ?, dev_completion_target_date = ?, qa_completion_target_date = ?, scrum_team = ?, specification_format = ?, specification_content = ?, priority = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
       WHERE id = ?
     `).run(
       data.project_id ?? existing.project_id,
@@ -1486,6 +1553,11 @@ exports.updateRequirement = async (id, data) => {
       data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
       data.release !== undefined ? normalizeText(data.release) : existing.release,
       data.iteration_id !== undefined ? normalizeText(data.iteration_id) : existing.iteration_id,
+      data.dev_completion_target_date !== undefined ? normalizeDeliveryDate(data.dev_completion_target_date) : existing.dev_completion_target_date,
+      data.qa_completion_target_date !== undefined ? normalizeDeliveryDate(data.qa_completion_target_date) : existing.qa_completion_target_date,
+      data.scrum_team !== undefined ? normalizeText(data.scrum_team) : existing.scrum_team,
+      data.specification_format !== undefined ? normalizeSpecificationFormat(data.specification_format, existing.specification_format) : normalizeSpecificationFormat(existing.specification_format),
+      data.specification_content !== undefined ? normalizeText(data.specification_content) : existing.specification_content,
       data.priority ?? existing.priority,
       data.status ?? existing.status,
       data.updated_by ?? existing.updated_by ?? existing.created_by ?? null,

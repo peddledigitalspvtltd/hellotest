@@ -15,11 +15,13 @@ const HEALTH_LIMITS = Object.freeze({
 const healthMethodology = {
   scope_population: { definition: "Stories assigned to the selected HelloTest iteration.", completeness_boundary: "All records in the HelloTest PostgreSQL workspace are evaluated." },
   counting_units: { linked_cases: "Distinct linked test cases.", bugs: "Distinct defects linked to in-scope stories." },
-  completed_percent: { numerator: "Stories whose status is done.", denominator: "All in-scope stories.", zero_denominator: null },
+  completed_percent: { numerator: "Stories whose status reached QA Done or Done.", denominator: "All in-scope stories.", zero_denominator: null },
   coverage_percent: { numerator: "Stories with at least one linked test case.", denominator: "All in-scope stories.", zero_denominator: null, covered_definition: "At least one requirement-test-case mapping exists." },
   pass_percent: { numerator: "Linked cases whose latest recorded result passed.", denominator: "Linked cases with a recorded result.", zero_denominator: null, execution_definition: "Latest execution result per linked case." },
   defect_density: { numerator: "Open linked defects.", denominator: "All in-scope stories.", zero_denominator: null, bug_definition: "A linked HelloTest issue whose status is not closed." },
-  at_risk_stories: { denominator: "All in-scope stories.", definition: "Blocked stories or priority 1-2 stories without test coverage." },
+  at_risk_stories: { denominator: "All in-scope stories.", definition: "Blocked stories, priority 1-2 Stories without test coverage, or Stories that missed a Dev/QA target before reaching the corresponding Done stage." },
+  slippage_stories: { denominator: "All in-scope stories.", definition: "Distinct Stories past Dev target without Dev Done, or past QA target without QA Done." },
+  on_course_stories: { denominator: "All in-scope stories.", definition: "Stories that are complete or have not missed a Dev/QA target." },
   bounded_evidence: { exact_rule: "Values are exact while the configured workspace limits are not exceeded.", partial_rule: "A field becomes partial when its source population exceeds the disclosed limit." }
 };
 
@@ -58,9 +60,24 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
   const bugsPartial = bugs.length > HEALTH_LIMITS.bugs;
   const boundedBugs = bugs.slice(0, HEALTH_LIMITS.bugs);
   const coveredIds = new Set(boundedLinkedRows.map((item) => item.requirement_id));
-  const completed = requirements.filter((item) => String(item.status || "").toLowerCase() === "done").length;
+  const statusRank = (value) => ({
+    open: 0, in_progress: 2, ready: 4, blocked: 2, dev_ready: 1, dev_in_progress: 2, dev_blocked: 2, dev_done: 3,
+    qa_ready: 4, qa_in_progress: 5, qa_blocked: 5, qa_done: 6, done: 7
+  }[String(value || "").trim().toLowerCase()] ?? 0);
+  const hasMissedTarget = (item) => {
+    const now = Date.now();
+    const devMissed = item.dev_completion_target_date
+      && Date.parse(item.dev_completion_target_date) < now
+      && statusRank(item.status) < statusRank("dev_done");
+    const qaMissed = item.qa_completion_target_date
+      && Date.parse(item.qa_completion_target_date) < now
+      && statusRank(item.status) < statusRank("qa_done");
+    return Boolean(devMissed || qaMissed);
+  };
+  const completed = requirements.filter((item) => statusRank(item.status) >= statusRank("qa_done")).length;
   const passed = latestResults.filter((item) => item.status === "passed").length;
-  const atRisk = requirements.filter((item) => item.status === "blocked" || (Number(item.priority || 5) <= 2 && !coveredIds.has(item.id))).length;
+  const slipped = requirements.filter(hasMissedTarget).length;
+  const atRisk = requirements.filter((item) => String(item.status || "").toLowerCase().includes("blocked") || hasMissedTarget(item) || (Number(item.priority || 5) <= 2 && !coveredIds.has(item.id))).length;
   const openPriorityBugs = boundedBugs.filter((item) => item.status !== "closed" && (["highest", "high"].includes(String(item.priority || "").toLowerCase()) || ["critical", "high"].includes(String(item.severity || "").toLowerCase()))).length;
   const partialReasons = [
     storiesPartial ? `Story scan exceeded ${HEALTH_LIMITS.stories_per_sprint} records.` : "",
@@ -68,7 +85,7 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
     bugsPartial ? `Bug scan exceeded ${HEALTH_LIMITS.bugs} records.` : ""
   ].filter(Boolean);
   const partial = partialReasons.length > 0;
-  const exactFields = partial ? [] : ["total_stories", "completed_stories", "completed_percent", "covered_stories", "coverage_percent", "linked_cases", "executed_linked_cases", "passed_cases", "pass_percent", "at_risk_stories", "open_p1_p2_bugs", "total_bugs"];
+  const exactFields = partial ? [] : ["total_stories", "completed_stories", "completed_percent", "covered_stories", "coverage_percent", "linked_cases", "executed_linked_cases", "passed_cases", "pass_percent", "at_risk_stories", "slippage_stories", "on_course_stories", "open_p1_p2_bugs", "total_bugs"];
   const percent = (numerator, denominator) => denominator ? Math.round((numerator / denominator) * 1000) / 10 : null;
   return {
     iteration_id: iteration.id,
@@ -85,9 +102,11 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
     passed_cases: passed,
     pass_percent: percent(passed, latestResults.length),
     at_risk_stories: atRisk,
+    slippage_stories: slipped,
+    on_course_stories: Math.max(requirements.length - slipped, 0),
     open_p1_p2_bugs: openPriorityBugs,
     total_bugs: boundedBugs.length,
-    observed: { stories_scanned: requirements.length, completed_stories: completed, covered_stories: coveredIds.size, linked_cases: linkedCaseIds.length, executed_linked_cases: latestResults.length, passed_cases: passed, at_risk_stories: atRisk, open_p1_p2_bugs: openPriorityBugs, total_bugs: boundedBugs.length },
+    observed: { stories_scanned: requirements.length, completed_stories: completed, covered_stories: coveredIds.size, linked_cases: linkedCaseIds.length, executed_linked_cases: latestResults.length, passed_cases: passed, at_risk_stories: atRisk, slippage_stories: slipped, on_course_stories: Math.max(requirements.length - slipped, 0), open_p1_p2_bugs: openPriorityBugs, total_bugs: boundedBugs.length },
     exact_fields: exactFields,
     completeness: {
       complete: !partial, partial, reasons: partialReasons, exact_fields: exactFields,

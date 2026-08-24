@@ -286,6 +286,21 @@ export function SprintIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** Product release identity, redrawn as a compact rocket from the supplied artwork. */
+export function ReleaseIcon({ size = 16, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth}>
+      <path d="M8.1 15.9c-1.65-.08-3.05.38-4.25 1.38.12-1.7.66-3.12 1.62-4.28" />
+      <path d="M8.05 15.95C9.1 10.55 13.2 5.15 20.6 2.85c-.42 7.72-5.38 12.12-10.58 13.5z" />
+      <circle cx="15" cy="8.3" r="2.25" />
+      <path d="M10.1 16.35c.05 1.7.55 3.12 1.48 4.3 1.26-1.2 1.94-2.62 2.05-4.25" />
+      <path d="m6.15 17.8-2.8 2.8" />
+      <path d="m8.05 19.15-1.25 2" />
+      <path d="m4.8 15.85-2.05 1.25" />
+    </IconFrame>
+  );
+}
+
 export function UsersIcon({ size, strokeWidth }: IconProps) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>

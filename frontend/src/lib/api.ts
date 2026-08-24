@@ -1037,7 +1037,7 @@ export const api = {
       request<JiraIssueCreateMetadata>(`/requirements/create-metadata${toQueryString(query)}`),
     editMetadata: (id: string, query?: { project_id?: string }) =>
       request<JiraIssueCreateMetadata>(`/requirements/${id}/edit-metadata${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown> }) =>
+    create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown> }) =>
       request<{ id: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
@@ -1155,12 +1155,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; gherkin_scenarios: string[]; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; iteration_id: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; gherkin_scenarios: string[]; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; iteration_id: string; dev_completion_target_date: string; qa_completion_target_date: string; scrum_team: string; specification_format: "gherkin" | "speckit"; specification_content: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
       request<{
         updated: boolean;
         revision: number;
         sprint_assignment?: { id: string; jira_sprint_id: string; name: string; state?: string | null } | null;
       }>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    replaceRelatedRequirements: (id: string, requirement_ids: string[]) => request<{ updated: boolean; related_requirement_ids: string[] }>(`/requirements/${id}/related-requirements`, { method: "PUT", body: JSON.stringify({ requirement_ids }) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/requirements/${id}`, { method: "DELETE" })
   },
   requirementIterations: {
@@ -1204,6 +1205,17 @@ export const api = {
         body: JSON.stringify({ requirement_ids })
       }),
     delete: (id: string) => request<{ deleted: boolean; id: string; unassigned: number }>(`/requirement-iterations/${id}`, { method: "DELETE" })
+  },
+  requirementReleases: {
+    list: (query?: { project_id?: string }) => request<import("../types").RequirementRelease[]>(`/requirement-releases${toQueryString(query)}`),
+    listReadiness: (query: { project_id: string }) => request<import("../types").RequirementReleaseReadiness[]>(`/requirement-releases/readiness${toQueryString(query)}`),
+    get: (id: string) => request<import("../types").RequirementRelease>(`/requirement-releases/${id}`),
+    readiness: (id: string) => request<import("../types").RequirementReleaseReadiness>(`/requirement-releases/${id}/readiness`),
+    create: (input: { project_id: string; name: string; description?: string; fix_version: string; target_date_label?: string; target_date?: string; external_link?: string; state?: "planned" | "in_progress" | "released"; sprint_ids?: string[]; requirement_ids?: string[] }) =>
+      request<{ id: string; release: import("../types").RequirementRelease }>("/requirement-releases", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: Partial<{ name: string; description: string; fix_version: string; target_date_label: string; target_date: string; external_link: string; state: "planned" | "in_progress" | "released"; sprint_ids: string[]; requirement_ids: string[] }>) =>
+      request<{ updated: boolean; release: import("../types").RequirementRelease }>(`/requirement-releases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string) => request<{ deleted: boolean; id: string }>(`/requirement-releases/${id}`, { method: "DELETE" })
   },
   knowledgeRepo: {
     list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),

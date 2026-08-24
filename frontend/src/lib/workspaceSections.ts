@@ -7,8 +7,12 @@ export type WorkspaceSectionItem = {
   featureKeys?: string[];
   icon?:
     | "analytics"
+    | "backlog"
+    | "stories"
     | "dashboard"
     | "requirements"
+    | "release"
+    | "sprint"
     | "cases"
     | "shared"
     | "suites"
@@ -31,8 +35,11 @@ export const DASHBOARD_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: "/?view=custom", label: "Custom dashboards", shortLabel: "Custom", icon: "dashboard" }
 ];
 
-export const REQUIREMENTS_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: WORKSPACE_ROUTES.requirements, label: "Stories", shortLabel: "Stories", icon: "requirements", featureKeys: ["hellotest.manual.requirements"] }
+export const PRODUCT_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: WORKSPACE_ROUTES.stories, label: "Stories", shortLabel: "Stories", icon: "stories", featureKeys: ["hellotest.manual.requirements"] },
+  { to: WORKSPACE_ROUTES.backlog, label: "Backlog", shortLabel: "Backlog", icon: "backlog", featureKeys: ["hellotest.manual.requirements"] },
+  { to: WORKSPACE_ROUTES.sprints, label: "Sprints", shortLabel: "Sprints", icon: "sprint", featureKeys: ["hellotest.manual.requirements"] },
+  { to: WORKSPACE_ROUTES.releases, label: "Releases", shortLabel: "Releases", icon: "release", featureKeys: ["hellotest.manual.requirements"] }
 ];
 
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
@@ -74,7 +81,10 @@ export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [
 export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/": "Home",
   "/projects": "Projects",
-  "/requirements": "Stories",
+  "/requirements": "Backlog",
+  "/backlog": "Backlog",
+  "/sprints": "Sprints",
+  "/releases": "Releases",
   "/test-cases": "Cases",
   "/shared-steps": "Shared Step Groups",
   "/design": "Suites",
@@ -102,6 +112,10 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
   "/?view=readiness": "workspace.releaseReadiness",
   "/?view=custom": "workspace.customDashboards",
   "/requirements": "workspace.requirements",
+  "/stories": "workspace.stories",
+  "/backlog": "workspace.backlog",
+  "/sprints": "workspace.sprints",
+  "/releases": "workspace.releases",
   "/test-cases": "workspace.testCases",
   "/shared-steps": "workspace.sharedSteps",
   "/design": "workspace.testSuites",
@@ -117,7 +131,7 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
 };
 
 export const WORKSPACE_LIBRARY_PATHS = new Set([
-  ...REQUIREMENTS_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
+  ...PRODUCT_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
   ...TEST_AUTHORING_SECTION_ITEMS.map((item) => item.to),
   "/executions",
   ...AUTOMATION_SECTION_ITEMS.map((item) => item.to),

@@ -111,6 +111,45 @@ function buildDetailValues(input = {}, fallback = {}) {
 
 const normalizeList = (value) => normalizeReferenceList(Array.isArray(value) ? value : []);
 
+const deriveTestCaseImpactScope = async ({ projectId, testCaseIds = [] } = {}) => {
+  const normalizedCaseIds = normalizeList(testCaseIds);
+  if (!projectId || !normalizedCaseIds.length) {
+    return { moduleIds: [], requirementIds: [] };
+  }
+
+  const placeholders = normalizedCaseIds.map(() => "?").join(",");
+  const [moduleRows, requirementRows, legacyRequirementRows] = await Promise.all([
+    db.prepare(`
+      SELECT DISTINCT test_case_module_cases.module_id
+      FROM test_case_module_cases
+      INNER JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id
+      INNER JOIN app_types ON app_types.id = test_case_modules.app_type_id
+      WHERE test_case_module_cases.test_case_id IN (${placeholders})
+        AND app_types.project_id = ?
+    `).all(...normalizedCaseIds, projectId),
+    db.prepare(`
+      SELECT DISTINCT requirement_test_cases.requirement_id
+      FROM requirement_test_cases
+      INNER JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
+      WHERE requirement_test_cases.test_case_id IN (${placeholders})
+        AND requirements.project_id = ?
+    `).all(...normalizedCaseIds, projectId),
+    db.prepare(`
+      SELECT DISTINCT test_cases.requirement_id
+      FROM test_cases
+      INNER JOIN requirements ON requirements.id = test_cases.requirement_id
+      WHERE test_cases.id IN (${placeholders})
+        AND requirements.project_id = ?
+        AND test_cases.requirement_id IS NOT NULL
+    `).all(...normalizedCaseIds, projectId)
+  ]);
+
+  return {
+    moduleIds: normalizeList(moduleRows.map((row) => row.module_id)),
+    requirementIds: normalizeList([...requirementRows, ...legacyRequirementRows].map((row) => row.requirement_id))
+  };
+};
+
 const syncIssueLinks = async (issueId, { linked_test_case_ids = [], linked_requirement_ids = [] } = {}) => {
   const testCaseIds = normalizeList(linked_test_case_ids);
   const requirementIds = normalizeList(linked_requirement_ids);
@@ -146,6 +185,9 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
 
   const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
   if (!project) throw new Error("Project not found");
+  const derivedImpact = await deriveTestCaseImpactScope({ projectId: project_id, testCaseIds: linked_test_case_ids });
+  const resolvedModuleIds = normalizeList([...normalizeList(linked_module_ids), ...derivedImpact.moduleIds]);
+  const resolvedRequirementIds = normalizeList([...normalizeList(linked_requirement_ids), ...derivedImpact.requirementIds]);
 
   await db.prepare(`
     INSERT INTO feedback (
@@ -187,14 +229,14 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
     ...buildDetailValues(details).slice(0, 9),
     normalizeList(linked_test_case_ids),
     normalizeList(linked_test_suite_ids),
-    normalizeList(linked_module_ids),
-    normalizeList(linked_requirement_ids),
+    resolvedModuleIds,
+    resolvedRequirementIds,
     normalizeList(labels),
     ...buildDetailValues(details).slice(9),
     normalizeStatus(status)
   );
 
-  await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids });
+  await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids: resolvedRequirementIds });
 
   return { id, display_id };
 };
@@ -268,6 +310,17 @@ exports.updateIssue = async (id, data) => {
   if (Object.prototype.hasOwnProperty.call(data, "assignee_id")) {
     await validateUser(data.assignee_id, "Assignee not found");
   }
+  const resolvedProjectId = data.project_id ?? existing.project_id;
+  const resolvedTestCaseIds = Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") ? normalizeList(data.linked_test_case_ids) : normalizeList(existing.linked_test_case_ids);
+  const derivedImpact = await deriveTestCaseImpactScope({ projectId: resolvedProjectId, testCaseIds: resolvedTestCaseIds });
+  const resolvedModuleIds = normalizeList([
+    ...(Object.prototype.hasOwnProperty.call(data, "linked_module_ids") ? normalizeList(data.linked_module_ids) : normalizeList(existing.linked_module_ids)),
+    ...derivedImpact.moduleIds
+  ]);
+  const resolvedRequirementIds = normalizeList([
+    ...(Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids") ? normalizeList(data.linked_requirement_ids) : normalizeList(existing.linked_requirement_ids)),
+    ...derivedImpact.requirementIds
+  ]);
 
   await db.prepare(`
     UPDATE feedback
@@ -303,10 +356,10 @@ exports.updateIssue = async (id, data) => {
     data.title ?? existing.title,
     data.message ?? existing.message,
     ...buildDetailValues(data, existing).slice(0, 9),
-    Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") ? normalizeList(data.linked_test_case_ids) : normalizeList(existing.linked_test_case_ids),
+    resolvedTestCaseIds,
     Object.prototype.hasOwnProperty.call(data, "linked_test_suite_ids") ? normalizeList(data.linked_test_suite_ids) : normalizeList(existing.linked_test_suite_ids),
-    Object.prototype.hasOwnProperty.call(data, "linked_module_ids") ? normalizeList(data.linked_module_ids) : normalizeList(existing.linked_module_ids),
-    Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids") ? normalizeList(data.linked_requirement_ids) : normalizeList(existing.linked_requirement_ids),
+    resolvedModuleIds,
+    resolvedRequirementIds,
     Object.prototype.hasOwnProperty.call(data, "labels") ? normalizeList(data.labels) : normalizeList(existing.labels),
     ...buildDetailValues(data, existing).slice(9),
     data.status !== undefined ? normalizeStatus(data.status) : existing.status,
@@ -315,8 +368,8 @@ exports.updateIssue = async (id, data) => {
 
   if (Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") || Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids")) {
     await syncIssueLinks(id, {
-      linked_test_case_ids: data.linked_test_case_ids ?? existing.linked_test_case_ids,
-      linked_requirement_ids: data.linked_requirement_ids ?? existing.linked_requirement_ids
+      linked_test_case_ids: resolvedTestCaseIds,
+      linked_requirement_ids: resolvedRequirementIds
     });
   }
 

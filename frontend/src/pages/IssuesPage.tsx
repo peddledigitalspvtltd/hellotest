@@ -1680,7 +1680,7 @@ export function IssuesPage() {
       ? "Failed suite"
       : normalizedBugReturnLabel.includes("module")
         ? "Failed module"
-        : bugReturnTo.startsWith("/requirements") || normalizedBugReturnLabel.includes("story")
+        : bugReturnTo.startsWith("/requirements") || bugReturnTo.startsWith("/backlog") || bugReturnTo.startsWith("/sprints") || normalizedBugReturnLabel.includes("story")
           ? "Failed Story"
           : searchParams.get("run")
             ? "Failed test run"
@@ -2479,6 +2479,7 @@ export function IssuesPage() {
                 <section className="issue-form-section issue-form-section--impact">
                   <div className="issue-form-section-head">
                     <strong>Impact Analysis</strong>
+                    <small className="bug-impact-auto-link-note">Selecting an impacted Test Case automatically includes its associated Modules and Stories.</small>
                   </div>
                   <div className="issue-form-grid issue-form-impact-grid">
                     <ImpactCheckboxPicker
