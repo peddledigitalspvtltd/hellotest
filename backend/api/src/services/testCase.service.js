@@ -20,6 +20,7 @@ const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
 const DEFAULT_AUTOMATED = DOMAIN_METADATA.test_cases.default_automated || "no";
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const REVIEW_STATUS_VALUES = ["not_requested", "pending", "accepted", "changes_requested"];
+const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
 const IMPORT_SOURCE_LABELS = {
   csv: "CSV",
   junit_xml: "JUnit XML",
@@ -54,6 +55,12 @@ const selectSharedStepGroup = db.prepare(`
 const selectUser = db.prepare(`
   SELECT id, name, email
   FROM users
+  WHERE id = ?
+`);
+
+const selectTestDataSet = db.prepare(`
+  SELECT id, project_id, app_type_id
+  FROM test_data_sets
   WHERE id = ?
 `);
 
@@ -96,6 +103,7 @@ const insertTestCaseRecord = db.prepare(`
     automation_status,
     manual_test_case_id,
     authoring_mode,
+    test_case_type,
     gherkin_document,
     priority,
     status,
@@ -112,12 +120,12 @@ const insertTestCaseRecord = db.prepare(`
     updated_by,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -152,6 +160,16 @@ const insertRequirementMapping = db.prepare(`
 
 const deleteRequirementMappings = db.prepare(`
   DELETE FROM requirement_test_cases
+  WHERE test_case_id = ?
+`);
+
+const insertDataSetMapping = db.prepare(`
+  INSERT INTO test_case_data_sets (test_case_id, test_data_set_id, sort_order)
+  VALUES (?, ?, ?)
+`);
+
+const deleteDataSetMappings = db.prepare(`
+  DELETE FROM test_case_data_sets
   WHERE test_case_id = ?
 `);
 
@@ -196,7 +214,7 @@ const hydrateTestCases = async (testCases) => {
   }
 
   const placeholders = placeholdersFor(ids);
-  const [suiteRows, requirementRows, moduleRows, defectRows, automationLinkRows] = await Promise.all([
+  const [suiteRows, requirementRows, moduleRows, defectRows, automationLinkRows, dataSetRows, authorRows] = await Promise.all([
     db.prepare(`
       SELECT test_case_id, suite_id
       FROM suite_test_cases
@@ -226,6 +244,19 @@ const hydrateTestCases = async (testCases) => {
       FROM automation_case_links
       WHERE automation_test_case_id IN (${placeholders})
       ORDER BY automation_test_case_id ASC, is_primary DESC, created_at ASC, manual_test_case_id ASC
+    `).all(...ids),
+    db.prepare(`
+      SELECT mapping.test_case_id, mapping.test_data_set_id, data_set.name, data_set.mode, data_set.columns, data_set.rows
+      FROM test_case_data_sets AS mapping
+      JOIN test_data_sets AS data_set ON data_set.id = mapping.test_data_set_id
+      WHERE mapping.test_case_id IN (${placeholders})
+      ORDER BY mapping.test_case_id ASC, mapping.sort_order ASC, mapping.test_data_set_id ASC
+    `).all(...ids),
+    db.prepare(`
+      SELECT test_cases.id AS test_case_id, users.id, users.name, users.email
+      FROM test_cases
+      LEFT JOIN users ON users.id = test_cases.created_by
+      WHERE test_cases.id IN (${placeholders})
     `).all(...ids)
   ]);
   const suitesByCase = groupRows(suiteRows, "test_case_id");
@@ -233,6 +264,8 @@ const hydrateTestCases = async (testCases) => {
   const modulesByCase = groupRows(moduleRows, "test_case_id");
   const defectsByCase = groupRows(defectRows, "test_case_id");
   const automationLinksByCase = groupRows(automationLinkRows, "test_case_id");
+  const dataSetsByCase = groupRows(dataSetRows, "test_case_id");
+  const authorsByCase = groupRows(authorRows, "test_case_id");
 
   return testCases.map((testCase) => ({
     ...testCase,
@@ -244,7 +277,20 @@ const hydrateTestCases = async (testCases) => {
     requirement_ids: (requirementsByCase.get(testCase.id) || []).map((row) => row.requirement_id),
     module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
     defect_ids: (defectsByCase.get(testCase.id) || []).map((row) => row.issue_id),
-    manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id)
+    manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id),
+    test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
+    test_data_sets: (dataSetsByCase.get(testCase.id) || []).map((row) => ({
+      id: row.test_data_set_id,
+      name: row.name,
+      mode: row.mode,
+      columns: Array.isArray(row.columns) ? row.columns : [],
+      rows: Array.isArray(row.rows) ? row.rows : []
+    })),
+    author: authorsByCase.get(testCase.id)?.[0]?.id ? {
+      id: authorsByCase.get(testCase.id)[0].id,
+      name: authorsByCase.get(testCase.id)[0].name,
+      email: authorsByCase.get(testCase.id)[0].email
+    } : null
   }));
 };
 
@@ -553,6 +599,14 @@ const normalizeAuthoringMode = (value, fallback = "structured") => {
   const normalized = normalizeText(value) || fallback;
   if (!["structured", "gherkin"].includes(normalized)) {
     throw automationLinkValidationError("Test case authoring mode must be structured or gherkin");
+  }
+  return normalized;
+};
+
+const normalizeTestCaseType = (value, fallback = "functional") => {
+  const normalized = (normalizeText(value) || fallback).toLowerCase();
+  if (!TEST_CASE_TYPE_VALUES.includes(normalized)) {
+    throw new Error(`Test case type must be one of: ${TEST_CASE_TYPE_VALUES.join(", ")}`);
   }
   return normalized;
 };
@@ -945,6 +999,28 @@ const syncRequirementMappings = async (testCaseId, requirementIds = []) => {
   }
 };
 
+const ensureDataSetsExist = async (dataSetIds, projectId, appTypeId) => {
+  const normalizedIds = normalizeTextList(dataSetIds);
+  for (const dataSetId of normalizedIds) {
+    const dataSet = await selectTestDataSet.get(dataSetId);
+    if (!dataSet) throw new Error(`Test data set not found: ${dataSetId}`);
+    if (projectId && dataSet.project_id !== projectId) {
+      throw new Error("All test data sets must belong to the test case project");
+    }
+    if (dataSet.app_type_id && appTypeId && dataSet.app_type_id !== appTypeId) {
+      throw new Error("All test data sets must apply to the selected app type");
+    }
+  }
+  return normalizedIds;
+};
+
+const syncDataSetMappings = async (testCaseId, dataSetIds = []) => {
+  await deleteDataSetMappings.run(testCaseId);
+  for (const [index, dataSetId] of dataSetIds.entries()) {
+    await insertDataSetMapping.run(testCaseId, dataSetId, index + 1);
+  }
+};
+
 const createPersistablePayload = async ({
   app_type_id,
   suite_id,
@@ -958,11 +1034,13 @@ const createPersistablePayload = async ({
   manual_test_case_id,
   manual_test_case_ids = [],
   authoring_mode,
+  test_case_type,
   gherkin_document,
   priority,
   status,
   requirement_id,
   requirement_ids = [],
+  test_data_set_ids = [],
   parameter_values,
   steps = [],
   ai_generation_source,
@@ -999,6 +1077,7 @@ const createPersistablePayload = async ({
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
   await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
   await ensureReviewerExists(resolvedReviewerId);
+  const resolvedDataSetIds = await ensureDataSetsExist(test_data_set_ids, resolvedAppType?.project_id || null, resolvedAppTypeId);
 
   const normalizedSteps = normalizeSteps(steps);
   const normalizedAutomated = normalizeAutomated(automated);
@@ -1021,6 +1100,7 @@ const createPersistablePayload = async ({
     project_id: resolvedAppType?.project_id || null,
     suite_ids: resolvedSuiteIds,
     requirement_ids: resolvedRequirementIds,
+    test_data_set_ids: resolvedDataSetIds,
     title: resolvedTitle,
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
@@ -1036,6 +1116,7 @@ const createPersistablePayload = async ({
     manual_test_case_id: resolvedManualTestCaseIds[0] || null,
     manual_test_case_ids: resolvedManualTestCaseIds,
     authoring_mode: normalizeAuthoringMode(authoring_mode),
+    test_case_type: normalizeTestCaseType(test_case_type),
     gherkin_document: normalizeText(gherkin_document),
     priority: normalizePriority(priority),
     status: resolvedStatus,
@@ -1071,6 +1152,7 @@ const createOne = db.transaction(async (payload) => {
     payload.automation_status,
     payload.manual_test_case_id,
     payload.authoring_mode,
+    payload.test_case_type,
     payload.gherkin_document,
     payload.priority,
     payload.status,
@@ -1089,6 +1171,7 @@ const createOne = db.transaction(async (payload) => {
 
   await syncSuiteMappings(id, payload.suite_ids);
   await syncRequirementMappings(id, payload.requirement_ids);
+  await syncDataSetMappings(id, payload.test_data_set_ids);
   await syncAutomationCaseLinks(id, payload.manual_test_case_ids);
 
   for (const step of payload.steps) {
@@ -1528,6 +1611,9 @@ exports.updateTestCase = async (id, data) => {
     : data.requirement_id !== undefined
       ? normalizeTextList([data.requirement_id])
       : existing.requirement_ids || [];
+  const requestedDataSetIds = data.test_data_set_ids !== undefined
+    ? normalizeTextList(data.test_data_set_ids)
+    : existing.test_data_set_ids || [];
 
   let resolvedAppTypeId = normalizeText(data.app_type_id) || existing.app_type_id || null;
 
@@ -1535,6 +1621,7 @@ exports.updateTestCase = async (id, data) => {
   resolvedAppTypeId = await ensureSuitesMatchAppType(requestedSuiteIds, resolvedAppTypeId);
   const finalAppType = resolvedAppTypeId !== resolvedAppType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : resolvedAppType;
   await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
+  await ensureDataSetsExist(requestedDataSetIds, finalAppType?.project_id || null, resolvedAppTypeId);
   const requestedReviewerId = data.reviewer_id !== undefined ? normalizeText(data.reviewer_id) : existing.reviewer_id || null;
   await ensureReviewerExists(requestedReviewerId);
   const existingReviewStatus = normalizeReviewStatus(existing.review_status, existing.reviewer_id || null, "not_requested");
@@ -1549,6 +1636,7 @@ exports.updateTestCase = async (id, data) => {
     project_id: finalAppType?.project_id || null,
     suite_ids: requestedSuiteIds,
     requirement_ids: requestedRequirementIds,
+    test_data_set_ids: requestedDataSetIds,
     title: normalizeText(data.title) || existing.title,
     description: data.description !== undefined ? normalizeText(data.description) : existing.description,
     external_references: data.external_references !== undefined
@@ -1562,6 +1650,9 @@ exports.updateTestCase = async (id, data) => {
     authoring_mode: data.authoring_mode !== undefined
       ? normalizeAuthoringMode(data.authoring_mode, existing.authoring_mode || "structured")
       : normalizeAuthoringMode(existing.authoring_mode || "structured"),
+    test_case_type: data.test_case_type !== undefined
+      ? normalizeTestCaseType(data.test_case_type, existing.test_case_type || "functional")
+      : normalizeTestCaseType(existing.test_case_type || "functional"),
     gherkin_document: data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : normalizeText(existing.gherkin_document),
     priority: data.priority !== undefined ? normalizePriority(data.priority) : existing.priority ?? DEFAULT_PRIORITY,
     status: data.status !== undefined ? normalizeStatus(data.status) : existing.status || DEFAULT_STATUS,
@@ -1623,6 +1714,7 @@ exports.updateTestCase = async (id, data) => {
       payload.automation_status,
       payload.manual_test_case_id,
       payload.authoring_mode,
+      payload.test_case_type,
       payload.gherkin_document,
       payload.priority,
       payload.status,
@@ -1645,6 +1737,10 @@ exports.updateTestCase = async (id, data) => {
 
     if (data.requirement_ids !== undefined || data.requirement_id !== undefined) {
       await syncRequirementMappings(id, payload.requirement_ids);
+    }
+
+    if (data.test_data_set_ids !== undefined) {
+      await syncDataSetMappings(id, payload.test_data_set_ids);
     }
 
     if (data.steps !== undefined) {

@@ -237,6 +237,10 @@ CREATE TABLE IF NOT EXISTS requirement_iterations (
   state TEXT NOT NULL DEFAULT 'future' CHECK (state IN ('future', 'active', 'closed')),
   start_date TIMESTAMPTZ,
   end_date TIMESTAMPTZ,
+  assignee_id TEXT,
+  effort_points INTEGER,
+  original_dev_id TEXT,
+  original_qa_id TEXT,
   created_by TEXT,
   updated_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -249,6 +253,10 @@ ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS external_references 
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'future';
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ;
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS assignee_id TEXT;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS effort_points INTEGER;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_dev_id TEXT;
+ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_qa_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
@@ -323,6 +331,7 @@ CREATE TABLE test_cases (
   automation_status TEXT NOT NULL DEFAULT 'not_automated' CHECK(automation_status IN ('not_automated','ready','incomplete')),
   manual_test_case_id TEXT,
   authoring_mode TEXT NOT NULL DEFAULT 'structured' CHECK(authoring_mode IN ('structured','gherkin')),
+  test_case_type TEXT NOT NULL DEFAULT 'functional' CHECK(test_case_type IN ('functional','regression','smoke','integration','acceptance','exploratory','performance','security','accessibility')),
   gherkin_document TEXT,
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'active',
@@ -487,6 +496,19 @@ CREATE TABLE test_data_sets (
 CREATE INDEX idx_test_data_sets_project_scope
   ON test_data_sets (project_id, app_type_id);
 
+CREATE TABLE test_case_data_sets (
+  test_case_id TEXT NOT NULL,
+  test_data_set_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (test_case_id, test_data_set_id),
+  FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE,
+  FOREIGN KEY (test_data_set_id) REFERENCES test_data_sets(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_test_case_data_sets_case_order
+  ON test_case_data_sets (test_case_id, sort_order, test_data_set_id);
+
 -- =========================
 -- EXECUTION
 -- =========================
@@ -600,6 +622,11 @@ CREATE TABLE execution_results (
   duration_ms INTEGER,
   error TEXT,
   logs TEXT,
+  test_data_set_id TEXT,
+  test_data_set_name TEXT,
+  data_set_iteration_index INTEGER,
+  data_set_iteration_key TEXT,
+  data_set_row_snapshot JSONB,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   defects JSONB NOT NULL DEFAULT '[]'::jsonb,
   executed_by TEXT,
@@ -802,6 +829,7 @@ CREATE TABLE IF NOT EXISTS requirement_releases (
   description TEXT,
   fix_version TEXT NOT NULL,
   target_date_label TEXT,
+  plan_date TIMESTAMPTZ,
   target_date TIMESTAMPTZ,
   external_link TEXT,
   state TEXT NOT NULL DEFAULT 'planned' CHECK (state IN ('planned', 'in_progress', 'released')),
@@ -822,6 +850,7 @@ CREATE TABLE IF NOT EXISTS requirement_release_items (
 
 CREATE INDEX IF NOT EXISTS idx_requirement_releases_project
   ON requirement_releases (project_id, target_date, updated_at DESC);
+ALTER TABLE requirement_releases ADD COLUMN IF NOT EXISTS plan_date TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_requirement_release_items_requirement
   ON requirement_release_items (requirement_id, release_id);
 

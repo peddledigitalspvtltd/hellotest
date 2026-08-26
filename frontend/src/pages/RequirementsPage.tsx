@@ -7,9 +7,11 @@ import {
   IconChecklist,
   IconDatabase,
   IconLibraryPlus,
+  IconPlayerPlay,
   IconFlagCheck,
   IconNotes,
-  IconPlayerPlay,
+  IconHistoryToggle,
+  IconPaperclip,
   IconRefresh,
   IconSettings,
   IconX
@@ -41,6 +43,7 @@ import { DetailSectionTabs } from "../components/DetailSectionTabs";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExternalReferencesField } from "../components/ExternalReferencesField";
 import { FormField } from "../components/FormField";
+import { GherkinEditor } from "../components/GherkinEditor";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
 import { HierarchyLoadMoreButton } from "../components/HierarchyLoadMoreButton";
@@ -55,15 +58,11 @@ import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
+import { SpecKitEditor } from "../components/SpecKitEditor";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
 import { StoryGroomingWorkspace } from "../components/StoryGroomingWorkspace";
-import {
-  TileCardFact,
-  TileCardLinkIcon,
-  TileCardPriorityIcon,
-  formatTileCardLabel
-} from "../components/TileCardPrimitives";
+import { formatTileCardLabel, TileCardMetric } from "../components/TileCardPrimitives";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -119,7 +118,7 @@ import {
 import { parseRequirementCsv } from "../lib/requirementImport";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, RequirementIterationHealth, RequirementRelatedItem, StoryGroomingPreviewResponse, TestCase, User } from "../types";
+import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, RequirementIterationHealth, RequirementRelatedItem, RequirementRelease, StoryGroomingPreviewResponse, TestCase, User } from "../types";
 import "./RequirementsPage.ai.css";
 
 type RequirementDraft = {
@@ -141,6 +140,31 @@ type RequirementDraft = {
   status: string;
   additionalFields: Record<string, unknown>;
 };
+
+const STORY_GHERKIN_TEMPLATE = `Feature: [Capability or user outcome]
+
+Scenario: [Expected behavior]
+  Given [starting context]
+  When [the user or system acts]
+  Then [the observable outcome]`;
+
+const STORY_SPECKIT_TEMPLATE = `Intent
+[Describe the problem and intended outcome]
+
+User outcomes
+[Describe who benefits and how]
+
+Functional requirements
+[List the required behavior]
+
+Acceptance criteria
+[List observable completion rules]
+
+Edge cases
+[List boundary and failure conditions]
+
+Non-functional requirements
+[Performance, security, accessibility, and reliability expectations]`;
 
 type RequirementTraceabilityTab = "details" | "related" | "comments" | "grounding" | "grooming" | "cases" | "defects" | "history" | "evidence";
 type RequirementCoverageFilter = "all" | "linked" | "unlinked";
@@ -212,7 +236,7 @@ const isRecoverableRequirementAiJob = (job: RequirementGenerationJob) => {
 const createEmptyRequirementDraft = (defaultStatus = "To Do"): RequirementDraft => ({
   title: "",
   description: "",
-  gherkinScenariosText: "",
+  gherkinScenariosText: STORY_GHERKIN_TEMPLATE,
   externalReferencesText: "",
   labelsText: "",
   sprint: "",
@@ -223,7 +247,7 @@ const createEmptyRequirementDraft = (defaultStatus = "To Do"): RequirementDraft 
   qaCompletionTargetDate: "",
   scrumTeam: "",
   specificationFormat: "gherkin",
-  specificationContent: "",
+  specificationContent: STORY_SPECKIT_TEMPLATE,
   priority: 3,
   status: defaultStatus,
   additionalFields: {}
@@ -257,27 +281,24 @@ const deriveStoryDeliveryRisk = (story: Requirement, now = Date.now()) => {
   return { isRisk: devSlipped || qaSlipped, devSlipped, qaSlipped };
 };
 
-const toDateTimeInputValue = (date: Date) => {
+const toDateInputValue = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return `${year}-${month}-${day}`;
 };
 
 const toSprintDateTimeIsoValue = (value: string) => {
   if (!value) return undefined;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  const date = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return date ? `${date}T00:00:00.000Z` : undefined;
 };
 
 const defaultSprintDates = () => {
   const start = new Date();
-  start.setSeconds(0, 0);
   const end = new Date(start);
   end.setDate(end.getDate() + 14);
-  return { start: toDateTimeInputValue(start), end: toDateTimeInputValue(end) };
+  return { start: toDateInputValue(start), end: toDateInputValue(end) };
 };
 
 const sprintDurationDays: Record<Exclude<SprintDurationPreset, "custom">, number> = {
@@ -289,10 +310,10 @@ const sprintDurationDays: Record<Exclude<SprintDurationPreset, "custom">, number
 
 const sprintEndForDuration = (startValue: string, duration: SprintDurationPreset) => {
   if (!startValue || duration === "custom") return "";
-  const start = new Date(startValue);
+  const start = new Date(`${startValue.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(start.getTime())) return "";
   start.setDate(start.getDate() + sprintDurationDays[duration]);
-  return toDateTimeInputValue(start);
+  return toDateInputValue(start);
 };
 
 const sprintDurationFromDates = (startValue?: string | null, endValue?: string | null): SprintDurationPreset => {
@@ -304,8 +325,7 @@ const sprintDurationFromDates = (startValue?: string | null, endValue?: string |
 
 const sprintDateTimeInputValue = (value?: string | null) => {
   if (!value) return "";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "" : toDateTimeInputValue(parsed);
+  return String(value).match(/^\d{4}-\d{2}-\d{2}/)?.[0] || "";
 };
 
 const formatSprintShortDate = (value?: string | null) => {
@@ -719,6 +739,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [sprintDraftRequirementIds, setSprintDraftRequirementIds] = useState<string[]>([]);
   const sprintDraftRequirementSnapshotsRef = useRef<Map<string, Requirement>>(new Map());
   const [iterationRequirementSearch, setIterationRequirementSearch] = useState("");
+  const [iterationRequirementStatusFilter, setIterationRequirementStatusFilter] = useState("all");
   const [expandedIterationIds, setExpandedIterationIds] = useState<string[]>([]);
   const [isBacklogExpanded, setIsBacklogExpanded] = useState(true);
   const [sprintPageCursorsById, setSprintPageCursorsById] = useState<Record<string, Array<string | null>>>({});
@@ -785,6 +806,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const seededRequirementDraftKeyRef = useRef("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<RequirementDraft>(() => createEmptyRequirementDraft());
+  const [createRelatedRequirementIds, setCreateRelatedRequirementIds] = useState<string[]>([]);
   const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
   const [aiRequirementId, setAiRequirementId] = useState("");
   const [integrationId, setIntegrationId] = useState("");
@@ -879,7 +901,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     staleTime: 30_000
   });
   const sprintStoryPickerQuery = useInfiniteQuery({
-    queryKey: ["create-sprint-story-picker", projectId],
+    queryKey: ["story-related-picker", projectId],
     queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
       await api.requirements.listPage({
         project_id: projectId,
@@ -893,7 +915,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       const nextCursor = getVerifiedNextPageCursor(lastPage);
       return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
     },
-    enabled: Boolean(projectId && isCreateIterationModalOpen && !editingIteration),
+    enabled: Boolean(projectId && isCreateModalOpen),
     staleTime: 30_000
   });
   const sprintStoryPickerPageCount = sprintStoryPickerQuery.data?.pages?.length || 0;
@@ -906,8 +928,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
   useEffect(() => {
     if (
-      !isCreateIterationModalOpen
-      || editingIteration
+      !isCreateModalOpen
       || !sprintStoryPickerQuery.hasNextPage
       || sprintStoryPickerQuery.isFetchingNextPage
       || sprintStoryPickerQuery.isError
@@ -918,14 +939,61 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
     void sprintStoryPickerQuery.fetchNextPage();
   }, [
-    editingIteration,
     hasReachedSprintStoryPickerPageLimit,
-    isCreateIterationModalOpen,
+    isCreateModalOpen,
     sprintStoryPickerPageCount,
     sprintStoryPickerQuery.fetchNextPage,
     sprintStoryPickerQuery.hasNextPage,
     sprintStoryPickerQuery.isError,
     sprintStoryPickerQuery.isFetchingNextPage
+  ]);
+  const sprintBacklogPickerQuery = useInfiniteQuery({
+    queryKey: ["sprint-backlog-picker", projectId],
+    queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
+      await api.requirements.listPage({
+        project_id: projectId,
+        unassigned: true,
+        page_size: getUnassignedPageSize(Boolean(pageParam)),
+        cursor: pageParam,
+        projection: "summary"
+      })
+    ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _allPages, _lastPageParam, allPageParams) => {
+      const nextCursor = getVerifiedNextPageCursor(lastPage);
+      return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
+    },
+    enabled: Boolean(projectId && isCreateIterationModalOpen && !editingIteration),
+    staleTime: 15_000
+  });
+  const sprintBacklogPickerPageCount = sprintBacklogPickerQuery.data?.pages?.length || 0;
+  const hasReachedSprintBacklogPickerPageLimit = sprintBacklogPickerPageCount >= SPRINT_STORY_PICKER_MAX_PAGES;
+  const isSprintBacklogPickerAutoLoading = Boolean(
+    sprintBacklogPickerQuery.hasNextPage
+    && !sprintBacklogPickerQuery.isError
+    && !hasReachedSprintBacklogPickerPageLimit
+  );
+
+  useEffect(() => {
+    if (
+      !isCreateIterationModalOpen
+      || editingIteration
+      || !sprintBacklogPickerQuery.hasNextPage
+      || sprintBacklogPickerQuery.isFetchingNextPage
+      || sprintBacklogPickerQuery.isError
+      || hasReachedSprintBacklogPickerPageLimit
+    ) return;
+
+    void sprintBacklogPickerQuery.fetchNextPage();
+  }, [
+    editingIteration,
+    hasReachedSprintBacklogPickerPageLimit,
+    isCreateIterationModalOpen,
+    sprintBacklogPickerPageCount,
+    sprintBacklogPickerQuery.fetchNextPage,
+    sprintBacklogPickerQuery.hasNextPage,
+    sprintBacklogPickerQuery.isError,
+    sprintBacklogPickerQuery.isFetchingNextPage
   ]);
   const requirementDetailQuery = useQuery({
     queryKey: ["requirement-detail", projectId, selectedRequirementId],
@@ -964,6 +1032,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     queryKey: ["requirement-iterations", projectId],
     queryFn: async () => asArray(await api.requirementIterations.list({ project_id: projectId })),
     enabled: Boolean(projectId && canViewRequirementIterations)
+  });
+  const requirementReleasesQuery = useQuery({
+    queryKey: ["requirement-releases", projectId],
+    queryFn: () => api.requirementReleases.list({ project_id: projectId }),
+    enabled: Boolean(projectId && (isCreateModalOpen || selectedRequirementId)),
+    staleTime: 30_000
   });
   const discoveredRequirementIterations = useMemo(() => {
     const catalog = [...asArray(requirementIterationsQuery.data)];
@@ -1119,6 +1193,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setDraggingRequirementIds([]);
     setSprintDraftRequirementIds([]);
     setIterationRequirementSearch("");
+    setIterationRequirementStatusFilter("all");
     sprintDraftRequirementSnapshotsRef.current.clear();
     setEditingIteration(null);
     setIsCreateIterationModalOpen(false);
@@ -1429,6 +1504,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     });
     return [...byId.values()];
   }, [sprintStoryPickerQuery.data]);
+  const sprintBacklogPickerRequirements = useMemo(() => {
+    const byId = new Map<string, Requirement>();
+    asArray(sprintBacklogPickerQuery.data?.pages).forEach((page) => {
+      asArray(page.items).forEach((requirement) => byId.set(String(requirement.id), requirement));
+    });
+    return [...byId.values()];
+  }, [sprintBacklogPickerQuery.data]);
   const loadedRequirementSettlementEvidence = useMemo(() => {
     const evidence = workspaceMode === "stories"
       ? [...asArray(allStoriesQuery.data)]
@@ -1526,6 +1608,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => visibleJiraSprints.filter((sprint) => String(sprint.state || "").toLowerCase() !== "closed"),
     [visibleJiraSprints]
   );
+  const requirementReleases = asArray<RequirementRelease>(requirementReleasesQuery.data);
   const testCases = asArray(testCasesQuery.data);
   const executionResults = asArray(executionResultsQuery.data);
   const executions = asArray<Execution>(executionsQuery.data);
@@ -1786,6 +1869,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => getStoryDetailSprintOptions(requirementIterations, selectedRequirementSprintValue),
     [requirementIterations, selectedRequirementSprintValue]
   );
+  const createStorySprintOptions = useMemo(
+    () => getStoryDetailSprintOptions(requirementIterations, createDraft.sprint),
+    [createDraft.sprint, requirementIterations]
+  );
+  const createStoryReleaseSelection = useMemo(() => {
+    const localRelease = requirementReleases.find((release) =>
+      release.name === createDraft.release && release.fix_version === createDraft.fixVersion
+    );
+    if (localRelease) return `release:${localRelease.id}`;
+
+    const jiraVersion = jiraVersions.find((version) => version.name === (createDraft.fixVersion || createDraft.release));
+    return jiraVersion ? `jira:${jiraVersion.id}` : "";
+  }, [createDraft.fixVersion, createDraft.release, jiraVersions, requirementReleases]);
 
   const syncRequirementSearchParams = (requirementId?: string | null) => {
     const currentRequirementId = searchParams.get("requirement") || "";
@@ -2264,13 +2360,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const iterationRequirementOptions = useMemo(() => {
     const normalizedSearch = iterationRequirementSearch.trim().toLowerCase();
 
-    return sprintStoryPickerRequirements
+    return sprintBacklogPickerRequirements
       .filter((item) => {
+        const resolvedIteration = resolveRequirementSprintIteration(item, requirementIterations);
+        if (resolvedIteration || item.iteration_id || item.sprint_id || String(item.sprint || "").trim()) return false;
+        if (iterationRequirementStatusFilter !== "all" && String(item.status || defaultRequirementStatus) !== iterationRequirementStatusFilter) return false;
         if (!normalizedSearch) {
           return true;
         }
 
-        const resolvedIteration = resolveRequirementSprintIteration(item, requirementIterations);
         return [
           item.display_id || "",
           item.id,
@@ -2278,19 +2376,21 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           item.description || "",
           ...(item.external_references || []),
           ...(item.labels || []),
-          item.status || defaultRequirementStatus,
-          resolvedIteration?.jira_sprint_name || resolvedIteration?.name || ""
+          item.status || defaultRequirementStatus
         ].some((value) => value.toLowerCase().includes(normalizedSearch));
       })
       .sort((left, right) => left.title.localeCompare(right.title));
-  }, [defaultRequirementStatus, iterationRequirementSearch, requirementIterations, sprintStoryPickerRequirements]);
-  const sprintStoryPickerLoadedCount = sprintStoryPickerRequirements.length;
-  const sprintStoryPickerTotal = useMemo(
+  }, [defaultRequirementStatus, iterationRequirementSearch, iterationRequirementStatusFilter, requirementIterations, sprintBacklogPickerRequirements]);
+  const iterationRequirementStatusOptions = useMemo(() => Array.from(new Set(
+    sprintBacklogPickerRequirements.map((item) => String(item.status || defaultRequirementStatus)).filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right)), [defaultRequirementStatus, sprintBacklogPickerRequirements]);
+  const sprintBacklogPickerLoadedCount = sprintBacklogPickerRequirements.length;
+  const sprintBacklogPickerTotal = useMemo(
     () => Math.max(
-      sprintStoryPickerLoadedCount,
-      ...asArray(sprintStoryPickerQuery.data?.pages).map((page) => Number(page.total || 0))
+      sprintBacklogPickerLoadedCount,
+      ...asArray(sprintBacklogPickerQuery.data?.pages).map((page) => Number(page.total || 0))
     ),
-    [sprintStoryPickerLoadedCount, sprintStoryPickerQuery.data]
+    [sprintBacklogPickerLoadedCount, sprintBacklogPickerQuery.data]
   );
 
   const visibleSprintStoryIds = useMemo(
@@ -3106,7 +3206,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       specificationContent: selectedRequirement.specification_content || "",
       priority: selectedRequirement.priority ?? 3,
       status: selectedRequirement.status || defaultRequirementStatus,
-      additionalFields: {}
+      additionalFields: { ...(selectedRequirement.additional_fields || {}) }
     });
     setSelectedTestCaseIds(selectedRequirement.test_case_ids || []);
     setSelectedDefectIds(selectedRequirement.defect_ids || []);
@@ -3116,7 +3216,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     if (!selectedRequirement || !requirementEditMetadataQuery.data) return;
     setDraft((current) => ({
       ...current,
-      additionalFields: { ...(requirementEditMetadataQuery.data.current_values || {}) }
+      additionalFields: {
+        ...(selectedRequirement.additional_fields || {}),
+        ...current.additionalFields,
+        ...(requirementEditMetadataQuery.data.current_values || {})
+      }
     }));
   }, [requirementEditMetadataQuery.data, selectedRequirement]);
 
@@ -3257,6 +3361,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       sprint: requirementSprintOptionValue(iteration),
       iterationId: iteration.id
     } : emptyRequirementDraft);
+    setCreateRelatedRequirementIds([]);
     setIsCreateModalOpen(true);
   };
 
@@ -3279,10 +3384,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     setIsCreateModalOpen(false);
+    setCreateRelatedRequirementIds([]);
   };
   const resetCreateSprintDraft = () => {
     const nextDates = defaultSprintDates();
     setIterationRequirementSearch("");
+    setIterationRequirementStatusFilter("all");
     setIterationDraftName("");
     setIterationDraftDescription("");
     setIterationDraftLabelsText("");
@@ -3392,7 +3499,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         specification_content: createDraft.specificationContent || undefined,
         priority: createDraft.priority,
         status: createDraft.status,
-        additional_fields: createDraft.additionalFields
+        additional_fields: createDraft.additionalFields,
+        related_requirement_ids: createRelatedRequirementIds
       });
 
       const targetIteration = createSprintAssignment.iteration;
@@ -3417,6 +3525,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       setAiRequirementId(response.id);
       setIsCreateModalOpen(false);
       setCreateDraft(emptyRequirementDraft);
+      setCreateRelatedRequirementIds([]);
       showSuccess(response.status_warning
         ? `Story created. HelloTest kept its workflow status because ${response.status_warning.requested_status || createDraft.status} is not available from the current workflow state.`
         : "Story created.");
@@ -3430,7 +3539,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const normalizedCandidateIds = setSelectionIds([], candidateIds, true);
     if (checked) {
       normalizedCandidateIds.forEach((requirementId) => {
-        const requirement = sprintStoryPickerRequirements.find((item) => String(item.id) === requirementId)
+        const requirement = sprintBacklogPickerRequirements.find((item) => String(item.id) === requirementId)
           || requirements.find((item) => String(item.id) === requirementId)
           || selectedRequirementSnapshotsRef.current.get(requirementId);
         if (requirement) sprintDraftRequirementSnapshotsRef.current.set(requirementId, requirement);
@@ -3448,9 +3557,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const openCreateIteration = (initialRequirementIds: string[] = []) => {
     resetCreateSprintDraft();
     setEditingIteration(null);
-    const normalizedInitialIds = setSelectionIds([], initialRequirementIds, true);
+    const normalizedInitialIds = setSelectionIds([], initialRequirementIds, true).filter((requirementId) => {
+      const requirement = requirements.find((item) => String(item.id) === requirementId)
+        || selectedRequirementSnapshotsRef.current.get(requirementId);
+      return Boolean(
+        requirement
+        && !requirement.iteration_id
+        && !requirement.sprint_id
+        && !String(requirement.sprint || "").trim()
+        && !resolveRequirementSprintIteration(requirement, requirementIterations)
+      );
+    });
     normalizedInitialIds.forEach((requirementId) => {
-      const requirement = sprintStoryPickerRequirements.find((item) => String(item.id) === requirementId)
+      const requirement = sprintBacklogPickerRequirements.find((item) => String(item.id) === requirementId)
         || requirements.find((item) => String(item.id) === requirementId)
         || selectedRequirementSnapshotsRef.current.get(requirementId);
       if (requirement) sprintDraftRequirementSnapshotsRef.current.set(requirementId, requirement);
@@ -3463,6 +3582,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setEditingIteration(iteration);
     sprintDraftRequirementSnapshotsRef.current.clear();
     setIterationRequirementSearch("");
+    setIterationRequirementStatusFilter("all");
     setIterationDraftName(iteration.name);
     setIterationDraftDescription(iteration.description || iteration.goal || "");
     setIterationDraftLabelsText(formatReferenceList(iteration.labels || []));
@@ -3515,7 +3635,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             ...(!isEditingClosedSprint && areEditingSprintDates ? {
               start_date: toSprintDateTimeIsoValue(iterationDraftStartDate) || "",
               end_date: toSprintDateTimeIsoValue(iterationDraftEndDate) || ""
-            } : {})
+            } : {}),
           }
         });
         setEditingIteration(null);
@@ -3528,10 +3648,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return;
     }
 
-    const selectedStoryIds = [...sprintDraftRequirementIds];
+    const selectedStoryIds = [...new Set(sprintDraftRequirementIds.map(String).filter(Boolean))];
     const selectedStoryById = new Map<string, Requirement>();
     selectedStoryIds.forEach((requirementId) => {
-      const requirement = sprintStoryPickerRequirements.find((item) => String(item.id) === requirementId)
+      const requirement = sprintBacklogPickerRequirements.find((item) => String(item.id) === requirementId)
         || requirements.find((item) => String(item.id) === requirementId)
         || sprintDraftRequirementSnapshotsRef.current.get(requirementId)
         || selectedRequirementSnapshotsRef.current.get(requirementId)
@@ -4052,7 +4172,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       setImportRows([]);
       setImportFileName("");
       setIsImportModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
       await refresh();
+      navigate(`/testops?process=${encodeURIComponent(response.transaction_id)}`);
     } catch (error) {
       showError(error, "Unable to import Stories");
     }
@@ -5144,9 +5266,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const mapped = scopedStories.filter((item) => (item.test_case_ids || []).length).length;
     const highPriority = scopedStories.filter((item) => (item.priority || 3) <= 2).length;
     const open = scopedStories.filter((item) => storyStatusRank(item.status) < storyStatusRank("qa_done")).length;
-    const completed = scopedStories.filter((item) => storyStatusRank(item.status) >= storyStatusRank("qa_done")).length;
+    const qaScopedStories = workspaceMode === "stories"
+      ? scopedStories.filter(isStoryAssignedToSprint)
+      : scopedStories;
+    const completed = qaScopedStories.filter((item) => storyStatusRank(item.status) >= storyStatusRank("qa_done")).length;
     const totalDefects = scopedStories.reduce((sum, requirement) => sum + (defectsByRequirementId[requirement.id] || []).length, 0);
-    const completionPercent = scopedStories.length ? Math.round((completed / scopedStories.length) * 100) : 0;
+    const completionPercent = qaScopedStories.length ? Math.round((completed / qaScopedStories.length) * 100) : 0;
     const coveragePercent = scopedStories.length ? Math.round((mapped / scopedStories.length) * 100) : 0;
     const defectDensity = scopedStories.length ? totalDefects / scopedStories.length : 0;
     const groomed = scopedStories.filter((item) => Boolean(
@@ -5171,6 +5296,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       highPriority,
       open,
       completed,
+      qaTotal: qaScopedStories.length,
       totalDefects,
       completionPercent,
       coveragePercent,
@@ -5410,7 +5536,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               {deriveSprintLifecycleState(iteration) === "active" || deriveSprintLifecycleState(iteration) === "overdue" ? (
                 <button aria-label={`Complete sprint ${iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === iteration.id} onClick={() => void changeSprintLifecycle(iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button>
               ) : null}
-              <button aria-label={`Open retrospective for ${iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(iteration)} title="Open Sprint retrospective" type="button"><IconNotes size={16} /></button>
+              <button aria-label={`Open retrospective for ${iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(iteration)} title="Open Sprint retrospective" type="button"><IconHistoryToggle size={17} stroke={2} /></button>
               <button
                 aria-label={`Edit ${iteration.name}`}
                 className="ghost-button compact sprint-edit-button"
@@ -5579,7 +5705,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 </article>
                 <article className="requirements-health-card metric-ribbon-card tone-coverage">
                   <div><span>QA completion</span><strong>{metrics.completionPercent}%</strong></div>
-                  <p>{metrics.completed} of {metrics.total} Stories have reached QA Done across the complete project catalog.</p>
+                  <p>{metrics.completed} of {metrics.qaTotal} Sprint {metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.</p>
                   <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.completionPercent}%` }} /></div>
                 </article>
               </>
@@ -5941,7 +6067,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             <button className="ghost-button compact" disabled={!canCreateRequirements} onClick={() => openCreateRequirementModal(entry.iteration)} title="Create Story in this Sprint" type="button"><AddIcon size={15} /></button>
                             {deriveSprintLifecycleState(entry.iteration) === "future" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Start sprint ${entry.iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(entry.iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button> : null}
                             {deriveSprintLifecycleState(entry.iteration) === "active" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Complete sprint ${entry.iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === entry.iteration.id} onClick={() => void changeSprintLifecycle(entry.iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button> : null}
-                            <button aria-label={`Open retrospective for ${entry.iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(entry.iteration)} title="Open Sprint retrospective" type="button"><IconNotes size={16} /></button>
+                            <button aria-label={`Open retrospective for ${entry.iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(entry.iteration)} title="Open Sprint retrospective" type="button"><IconHistoryToggle size={17} stroke={2} /></button>
                             <button
                               aria-label={`Edit ${entry.iteration.name}`}
                               className="ghost-button compact sprint-edit-button"
@@ -6161,57 +6287,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />
                             {canUseAutomationWorkspace ? <RequirementProgressBar detail={automationCoverageTitle} label="Automation coverage" metric={automationCoverage} /> : null}
                           </div> : null}
-                          <div className="tile-card-facts" aria-label={`${item.title} facts`}>
-                            <TileCardFact
-                              label={`P${item.priority ?? 3}`}
-                              title={`Priority P${item.priority ?? 3}`}
-                              tone={(item.priority ?? 3) <= 2 ? "danger" : "info"}
-                            >
-                              <TileCardPriorityIcon />
-                            </TileCardFact>
-                            {!isDeliveryStory ? <TileCardFact
-                              label={isGroomedStory ? "Groomed" : "Needs grooming"}
-                              title={isGroomedStory ? "Description, priority, status, and acceptance specification are ready." : "Complete the description and acceptance specification before Sprint planning."}
-                              tone={isGroomedStory ? "success" : "warning"}
-                            >
-                              <IconCheck size={15} />
-                            </TileCardFact> : <TileCardFact
-                              label={String(linkedCaseCount)}
-                              title={`${linkedCaseCount} linked test case${linkedCaseCount === 1 ? "" : "s"}`}
-                              tone={linkedCaseCount ? "success" : "neutral"}
-                            >
-                              <TileCardLinkIcon />
-                            </TileCardFact>
-                            }
-                            {!isDeliveryStory ? <TileCardFact
-                              label={asArray(item.gherkin_scenarios).length || item.specification_content?.trim() ? "Specified" : "No spec"}
-                              title="Acceptance intent in Gherkin or Spec Kit format."
-                              tone={asArray(item.gherkin_scenarios).length || item.specification_content?.trim() ? "success" : "neutral"}
-                            >
-                              <IconChecklist size={15} />
-                            </TileCardFact> : <TileCardFact
-                              label={`${readinessScore}%`}
-                              title="Release readiness: 30% test coverage + 50% latest pass rate + 20% open-Bug health. Automation progress is informational."
-                              tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
-                            >
-                              <SparkIcon />
-                            </TileCardFact>
-                            }
-                            {!isDeliveryStory ? <TileCardFact
-                              label={String(item.scrum_team || "Unassigned")}
-                              title={item.scrum_team ? `Owned by ${item.scrum_team}` : "Assign a Scrum team before Sprint planning."}
-                              tone={item.scrum_team ? "info" : "neutral"}
-                            >
-                              <SprintIcon size={15} />
-                            </TileCardFact> : <TileCardFact
-                              label={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"}
-                              title={`${linkedBugCount} linked Bug${linkedBugCount === 1 ? "" : "s"} / ${linkedCaseCount} linked Test Case${linkedCaseCount === 1 ? "" : "s"}`}
+                          <div className="tile-card-facts story-tile-metrics" aria-label={`${item.title} health metrics`}>
+                            <StoryMetricFact label="Priority" tone={(item.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${item.priority ?? 3}`} />
+                            <StoryMetricFact label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={String(linkedCaseCount)} />
+                            <StoryMetricFact
+                              label="Defect density"
                               tone={linkedBugCount ? "danger" : "success"}
-                            >
-                              <BugIcon size={15} />
-                            </TileCardFact>
-                            }
-                            {isDeliveryStory && deliveryRisk.isRisk ? <TileCardFact label={deliveryRisk.devSlipped && deliveryRisk.qaSlipped ? "Dev + QA risk" : deliveryRisk.devSlipped ? "Dev risk" : "QA risk"} title="A completion target passed before the Story reached the corresponding Done stage." tone="danger"><ActivityIcon size={15} /></TileCardFact> : null}
+                              value={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"}
+                            />
+                            <StoryMetricFact
+                              label="Release readiness"
+                              tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
+                              value={`${readinessScore}%`}
+                            />
                           </div>
                         </div>
                       </article>
@@ -6332,26 +6420,33 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             subtitle={selectedRequirement ? "Edit the Story, manage reusable coverage links, and keep the selected item in focus." : "Select a Story to review its details."}
 	          >
             {selectedRequirement ? (
-              <div className="detail-stack">
+              <div className="detail-stack story-detail-workspace">
                 <DetailSectionTabs
                   activeTab={activeTraceabilityTab}
                   ariaLabel="Story detail sections"
+                  className="story-detail-navigation"
                   items={[
-                    { value: "details", label: "Details", icon: <PencilIcon /> },
-                    { value: "related", label: "Related items", icon: <OpenIcon />, count: selectedRequirement.related_items?.length || 0 },
-                    { value: "comments", label: "Comments", icon: <CommentTabIcon /> },
-                    { value: "grounding", label: "AI Assurance", icon: <SparkIcon /> },
+                    { value: "details", label: "Details", description: "Scope and ownership", icon: <PencilIcon /> },
+                    { value: "related", label: "Related items", description: "Connected delivery work", icon: <OpenIcon />, count: selectedRequirement.related_items?.length || 0 },
+                    { value: "comments", label: "Comments", description: "Team decisions", icon: <IconNotes /> },
+                    { value: "grounding", label: "AI Assurance", description: "Evidence and risk", icon: <SparkIcon /> },
                     ...(storyGroomingRequestMatchesSelection
-                      ? [{ value: "grooming" as const, label: "AI Grooming", icon: <SparkIcon /> }]
+                      ? [{ value: "grooming" as const, label: "AI Grooming", description: "Readiness review", icon: <SparkIcon /> }]
                       : []),
                     ...(selectedRequirementHasSprint ? [
-                      { value: "cases" as const, label: "Linked test cases", icon: <LayersIcon />, count: selectedTestCaseIds.length },
-                      { value: "defects" as const, label: "Linked bugs", icon: <BugIcon />, count: selectedDefectIds.length },
-                      { value: "history" as const, label: "Historical runs", icon: <ActivityIcon /> }
+                      { value: "cases" as const, label: "Linked test cases", description: "Coverage links", icon: <LayersIcon />, count: selectedTestCaseIds.length },
+                      { value: "defects" as const, label: "Linked bugs", description: "Quality findings", icon: <BugIcon />, count: selectedDefectIds.length },
+                      { value: "history" as const, label: "Historical runs", description: "Health over time", icon: <ActivityIcon /> }
                     ] : []),
-                    { value: "evidence", label: "Attachments", icon: <AttachmentTabIcon /> }
+                    { value: "evidence", label: "Attachments", description: "Supporting evidence", icon: <IconPaperclip /> }
                   ]}
                   onChange={setActiveTraceabilityTab}
+                />
+                <StoryDetailSectionContext
+                  activeTab={activeTraceabilityTab}
+                  bugCount={selectedDefectIds.length}
+                  relatedCount={selectedRequirement.related_items?.length || 0}
+                  testCaseCount={selectedTestCaseIds.length}
                 />
                 {activeTraceabilityTab === "details" ? (
                   <div className="detail-section-panel">
@@ -6508,13 +6603,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         </FormField>
                       </div>
                       <div className="record-grid story-delivery-target-grid">
-                        <FormField label="Dev Completion Target Date"><input type="datetime-local" value={draft.devCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
-                        <FormField label="QA Completion Target Date"><input min={draft.devCompletionTargetDate || undefined} type="datetime-local" value={draft.qaCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
+                        <FormField label="Dev Completion Target Date"><input type="date" value={draft.devCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
+                        <FormField label="QA Completion Target Date"><input min={draft.devCompletionTargetDate || undefined} type="date" value={draft.qaCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
                         <FormField label="Scrum team"><input value={draft.scrumTeam} onChange={(event) => setDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
                       </div>
-                      <section className="story-specification-editor">
-                        <div className="story-specification-head"><div><strong>Acceptance specification</strong><span>Gherkin and Spec Kit are stored as explicit Story authoring formats.</span></div><div className="segmented-control"><button aria-pressed={draft.specificationFormat === "gherkin"} className={draft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={draft.specificationFormat === "speckit"} className={draft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div>
-                        {draft.specificationFormat === "gherkin" ? <textarea className="requirement-gherkin-editor" onChange={(event) => setDraft((current) => ({ ...current, gherkinScenariosText: event.target.value }))} placeholder={"Feature: …\nScenario: …\nGiven …\nWhen …\nThen …"} rows={9} spellCheck={false} value={draft.gherkinScenariosText} /> : <textarea className="requirement-gherkin-editor story-speckit-editor" onChange={(event) => setDraft((current) => ({ ...current, specificationContent: event.target.value }))} placeholder={"# Intent\n## User outcomes\n## Functional requirements\n## Acceptance criteria\n## Edge cases\n## Non-functional requirements"} rows={10} spellCheck value={draft.specificationContent} />}
+                      <StoryPlanningFields additionalFields={draft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("edit", field, value)} users={users} />
+                      <section className={`story-specification-editor is-${draft.specificationFormat}`}>
+                        <div className="story-specification-head"><div><div className="story-specification-title-row"><strong>Acceptance specification</strong><div className="segmented-control"><button aria-pressed={draft.specificationFormat === "gherkin"} className={draft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={draft.specificationFormat === "speckit"} className={draft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div><span>Gherkin and Spec Kit are stored as explicit Story authoring formats.</span></div></div>
+                        {draft.specificationFormat === "gherkin" ? (
+                          <GherkinEditor featureTitle={draft.title || "Story behavior"} onChange={(gherkinScenariosText) => setDraft((current) => ({ ...current, gherkinScenariosText }))} value={draft.gherkinScenariosText} />
+                        ) : (
+                          <SpecKitEditor onChange={(specificationContent) => setDraft((current) => ({ ...current, specificationContent }))} value={draft.specificationContent} />
+                        )}
                       </section>
                       <ExternalReferencesField
                         className="story-detail-external-references story-create-external-references"
@@ -6765,7 +6865,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         }}
                       >
                         <option value="">No sprint</option>
-                        {assignableJiraSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprintOptionLabel(sprint)}</option>)}
+                        {createStorySprintOptions.map((sprint) => <option key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}</option>)}
                       </select>
                     </FormField>
                   </div>
@@ -6800,22 +6900,51 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     <FormField className="story-create-release-field" label="Release Version" required={jiraRequirementCoreRequired.release}>
                       <select
                         required={jiraRequirementCoreRequired.release}
-                        value={createDraft.fixVersion || createDraft.release}
-                        onChange={(event) => setCreateDraft((current) => ({ ...current, fixVersion: event.target.value, release: event.target.value }))}
+                        value={createStoryReleaseSelection}
+                        onChange={(event) => {
+                          const [source, id] = event.target.value.split(":", 2);
+                          if (source === "release") {
+                            const release = requirementReleases.find((candidate) => candidate.id === id);
+                            setCreateDraft((current) => ({ ...current, fixVersion: release?.fix_version || "", release: release?.name || "" }));
+                            return;
+                          }
+                          if (source === "jira") {
+                            const version = jiraVersions.find((candidate) => String(candidate.id) === id);
+                            setCreateDraft((current) => ({ ...current, fixVersion: version?.name || "", release: version?.name || "" }));
+                            return;
+                          }
+                          setCreateDraft((current) => ({ ...current, fixVersion: "", release: "" }));
+                        }}
                       >
                         <option value="">Select Release</option>
-                        {jiraVersions.map((version) => <option key={version.id} value={version.name}>{version.name}{version.released ? " · released" : ""}</option>)}
+                        {requirementReleases.length ? (
+                          <optgroup label="HelloTest releases">
+                            {requirementReleases.map((release) => <option key={release.id} value={`release:${release.id}`}>{release.name}{release.state ? ` · ${release.state.replace(/_/g, " ")}` : ""}</option>)}
+                          </optgroup>
+                        ) : null}
+                        {jiraVersions.length ? (
+                          <optgroup label="Connected release versions">
+                            {jiraVersions.map((version) => <option key={version.id} value={`jira:${version.id}`}>{version.name}{version.released ? " · released" : ""}</option>)}
+                          </optgroup>
+                        ) : null}
                       </select>
                     </FormField>
                   </div>
                   <div className="record-grid story-delivery-target-grid">
-                    <FormField label="Dev Completion Target Date"><input type="datetime-local" value={createDraft.devCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
-                    <FormField label="QA Completion Target Date"><input min={createDraft.devCompletionTargetDate || undefined} type="datetime-local" value={createDraft.qaCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
+                    <FormField label="Dev Completion Target Date"><input type="date" value={createDraft.devCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
+                    <FormField label="QA Completion Target Date"><input min={createDraft.devCompletionTargetDate || undefined} type="date" value={createDraft.qaCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
                     <FormField label="Scrum team"><input placeholder="e.g. Checkout Phoenix" value={createDraft.scrumTeam} onChange={(event) => setCreateDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
                   </div>
-                  <section className="story-specification-editor">
-                    <div className="story-specification-head"><div><strong>Acceptance specification</strong><span>Choose the review format that best matches this Story.</span></div><div className="segmented-control"><button aria-pressed={createDraft.specificationFormat === "gherkin"} className={createDraft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={createDraft.specificationFormat === "speckit"} className={createDraft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div>
-                    {createDraft.specificationFormat === "gherkin" ? <textarea className="requirement-gherkin-editor" onChange={(event) => setCreateDraft((current) => ({ ...current, gherkinScenariosText: event.target.value }))} placeholder={"Feature: Delivery behavior\nScenario: Expected outcome\nGiven …\nWhen …\nThen …"} rows={8} spellCheck={false} value={createDraft.gherkinScenariosText} /> : <textarea className="requirement-gherkin-editor story-speckit-editor" onChange={(event) => setCreateDraft((current) => ({ ...current, specificationContent: event.target.value }))} placeholder={"# Intent\n## User outcomes\n## Functional requirements\n## Acceptance criteria\n## Edge cases\n## Non-functional requirements"} rows={10} spellCheck value={createDraft.specificationContent} />}
+                  <StoryPlanningFields additionalFields={createDraft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("create", field, value)} users={users} />
+                  <StoryCreateRelatedPicker allStories={sprintStoryPickerRequirements} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
+                  <section className={`story-specification-editor is-${createDraft.specificationFormat}`}>
+                    <div className="story-specification-head"><div><div className="story-specification-title-row"><strong>Acceptance specification</strong><div className="segmented-control"><button aria-pressed={createDraft.specificationFormat === "gherkin"} className={createDraft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={createDraft.specificationFormat === "speckit"} className={createDraft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div><span>The selected structure is pre-populated in this editor—replace the bracketed guidance with reviewable behavior.</span></div></div>
+                    <div className="story-specification-format-note"><span>{createDraft.specificationFormat === "gherkin" ? "Behavior-driven scenario" : "Structured product specification"}</span><small>{createDraft.specificationFormat === "gherkin" ? "Feature · Scenario · Given / When / Then" : "Intent · Outcomes · Requirements · Acceptance"}</small></div>
+                    {createDraft.specificationFormat === "gherkin" ? (
+                      <GherkinEditor featureTitle={createDraft.title || "Story behavior"} onChange={(gherkinScenariosText) => setCreateDraft((current) => ({ ...current, gherkinScenariosText }))} value={createDraft.gherkinScenariosText} />
+                    ) : (
+                      <SpecKitEditor onChange={(specificationContent) => setCreateDraft((current) => ({ ...current, specificationContent }))} value={createDraft.specificationContent} />
+                    )}
                   </section>
                   <ExternalReferencesField
                     className="story-create-external-references"
@@ -6894,7 +7023,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 <p>
                   {editingIteration
                     ? "Required fields are marked with an asterisk. Update the Sprint name, delivery window, or goal."
-                    : "Set the Sprint window and goal, then select the Stories to include."}
+                    : "Set a clear Sprint window, goal, and planning references."}
                 </p>
               </div>
               <DialogCloseButton disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending} label={`Close ${editingIteration ? "edit" : "create"} sprint`} onClick={closeCreateIterationModal} />
@@ -6902,14 +7031,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             <div className="requirement-create-modal-body requirement-create-modal-body--stacked sprint-create-dialog-body">
               <div className="iteration-create-layout">
                 <section className="iteration-create-details-card sprint-create-plan-card">
-                  {editingIteration ? (
-                    <div className="sprint-create-section-heading">
-                      <div>
-                        <strong>Sprint plan</strong>
-                        <span>These details are saved to the connected workspace.</span>
-                      </div>
+                  <div className="sprint-create-section-heading">
+                    <div>
+                      <strong>Sprint plan</strong>
+                      <span>{editingIteration ? "These details are saved to the connected workspace." : "Define the timebox, outcome, labels, and external planning context."}</span>
                     </div>
-                  ) : null}
+                  </div>
                     <div className="sprint-create-plan-grid">
                       <div className="sprint-create-plan-top-row">
                         <FormField className="sprint-create-floating-field sprint-create-name-field" label="Sprint name" required>
@@ -6944,10 +7071,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         </FormField>
                       </div>
                       <div className="sprint-create-plan-date-row">
-                        <FormField className="sprint-create-floating-field sprint-create-date-field sprint-create-start-field" label="Start date and time">
+                        <FormField className="sprint-create-floating-field sprint-create-date-field sprint-create-start-field" label="Start date">
                           <input
                             disabled={isEditingClosedSprint}
-                            type="datetime-local"
+                            type="date"
                             value={iterationDraftStartDate}
                             onChange={(event) => {
                               const startDate = event.target.value;
@@ -6958,11 +7085,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             }}
                           />
                         </FormField>
-                        <FormField className="sprint-create-floating-field sprint-create-date-field sprint-create-end-field" label="End date and time">
+                        <FormField className="sprint-create-floating-field sprint-create-date-field sprint-create-end-field" label="End date">
                           <input
                             disabled={isEditingClosedSprint}
                             min={iterationDraftStartDate || undefined}
-                            type="datetime-local"
+                            type="date"
                             value={iterationDraftEndDate}
                             onChange={(event) => {
                               setIterationDraftEndDate(event.target.value);
@@ -7012,6 +7139,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   <section className="iteration-requirement-picker sprint-story-picker">
                     <div className="sprint-create-section-heading sprint-story-picker-heading">
                       <h3>Stories in this sprint</h3>
+                      <button className="ghost-button sprint-link-related-stories" onClick={() => document.getElementById("sprint-story-search")?.focus()} type="button"><OpenIcon /><span>Link related Stories</span></button>
                     </div>
                     <div className="sprint-story-picker-panel">
                       <div className="iteration-requirement-picker-toolbar">
@@ -7027,23 +7155,30 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             />
                           </div>
                         </FormField>
+                        <label className="sprint-story-status-filter">
+                          <span>Status</span>
+                          <select aria-label="Filter backlog Stories by status" onChange={(event) => setIterationRequirementStatusFilter(event.target.value)} value={iterationRequirementStatusFilter}>
+                            <option value="all">All statuses</option>
+                            {iterationRequirementStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+                          </select>
+                        </label>
                         <div className="sprint-story-picker-actions">
                           <button
-                            aria-label={`Select all ${sprintStorySelectionState.candidateCount} ${sprintStoryPickerQuery.hasNextPage ? "loaded " : ""}matching Stories`}
+                            aria-label={`Select all ${sprintStorySelectionState.candidateCount} ${sprintBacklogPickerQuery.hasNextPage ? "loaded " : ""}matching backlog Stories`}
                             aria-pressed={areAllIterationRequirementsSelected}
                             className="sprint-story-selection-action"
-                            disabled={!visibleSprintStoryIds.length || areAllIterationRequirementsSelected || createRequirementIteration.isPending || isSprintStoryPickerAutoLoading}
+                            disabled={!visibleSprintStoryIds.length || areAllIterationRequirementsSelected || createRequirementIteration.isPending || isSprintBacklogPickerAutoLoading}
                             onClick={() => setSprintStoriesSelected(visibleSprintStoryIds, true)}
-                            title={isSprintStoryPickerAutoLoading
-                              ? "All project Stories are loading before selection"
-                              : sprintStoryPickerQuery.hasNextPage
-                                ? "Select every loaded Story matching this search"
-                                : "Select every Story matching this search"}
+                            title={isSprintBacklogPickerAutoLoading
+                              ? "All backlog Stories are loading before selection"
+                              : sprintBacklogPickerQuery.hasNextPage
+                                ? "Select every loaded backlog Story matching this search"
+                                : "Select every backlog Story matching this search"}
                             type="button"
                           >
                             {areAllIterationRequirementsSelected
                               ? "All selected"
-                              : isSprintStoryPickerAutoLoading ? "Loading Stories…" : sprintStoryPickerQuery.hasNextPage ? "Select Loaded" : "Select All"}
+                              : isSprintBacklogPickerAutoLoading ? "Loading Stories…" : sprintBacklogPickerQuery.hasNextPage ? "Select Loaded" : "Select All"}
                           </button>
                           <span aria-hidden="true" className="sprint-story-picker-divider" />
                           <button
@@ -7067,8 +7202,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         role="group"
                         aria-label="Stories for this Sprint"
                       >
-                        {sprintStoryPickerQuery.isLoading && !sprintStoryPickerLoadedCount ? (
-                          <div className="empty-state compact">Loading project Stories…</div>
+                        {sprintBacklogPickerQuery.isLoading && !sprintBacklogPickerLoadedCount ? (
+                          <div className="empty-state compact">Loading backlog Stories…</div>
                         ) : null}
                         {iterationRequirementOptions.map((requirement) => {
                           const requirementId = String(requirement.id);
@@ -7111,50 +7246,50 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             </label>
                           );
                         })}
-                        {!sprintStoryPickerQuery.isLoading && !sprintStoryPickerQuery.isError && !iterationRequirementOptions.length ? (
-                          iterationRequirementSearch.trim() ? (
+                        {!sprintBacklogPickerQuery.isLoading && !sprintBacklogPickerQuery.isError && !iterationRequirementOptions.length ? (
+                          iterationRequirementSearch.trim() || iterationRequirementStatusFilter !== "all" ? (
                             <div className="empty-state compact sprint-story-picker-empty-state">
-                              <span>No Stories match this search.</span>
-                              <button className="ghost-button compact" onClick={() => setIterationRequirementSearch("")} type="button">Clear search</button>
+                              <span>No backlog Stories match these filters.</span>
+                              <button className="ghost-button compact" onClick={() => { setIterationRequirementSearch(""); setIterationRequirementStatusFilter("all"); }} type="button">Clear filters</button>
                             </div>
                           ) : (
-                            <div className="empty-state compact sprint-story-picker-empty-state">No project Stories are available.</div>
+                            <div className="empty-state compact sprint-story-picker-empty-state">No unassigned backlog Stories are available.</div>
                           )
                         ) : null}
-                        {sprintStoryPickerQuery.isError && !sprintStoryPickerLoadedCount ? (
+                        {sprintBacklogPickerQuery.isError && !sprintBacklogPickerLoadedCount ? (
                           <div className="hierarchy-children-state hierarchy-children-state--error" role="alert">
                             <span>Project Stories could not be loaded.</span>
-                            <button className="ghost-button compact" onClick={() => void sprintStoryPickerQuery.refetch()} type="button">Retry</button>
+                            <button className="ghost-button compact" onClick={() => void sprintBacklogPickerQuery.refetch()} type="button">Retry</button>
                           </div>
                         ) : null}
                       </div>
-                      {sprintStoryPickerQuery.hasNextPage && !sprintStoryPickerQuery.isError && !hasReachedSprintStoryPickerPageLimit ? (
+                      {sprintBacklogPickerQuery.hasNextPage && !sprintBacklogPickerQuery.isError && !hasReachedSprintBacklogPickerPageLimit ? (
                         <div aria-live="polite" className="sprint-story-picker-pagination-status" role="status">
                           <span className="sprint-story-picker-loading-dot" />
-                          Loading all project Stories… {sprintStoryPickerLoadedCount} of {sprintStoryPickerTotal}
+                          Loading all backlog Stories… {sprintBacklogPickerLoadedCount} of {sprintBacklogPickerTotal}
                         </div>
                       ) : null}
-                      {sprintStoryPickerQuery.isError && sprintStoryPickerLoadedCount ? (
+                      {sprintBacklogPickerQuery.isError && sprintBacklogPickerLoadedCount ? (
                         <div className="sprint-story-picker-pagination-status is-error" role="alert">
                           <span>The remaining project Stories could not be loaded.</span>
-                          <button className="ghost-button compact" onClick={() => void sprintStoryPickerQuery.fetchNextPage()} type="button">Retry</button>
+                          <button className="ghost-button compact" onClick={() => void sprintBacklogPickerQuery.fetchNextPage()} type="button">Retry</button>
                         </div>
                       ) : null}
-                      {sprintStoryPickerQuery.hasNextPage && hasReachedSprintStoryPickerPageLimit ? (
+                      {sprintBacklogPickerQuery.hasNextPage && hasReachedSprintBacklogPickerPageLimit ? (
                         <div className="sprint-story-picker-pagination-status is-warning" role="alert">
                           The safe loading limit was reached. Refine the project Story set before creating this Sprint.
                         </div>
                       ) : null}
                       <p aria-live="polite" className="sprint-story-selection-summary">
                         {sprintDraftRequirementIds.length} {sprintDraftRequirementIds.length === 1 ? "Story" : "Stories"} selected for this Sprint.{" "}
-                        {sprintStoryPickerQuery.hasNextPage
-                          ? sprintStoryPickerQuery.isError
-                            ? `${sprintStoryPickerLoadedCount} of ${sprintStoryPickerTotal} project Stories remain available while loading is retried.`
-                            : hasReachedSprintStoryPickerPageLimit
-                              ? `${sprintStoryPickerLoadedCount} of ${sprintStoryPickerTotal} project Stories loaded before the safety limit.`
-                              : `${sprintStoryPickerLoadedCount} of ${sprintStoryPickerTotal} project Stories loaded; the remaining Stories are loading automatically.`
-                          : `${sprintStoryPickerLoadedCount} project ${sprintStoryPickerLoadedCount === 1 ? "Story" : "Stories"} loaded.`}
-                        {sprintStoryPickerQuery.isError && sprintStoryPickerLoadedCount
+                        {sprintBacklogPickerQuery.hasNextPage
+                          ? sprintBacklogPickerQuery.isError
+                            ? `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories remain available while loading is retried.`
+                            : hasReachedSprintBacklogPickerPageLimit
+                              ? `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories loaded before the safety limit.`
+                              : `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories loaded; the remaining Stories are loading automatically.`
+                          : `${sprintBacklogPickerLoadedCount} backlog ${sprintBacklogPickerLoadedCount === 1 ? "Story" : "Stories"} loaded.`}
+                        {sprintBacklogPickerQuery.isError && sprintBacklogPickerLoadedCount
                           ? " Loaded Stories remain selectable, but the latest HelloTest refresh failed."
                           : ""}
                       </p>
@@ -8401,10 +8536,28 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         const coveragePercent = retrospectiveStories.length ? Math.round((covered.length / retrospectiveStories.length) * 100) : 0;
         const maturityPercent = retrospectiveStories.length ? Math.round((completed / retrospectiveStories.length) * 100) : 0;
         const bugDensity = retrospectiveStories.length ? totalBugs / retrospectiveStories.length : 0;
+        const improvementActions = [
+          ...slipped.slice(0, 3).map((story) => ({
+            id: story.id,
+            title: `${story.display_id || story.id} · ${story.title}`,
+            outcome: "Re-plan the missed delivery target and confirm the accountable owner before the next Sprint starts."
+          })),
+          ...(blocked ? [{ id: "blocked", title: `Resolve ${blocked} blocked ${blocked === 1 ? "Story" : "Stories"}`, outcome: "Name the dependency owner and unblock date during Sprint planning." }] : []),
+          ...(coveragePercent < 100 ? [{ id: "coverage", title: `Close ${retrospectiveStories.length - covered.length} Story coverage ${retrospectiveStories.length - covered.length === 1 ? "gap" : "gaps"}`, outcome: "Link reviewable Test Cases before work enters QA." }] : []),
+          ...(totalBugs ? [{ id: "bugs", title: `Reduce the ${bugDensity.toFixed(2)} Bug density`, outcome: "Review escaped defect themes and add the highest-value prevention check to the next Sprint." }] : [])
+        ].slice(0, 5);
+        const canCloseFromRetrospective = ["active", "overdue"].includes(deriveSprintLifecycleState(retrospectiveIteration));
         return (
           <div className="modal-backdrop" onClick={() => setRetrospectiveIteration(null)} role="presentation">
             <div aria-modal="true" className="modal-card sprint-retrospective-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
-              <div className="modal-card-head"><div><span className="eyebrow">Sprint retrospective</span><h2>{retrospectiveIteration.name}</h2><p>Evidence-backed review of delivery, quality, and collaboration from the current Sprint scope.</p></div><DialogCloseButton label="Close Sprint retrospective" onClick={() => setRetrospectiveIteration(null)} /></div>
+              <header className="sprint-retrospective-header">
+                <div><span className="eyebrow">Inspect · adapt · improve</span><h2>{retrospectiveIteration.name}</h2><p>Turn delivery and quality evidence into a small set of owned improvements for the next Sprint.</p><div className="sprint-retrospective-context"><span className={`requirement-sprint-status is-${deriveSprintLifecycleState(retrospectiveIteration)}`}>{sprintStateLabel(retrospectiveIteration.state)}</span><span>{sprintDateRangeLabel(retrospectiveIteration.start_date, retrospectiveIteration.end_date)}</span><span>{retrospectiveStories.length} scoped Stories</span></div></div>
+                <div className="sprint-retrospective-header-actions">
+                  {canCloseFromRetrospective ? <button className="primary-button sprint-retrospective-close-sprint" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === retrospectiveIteration.id} onClick={() => { const iteration = retrospectiveIteration; setRetrospectiveIteration(null); void changeSprintLifecycle(iteration, "closed"); }} type="button"><IconFlagCheck size={16} /><span>Close Sprint</span></button> : null}
+                  <DialogCloseButton label="Close Sprint retrospective" onClick={() => setRetrospectiveIteration(null)} />
+                </div>
+              </header>
+              <section className="sprint-retrospective-intent"><div><strong>Retrospective outcome</strong><span>Choose the most helpful changes, assign ownership during planning, and carry the highest-impact item into the next Sprint.</span></div><span>{improvementActions.length} suggested {improvementActions.length === 1 ? "action" : "actions"}</span></section>
               <div className="sprint-retrospective-score-grid">
                 <article><span>On course</span><strong>{Math.max(retrospectiveStories.length - slipped.length, 0)}/{retrospectiveStories.length}</strong><small>Stories without missed Dev/QA targets</small></article>
                 <article><span>Completion maturity</span><strong>{maturityPercent}%</strong><small>{completed} reached QA Done</small></article>
@@ -8414,11 +8567,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 <article><span>Collaboration</span><strong>{retrospectiveCommentCount}</strong><small>Comments across loaded Sprint Stories</small></article>
               </div>
               <div className="sprint-retrospective-columns">
-                <section><h3>What went well</h3><ul><li>{Math.max(retrospectiveStories.length - slipped.length, 0)} Stories stayed on course.</li><li>{covered.length} Stories had traceable Test Case coverage.</li><li>{completed} Stories reached QA Done; {retrospectiveCommentCount} comments recorded collaborative review.</li></ul></section>
-                <section><h3>Improve next Sprint</h3><ul>{slipped.length ? <li>{slipped.length} Stories missed a Dev or QA target.</li> : <li>No target-date slippage is visible.</li>}{blocked ? <li>{blocked} Stories are blocked and need explicit owners or dependencies.</li> : <li>No Stories are currently blocked.</li>}{totalBugs ? <li>{totalBugs} linked Bugs produced a density of {bugDensity.toFixed(2)} per Story.</li> : <li>No linked Bugs are visible in this Sprint scope.</li>}{coveragePercent < 100 ? <li>{retrospectiveStories.length - covered.length} Stories need test coverage before delivery review.</li> : null}</ul></section>
+                <section className="tone-positive"><div className="sprint-retrospective-section-title"><span>01</span><div><h3>Signals to sustain</h3><p>Practices that helped quality and flow.</p></div></div><ul><li>{Math.max(retrospectiveStories.length - slipped.length, 0)} Stories stayed on course.</li><li>{covered.length} Stories had traceable Test Case coverage.</li><li>{completed} Stories reached QA Done; {retrospectiveCommentCount} comments recorded collaborative review.</li></ul></section>
+                <section className="tone-improve"><div className="sprint-retrospective-section-title"><span>02</span><div><h3>Friction to address</h3><p>Evidence that should change the next plan.</p></div></div><ul>{slipped.length ? <li>{slipped.length} Stories missed a Dev or QA target.</li> : <li>No target-date slippage is visible.</li>}{blocked ? <li>{blocked} Stories are blocked and need explicit owners or dependencies.</li> : <li>No Stories are currently blocked.</li>}{totalBugs ? <li>{totalBugs} linked Bugs produced a density of {bugDensity.toFixed(2)} per Story.</li> : <li>No linked Bugs are visible in this Sprint scope.</li>}{coveragePercent < 100 ? <li>{retrospectiveStories.length - covered.length} Stories need test coverage before delivery review.</li> : null}</ul></section>
               </div>
-              <section className="sprint-retrospective-actions"><h3>Carry-forward actions</h3><ol>{slipped.slice(0, 5).map((story) => <li key={story.id}><button className="link-button" onClick={() => { setRetrospectiveIteration(null); openRequirementWorkspace(story.id); }} type="button">{story.display_id || story.id} · {story.title}</button> — reset the missed target or advance the correct delivery state.</li>)}{!slipped.length && coveragePercent === 100 && !blocked ? <li>Preserve this planning and review cadence in the next Sprint.</li> : null}</ol></section>
-              <div className="modal-card-actions"><button className="primary-button" onClick={() => setRetrospectiveIteration(null)} type="button">Done</button></div>
+              <section className="sprint-retrospective-actions"><div className="sprint-retrospective-section-title"><span>03</span><div><h3>Commit to next-Sprint actions</h3><p>Confirm an owner and due date when these actions enter planning.</p></div></div><ol>{improvementActions.map((action) => <li key={action.id}><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div>{slipped.some((story) => story.id === action.id) ? <button className="link-button" onClick={() => { setRetrospectiveIteration(null); openRequirementWorkspace(action.id); }} type="button">{action.title}</button> : <strong>{action.title}</strong>}<p>{action.outcome}</p><small>Owner · assign in planning&nbsp;&nbsp; Due · next Sprint</small></div></li>)}{!improvementActions.length ? <li className="is-success"><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div><strong>Preserve the current delivery cadence</strong><p>Carry the effective planning and review practices into the next Sprint.</p><small>Owner · Sprint team&nbsp;&nbsp; Review · next retrospective</small></div></li> : null}</ol></section>
             </div>
           </div>
         );
@@ -8435,6 +8587,163 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         />
       ) : null}
     </div>
+  );
+}
+
+function StoryMetricFact({
+  label,
+  tone,
+  value
+}: {
+  label: string;
+  tone: "danger" | "info" | "neutral" | "success";
+  value: string;
+}) {
+  return <TileCardMetric className="story-tile-metric" label={label} tone={tone} value={value} />;
+}
+
+function StoryDetailSectionContext({
+  activeTab,
+  bugCount,
+  relatedCount,
+  testCaseCount
+}: {
+  activeTab: RequirementTraceabilityTab;
+  bugCount: number;
+  relatedCount: number;
+  testCaseCount: number;
+}) {
+  const sections: Record<RequirementTraceabilityTab, { description: string; eyebrow: string; icon: ReactNode; meta: string; title: string }> = {
+    details: { eyebrow: "Definition", title: "Story scope and delivery intent", description: "Keep the outcome, ownership, delivery targets, and acceptance specification together in one authoring surface.", icon: <PencilIcon />, meta: "Core fields" },
+    related: { eyebrow: "Traceability", title: "Related delivery work", description: "Review upstream and downstream Story relationships, then add connections without losing the current context.", icon: <OpenIcon />, meta: `${relatedCount} linked` },
+    comments: { eyebrow: "Collaboration", title: "Decisions and discussion", description: "Capture durable team decisions and keep the conversation anchored to this Story.", icon: <IconNotes />, meta: "Team thread" },
+    grounding: { eyebrow: "AI assurance", title: "Evidence, ambiguity, and risk", description: "Inspect quality signals and analysis evidence before the Story moves deeper into delivery.", icon: <SparkIcon />, meta: "Review required" },
+    grooming: { eyebrow: "AI grooming", title: "Readiness review", description: "Turn product, technical, and quality evidence into specific grooming actions.", icon: <SparkIcon />, meta: "Evidence-backed" },
+    cases: { eyebrow: "Coverage", title: "Linked test cases", description: "Prioritize linked coverage first, then search and add reusable Test Cases from the same workspace.", icon: <LayersIcon />, meta: `${testCaseCount} linked` },
+    defects: { eyebrow: "Quality", title: "Linked bugs", description: "Track open quality findings and preserve the evidence path from failure to resolution.", icon: <BugIcon />, meta: `${bugCount} linked` },
+    history: { eyebrow: "Execution health", title: "Historical run evidence", description: "Read recent outcome states, movement, and duration before drilling into individual runs.", icon: <ActivityIcon />, meta: "Latest 25" },
+    evidence: { eyebrow: "Evidence", title: "Attachments and supporting files", description: "Keep screenshots, specifications, and other review evidence accessible from the Story.", icon: <IconPaperclip />, meta: "Story files" }
+  };
+  const section = sections[activeTab];
+
+  return (
+    <section className={`story-detail-section-context is-${activeTab}`} aria-label={`${section.title} overview`}>
+      <span className="story-detail-section-context-icon" aria-hidden="true">{section.icon}</span>
+      <div>
+        <span>{section.eyebrow}</span>
+        <h2>{section.title}</h2>
+        <p>{section.description}</p>
+      </div>
+      <strong>{section.meta}</strong>
+    </section>
+  );
+}
+
+function StoryPlanningFields({
+  additionalFields,
+  onChange,
+  users
+}: {
+  additionalFields: Record<string, unknown>;
+  onChange: (field: string, value: unknown) => void;
+  users: User[];
+}) {
+  const sortedUsers = [...users].sort((left, right) => (left.name || left.email).localeCompare(right.name || right.email));
+  const renderUserOptions = () => sortedUsers.map((user) => (
+    <option key={user.id} value={user.id}>{user.name || user.email}{user.name ? ` · ${user.email}` : ""}</option>
+  ));
+
+  return (
+    <section className="story-planning-section" aria-label="Story ownership and effort">
+      <div className="story-planning-section-head">
+        <div><strong>Ownership and effort</strong><span>Clarify delivery accountability before the Story enters active planning.</span></div>
+      </div>
+      <div className="record-grid story-planning-grid">
+        <FormField label="Assignee">
+          <select value={String(additionalFields.assignee_id || "")} onChange={(event) => onChange("assignee_id", event.target.value || null)}>
+            <option value="">Unassigned</option>
+            {renderUserOptions()}
+          </select>
+        </FormField>
+        <FormField label="Effort · Story points">
+          <select value={String(additionalFields.effort_story_points || "")} onChange={(event) => onChange("effort_story_points", event.target.value ? Number(event.target.value) : null)}>
+            <option value="">Not estimated</option>
+            {[1, 2, 3, 5, 8, 13, 21].map((points) => <option key={points} value={points}>{points} {points === 1 ? "point" : "points"}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Original Dev">
+          <select value={String(additionalFields.original_dev_id || "")} onChange={(event) => onChange("original_dev_id", event.target.value || null)}>
+            <option value="">Not assigned</option>
+            {renderUserOptions()}
+          </select>
+        </FormField>
+        <FormField label="Original QA">
+          <select value={String(additionalFields.original_qa_id || "")} onChange={(event) => onChange("original_qa_id", event.target.value || null)}>
+            <option value="">Not assigned</option>
+            {renderUserOptions()}
+          </select>
+        </FormField>
+      </div>
+    </section>
+  );
+}
+
+function StoryCreateRelatedPicker({
+  allStories,
+  selectedIds,
+  onChange
+}: {
+  allStories: Requirement[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const storyById = new Map(allStories.map((story) => [story.id, story]));
+  const selectedIdSet = new Set(selectedIds);
+  const visibleStories = allStories
+    .filter((story) => !normalizedSearch || [story.display_id || story.id, story.title, story.status || "", story.sprint || ""].join(" ").toLowerCase().includes(normalizedSearch))
+    .slice(0, 60);
+  const toggle = (storyId: string, checked: boolean) => onChange(checked
+    ? [...new Set([...selectedIds, storyId])]
+    : selectedIds.filter((id) => id !== storyId));
+
+  return (
+    <section className="story-related-create-section" aria-label="Related Stories">
+      <div className="story-related-create-head">
+        <div><strong>Related Stories</strong><span>Capture important Story-to-Story context as part of creation.</span></div>
+        <div className="story-related-create-actions">
+          <span>{selectedIds.length} linked</span>
+          <details className="story-related-create-picker">
+            <summary className="ghost-button"><OpenIcon /><span>Link related Stories</span></summary>
+            <div className="story-related-create-popover">
+              <label className="story-related-create-search"><SearchIcon size={16} /><input aria-label="Search Stories to link" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} placeholder="Type an ID, title, status, or Sprint" type="search" value={search} /></label>
+              <div className="story-related-create-results" role="group" aria-label="Stories available to link">
+                {visibleStories.map((story) => {
+                  const checked = selectedIdSet.has(story.id);
+                  return (
+                    <label className={checked ? "is-selected" : ""} key={story.id}>
+                      <input checked={checked} onChange={(event) => toggle(story.id, event.target.checked)} type="checkbox" />
+                      <span><small>{story.display_id || story.id} · {formatTileCardLabel(story.status, "Open")}</small><strong>{story.title}</strong></span>
+                    </label>
+                  );
+                })}
+                {!visibleStories.length ? <div className="empty-state compact">No Stories match this search.</div> : null}
+              </div>
+              {allStories.length > visibleStories.length ? <p>Showing the first 60 matches. Refine the search to find another Story.</p> : null}
+            </div>
+          </details>
+        </div>
+      </div>
+      {selectedIds.length ? (
+        <div className="story-related-create-chips" aria-label="Selected related Stories">
+          {selectedIds.map((id) => {
+            const story = storyById.get(id);
+            return <span key={id}><StoryIcon size={13} /><span>{story?.display_id || id} · {story?.title || "Story"}</span><button aria-label={`Remove ${story?.title || id}`} onClick={() => toggle(id, false)} type="button"><IconX size={13} /></button></span>;
+          })}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -8558,14 +8867,6 @@ function RequirementRelatedItemsPanel({
 
 function RelatedAssigneeIcon() {
   return <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="15"><circle cx="12" cy="8" r="3" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>;
-}
-
-function CommentTabIcon() {
-  return <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="16"><path d="M5 5h14v10H9l-4 4V5Z" /></svg>;
-}
-
-function AttachmentTabIcon() {
-  return <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="16"><path d="m20.5 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7L9 17.4a2 2 0 1 1-2.8-2.8l8.5-8.5" /></svg>;
 }
 
 function RequirementLabelsField({

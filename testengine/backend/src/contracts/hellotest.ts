@@ -354,11 +354,13 @@ export type EngineRunEnvelope = {
     variables: EngineKeyValueEntry[];
   } | null;
   data_set?: {
+    id?: string | null;
     name: string;
     mode: "key_value" | "table";
     columns: string[];
     rows: Array<Record<string, string>>;
     template_rows?: Array<Record<string, string>>;
+    iteration?: { index: number; number: number; key: string; total: number } | null;
   } | null;
   artifact_policy: EngineRunArtifactPolicy;
   callback?: {
@@ -399,6 +401,7 @@ export type EngineRunRecord = {
   hellotest_run_id: string;
   hellotest_execution_id?: string | null;
   hellotest_test_case_id: string;
+  data_set_iteration?: { index: number; number: number; key: string; total: number } | null;
   test_case_title: string;
   state: EngineRunState;
   source_mode: EngineSourceMode;
@@ -430,6 +433,7 @@ export type EngineCallbackPayload = {
   hellotest_run_id: string;
   hellotest_execution_id?: string | null;
   hellotest_test_case_id: string;
+  data_set_iteration?: { index: number; number: number; key: string; total: number } | null;
   state: EngineRunState;
   summary: string;
   deterministic_attempted: boolean;

@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import productManagementIcon from "../assets/product-management-icon.png";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AppTypeInlineValue } from "./AppTypeDropdown";
@@ -69,7 +70,7 @@ const navigation = [
         to: WORKSPACE_ROUTES.stories,
         label: "Product Management",
         shortLabel: "Product",
-        icon: RequirementsManagementIcon,
+        icon: ProductManagementIcon,
         matchPaths: PRODUCT_MANAGEMENT_SECTION_ITEMS.map((item) => item.to),
         featureKeys: ["hellotest.manual.requirements"],
         disabledWhenNoProjects: true
@@ -1167,14 +1168,17 @@ function FlaskIcon() {
   return <IconFrame><path d="M10 3v5l-5.5 9a2 2 0 0 0 1.73 3h11.54A2 2 0 0 0 19.5 17L14 8V3" /><path d="M8 3h8" /><path d="M8.5 14h7" /></IconFrame>;
 }
 
-function RequirementsManagementIcon() {
+function ProductManagementIcon() {
   return (
-    <IconFrame>
-      <rect x="4" y="4" width="7" height="6" rx="1.5" />
-      <rect x="13" y="14" width="7" height="6" rx="1.5" />
-      <path d="M11 7h2.5A2.5 2.5 0 0 1 16 9.5V14" />
-      <path d="M7.5 10v4.5A2.5 2.5 0 0 0 10 17h3" />
-    </IconFrame>
+    <img
+      alt=""
+      aria-hidden="true"
+      className="product-management-entity-icon"
+      draggable={false}
+      height={20}
+      src={productManagementIcon}
+      width={20}
+    />
   );
 }
 

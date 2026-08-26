@@ -1037,8 +1037,8 @@ export const api = {
       request<JiraIssueCreateMetadata>(`/requirements/create-metadata${toQueryString(query)}`),
     editMetadata: (id: string, query?: { project_id?: string }) =>
       request<JiraIssueCreateMetadata>(`/requirements/${id}/edit-metadata${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown> }) =>
-      request<{ id: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
+    create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
+      request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
     previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string }) =>
@@ -1175,7 +1175,7 @@ export const api = {
       request<RequirementIteration>(`/requirement-iterations/${id}`),
     listRequirements: (id: string, query?: { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
       request<PagedResult<Requirement>>(`/requirement-iterations/${id}/requirements${toQueryString({ ...query, include_page: true })}`),
-    create: (input: { project_id: string; name: string; description?: string; goal?: string; labels?: string[]; external_references?: string[]; start_date?: string; end_date?: string; state: "future" | "active"; requirement_ids?: string[] }) =>
+    create: (input: { project_id: string; name: string; description?: string; goal?: string; labels?: string[]; external_references?: string[]; start_date?: string; end_date?: string; assignee_id?: string; effort_points?: number; original_dev_id?: string; original_qa_id?: string; state: "future" | "active"; requirement_ids?: string[] }) =>
       request<{
         id: string;
         sprint: RequirementIteration;
@@ -1185,7 +1185,7 @@ export const api = {
           assigned_issue_keys: string[];
         } | null;
       }>("/requirement-iterations", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; goal: string; labels: string[]; external_references: string[]; state: "future" | "active" | "closed"; start_date: string; end_date: string; requirement_ids: string[]; jira_sprint_id: string; jira_sprint_name: string }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; goal: string; labels: string[]; external_references: string[]; state: "future" | "active" | "closed"; start_date: string; end_date: string; assignee_id: string; effort_points: number | null; original_dev_id: string; original_qa_id: string; requirement_ids: string[]; jira_sprint_id: string; jira_sprint_name: string }>) =>
       request<{ updated: boolean; sprint: RequirementIteration }>(`/requirement-iterations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignRequirements: (id: string, requirement_ids: string[], append = true) =>
       request<{
@@ -1211,10 +1211,12 @@ export const api = {
     listReadiness: (query: { project_id: string }) => request<import("../types").RequirementReleaseReadiness[]>(`/requirement-releases/readiness${toQueryString(query)}`),
     get: (id: string) => request<import("../types").RequirementRelease>(`/requirement-releases/${id}`),
     readiness: (id: string) => request<import("../types").RequirementReleaseReadiness>(`/requirement-releases/${id}/readiness`),
-    create: (input: { project_id: string; name: string; description?: string; fix_version: string; target_date_label?: string; target_date?: string; external_link?: string; state?: "planned" | "in_progress" | "released"; sprint_ids?: string[]; requirement_ids?: string[] }) =>
+    create: (input: { project_id: string; name: string; description?: string; fix_version: string; target_date_label?: string; plan_date?: string; target_date?: string; external_link?: string; state?: "planned" | "in_progress" | "released"; sprint_ids?: string[]; requirement_ids?: string[] }) =>
       request<{ id: string; release: import("../types").RequirementRelease }>("/requirement-releases", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; fix_version: string; target_date_label: string; target_date: string; external_link: string; state: "planned" | "in_progress" | "released"; sprint_ids: string[]; requirement_ids: string[] }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; fix_version: string; target_date_label: string; plan_date: string; target_date: string; external_link: string; state: "planned" | "in_progress" | "released"; sprint_ids: string[]; requirement_ids: string[] }>) =>
       request<{ updated: boolean; release: import("../types").RequirementRelease }>(`/requirement-releases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    generateNotes: (id: string) =>
+      request<import("../types").RequirementReleaseNotes>(`/requirement-releases/${id}/release-notes`, { method: "POST", body: JSON.stringify({}) }),
     delete: (id: string) => request<{ deleted: boolean; id: string }>(`/requirement-releases/${id}`, { method: "DELETE" })
   },
   knowledgeRepo: {
@@ -1400,7 +1402,7 @@ export const api = {
       request<PagedResult<TestCase>>(`/test-cases${toQueryString({ ...query, include_page: true })}`),
     get: (id: string, query?: { project_id?: string }) =>
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`),
-    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
@@ -1689,7 +1691,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; gherkin_document: string | null; priority: number; status: string; requirement_id: string; requirement_ids: string[]; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; priority: number; status: string; requirement_id: string; requirement_ids: string[]; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
       request<{ updated: boolean; revision: number }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     review: (id: string, input: { review_status: "pending" | "accepted" | "changes_requested"; comment?: string }) =>
       request<{ updated: boolean; review: NonNullable<TestCase["review_history"]>[number] }>(`/test-cases/${id}/review`, {
@@ -2007,7 +2009,7 @@ export const api = {
       request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`),
     releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; run_limit?: number; result_limit?: number }) =>
       request<ReleaseReadinessExecutionEvidence>(`/execution-results/release-readiness${toQueryString(query)}`),
-    create: (input: { execution_id: string; test_case_id: string; app_type_id: string; status: ExecutionResult["status"]; duration_ms?: number; error?: string; logs?: string; external_references?: string[]; defects?: string[]; executed_by?: string }) =>
+    create: (input: { execution_id: string; test_case_id: string; app_type_id: string; status: ExecutionResult["status"]; duration_ms?: number; error?: string; logs?: string; test_data_set_id?: string; test_data_set_name?: string; data_set_iteration_index?: number; data_set_iteration_key?: string; data_set_row_snapshot?: Record<string, string>; external_references?: string[]; defects?: string[]; executed_by?: string }) =>
       request<{ id: string; revision: number }>("/execution-results", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ status: ExecutionResult["status"]; duration_ms: number; error: string; logs: string; external_references: string[]; defects: string[]; expected_revision: number }>) =>
       request<{ updated: boolean; revision: number; case_defects: string[]; defects: string[] }>(`/execution-results/${id}`, { method: "PUT", body: JSON.stringify(input) }),

@@ -1,4 +1,4 @@
-export type CatalogDescriptionProfile = "story" | "test-case";
+export type CatalogDescriptionProfile = "project" | "story" | "test-case";
 
 export type CatalogDescriptionSummary = {
   text: string;

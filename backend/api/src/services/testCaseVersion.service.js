@@ -26,6 +26,8 @@ const SNAPSHOT_FIELDS = [
   "manual_test_case_id",
   "manual_test_case_ids",
   "authoring_mode",
+  "test_case_type",
+  "test_data_set_ids",
   "gherkin_document",
   "priority",
   "status",

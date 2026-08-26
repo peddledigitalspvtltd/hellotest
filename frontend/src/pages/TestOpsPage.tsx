@@ -237,10 +237,11 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     enabled: Boolean(session)
   });
   const transactionsQuery = useQuery({
-    queryKey: ["workspace-transactions", "testops", projectId, appTypeId],
+    // Project-level batch jobs (including Story imports) do not always belong to
+    // an app type, so TestOps must not hide them behind the app-type filter.
+    queryKey: ["workspace-transactions", "testops", projectId],
     queryFn: () => api.workspaceTransactions.list({
       project_id: projectId || undefined,
-      app_type_id: appTypeId || undefined,
       limit: 300
     }),
     enabled: Boolean(projectId && session),

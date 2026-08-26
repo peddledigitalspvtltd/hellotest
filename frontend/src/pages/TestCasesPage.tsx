@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useId, u
 import { createPortal } from "react-dom";
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IconBug as InsightBugIcon, IconChartBar, IconClipboardCheck, IconClock, IconFilter, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowLeft, IconBug as InsightBugIcon, IconChartBar, IconClipboardCheck, IconClock, IconDotsVertical, IconFilter, IconInfoCircle } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { ArtifactAssuranceWorkspace } from "../components/ArtifactAssuranceWorkspace";
@@ -151,6 +151,7 @@ import type {
   Requirement,
   SharedStepGroup,
   TestCase,
+  TestDataSet,
   TestCaseModule,
   TestStep,
   TestSuite,
@@ -169,6 +170,7 @@ type TestCaseDraft = {
   module_id: string;
   reviewer_id: string;
   authoring_mode: "structured" | "gherkin";
+  test_case_type: NonNullable<TestCase["test_case_type"]>;
   gherkin_document: string;
 };
 
@@ -254,7 +256,7 @@ const testCaseDetailQueryKey = (projectId: string, testCaseId: string) =>
 type SuiteTransferAction = "add" | "move" | "copy";
 type TestCaseExecutionAssigneeOption = AssigneeOption;
 
-type TestCaseEditorSectionKey = "case" | "preconditions" | "steps" | "automation" | "history";
+type TestCaseEditorSectionKey = "case" | "preconditions" | "steps" | "dataSets" | "automation" | "history";
 type TestCaseDetailTab = "details" | "automation" | "assurance" | "suites" | "history" | "defects" | "evidence";
 
 const isLegacyInlineAutomationBuilderEnabled = () => false;
@@ -276,6 +278,18 @@ const TEST_CASE_WORKFLOW_STATUS_OPTIONS = [
   { value: "retired", label: "Retired" },
   { value: "passed", label: "Passed" },
   { value: "failed", label: "Failed" }
+];
+
+const TEST_CASE_TYPE_OPTIONS: Array<{ value: NonNullable<TestCase["test_case_type"]>; label: string; description: string }> = [
+  { value: "functional", label: "Functional", description: "Validates a user or system behavior." },
+  { value: "regression", label: "Regression", description: "Protects an established behavior from change." },
+  { value: "smoke", label: "Smoke", description: "Checks a critical path quickly." },
+  { value: "integration", label: "Integration", description: "Validates boundaries between systems or services." },
+  { value: "acceptance", label: "Acceptance", description: "Confirms a business outcome or acceptance criterion." },
+  { value: "exploratory", label: "Exploratory", description: "Guides investigation without a rigid script." },
+  { value: "performance", label: "Performance", description: "Measures response, throughput, or stability." },
+  { value: "security", label: "Security", description: "Validates controls, permissions, and abuse resistance." },
+  { value: "accessibility", label: "Accessibility", description: "Checks inclusive interaction and assistive support." }
 ];
 
 const TEST_CASE_WORKFLOW_STATUS_LABELS = Object.fromEntries(
@@ -481,6 +495,7 @@ const createEmptyCaseDraft = (defaultStatus = "active", defaultAutomated: "yes" 
   module_id: "",
   reviewer_id: "",
   authoring_mode: "structured",
+  test_case_type: "functional",
   gherkin_document: ""
 });
 
@@ -504,6 +519,7 @@ const createDefaultTestCaseSections = (): Record<TestCaseEditorSectionKey, boole
   case: true,
   preconditions: true,
   steps: true,
+  dataSets: true,
   automation: false,
   history: false
 });
@@ -512,6 +528,7 @@ const createCreateModeTestCaseSections = (): Record<TestCaseEditorSectionKey, bo
   case: true,
   preconditions: true,
   steps: true,
+  dataSets: true,
   automation: false,
   history: false
 });
@@ -1868,6 +1885,12 @@ export function TestCasesPage() {
   const [draftSteps, setDraftSteps] = useState<DraftTestStep[]>([]);
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
   const [isCaseParameterDialogOpen, setIsCaseParameterDialogOpen] = useState(false);
+  const [linkedDataSetDraftIds, setLinkedDataSetDraftIds] = useState<string[]>([]);
+  const [dataSetSearch, setDataSetSearch] = useState("");
+  const [isDataSetCreatorOpen, setIsDataSetCreatorOpen] = useState(false);
+  const [newDataSetName, setNewDataSetName] = useState("");
+  const [newDataSetColumns, setNewDataSetColumns] = useState<string[]>(["", ""]);
+  const [newDataSetRows, setNewDataSetRows] = useState<string[][]>(() => Array.from({ length: 3 }, () => ["", ""]));
   const [testCaseParameterValues, setTestCaseParameterValues] = useState<Record<string, string>>({});
   const [suiteParameterValues, setSuiteParameterValues] = useState<Record<string, string>>({});
   const [runPreviewParameterValues, setRunPreviewParameterValues] = useState<Record<string, string>>({});
@@ -1970,6 +1993,12 @@ export function TestCasesPage() {
     enabled: Boolean(appTypeId),
     staleTime: 30_000
   });
+  const testDataSetsQuery = useQuery({
+    queryKey: ["test-data-sets", projectId, appTypeId],
+    queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
+    enabled: Boolean(projectId),
+    staleTime: 30_000
+  });
   const requestedCaseRouteId = searchParams.get("case") || "";
   const testCasesQuery = useInfiniteQuery({
     queryKey: ["global-test-cases", appTypeId, projectId],
@@ -2033,15 +2062,18 @@ export function TestCasesPage() {
     setExpandedModuleIds((current) => current.includes(requestedModuleId) ? current : [...current, requestedModuleId]);
     setSelectedModuleIds([requestedModuleId]);
   }, [searchParams, testCaseModulesQuery.data]);
-  const expandedModuleHeaders = useMemo(
-    () => asArray(testCaseModulesQuery.data).filter((module) => expandedModuleIds.includes(module.id)),
-    [expandedModuleIds, testCaseModulesQuery.data]
+  const moduleMetricHeaders = useMemo(
+    () => asArray(testCaseModulesQuery.data),
+    [testCaseModulesQuery.data]
   );
   const modulePageRequests = useMemo(
-    () => expandedModuleHeaders.flatMap((module) =>
-      (modulePageCursorsById[module.id] || [null]).map((cursor, pageIndex) => ({ module, cursor, pageIndex }))
-    ),
-    [expandedModuleHeaders, modulePageCursorsById]
+    () => moduleMetricHeaders.flatMap((module) => {
+      const cursors = expandedModuleIds.includes(module.id)
+        ? modulePageCursorsById[module.id] || [null]
+        : [null];
+      return cursors.map((cursor, pageIndex) => ({ module, cursor, pageIndex }));
+    }),
+    [expandedModuleIds, moduleMetricHeaders, modulePageCursorsById]
   );
   const moduleCaseQueries = useQueries({
     queries: modulePageRequests.map(({ module, cursor, pageIndex }) => ({
@@ -2234,6 +2266,7 @@ export function TestCasesPage() {
   });
 
   const createTestCase = useMutation({ mutationFn: api.testCases.create });
+  const createTestDataSet = useMutation({ mutationFn: api.testDataSets.create });
   const createTestCaseModule = useMutation({ mutationFn: api.testCaseModules.create });
   const updateTestCaseModule = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.testCaseModules.update>[1] }) =>
@@ -2370,6 +2403,7 @@ export function TestCasesPage() {
   );
   const requirements = asArray(requirementsQuery.data);
   const suites = asArray(suitesQuery.data);
+  const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
   const testCases = useMemo(() => {
     const byId = new Map<string, TestCase>();
     for (const testCase of asArray(testCasesQuery.data?.pages).flatMap((page) => asArray(page.items))) byId.set(testCase.id, testCase);
@@ -2529,6 +2563,9 @@ export function TestCasesPage() {
     setStepInsertIndex(null);
     setStepInsertGroupContext(null);
     setSelectedStepIds([]);
+    setLinkedDataSetDraftIds([]);
+    setDataSetSearch("");
+    setIsDataSetCreatorOpen(false);
     setExpandedStepIds([]);
     setExpandedStepGroupIds([]);
   };
@@ -3473,6 +3510,7 @@ export function TestCasesPage() {
     if (!selectedTestCaseId) {
       if (lastCaseDraftSeedRef.current !== "__none__") {
         setCaseDraft(emptyCaseDraft);
+        setLinkedDataSetDraftIds([]);
         lastCaseDraftSeedRef.current = "__none__";
       }
       return;
@@ -3497,8 +3535,10 @@ export function TestCasesPage() {
         module_id: selectedCaseModuleId,
         reviewer_id: selectedTestCase.reviewer_id || "",
         authoring_mode: selectedTestCase.authoring_mode || "structured",
+        test_case_type: selectedTestCase.test_case_type || "functional",
         gherkin_document: selectedTestCase.gherkin_document || ""
       });
+      setLinkedDataSetDraftIds(selectedTestCase.test_data_set_ids || []);
       lastCaseDraftSeedRef.current = nextSeedKey;
       return;
     }
@@ -3533,6 +3573,7 @@ export function TestCasesPage() {
     syncTestCaseSearchParams(null);
     setSelectedTestCaseId("");
     setCaseDraft(emptyCaseDraft);
+    setLinkedDataSetDraftIds([]);
   }, [
     defaultTestCaseAutomated,
     defaultTestCaseStatus,
@@ -4310,6 +4351,48 @@ export function TestCasesPage() {
     clearStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey);
   };
 
+  const handleCreateAndLinkDataSet = async () => {
+    const name = newDataSetName.trim();
+    const columns = newDataSetColumns.map((value) => value.trim());
+    if (!projectId || !name || !columns.length || columns.some((column) => !column)) {
+      showError(new Error("Provide a dataset title and a name for every variable column."), "Unable to create data set");
+      return;
+    }
+    if (new Set(columns.map((column) => column.toLowerCase())).size !== columns.length) {
+      showError(new Error("Variable names must be unique."), "Unable to create data set");
+      return;
+    }
+
+    const rows = newDataSetRows
+      .filter((values) => values.some((value) => value.trim()))
+      .map((values) => Object.fromEntries(columns.map((column, index) => [column, (values[index] || "").trim()])));
+    if (!rows.length) {
+      showError(new Error("Add values for at least one execution iteration."), "Unable to create data set");
+      return;
+    }
+
+    try {
+      const created = await createTestDataSet.mutateAsync({
+        project_id: projectId,
+        app_type_id: appTypeId || undefined,
+        name,
+        description: `Execution iterations for ${caseDraft.title || "a test case"}.`,
+        mode: "table",
+        columns,
+        rows
+      });
+      setLinkedDataSetDraftIds((current) => [...new Set([...current, created.id])]);
+      setNewDataSetName("");
+      setNewDataSetColumns(["", ""]);
+      setNewDataSetRows(Array.from({ length: 3 }, () => ["", ""]));
+      setIsDataSetCreatorOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["test-data-sets", projectId, appTypeId] });
+      showSuccess("Data set created and linked. Save the test case to keep this relationship.");
+    } catch (error) {
+      showError(error, "Unable to create data set");
+    }
+  };
+
 	  const handleSaveCaseDirect = async (announce = true, stepOverrides: Record<string, StepDraft> = {}) => {
 		    if ((isCreating && !canCreateTestCases) || (!isCreating && !canUpdateTestCases)) {
 		      showError(new Error(`Permission required: ${isCreating ? "testcase.create" : "testcase.update"}`), isCreating ? "Unable to create test case" : "Unable to update test case");
@@ -4362,7 +4445,9 @@ export function TestCasesPage() {
           parameter_values: testCaseParameterValues,
           automated: caseDraft.automated,
           authoring_mode: caseDraft.authoring_mode,
+          test_case_type: caseDraft.test_case_type,
           gherkin_document: caseDraft.authoring_mode === "gherkin" ? caseDraft.gherkin_document : null,
+          test_data_set_ids: linkedDataSetDraftIds,
           priority: Number(caseDraft.priority),
           status: caseDraft.status,
           requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : [],
@@ -4411,7 +4496,9 @@ export function TestCasesPage() {
             parameter_values: testCaseParameterValues,
             automated: caseDraft.automated,
             authoring_mode: caseDraft.authoring_mode,
+            test_case_type: caseDraft.test_case_type,
             gherkin_document: caseDraft.authoring_mode === "gherkin" ? caseDraft.gherkin_document : null,
+            test_data_set_ids: linkedDataSetDraftIds,
             automation_status: caseDraft.automated === "yes"
               ? selectedTestCase.automated === "yes" ? existingAutomationStatus : hasMappedAutomation ? "ready" : "incomplete"
               : "not_automated",
@@ -5093,6 +5180,8 @@ export function TestCasesPage() {
               description: testCase.description || undefined,
               external_references: testCase.external_references || [],
               parameter_values: testCase.parameter_values || undefined,
+              test_case_type: testCase.test_case_type || "functional",
+              test_data_set_ids: isCrossProject ? [] : testCase.test_data_set_ids || [],
               automated: canEditAutomationCode ? testCase.automated || defaultTestCaseAutomated : "no",
               priority: testCase.priority || 3,
               status: testCase.status || defaultTestCaseStatus,
@@ -6345,6 +6434,8 @@ export function TestCasesPage() {
           Description: testCase.description || "",
           Status: testCase.status || "",
           Priority: testCase.priority || 3,
+          Author: testCase.author?.name || testCase.author?.email || testCase.created_by || "",
+          "Test Case Type": testCase.test_case_type || "functional",
           Automated: canUseAutomationWorkspace ? testCase.automated || "no" : undefined,
           Labels: (testCase.labels || []).join("|"),
           "External References": (testCase.external_references || []).join("|"),
@@ -6415,6 +6506,8 @@ export function TestCasesPage() {
         description: sourceTestCase.description || undefined,
         external_references: sourceTestCase.external_references || [],
         parameter_values: sourceTestCase.parameter_values || undefined,
+        test_case_type: sourceTestCase.test_case_type || "functional",
+        test_data_set_ids: sourceTestCase.test_data_set_ids || [],
         automated: canEditAutomationCode ? sourceTestCase.automated || defaultTestCaseAutomated : "no",
         priority: sourceTestCase.priority || 3,
         status: sourceTestCase.status || defaultTestCaseStatus,
@@ -6909,6 +7002,7 @@ export function TestCasesPage() {
       const testCase = mode === "local"
         ? await ensureTestCaseDetail(testCaseId)
         : catalogTestCase;
+      const resolvedRunDataSetId = selectedExecutionDataSetId || testCase.test_data_set_ids?.[0] || undefined;
 
       if (mode === "local") {
         const isApiOnlyLocalRun = testCase.api_only === true;
@@ -6933,7 +7027,7 @@ export function TestCasesPage() {
 	          created_by: session.user.id,
 	          test_environment_id: selectedExecutionEnvironmentId || undefined,
           test_configuration_id: selectedExecutionConfigurationId || undefined,
-          test_data_set_id: selectedExecutionDataSetId || undefined,
+          test_data_set_id: resolvedRunDataSetId,
           engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
         });
 
@@ -6961,7 +7055,7 @@ export function TestCasesPage() {
 	        execution_mode: mode === "remote" ? "remote" : undefined,
 	        test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined
+        test_data_set_id: resolvedRunDataSetId
       });
 
       if (mode === "remote") {
@@ -8561,7 +8655,7 @@ export function TestCasesPage() {
                 <span>{areAllModuleCasesSelected ? "Clear" : "Select All"}</span>
               </button>
             ) : null}
-            {isCollapsed || !modulePageState || isInitialLoading || hasInitialError
+            {!modulePageState || isInitialLoading || hasInitialError
               ? renderDeferredModuleMetrics(module.test_case_count)
               : renderModuleMetrics(moduleHealth.byId.get(module.id)!)}
             <div className="action-row">
@@ -8654,9 +8748,7 @@ export function TestCasesPage() {
               <span>{areAllUnassignedCasesSelected ? "Clear" : "Select All"}</span>
             </button>
           ) : null}
-          {isUnassignedModuleExpanded
-            ? renderModuleMetrics(moduleHealth.unassigned)
-            : renderDeferredModuleMetrics(moduleHealth.unassigned.count)}
+          {renderModuleMetrics(moduleHealth.unassigned)}
         </div>
       ),
       content: isUnassignedModuleExpanded && !moduleCaseGroups.unassignedCases.length ? (
@@ -9462,7 +9554,7 @@ export function TestCasesPage() {
                               <span>{areAllModuleCasesSelected ? "Clear" : "Select All"}</span>
                             </button>
                           ) : null}
-                          {isCollapsed || !modulePageState || modulePageState.isInitialLoading || modulePageState.failedPageIndex === 0
+                          {!modulePageState || modulePageState.isInitialLoading || modulePageState.failedPageIndex === 0
                             ? renderDeferredModuleMetrics(entry.module.test_case_count)
                             : renderModuleMetrics(moduleHealth.byId.get(entry.module.id)!)}
                           <div className="action-row">
@@ -9552,9 +9644,7 @@ export function TestCasesPage() {
                               <span>{areAllUnassignedCasesSelected ? "Clear" : "Select All"}</span>
                             </button>
                           ) : null}
-                          {isUnassignedModuleExpanded
-                            ? renderModuleMetrics(moduleHealth.unassigned)
-                            : renderDeferredModuleMetrics(moduleHealth.unassigned.count)}
+                          {renderModuleMetrics(moduleHealth.unassigned)}
                         </div>
                       );
                     }
@@ -9911,14 +10001,15 @@ export function TestCasesPage() {
                     <DetailSectionTabs
                       activeTab={activeTestCaseDetailTab}
                       ariaLabel="Test case detail sections"
+                      className="test-case-detail-navigation"
                       items={[
-                        { value: "details", label: "Details", icon: <PencilIcon /> },
-                        { value: "automation" as const, label: "Automation Cases", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
-                        { value: "assurance", label: "AI Assurance", icon: <TestCaseSparkIcon /> },
-                        { value: "suites", label: "Linked Suites", icon: <TileCardSuiteIcon />, count: selectedCaseSuites.length },
-                        { value: "history", label: "History", icon: <ActivityIcon /> },
-                        { value: "defects", label: "Linked bugs", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
-                        { value: "evidence", label: "Attachments", icon: <JiraAttachmentIcon /> }
+                        { value: "details", label: "Details", description: "Metadata, steps & data", icon: <PencilIcon /> },
+                        { value: "automation" as const, label: "Automation Cases", description: "Executable coverage", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
+                        { value: "assurance", label: "Assurance", description: "Quality & impact", icon: <TestCaseSparkIcon /> },
+                        { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: selectedCaseSuites.length },
+                        { value: "history", label: "History", description: "Trend, runs & versions", icon: <ActivityIcon /> },
+                        { value: "defects", label: "Bugs", description: "Failure traceability", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
+                        { value: "evidence", label: "Evidence", description: "Files & attachments", icon: <JiraAttachmentIcon /> }
                       ]}
                       onChange={setActiveTestCaseDetailTab}
                     />
@@ -10011,6 +10102,34 @@ export function TestCasesPage() {
                               <option value={4}>4 - Low</option>
                               <option value={5}>5 - Lowest</option>
                             </select>
+                          </FormField>
+                          <FormField className="form-field--compact-enum" label="Test case type">
+                            <select
+                              aria-describedby="test-case-type-hint"
+                              value={caseDraft.test_case_type}
+                              onChange={(event) => setCaseDraft((current) => ({
+                                ...current,
+                                test_case_type: event.target.value as NonNullable<TestCase["test_case_type"]>
+                              }))}
+                            >
+                              {TEST_CASE_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                            <small id="test-case-type-hint">
+                              {TEST_CASE_TYPE_OPTIONS.find((option) => option.value === caseDraft.test_case_type)?.description}
+                            </small>
+                          </FormField>
+                          <FormField label="Author">
+                            <div className="test-case-author-field" aria-label="Test case author">
+                              <span className="test-case-author-avatar" aria-hidden="true">
+                                {(selectedTestCase?.author?.name || session?.user.name || session?.user.email || "U").slice(0, 1).toUpperCase()}
+                              </span>
+                              <span>
+                                <strong>{selectedTestCase?.author?.name || session?.user.name || "Current user"}</strong>
+                                <small>{selectedTestCase?.author?.email || session?.user.email || "Recorded on creation"}</small>
+                              </span>
+                            </div>
                           </FormField>
                           <FormField className="test-case-reviewer-field" label="Reviewer">
                             <select
@@ -10527,6 +10646,142 @@ export function TestCasesPage() {
                     )}
                   </EditorAccordionSection> : null}
 
+                  <EditorAccordionSection
+                    countLabel={`${linkedDataSetDraftIds.reduce((total, id) => {
+                      const dataSet = testDataSets.find((item) => item.id === id)
+                        || selectedTestCase?.test_data_sets?.find((item) => item.id === id);
+                      return total + (dataSet?.mode === "key_value" ? 1 : Math.max(1, dataSet?.rows?.length || 0));
+                    }, 0)} iterations`}
+                    isExpanded={expandedSections.dataSets}
+                    onToggle={() => setExpandedSections((current) => ({ ...current, dataSets: !current.dataSets }))}
+                    summary="Concrete row-level inputs. Every table row becomes a separate execution instance; parameter values above remain reusable templates."
+                    title="Data Sets"
+                  >
+                    <div className="test-case-data-sets-workspace">
+                      <div className="test-case-data-sets-intro">
+                        <div className="test-case-data-role-card is-template">
+                          <span className="test-case-data-role-icon"><TagIcon /></span>
+                          <div>
+                            <strong>Test data parameters</strong>
+                            <span>@tokens, generated defaults, and reusable values authored with the steps.</span>
+                          </div>
+                          <button className="ghost-button compact" onClick={() => setIsCaseParameterDialogOpen(true)} type="button">
+                            Manage parameters
+                          </button>
+                        </div>
+                        <div className="test-case-data-role-card is-iteration">
+                          <span className="test-case-data-role-icon"><IconChartBar size={18} /></span>
+                          <div>
+                            <strong>Execution data sets</strong>
+                            <span>Named rows that materialize as independent run iterations with their own status and evidence.</span>
+                          </div>
+                          <strong>{linkedDataSetDraftIds.length} linked</strong>
+                        </div>
+                      </div>
+
+                      {linkedDataSetDraftIds.length ? (
+                        <div className="test-case-linked-data-sets">
+                          {linkedDataSetDraftIds.map((dataSetId) => {
+                            const dataSet = testDataSets.find((item) => item.id === dataSetId)
+                              || selectedTestCase?.test_data_sets?.find((item) => item.id === dataSetId);
+                            if (!dataSet) return null;
+                            const iterationCount = dataSet.mode === "key_value" ? 1 : Math.max(1, dataSet.rows.length);
+                            return (
+                              <article className="test-case-data-set-card" key={dataSet.id}>
+                                <header>
+                                  <div>
+                                    <span className="test-case-data-set-kicker">{dataSet.mode === "table" ? "Tabular iterations" : "Key-value context"}</span>
+                                    <strong>{dataSet.name}</strong>
+                                  </div>
+                                  <div className="test-case-data-set-actions">
+                                    <span className="test-case-iteration-badge">{iterationCount} {iterationCount === 1 ? "iteration" : "iterations"}</span>
+                                    <button
+                                      aria-label={`Unlink ${dataSet.name}`}
+                                      className="ghost-button compact"
+                                      onClick={() => setLinkedDataSetDraftIds((current) => current.filter((id) => id !== dataSet.id))}
+                                      type="button"
+                                    >
+                                      Unlink
+                                    </button>
+                                  </div>
+                                </header>
+                                <div className="test-case-data-set-columns" aria-label="Data set columns">
+                                  {(dataSet.columns || []).map((column) => <span key={column}>{column}</span>)}
+                                </div>
+                                {dataSet.mode === "table" && dataSet.rows.length ? (
+                                  <div className="test-case-data-set-preview" tabIndex={0}>
+                                    <table>
+                                      <thead><tr>{dataSet.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+                                      <tbody>
+                                        {dataSet.rows.slice(0, 3).map((row, rowIndex) => (
+                                          <tr key={`${dataSet.id}-${rowIndex}`}>
+                                            {dataSet.columns.map((column) => <td key={column}>{row[column] || "—"}</td>)}
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : null}
+                              </article>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="empty-state compact test-case-data-set-empty">
+                          <IconClipboardCheck size={22} />
+                          <strong>No execution data set linked</strong>
+                          <span>This case currently executes once with its parameter defaults.</span>
+                        </div>
+                      )}
+
+                      <div className="test-case-data-set-linker">
+                        <div className="test-case-data-set-linker-header">
+                          <div>
+                            <strong>Link an existing data set</strong>
+                            <span>Search project and app-scoped data, then select one or more iteration sources.</span>
+                          </div>
+                          <button className="ghost-button compact" onClick={() => setIsDataSetCreatorOpen(true)} type="button">
+                            <AddIcon /> Create data set
+                          </button>
+                        </div>
+                        <label className="catalog-search test-case-data-set-search">
+                          <SearchIcon />
+                          <input
+                            aria-label="Search data sets"
+                            onChange={(event) => setDataSetSearch(event.target.value)}
+                            placeholder="Search data sets by name or column"
+                            value={dataSetSearch}
+                          />
+                        </label>
+                        <div className="test-case-data-set-options" role="group" aria-label="Available data sets">
+                          {testDataSets
+                            .filter((dataSet) => {
+                              const query = dataSetSearch.trim().toLowerCase();
+                              return !query || `${dataSet.name} ${dataSet.description || ""} ${dataSet.columns.join(" ")}`.toLowerCase().includes(query);
+                            })
+                            .map((dataSet) => {
+                              const checked = linkedDataSetDraftIds.includes(dataSet.id);
+                              const iterations = dataSet.mode === "key_value" ? 1 : Math.max(1, dataSet.rows.length);
+                              return (
+                                <label className={checked ? "test-case-data-set-option is-selected" : "test-case-data-set-option"} key={dataSet.id}>
+                                  <input
+                                    checked={checked}
+                                    onChange={(event) => setLinkedDataSetDraftIds((current) => event.target.checked
+                                      ? [...new Set([...current, dataSet.id])]
+                                      : current.filter((id) => id !== dataSet.id))}
+                                    type="checkbox"
+                                  />
+                                  <span><strong>{dataSet.name}</strong><small>{iterations} {iterations === 1 ? "iteration" : "iterations"} · {dataSet.columns.length} columns</small></span>
+                                </label>
+                              );
+                            })}
+                          {!testDataSetsQuery.isLoading && !testDataSets.length ? <span className="muted-text">No reusable data sets exist yet.</span> : null}
+                        </div>
+                      </div>
+
+                    </div>
+                  </EditorAccordionSection>
+
                   {/* Retained temporarily for backward-compatible state handling; authoring has moved to Automation. */}
                   {!isCreating && canUseAutomationWorkspace && isLegacyInlineAutomationBuilderEnabled() ? (
                     <EditorAccordionSection
@@ -10843,16 +11098,16 @@ export function TestCasesPage() {
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "history" && selectedTestCase ? (
                   <div className="detail-section-panel" role="tabpanel">
+                    <TraceabilityRunHistory
+                      appTypeId={appTypeId || undefined}
+                      projectId={projectId}
+                      testCaseId={selectedTestCase.id}
+                    />
                     <TestCaseVersionHistory
                       canRestore={canUpdateTestCases}
                       currentCase={selectedTestCase}
                       currentSteps={steps}
                       key={selectedTestCase.id}
-                    />
-                    <TraceabilityRunHistory
-                      appTypeId={appTypeId || undefined}
-                      projectId={projectId}
-                      testCaseId={selectedTestCase.id}
                     />
                   </div>
                 ) : null}
@@ -10936,6 +11191,41 @@ export function TestCasesPage() {
           saveDisabled={!hasSuiteLinkDraftChanges}
           suites={suites}
           testCaseTitle={selectedTestCase.title}
+        />
+      ) : null}
+
+      {isDataSetCreatorOpen ? (
+        <DataSetCreationModal
+          columns={newDataSetColumns}
+          isCreating={createTestDataSet.isPending}
+          name={newDataSetName}
+          onAddColumn={() => {
+            setNewDataSetColumns((current) => [...current, ""]);
+            setNewDataSetRows((current) => current.map((row) => [...row, ""]));
+          }}
+          onAddRow={() => setNewDataSetRows((current) => [...current, Array.from({ length: newDataSetColumns.length }, () => "")])}
+          onCellChange={(rowIndex, columnIndex, value) => setNewDataSetRows((current) => current.map((row, index) => index === rowIndex
+            ? row.map((cell, cellIndex) => cellIndex === columnIndex ? value : cell)
+            : row))}
+          onClose={() => {
+            if (createTestDataSet.isPending) return;
+            setIsDataSetCreatorOpen(false);
+            setNewDataSetName("");
+            setNewDataSetColumns(["", ""]);
+            setNewDataSetRows(Array.from({ length: 3 }, () => ["", ""]));
+          }}
+          onColumnChange={(columnIndex, value) => setNewDataSetColumns((current) => current.map((column, index) => index === columnIndex ? value : column))}
+          onCreate={() => void handleCreateAndLinkDataSet()}
+          onNameChange={setNewDataSetName}
+          onRemoveColumn={(columnIndex) => {
+            if (newDataSetColumns.length <= 1) return;
+            setNewDataSetColumns((current) => current.filter((_, index) => index !== columnIndex));
+            setNewDataSetRows((current) => current.map((row) => row.filter((_, index) => index !== columnIndex)));
+          }}
+          onRemoveRow={(rowIndex) => setNewDataSetRows((current) => current.length <= 1
+            ? current.map((row) => row.map(() => ""))
+            : current.filter((_, index) => index !== rowIndex))}
+          rows={newDataSetRows}
         />
       ) : null}
 
@@ -13957,6 +14247,120 @@ function DraftStepCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function DataSetCreationModal({
+  columns,
+  rows,
+  name,
+  isCreating,
+  onNameChange,
+  onColumnChange,
+  onCellChange,
+  onAddColumn,
+  onRemoveColumn,
+  onAddRow,
+  onRemoveRow,
+  onCreate,
+  onClose
+}: {
+  columns: string[];
+  rows: string[][];
+  name: string;
+  isCreating: boolean;
+  onNameChange: (value: string) => void;
+  onColumnChange: (columnIndex: number, value: string) => void;
+  onCellChange: (rowIndex: number, columnIndex: number, value: string) => void;
+  onAddColumn: () => void;
+  onRemoveColumn: (columnIndex: number) => void;
+  onAddRow: () => void;
+  onRemoveRow: (rowIndex: number) => void;
+  onCreate: () => void;
+  onClose: () => void;
+}) {
+  const dialogRef = useDialogFocus<HTMLFormElement>({ closeDisabled: isCreating, onClose });
+  const hasIteration = rows.some((row) => row.some((value) => value.trim()));
+  const canCreate = Boolean(name.trim() && columns.length && columns.every((column) => column.trim()) && hasIteration);
+
+  return (
+    <div className="modal-backdrop modal-backdrop--scroll data-set-create-backdrop" onClick={() => !isCreating && onClose()} role="presentation">
+      <form
+        aria-labelledby="create-data-set-title"
+        aria-modal="true"
+        className="modal-card data-set-create-modal"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canCreate && !isCreating) onCreate();
+        }}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className="data-set-create-header">
+          <div className="data-set-create-title-row">
+            <button aria-label="Close dataset creator" className="data-set-create-back-button" disabled={isCreating} onClick={onClose} type="button"><IconArrowLeft size={20} /></button>
+            <h2 className="dialog-title" id="create-data-set-title">Create Dataset</h2>
+          </div>
+          <DialogCloseButton disabled={isCreating} label="Close create dataset" onClick={onClose} />
+        </header>
+
+        <div className="data-set-create-body">
+          <FormField className="data-set-create-name-field" label="Dataset Title" required>
+            <input data-autofocus="true" onChange={(event) => onNameChange(event.target.value)} placeholder="Enter dataset name" required value={name} />
+          </FormField>
+
+          <section className="data-set-grid-section">
+            <div className="data-set-grid-heading">
+              <div><strong>Configure values for variables below</strong><span>Each row becomes a separate execution iteration for the linked test case.</span></div>
+              <div className="data-set-grid-actions">
+                <button className="ghost-button compact" onClick={onAddRow} type="button"><AddIcon />Add Row</button>
+                <span aria-hidden="true" />
+                <button className="ghost-button compact" onClick={onAddColumn} type="button"><AddIcon />Add Column</button>
+              </div>
+            </div>
+
+            <div className="data-set-grid-scroll">
+              <table className="data-set-entry-grid">
+                <thead>
+                  <tr>
+                    <th aria-label="Iteration number" className="data-set-row-number-column" />
+                    {columns.map((column, columnIndex) => (
+                      <th key={`column-${columnIndex}`}>
+                        <div className="data-set-column-heading">
+                          <input aria-label={`Variable ${columnIndex + 1} name`} onChange={(event) => onColumnChange(columnIndex, event.target.value)} placeholder="Enter variable name" required value={column} />
+                          <button aria-label={`Remove variable ${column || columnIndex + 1}`} disabled={columns.length <= 1 || isCreating} onClick={() => onRemoveColumn(columnIndex)} title="Remove column" type="button"><IconDotsVertical size={17} /></button>
+                        </div>
+                      </th>
+                    ))}
+                    <th aria-label="Row actions" className="data-set-row-action-column" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={`row-${rowIndex}`}>
+                      <th scope="row">{rowIndex + 1}</th>
+                      {columns.map((_, columnIndex) => (
+                        <td key={`cell-${rowIndex}-${columnIndex}`}><input aria-label={`Iteration ${rowIndex + 1}, variable ${columns[columnIndex] || columnIndex + 1}`} onChange={(event) => onCellChange(rowIndex, columnIndex, event.target.value)} placeholder="Value" value={row[columnIndex] || ""} /></td>
+                      ))}
+                      <td><button aria-label={`Remove iteration ${rowIndex + 1}`} disabled={isCreating} onClick={() => onRemoveRow(rowIndex)} title="Remove row" type="button"><IconDotsVertical size={17} /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <p className="data-set-create-helper">Use variable names while writing steps and results by pressing the “/” key. Every populated row executes as its own dataset iteration.</p>
+        </div>
+
+        <footer className="data-set-create-footer">
+          <button className="ghost-button" disabled={isCreating} onClick={onClose} type="button">Cancel</button>
+          <button className="primary-button" disabled={!canCreate || isCreating} type="submit">{isCreating ? "Creating…" : "Create"}</button>
+        </footer>
+      </form>
+    </div>
   );
 }
 

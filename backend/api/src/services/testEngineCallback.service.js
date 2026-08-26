@@ -19,10 +19,11 @@ const selectExecutionCaseCount = db.prepare(`
 `);
 
 const selectLatestResultsForExecution = db.prepare(`
-  SELECT DISTINCT ON (test_case_id) test_case_id, status
+  SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1))
+    test_case_id, data_set_iteration_index, status
   FROM execution_results
   WHERE execution_id = ?
-  ORDER BY test_case_id ASC, created_at DESC, id DESC
+  ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, created_at DESC, id DESC
 `);
 
 const FINAL_ENGINE_EVENTS = new Set(["run.completed", "run.failed", "run.incident"]);
@@ -420,16 +421,28 @@ async function settleExecutionIfComplete(execution) {
   }
 
   const latestResults = await selectLatestResultsForExecution.all(execution.id);
-  const latestStatusByCaseId = new Map(
-    latestResults.map((result) => [normalizeText(result.test_case_id), normalizeText(result.status)])
+  const latestStatusByIteration = new Map(
+    latestResults.map((result) => [
+      `${normalizeText(result.test_case_id)}:${Number.isInteger(result.data_set_iteration_index) ? result.data_set_iteration_index : -1}`,
+      normalizeText(result.status)
+    ])
   );
   const requiredCaseIds = new Set((execution.case_snapshots || []).map((snapshot) => normalizeText(snapshot.test_case_id)).filter(Boolean));
+  const dataSetRows = execution.test_data_set?.snapshot?.mode === "table" && Array.isArray(execution.test_data_set?.snapshot?.rows)
+    ? execution.test_data_set.snapshot.rows
+    : [];
+  const iterationIndexes = execution.test_data_set
+    ? dataSetRows.length ? dataSetRows.map((_row, index) => index) : [0]
+    : [-1];
+  const requiredIterationKeys = [...requiredCaseIds].flatMap((testCaseId) =>
+    iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`)
+  );
 
-  if (!requiredCaseIds.size || [...requiredCaseIds].some((testCaseId) => !latestStatusByCaseId.has(testCaseId))) {
+  if (!requiredCaseIds.size || requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))) {
     return;
   }
 
-  const nextExecutionStatus = [...latestStatusByCaseId.values()].every((status) => status === "passed")
+  const nextExecutionStatus = requiredIterationKeys.every((key) => latestStatusByIteration.get(key) === "passed")
     ? "completed"
     : "failed";
 
@@ -500,6 +513,12 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
 
   const testCase = await selectTestCase.get(testCaseId);
   const appTypeId = normalizeText(execution.app_type_id) || normalizeText(testCase?.app_type_id);
+  const dataSetIteration = isPlainObject(payload.data_set_iteration) ? payload.data_set_iteration : null;
+  const dataSetIterationIndex = Number.isInteger(dataSetIteration?.index) ? dataSetIteration.index : null;
+  const executionDataSetRows = Array.isArray(execution.test_data_set?.snapshot?.rows) ? execution.test_data_set.snapshot.rows : [];
+  const dataSetRowSnapshot = execution.test_data_set?.snapshot?.mode === "key_value"
+    ? Object.fromEntries(executionDataSetRows.map((row) => [normalizeText(row?.key), row?.value]).filter(([key]) => key))
+    : dataSetIterationIndex !== null ? executionDataSetRows[dataSetIterationIndex] || null : null;
 
   if (!appTypeId) {
     throw new Error("Unable to resolve the execution app type for this callback");
@@ -507,7 +526,8 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
 
   const existingResult = await executionResultService.findLatestExecutionResult({
     execution_id: execution.id,
-    test_case_id: testCaseId
+    test_case_id: testCaseId,
+    data_set_iteration_index: dataSetIterationIndex
   });
 
   const resultPayload = isPlainObject(payload.case_result) ? payload.case_result : {};
@@ -545,7 +565,12 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     duration_ms: durationMs,
     error: errorMessage,
     logs: JSON.stringify(mergedLogs),
-    executed_by: existingResult?.executed_by || caseSnapshot.assigned_to || execution.assigned_to || null
+    executed_by: existingResult?.executed_by || caseSnapshot.assigned_to || execution.assigned_to || null,
+    test_data_set_id: execution.test_data_set?.id || null,
+    test_data_set_name: execution.test_data_set?.name || null,
+    data_set_iteration_index: dataSetIterationIndex,
+    data_set_iteration_key: normalizeText(dataSetIteration?.key),
+    data_set_row_snapshot: dataSetRowSnapshot
   });
 
   const latestStepOutcome = Array.isArray(payload.step_outcomes) && payload.step_outcomes.length

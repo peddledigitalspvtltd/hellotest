@@ -33,6 +33,7 @@ const getLatestExecutionResultByCase = db.prepare(`
   SELECT *
   FROM execution_results
   WHERE execution_id = ? AND test_case_id = ?
+    AND COALESCE(data_set_iteration_index, -1) = COALESCE(?, -1)
   ORDER BY created_at DESC, id DESC
   LIMIT 1
 `);
@@ -48,6 +49,11 @@ exports.createExecutionResult = async (data) => {
     duration_ms,
     error,
     logs,
+    test_data_set_id,
+    test_data_set_name,
+    data_set_iteration_index,
+    data_set_iteration_key,
+    data_set_row_snapshot,
     external_references,
     defects,
     executed_by
@@ -114,8 +120,8 @@ exports.createExecutionResult = async (data) => {
 
   await db.prepare(`
     INSERT INTO execution_results
-    (id, execution_id, test_case_id, test_case_title, suite_id, suite_name, app_type_id, status, duration_ms, error, logs, external_references, case_defects, defects, executed_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, execution_id, test_case_id, test_case_title, suite_id, suite_name, app_type_id, status, duration_ms, error, logs, test_data_set_id, test_data_set_name, data_set_iteration_index, data_set_iteration_key, data_set_row_snapshot, external_references, case_defects, defects, executed_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     execution_id,
@@ -128,6 +134,11 @@ exports.createExecutionResult = async (data) => {
     duration_ms || null,
     error || null,
     logs || null,
+    test_data_set_id || null,
+    test_data_set_name || null,
+    Number.isInteger(data_set_iteration_index) ? data_set_iteration_index : null,
+    data_set_iteration_key || null,
+    data_set_row_snapshot || null,
     normalizeReferenceList(external_references),
     normalizedDefects,
     normalizedDefects,
@@ -195,12 +206,16 @@ exports.getExecutionResult = async (id) => {
   };
 };
 
-exports.findLatestExecutionResult = async ({ execution_id, test_case_id }) => {
+exports.findLatestExecutionResult = async ({ execution_id, test_case_id, data_set_iteration_index }) => {
   if (!execution_id || !test_case_id) {
     return null;
   }
 
-  return getLatestExecutionResultByCase.get(execution_id, test_case_id) || null;
+  return getLatestExecutionResultByCase.get(
+    execution_id,
+    test_case_id,
+    Number.isInteger(data_set_iteration_index) ? data_set_iteration_index : null
+  ) || null;
 };
 
 
@@ -313,7 +328,8 @@ exports.linkStepDefects = async (id, { step_id, defect_ids = [], expected_revisi
 exports.upsertExecutionResult = async (data) => {
   const existing = await exports.findLatestExecutionResult({
     execution_id: data.execution_id,
-    test_case_id: data.test_case_id
+    test_case_id: data.test_case_id,
+    data_set_iteration_index: data.data_set_iteration_index
   });
 
   if (existing) {

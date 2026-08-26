@@ -1,5 +1,6 @@
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconArrowsMaximize, IconArrowsMinimize, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { AiAssurancePanel } from "../components/AiAssurancePanel";
@@ -64,7 +65,7 @@ import {
   parseStepParameterName,
   type StepParameterScope
 } from "../lib/stepParameters";
-import type { AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResponse, SharedStepGroup, TestCase, TestStep, TestStepType, TestSuite } from "../types";
+import type { AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResponse, SharedStepGroup, TestCase, TestDataSet, TestStep, TestStepType, TestSuite } from "../types";
 
 type AutomationView = "cases" | "repository";
 type AutomationCaseSectionKey = "case" | "build" | "steps" | "history";
@@ -77,6 +78,7 @@ const REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH = 440;
 const REPOSITORY_CONFIG_DRAWER_MIN_WIDTH = 360;
 const REPOSITORY_CONFIG_DRAWER_MAX_WIDTH = 720;
 const AUTOMATION_CASE_DETAIL_STALE_TIME_MS = 30_000;
+const REPOSITORY_HIGHLIGHT_DURATION_MS = 3_000;
 
 const automationCaseDetailQueryKey = (projectId: string, testCaseId: string) =>
   ["test-case-detail", projectId || "unselected", testCaseId] as const;
@@ -152,6 +154,10 @@ type RecorderInspectElement = {
     locator: string;
     strategy: string;
     confidenceScore: number;
+    matchCount?: number;
+    stabilitySignals?: string[];
+    warning?: string | null;
+    recommended?: boolean;
   }>;
   text: string | null;
 };
@@ -263,6 +269,10 @@ type RepositoryLocator = {
   isPrimary?: boolean;
   isFallback?: boolean;
   lastValidatedStatus?: string;
+  matchCount?: number;
+  stabilitySignals?: string[];
+  warning?: string | null;
+  recommended?: boolean;
 };
 
 function inferLocatorStrategy(locator: string, kind?: string | null) {
@@ -356,6 +366,10 @@ function getCapturedLocatorsForElement(element: RecorderInspectElement): Reposit
       locator: candidate.locator,
       strategy: candidate.strategy,
       confidenceScore: candidate.confidenceScore,
+      matchCount: candidate.matchCount,
+      stabilitySignals: candidate.stabilitySignals,
+      warning: candidate.warning,
+      recommended: candidate.recommended,
       isPrimary: index === 0,
       isFallback: index > 0,
       lastValidatedStatus: "pending"
@@ -504,6 +518,7 @@ function AutomationAccordionSection({
   countLabel,
   isExpanded,
   onToggle,
+  stage,
   summary,
   title
 }: {
@@ -512,11 +527,12 @@ function AutomationAccordionSection({
   countLabel?: string;
   isExpanded: boolean;
   onToggle: () => void;
+  stage?: AutomationCaseSectionKey;
   summary: ReactNode;
   title: ReactNode;
 }) {
   return (
-    <section className={["editor-accordion-section", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")}>
+    <section className={["editor-accordion-section", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} data-automation-stage={stage}>
       <div className="editor-accordion-head">
         <button className="editor-accordion-toggle" onClick={onToggle} type="button">
           <span className="editor-accordion-icon"><ChevronIcon isExpanded={isExpanded} /></span>
@@ -819,6 +835,7 @@ type RepositoryExtractedField = ReturnType<typeof extractRepositoryFieldsFromDom
   elementScreenshotUrl?: string | null;
   ancestorScreenshotUrl?: string | null;
   ancestorDom?: string | null;
+  locatorCandidates?: RepositoryLocator[];
 };
 
 function getInspectSelections(result: RecorderInspectResult): RecorderInspectSelection[] {
@@ -847,6 +864,7 @@ function buildRepositoryFieldFromInspectSelection(result: RecorderInspectResult,
     role: selection.element.role,
     locator: primaryLocator.locator,
     locatorKind: primaryLocator.strategy,
+    locatorCandidates: candidates,
     dom: selection.element.dom_structure,
     fallbackLocators: candidates.slice(1),
     source: "live_inspect",
@@ -1080,6 +1098,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isRepositoryConfigOpen, setIsRepositoryConfigOpen] = useState(true);
   const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
+  const [isInspectBrowserMaximized, setIsInspectBrowserMaximized] = useState(false);
   const [inspectReviewTab, setInspectReviewTab] = useState<RepositoryInspectReviewTab>("selected");
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
@@ -1088,7 +1107,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [browserInspectFields, setBrowserInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [aiSuggestedInspectFields, setAiSuggestedInspectFields] = useState<RepositoryExtractedField[]>([]);
   const [stagedInspectFields, setStagedInspectFields] = useState<RepositoryExtractedField[]>([]);
+  const [focusedInspectLocator, setFocusedInspectLocator] = useState("");
+  const [highlightedInspectLocator, setHighlightedInspectLocator] = useState("");
   const stagedInspectFieldsRef = useRef<RepositoryExtractedField[]>([]);
+  const highlightClearTimerRef = useRef<number | null>(null);
+  const inspectPollInFlightRef = useRef(false);
+  const tabRefreshInFlightRef = useRef(false);
   const [repositoryUsageBlock, setRepositoryUsageBlock] = useState<{
     title: string;
     usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>;
@@ -1252,6 +1276,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId && session)
   });
+  const testDataSetsQuery = useQuery({
+    queryKey: ["test-data-sets", "automation-workspace", projectId, appTypeId],
+    queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
+    enabled: Boolean(projectId && session)
+  });
   const testEngineIntegrationsQuery = useQuery({
     queryKey: ["integrations", "testengine", projectId],
     queryFn: () => api.integrations.list({ type: "testengine", is_active: true }),
@@ -1266,6 +1295,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const testCases = asArray(testCasesQuery.data);
+  const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
+  const selectedExecutionDataSet = testDataSets.find((item) => item.id === selectedExecutionDataSetId) || null;
+  const selectedExecutionIterationCount = selectedExecutionDataSet
+    ? selectedExecutionDataSet.mode === "key_value" ? 1 : Math.max(1, selectedExecutionDataSet.rows.length)
+    : 1;
   const learningCache = asArray(learningCacheQuery.data);
   const atRiskRepositoryEntries = useMemo(() => learningCache.filter((entry) => {
     const stability = Number(entry.metadata?.stability_score ?? entry.confidence ?? 0);
@@ -1684,6 +1718,21 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     aiSuggestedInspectFields.forEach((field) => byLocator.set(field.locator, { ...field, source: "ai_extract" }));
     return Array.from(byLocator.values());
   }, [aiSuggestedInspectFields, inspectedFields]);
+  const focusedInspectField = useMemo(() => {
+    const inspectFields = [...stagedInspectFields, ...browserInspectFields, ...suggestedInspectFields];
+    return inspectFields.find((field) => field.locator === focusedInspectLocator)
+      || stagedInspectFields[stagedInspectFields.length - 1]
+      || browserInspectFields[browserInspectFields.length - 1]
+      || null;
+  }, [browserInspectFields, focusedInspectLocator, stagedInspectFields, suggestedInspectFields]);
+  const focusedInspectPrimaryLocator: RepositoryLocator | null = focusedInspectField?.locatorCandidates?.[0]
+    || (focusedInspectField ? {
+      locator: focusedInspectField.locator,
+      strategy: focusedInspectField.locatorKind,
+      confidenceScore: focusedInspectField.locator.includes("data-testid") ? 0.95 : 0.75,
+      matchCount: undefined,
+      stabilitySignals: []
+    } : null);
   const recorderLiveUrl = recorderSession?.live_view_url || "";
   const inspectRecorderLiveUrl = inspectRecorderSession?.live_view_url || "";
   const selectedLocators = selectedRepositoryEntry ? getRepositoryLocators(selectedRepositoryEntry) : [];
@@ -1950,6 +1999,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         setTestCaseParameterValues({});
         setSuiteLinkDraftIds([]);
         setAutomationManualLinkDraftIds([]);
+        setSelectedExecutionDataSetId("");
         lastAutomationCaseDraftSeedRef.current = "__none__";
       }
       return;
@@ -1977,6 +2027,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setAutomationManualLinkDraftIds(activeCase.manual_test_case_ids?.length
       ? activeCase.manual_test_case_ids
       : activeCase.manual_test_case_id ? [activeCase.manual_test_case_id] : []);
+    setSelectedExecutionDataSetId(activeCase.test_data_set_ids?.[0] || "");
     lastAutomationCaseDraftSeedRef.current = nextSeedKey;
   }, [activeCase, projectId, selectedCaseId]);
 
@@ -2321,6 +2372,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setExpandedCaseSections((current) => ({ ...current, [section]: !current[section] }));
   };
 
+  const focusAutomationStage = (section: AutomationCaseSectionKey) => {
+    setExpandedCaseSections({ case: false, build: false, steps: false, history: false, [section]: true });
+    globalThis.requestAnimationFrame(() => {
+      document.querySelector(`[data-automation-stage="${section}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   const toggleAutomationStep = (stepId: string) => {
     setExpandedAutomationStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId]);
   };
@@ -2547,6 +2605,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         automation_status: sourceSteps.some((step) => Boolean(step.automation_code || step.api_request)) ? "ready" : "incomplete",
         manual_test_case_id: source?.id || null,
         manual_test_case_ids: automationCreateManualCaseIds,
+        test_case_type: source?.test_case_type || "functional",
+        test_data_set_ids: source?.test_data_set_ids || [],
         priority: source?.priority || 3,
         status: "active",
         requirement_id: source?.requirement_id || undefined,
@@ -3097,6 +3157,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return next;
     });
     setBrowserInspectFields((current) => current.filter((item) => item.locator !== field.locator));
+    setFocusedInspectLocator(field.locator);
     setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}. Remove unwanted fields or save the selected set.`);
   };
 
@@ -3793,6 +3854,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }));
 
     setSelectedScreenName(screenName);
+    setFocusedInspectLocator(latestField.locator);
     setBrowserInspectFields((current) => {
       const selectedLocators = new Set(stagedInspectFieldsRef.current.map((field) => field.locator));
       const merged = [...current];
@@ -3810,10 +3872,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return merged;
     });
     setInspectReviewTab("candidates");
-    for (const field of fields) {
-      await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
-    }
-    setInspectMessage(`${fields.length} highlighted field${fields.length === 1 ? "" : "s"} captured. Review them in Candidates, then select the fields to save.`);
+    setHighlightedInspectLocator(latestField.locator);
+    if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
+    highlightClearTimerRef.current = window.setTimeout(() => setHighlightedInspectLocator(""), REPOSITORY_HIGHLIGHT_DURATION_MS);
+    setInspectMessage(`${fields.length} field${fields.length === 1 ? "" : "s"} captured. The latest selection is highlighted for 3 seconds; review candidates, then select the fields to save.`);
   };
 
   const startLiveInspect = async () => {
@@ -3860,7 +3922,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       body: JSON.stringify({ page_id: pageId })
     }).catch(() => null);
     setInspectMessage(browserInspectFields.length
-      ? "Inspect paused. Review highlighted fields under DOM suggestions."
+      ? "Inspect paused. Review captured fields under Candidates."
       : "Inspect paused. Start again when you want to capture more fields.");
   };
 
@@ -3888,8 +3950,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     });
     setSelectedInspectTabId(pageId);
     setHighlightedRepositoryId(entryId);
+    setFocusedInspectLocator(locator);
+    setHighlightedInspectLocator(locator);
+    if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
+    highlightClearTimerRef.current = window.setTimeout(() => setHighlightedInspectLocator(""), REPOSITORY_HIGHLIGHT_DURATION_MS);
     if (!options.silent) {
-      setInspectMessage(`Highlighted ${label} in the selected browser tab.`);
+      setInspectMessage(`Highlighted ${label} in the selected browser tab for 3 seconds.`);
     }
   };
 
@@ -3911,9 +3977,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }).catch(() => null);
     const highlights = [...candidateFields, ...selectedFields].filter((field, index, allFields) =>
       allFields.findIndex((item) => item.locator === field.locator) === index
-    );
-    for (const field of highlights) {
-      await highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true, silent: true }).catch(() => null);
+    ).slice(-12);
+    await Promise.all(highlights.map((field) => readRecorderJson(
+      `${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(inspectRecorderSession.id)}/highlight`,
+      { method: "POST", body: JSON.stringify({ page_id: pageId, locator: field.locator, label: field.name, retain_existing: true }) }
+    ).catch(() => null)));
+    const latestHighlight = highlights[highlights.length - 1];
+    if (latestHighlight) {
+      setHighlightedInspectLocator(latestHighlight.locator);
+      if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
+      highlightClearTimerRef.current = window.setTimeout(() => setHighlightedInspectLocator(""), REPOSITORY_HIGHLIGHT_DURATION_MS);
     }
   };
 
@@ -3921,6 +3994,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     const next = stagedInspectFields.filter((field) => field.locator !== locator);
     setStagedInspectFields(next);
     stagedInspectFieldsRef.current = next;
+    if (focusedInspectLocator === locator) setFocusedInspectLocator(next[next.length - 1]?.locator || browserInspectFields[browserInspectFields.length - 1]?.locator || "");
     setInspectMessage(next.length
       ? `${next.length} selected field${next.length === 1 ? "" : "s"} remain. Save when the selection is correct.`
       : "No fields selected. Inspect or choose suggested fields before saving.");
@@ -3930,6 +4004,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const removeAllStagedInspectFields = () => {
     setStagedInspectFields([]);
     stagedInspectFieldsRef.current = [];
+    setFocusedInspectLocator(browserInspectFields[browserInspectFields.length - 1]?.locator || "");
     setInspectMessage("Selected fields cleared. Captured candidates remain available for review.");
     void syncInspectHighlights([], browserInspectFields);
   };
@@ -3946,17 +4021,19 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     ].filter((field, index, fields) => fields.findIndex((item) => item.locator === field.locator) === index);
     setStagedInspectFields(nextSelected);
     stagedInspectFieldsRef.current = nextSelected;
+    setFocusedInspectLocator(nextSelected[nextSelected.length - 1]?.locator || "");
     setBrowserInspectFields([]);
-    setInspectMessage(`${fieldsToSelect.length} highlighted field${fieldsToSelect.length === 1 ? "" : "s"} moved to Selected fields.`);
+    setInspectMessage(`${fieldsToSelect.length} captured field${fieldsToSelect.length === 1 ? "" : "s"} moved to Selected fields.`);
     void syncInspectHighlights(nextSelected, []);
   };
 
   const dismissBrowserInspectField = (locator: string) => {
     const nextCandidates = browserInspectFields.filter((field) => field.locator !== locator);
     setBrowserInspectFields(nextCandidates);
+    if (focusedInspectLocator === locator) setFocusedInspectLocator(stagedInspectFields[stagedInspectFields.length - 1]?.locator || nextCandidates[nextCandidates.length - 1]?.locator || "");
     setInspectMessage(nextCandidates.length
-      ? `${nextCandidates.length} highlighted candidate${nextCandidates.length === 1 ? "" : "s"} remain.`
-      : "No highlighted candidates remain. Capture more fields or use DOM suggestions.");
+      ? `${nextCandidates.length} captured candidate${nextCandidates.length === 1 ? "" : "s"} remain.`
+      : "No captured candidates remain. Capture more fields or use DOM suggestions.");
     void syncInspectHighlights(stagedInspectFields, nextCandidates);
   };
 
@@ -3967,12 +4044,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
     let isCancelled = false;
     const refreshTabs = async () => {
+      if (tabRefreshInFlightRef.current) return;
+      tabRefreshInFlightRef.current = true;
       try {
         await loadInspectTabs();
       } catch (error) {
         if (!isCancelled) {
           setInspectMessage(error instanceof Error ? error.message : "Unable to load browser tabs.");
         }
+      } finally {
+        tabRefreshInFlightRef.current = false;
       }
     };
 
@@ -3996,6 +4077,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     const interval = window.setInterval(() => {
+      if (inspectPollInFlightRef.current) return;
+      inspectPollInFlightRef.current = true;
       void (async () => {
         const query = selectedInspectTabId ? `?page_id=${encodeURIComponent(selectedInspectTabId)}` : "";
         const result = await readRecorderJson<RecorderInspectResult>(
@@ -4008,11 +4091,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           if (result) {
             await persistLiveInspectResult(result);
           }
-      })();
+      })().finally(() => {
+        inspectPollInFlightRef.current = false;
+      });
     }, 1200);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      inspectPollInFlightRef.current = false;
+    };
   }, [isInspectingLiveField, inspectRecorderSession, selectedInspectTabId]);
+
+  useEffect(() => () => {
+    if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
+  }, []);
 
   return (
     <div className="page-content page-content--automation">
@@ -4288,6 +4380,47 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <TileCardSkeletonGrid />
             ) : (
               <div className="automation-case-detail editor-accordion">
+                <section className="automation-command-deck" aria-label="Automation delivery lifecycle">
+                  <div className="automation-command-deck-head">
+                    <div>
+                      <span className="automation-command-eyebrow">Automation delivery</span>
+                      <h2>Build once. Run across governed profiles.</h2>
+                      <p>Move from intent to resilient code, row-level data iterations, repository health, and debuggable run evidence without losing context.</p>
+                    </div>
+                    <div className="automation-readiness-orb" aria-label={`${automationMaturity.score}% automation readiness`}>
+                      <strong>{automationMaturity.score}%</strong><span>ready</span>
+                    </div>
+                  </div>
+                  <div className="automation-lifecycle-grid">
+                    <button onClick={() => focusAutomationStage("case")} type="button">
+                      <span>01</span><strong>Define</strong><small>{linkedManualCases.length ? `${linkedManualCases.length} coverage link${linkedManualCases.length === 1 ? "" : "s"}` : "Link manual intent"}</small>
+                    </button>
+                    <button onClick={() => focusAutomationStage("build")} type="button">
+                      <span>02</span><strong>Build</strong><small>{agentPlanApproved ? "Governed plan approved" : "Plan, record or generate"}</small>
+                    </button>
+                    <button onClick={() => focusAutomationStage("steps")} type="button">
+                      <span>03</span><strong>Steps & code</strong><small>{automatedSteps.length} executable step{automatedSteps.length === 1 ? "" : "s"}</small>
+                    </button>
+                    <button onClick={() => focusAutomationStage("build")} type="button">
+                      <span>04</span><strong>Data & profiles</strong><small>{selectedExecutionDataSetId
+                        ? `${selectedExecutionIterationCount} data iteration${selectedExecutionIterationCount === 1 ? "" : "s"}`
+                        : "Select environment and data"}</small>
+                    </button>
+                    <button onClick={() => setView("repository")} type="button">
+                      <span>05</span><strong>Repository</strong><small>{atRiskRepositoryEntries.length ? `${atRiskRepositoryEntries.length} locator${atRiskRepositoryEntries.length === 1 ? "" : "s"} need review` : `${learningCache.length} stable object${learningCache.length === 1 ? "" : "s"}`}</small>
+                    </button>
+                    <button onClick={() => focusAutomationStage("history")} type="button">
+                      <span>06</span><strong>Runs & debug</strong><small>{activeCaseHistory.length ? `${activeCaseHistory.filter((result) => result.status === "passed").length}/${activeCaseHistory.length} passed` : "Run to collect evidence"}</small>
+                    </button>
+                  </div>
+                  <div className="automation-run-profile-strip">
+                    <div><span>Environment</span><strong>{selectedExecutionEnvironmentId ? "Selected" : "Uses project default"}</strong></div>
+                    <div><span>Configuration</span><strong>{selectedExecutionConfigurationId ? "Selected" : "Uses engine default"}</strong></div>
+                    <div><span>Data iterations</span><strong>{selectedExecutionIterationCount}</strong></div>
+                    <div><span>Failure evidence</span><strong>Screenshot · console · network</strong></div>
+                    <button onClick={() => focusAutomationStage("build")} type="button">Configure run profile</button>
+                  </div>
+                </section>
                 <section className="automation-relationship-hub" aria-label="Automation traceability">
                   <div className="automation-relationship-tabs" role="tablist" aria-label="Linked automation records">
                     <button aria-selected={activeRelationshipPanel === "manual"} className={activeRelationshipPanel === "manual" ? "is-active" : ""} onClick={() => setActiveRelationshipPanel((current) => current === "manual" ? null : "manual")} role="tab" type="button">
@@ -4351,6 +4484,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   countLabel={automationDisplayIdByCaseId[activeCase.id] || activeCase.display_id || "AT"}
                   isExpanded={expandedCaseSections.case}
                   onToggle={() => toggleCaseSection("case")}
+	                  stage="case"
 	                  summary="This independent automation case keeps traceability to its manual source while owning its executable steps and history."
 	                  title="Automation case"
 	                >
@@ -4482,6 +4616,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   countLabel={`${automationMaturity.score}% ready`}
                   isExpanded={expandedCaseSections.build}
                   onToggle={() => toggleCaseSection("build")}
+                  stage="build"
                   summary="Generate, record, inspect, retrieve, and mature executable automation from one build studio."
                   title="Build studio"
                 >
@@ -4674,6 +4809,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   countLabel={`${automatedSteps.length} step${automatedSteps.length === 1 ? "" : "s"}`}
                   isExpanded={expandedCaseSections.steps}
                   onToggle={() => toggleCaseSection("steps")}
+                  stage="steps"
                   summary={automationStepView === "keyword" ? "Keyword-based automation steps with repository parameters." : "Generated executable code for the same step list."}
                   title="Steps"
                 >
@@ -5102,6 +5238,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   countLabel={`${activeCaseHistory.length} run${activeCaseHistory.length === 1 ? "" : "s"}`}
                   isExpanded={expandedCaseSections.history}
                   onToggle={() => toggleCaseSection("history")}
+                  stage="history"
                   summary={activeCaseHistory.length ? "Recent local and manual execution outcomes for this automation case." : "No run history yet."}
                   title="Run history"
                 >
@@ -5116,7 +5253,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <article className="automation-history-row" key={result.id}>
                         <div>
                           <strong>{result.test_case_title || activeCase.title}</strong>
-                          <span>{result.created_at ? formatRunDate.format(new Date(result.created_at)) : "Run timestamp unavailable"} · {result.duration_ms ? `${Math.round(result.duration_ms / 1000)}s` : "duration pending"}</span>
+                          <span>
+                            {result.created_at ? formatRunDate.format(new Date(result.created_at)) : "Run timestamp unavailable"}
+                            {` · ${result.duration_ms ? `${Math.round(result.duration_ms / 1000)}s` : "duration pending"}`}
+                            {result.data_set_iteration_index !== null && result.data_set_iteration_index !== undefined
+                              ? ` · ${result.test_data_set_name || "Data set"} iteration ${result.data_set_iteration_index + 1}`
+                              : ""}
+                          </span>
+                          {result.data_set_row_snapshot ? (
+                            <div className="automation-history-data-row" aria-label="Execution data row">
+                              {Object.entries(result.data_set_row_snapshot).slice(0, 5).map(([key, value]) => <span key={key}><strong>{key}</strong>{value}</span>)}
+                            </div>
+                          ) : null}
                           {result.error ? <p>{result.error}</p> : null}
                         </div>
                         <StatusBadge value={result.status} />
@@ -5681,7 +5829,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
 	          {isInspectOpen ? (
             <div className="modal-backdrop" role="presentation">
-              <div className="dialog object-repository-inspector" role="dialog" aria-modal="true" aria-label="Object repository inspector">
+              <div className={`dialog object-repository-inspector${isInspectBrowserMaximized ? " is-browser-maximized" : ""}`} role="dialog" aria-modal="true" aria-label="Object repository inspector">
                 <div className="dialog-header">
                   <div>
                     <div className="modal-title-info-row">
@@ -5692,7 +5840,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       />
                     </div>
                   </div>
-                  <DialogCloseButton label="Close object repository inspector" onClick={() => setIsInspectOpen(false)} />
+                  <DialogCloseButton label="Close object repository inspector" onClick={() => { setIsInspectBrowserMaximized(false); setIsInspectOpen(false); }} />
                 </div>
                 <div className="object-repository-inspector-body">
                 <details className="object-repository-live-inspect object-repository-collapsible-section" open>
@@ -5743,17 +5891,30 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           <strong>Browser view</strong>
                           <span>{selectedInspectTabId ? "Selected tab is ready for capture" : "Select a browser tab"}</span>
                         </div>
-                        <button
-                          aria-label="Refresh browser tabs"
-                          className="ghost-button compact object-repository-refresh-tabs"
-                          disabled={!inspectRecorderSession?.id}
-                          onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
-                          title="Refresh browser tabs"
-                          type="button"
-                        >
-                          <RefreshIcon />
-                          <span>Refresh tabs</span>
-                        </button>
+                        <div className="object-repository-browser-preview-actions">
+                          <button
+                            aria-label={isInspectBrowserMaximized ? "Restore inspector layout" : "Maximize browser workspace"}
+                            aria-pressed={isInspectBrowserMaximized}
+                            className="ghost-button compact object-repository-maximize-browser"
+                            onClick={() => setIsInspectBrowserMaximized((current) => !current)}
+                            title={isInspectBrowserMaximized ? "Restore inspector layout" : "Maximize browser workspace"}
+                            type="button"
+                          >
+                            {isInspectBrowserMaximized ? <IconArrowsMinimize aria-hidden="true" size={16} /> : <IconArrowsMaximize aria-hidden="true" size={16} />}
+                            <span>{isInspectBrowserMaximized ? "Restore" : "Maximize"}</span>
+                          </button>
+                          <button
+                            aria-label="Refresh browser tabs"
+                            className="ghost-button compact object-repository-refresh-tabs"
+                            disabled={!inspectRecorderSession?.id}
+                            onClick={() => void loadInspectTabs().catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to refresh tabs."))}
+                            title="Refresh browser tabs"
+                            type="button"
+                          >
+                            <RefreshIcon />
+                            <span>Refresh tabs</span>
+                          </button>
+                        </div>
                       </div>
                       <div aria-label="Open browser tabs" className="object-repository-tab-picker object-repository-browser-tabs">
                         {inspectTabs.length ? inspectTabs.map((tab) => (
@@ -5778,6 +5939,28 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       ) : (
                         <div className="empty-state compact">Browser preview appears after the recorder starts.</div>
                       )}
+                      <div className={focusedInspectField ? "object-repository-browser-locator-dock has-selection" : "object-repository-browser-locator-dock"} aria-live="polite">
+                        {focusedInspectField && focusedInspectPrimaryLocator ? (
+                          <>
+                            <span className="object-repository-locator-dock-icon"><IconTargetArrow aria-hidden="true" size={18} /></span>
+                            <div className="object-repository-locator-dock-copy">
+                              <span><strong>{focusedInspectField.name}</strong><small>{focusedInspectPrimaryLocator.strategy}</small></span>
+                              <code title={focusedInspectPrimaryLocator.locator}>{focusedInspectPrimaryLocator.locator}</code>
+                            </div>
+                            <div className="object-repository-locator-health" title={focusedInspectPrimaryLocator.warning || "Locator quality at capture time"}>
+                              <IconShieldCheck aria-hidden="true" size={16} />
+                              <span>{Math.round(focusedInspectPrimaryLocator.confidenceScore * 100)}%</span>
+                              <small>{focusedInspectPrimaryLocator.matchCount === 1 ? "Unique" : focusedInspectPrimaryLocator.matchCount ? `${focusedInspectPrimaryLocator.matchCount} matches` : "Captured"}</small>
+                            </div>
+                            <div className="object-repository-locator-dock-actions">
+                              <button className="ghost-button compact" onClick={() => void navigator.clipboard?.writeText(focusedInspectPrimaryLocator.locator)} type="button"><CopyIcon size={15} /><span>Copy</span></button>
+                              <button className={highlightedInspectLocator === focusedInspectPrimaryLocator.locator ? "ghost-button compact is-active" : "ghost-button compact"} disabled={!inspectRecorderSession?.id} onClick={() => void highlightRepositoryLocator(focusedInspectPrimaryLocator.locator, focusedInspectField.name).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight locator."))} type="button"><MousePointerIcon size={15} /><span>{highlightedInspectLocator === focusedInspectPrimaryLocator.locator ? "Highlighted · 3s" : "Highlight · 3s"}</span></button>
+                            </div>
+                          </>
+                        ) : (
+                          <span className="object-repository-locator-dock-empty">Inspect a control to keep its selected locator visible here.</span>
+                        )}
+                      </div>
                     </section>
                   </div>
                   {inspectMessage ? <div className="object-repository-inspect-message">{inspectMessage}</div> : null}
@@ -5797,27 +5980,30 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <div className="object-repository-inspector-section-head object-repository-selected-fields-head">
                       <span>
                         <strong>Selected fields <span className="selection-count">{stagedInspectFields.length}</span></strong>
-                        <small>Blue browser highlights match this review set. Remove unwanted fields before saving.</small>
+                        <small>The focused locator stays visible in the browser dock; previews clear automatically after 3 seconds.</small>
                       </span>
                       <div className="object-repository-selection-actions">
-                        <button className="ghost-button compact" disabled={!stagedInspectFields.length || !inspectRecorderSession?.id} onClick={() => void syncInspectHighlights(stagedInspectFields, []).then(() => setInspectMessage("All selected fields are highlighted in the browser.")).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight selected fields."))} type="button"><MousePointerIcon size={14} /><span>Highlight all</span></button>
+                        <button className="ghost-button compact" disabled={!stagedInspectFields.length || !inspectRecorderSession?.id} onClick={() => void syncInspectHighlights(stagedInspectFields, []).then(() => setInspectMessage("Previewed the recent selected locators for 3 seconds.")).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to preview selected fields."))} type="button"><MousePointerIcon size={14} /><span>Preview all · 3s</span></button>
                         <button className="ghost-button compact danger" disabled={!stagedInspectFields.length} onClick={removeAllStagedInspectFields} type="button"><TrashIcon size={14} /><span>Remove all</span></button>
                       </div>
                     </div>
                     <div className="object-repository-selected-grid">
-                      {stagedInspectFields.map((field) => (
-                        <article key={field.locator}>
+                      {stagedInspectFields.map((field) => {
+                        const locatorHealth = field.locatorCandidates?.[0];
+                        return (
+                        <article className={focusedInspectField?.locator === field.locator ? "is-focused" : ""} key={field.locator} onClick={() => setFocusedInspectLocator(field.locator)}>
                             <div>
                               <strong>{field.name}</strong>
-                              <small>{field.tag} · {field.locator}</small>
+                              <small>{field.locatorKind} · {locatorHealth?.matchCount === 1 ? "unique" : locatorHealth?.matchCount ? `${locatorHealth.matchCount} matches` : field.tag} · {field.locator}</small>
                             </div>
-                            <StatusBadge value={field.source === "ai_extract" ? "AI selected" : "Selected"} />
+                            <StatusBadge value={locatorHealth?.recommended ? "Recommended" : field.source === "ai_extract" ? "AI selected" : "Selected"} />
                             <div className="object-repository-field-actions">
                               <button className="ghost-button compact" onClick={() => void highlightRepositoryLocator(field.locator, field.name, "", { retainExisting: true }).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight selected field."))} type="button"><MousePointerIcon size={14} /><span>Highlight</span></button>
                               <button className="ghost-button compact danger" onClick={() => removeStagedInspectField(field.locator)} type="button"><TrashIcon size={14} /><span>Remove</span></button>
                             </div>
                           </article>
-                      ))}
+                        );
+                      })}
                       {!stagedInspectFields.length ? <div className="empty-state compact">Nothing selected yet. Choose <strong>Select fields</strong> and click controls in the browser, or request AI suggestions.</div> : null}
                     </div>
                   </section>
@@ -5883,17 +6069,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </summary>
                       <div className="object-repository-suggestion-list">
                       {browserInspectFields.length ? (
-                        <section className="object-repository-browser-candidates" aria-label="Fields highlighted in the browser">
+                        <section className="object-repository-browser-candidates" aria-label="Fields captured in the browser">
                           <div className="object-repository-browser-candidates-head">
                             <div>
-                              <strong>Highlighted in browser <span className="selection-count">{browserInspectFields.length}</span></strong>
+                              <strong>Captured from browser <span className="selection-count">{browserInspectFields.length}</span></strong>
                               <small>These are the controls you clicked in inspect mode. Select the ones to save.</small>
                             </div>
-                            <button className="ghost-button compact" onClick={selectAllBrowserInspectFields} type="button">Select all highlighted</button>
+                            <button className="ghost-button compact" onClick={selectAllBrowserInspectFields} type="button">Select all captured</button>
                           </div>
                           {browserInspectFields.map((field) => (
                             <article className="object-repository-inspector-candidate is-browser-candidate" key={`browser-${field.locator}`}>
                               <button onClick={() => {
+                                setFocusedInspectLocator(field.locator);
                                 setRepositoryDraft((current) => ({
                                   ...current,
                                   object_name: field.name,
@@ -5927,6 +6114,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         return (
                           <article className={isSelected ? "object-repository-inspector-candidate is-selected" : "object-repository-inspector-candidate"} key={`${field.name}-${field.locator}`}>
                             <button onClick={() => {
+                              setFocusedInspectLocator(field.locator);
                               setRepositoryDraft((current) => ({
                                 ...current,
                                 object_name: field.name,

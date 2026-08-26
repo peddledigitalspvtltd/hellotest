@@ -25,7 +25,15 @@ const normalizeDate = (value) => {
   if (!normalized) return null;
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) throw new Error("Invalid iteration date");
+  parsed.setUTCHours(0, 0, 0, 0);
   return parsed.toISOString();
+};
+
+const normalizeEffortPoints = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const points = Number(value);
+  if (![1, 2, 3, 5, 8, 13, 21].includes(points)) throw new Error("Sprint effort must use Fibonacci Story points");
+  return points;
 };
 
 const validateDateRange = (startDate, endDate) => {
@@ -162,7 +170,7 @@ exports.listRequirements = async (id, { limit } = {}) => {
   `).all(...(boundedLimit ? [id, boundedLimit] : [id]));
 };
 
-exports.createIteration = async ({ project_id, name, description, goal, labels, external_references, state, start_date, end_date, requirement_ids = [], created_by } = {}) => {
+exports.createIteration = async ({ project_id, name, description, goal, labels, external_references, state, start_date, end_date, assignee_id, effort_points, original_dev_id, original_qa_id, requirement_ids = [], created_by } = {}) => {
   const project = await ensureProjectExists(project_id);
   const normalizedName = normalizeText(name);
 
@@ -189,8 +197,8 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
 
   const transaction = db.transaction(async () => {
     await db.prepare(`
-      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, labels, external_references, state, start_date, end_date, created_by, updated_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, labels, external_references, state, start_date, end_date, assignee_id, effort_points, original_dev_id, original_qa_id, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       id,
       displayId,
@@ -203,6 +211,10 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
       normalizeState(state),
       startDate,
       endDate,
+      normalizeText(assignee_id),
+      normalizeEffortPoints(effort_points),
+      normalizeText(original_dev_id),
+      normalizeText(original_qa_id),
       actorId,
       actorId
     );
@@ -269,7 +281,7 @@ exports.updateIteration = async (id, data = {}) => {
   const transaction = db.transaction(async () => {
     await db.prepare(`
       UPDATE requirement_iterations
-      SET name = ?, description = ?, goal = ?, labels = ?, external_references = ?, state = ?, start_date = ?, end_date = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      SET name = ?, description = ?, goal = ?, labels = ?, external_references = ?, state = ?, start_date = ?, end_date = ?, assignee_id = ?, effort_points = ?, original_dev_id = ?, original_qa_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
       nextName,
@@ -280,6 +292,10 @@ exports.updateIteration = async (id, data = {}) => {
       nextState,
       startDate,
       endDate,
+      data.assignee_id !== undefined ? normalizeText(data.assignee_id) : existing.assignee_id,
+      data.effort_points !== undefined ? normalizeEffortPoints(data.effort_points) : existing.effort_points,
+      data.original_dev_id !== undefined ? normalizeText(data.original_dev_id) : existing.original_dev_id,
+      data.original_qa_id !== undefined ? normalizeText(data.original_qa_id) : existing.original_qa_id,
       normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,
       id
     );

@@ -1,16 +1,19 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  IconArrowIteration,
   IconChevronDown,
   IconChevronRight,
-  IconClipboardList,
+  IconCheckbox,
   IconDatabase,
   IconFileDescription,
   IconFlask2,
   IconFolderOff,
+  IconHierarchy3,
   IconLink,
+  IconRocket,
   IconTag
 } from "@tabler/icons-react";
+import backlogIcon from "../assets/backlog-icon.png";
+import releaseNotesIcon from "../assets/release-notes-icon.png";
 
 type IconProps = {
   size?: number;
@@ -104,27 +107,14 @@ export function StoryIcon({ size }: IconProps) {
   );
 }
 
-/**
- * Backlog combines Tabler's iteration and list primitives so the mark reads as
- * "iteration work waiting below" without copying the supplied stock artwork.
- */
-export function BacklogIcon({ size = 20, strokeWidth = 2 }: IconProps) {
-  return (
-    <>
-      <IconClipboardList
-        aria-hidden="true"
-        className="backlog-entity-icon__list"
-        size={Math.max(12, Math.round(size * 0.7))}
-        stroke={strokeWidth}
-      />
-      <IconArrowIteration
-        aria-hidden="true"
-        className="backlog-entity-icon__iteration"
-        size={size}
-        stroke={strokeWidth}
-      />
-    </>
-  );
+/** Exact gear-with-dual-workflow-arrows artwork requested for Backlog. */
+export function BacklogIcon({ size = 20 }: IconProps) {
+  const style = {
+    "--backlog-entity-icon-image": `url("${backlogIcon}")`,
+    "--backlog-entity-icon-size": `${size}px`
+  } as CSSProperties;
+
+  return <span aria-hidden="true" className="backlog-entity-icon" style={style} />;
 }
 
 /** Shared document-and-lab identity for Test Cases at peer-safe catalog sizes. */
@@ -298,6 +288,42 @@ export function ReleaseIcon({ size = 16, strokeWidth = 1.8 }: IconProps) {
       <path d="m8.05 19.15-1.25 2" />
       <path d="m4.8 15.85-2.05 1.25" />
     </IconFrame>
+  );
+}
+
+/** Exact document-and-rocket Release Notes artwork supplied for the release ribbon. */
+export function ReleaseNotesIcon({ size = 16 }: IconProps) {
+  return (
+    <img
+      alt=""
+      aria-hidden="true"
+      className="release-notes-icon"
+      draggable={false}
+      height={size}
+      src={releaseNotesIcon}
+      width={size}
+    />
+  );
+}
+
+/** Rocket launch gated by three completed checks, matching the supplied readiness identity. */
+export function ReleaseReadinessIcon({ size = 18, strokeWidth = 1.9 }: IconProps) {
+  const style = {
+    "--release-readiness-icon-size": `${size}px`,
+    "--release-readiness-icon-width": `${Math.round(size * 1.22)}px`
+  } as CSSProperties;
+  const checkSize = Math.max(8, Math.round(size * 0.36));
+
+  return (
+    <span aria-hidden="true" className="release-readiness-icon" style={style}>
+      <IconHierarchy3 className="release-readiness-icon__hierarchy" size={size} stroke={Math.max(1.2, strokeWidth * 0.62)} />
+      <IconRocket className="release-readiness-icon__rocket" size={Math.max(12, Math.round(size * 0.58))} stroke={Math.max(2, strokeWidth)} />
+      <span className="release-readiness-icon__checks">
+        <IconCheckbox size={checkSize} stroke={strokeWidth} />
+        <IconCheckbox size={checkSize} stroke={strokeWidth} />
+        <IconCheckbox size={checkSize} stroke={strokeWidth} />
+      </span>
+    </span>
   );
 }
 

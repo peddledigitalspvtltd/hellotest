@@ -43,40 +43,35 @@
   --nav-identity-color: var(--ds-icon-accent-purple, #6e5dc6);
 }
 
+.app-shell .nav-link[data-nav-identity="product-management"] {
+  --nav-identity-color: var(--ds-icon-accent-blue, #0c66e4);
+}
+
+.product-management-entity-icon {
+  display: block;
+  height: 1.2rem !important;
+  max-width: none;
+  object-fit: contain;
+  width: 1.2rem !important;
+}
+
+:root[data-theme="dark"] .app-shell .nav-link[data-nav-identity="product-management"] {
+  --nav-identity-color: var(--ds-icon-accent-blue, #85b8ff);
+}
+
 .app-shell .nav-submenu-link[data-nav-identity="requirements"],
 .app-shell .nav-submenu-link[data-nav-identity="backlog"] {
   --nav-identity-color: var(--ds-icon-accent-green, #1f845a);
 }
 
 .app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon {
-  position: relative;
-  display: inline-block;
-  width: 1.2rem;
-  height: 1.2rem;
-  overflow: visible;
+  background: transparent;
 }
 
-.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > svg {
-  position: absolute;
+.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > .backlog-entity-icon {
   display: block;
-  max-width: none;
-  overflow: visible;
-}
-
-.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > .backlog-entity-icon__iteration {
-  z-index: 2;
-  top: -0.05rem;
-  left: 0.05rem;
-  width: 1.05rem;
-  height: 0.75rem;
-}
-
-.app-shell .nav-submenu-link[data-nav-identity="backlog"] .nav-submenu-icon > .backlog-entity-icon__list {
-  z-index: 1;
-  bottom: 0;
-  left: 0.22rem;
-  width: 0.72rem;
-  height: 0.72rem;
+  height: 1.2rem;
+  width: 1.2rem;
 }
 
 .app-shell .nav-link[data-nav-identity="runs"],

@@ -5,21 +5,24 @@ export type DetailSectionTab<T extends string> = {
   label: string;
   icon: ReactNode;
   count?: number;
+  description?: string;
 };
 
 export function DetailSectionTabs<T extends string>({
   activeTab,
   ariaLabel,
+  className = "",
   items,
   onChange
 }: {
   activeTab: T;
   ariaLabel: string;
+  className?: string;
   items: Array<DetailSectionTab<T>>;
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="detail-section-tabs" role="tablist" aria-label={ariaLabel}>
+    <div className={["detail-section-tabs", className].filter(Boolean).join(" ")} role="tablist" aria-label={ariaLabel}>
       {items.map((item) => (
         <button
           aria-selected={activeTab === item.value}
@@ -30,7 +33,7 @@ export function DetailSectionTabs<T extends string>({
           type="button"
         >
           <span className="detail-section-tab-icon">{item.icon}</span>
-          <span>{item.label}</span>
+          <span className="detail-section-tab-copy"><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span>
           {typeof item.count === "number" ? <span className="detail-section-tab-count">{item.count}</span> : null}
         </button>
       ))}

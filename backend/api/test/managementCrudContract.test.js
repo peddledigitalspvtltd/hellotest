@@ -63,6 +63,7 @@ test("Product Management persists releases, Story delivery targets, related Stor
     'fastify.post("/requirement-releases"',
     'fastify.get("/requirement-releases/readiness"',
     'fastify.get("/requirement-releases/:id/readiness"',
+    'fastify.post("/requirement-releases/:id/release-notes"',
     'fastify.put("/requirement-releases/:id"',
     'fastify.delete("/requirement-releases/:id"'
   ]) assert.match(releaseRoutes, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -78,11 +79,24 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseService, /bugHealth \* 0\.2/);
   assert.match(releaseService, /automation_is_informational: true/);
   assert.match(releaseService, /exports\.listReadiness/);
+  assert.match(releaseService, /exports\.generateReleaseNotes/);
+  assert.match(releaseService, /story_evaluations/);
+  assert.match(releaseService, /change_groups/);
+  assert.match(releaseService, /known_limitations/);
+  assert.match(releaseService, /validation_summary/);
+  assert.match(releaseService, /Do not turn delivery statuses into the release narrative/);
+  assert.match(releaseService, /setUTCHours\(0, 0, 0, 0\)/);
+  assert.match(releaseService, /plan_date/);
   assert.match(releaseService, /Promise\.all\(releases\.map/);
   assert.match(releaseService, /ensureReleaseStoriesComplete/);
   assert.match(releaseService, /DELIVERY_STORIES_INCOMPLETE/);
   assert.match(storyRoutes, /\/requirements\/:id\/related-requirements/);
+  assert.match(storyRoutes, /related_requirement_ids/);
   assert.match(storyService, /requirement_relations/);
+  for (const field of ["assignee_id", "effort_points", "original_dev_id", "original_qa_id"]) {
+    assert.match(iterationRoutes, new RegExp(field));
+    assert.match(schema, new RegExp(field));
+  }
   assert.match(iterationRoutes, /slippage_stories/);
   assert.match(iterationRoutes, /on_course_stories/);
   for (const status of ["dev_ready", "dev_in_progress", "dev_blocked", "dev_done", "qa_ready", "qa_in_progress", "qa_blocked", "qa_done"]) {

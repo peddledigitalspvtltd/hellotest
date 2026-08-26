@@ -124,7 +124,8 @@ module.exports = async function (fastify) {
       specification_format: { required: false, type: "string", enum: ["gherkin", "speckit"] },
       specification_content: { required: false, type: "string", maxLength: 40000 },
       priority: { required: false, type: "number" },
-      status: { required: false, type: "string", maxLength: 100 }
+      status: { required: false, type: "string", maxLength: 100 },
+      related_requirement_ids: { required: false, type: "array", items: "string", maxItems: 100 }
     }, req.body);
 
     // Verify user is member of project

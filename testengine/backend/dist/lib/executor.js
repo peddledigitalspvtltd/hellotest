@@ -643,6 +643,7 @@ const buildFinalCallback = ({ envelope, run, stepOutcomes, stepSummaries, stepCa
     hellotest_run_id: envelope.hellotest_run_id,
     hellotest_execution_id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
     hellotest_test_case_id: envelope.hellotest_test_case_id,
+    data_set_iteration: envelope.data_set?.iteration || null,
     state: status === "passed" ? "completed" : status === "failed" ? "failed" : "incident",
     summary: status === "passed"
         ? `${envelope.hellotest_test_case_title} completed successfully.`
@@ -667,6 +668,7 @@ const buildProgressCallback = ({ envelope, run, stepOutcomes, stepSummaries, ste
     hellotest_run_id: envelope.hellotest_run_id,
     hellotest_execution_id: envelope.hellotest_execution_id || envelope.hellotest_run_id,
     hellotest_test_case_id: envelope.hellotest_test_case_id,
+    data_set_iteration: envelope.data_set?.iteration || null,
     state: "running",
     summary: `${envelope.hellotest_test_case_title}: completed step ${stepOutcomes.length} of ${totalSteps}.`,
     deterministic_attempted: true,

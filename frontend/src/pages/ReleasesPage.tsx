@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IconBug, IconChartBar, IconCheck, IconChecklist, IconChevronDown, IconChevronRight, IconExternalLink, IconFlagCheck, IconPlayerPlay, IconTargetArrow, IconTrash } from "@tabler/icons-react";
+import { IconBug, IconCheck, IconChecklist, IconChevronDown, IconChevronRight, IconCopy, IconExternalLink, IconFlagCheck, IconPlayerPlay, IconSparkles, IconTargetArrow, IconTrash } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, ReleaseIcon, SearchIcon, SprintIcon, StoryIcon } from "../components/AppIcons";
+import { AddIcon, ReleaseIcon, ReleaseNotesIcon, ReleaseReadinessIcon, SearchIcon, SprintIcon, StoryIcon } from "../components/AppIcons";
 import { AppErrorState } from "../components/AppErrorBoundary";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -29,14 +29,14 @@ import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { isDeliveryStatusComplete, summarizeDeliveryCompletion } from "../lib/deliveryStatus";
 import { hasPermission } from "../lib/permissions";
-import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseReadiness } from "../types";
+import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes, RequirementReleaseReadiness } from "../types";
 import "./ReleasesPage.css";
 
 type ReleaseDraft = {
   name: string;
   description: string;
   fixVersion: string;
-  targetDateLabel: string;
+  planDate: string;
   targetDate: string;
   externalLink: string;
   sprintIds: string[];
@@ -44,13 +44,18 @@ type ReleaseDraft = {
 };
 
 const emptyDraft = (): ReleaseDraft => ({
-  name: "", description: "", fixVersion: "", targetDateLabel: "Release target date",
+  name: "", description: "", fixVersion: "", planDate: "",
   targetDate: "", externalLink: "", sprintIds: [], requirementIds: []
 });
 
 const formatDate = (value?: string | null) => value
   ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value))
   : "No target date";
+
+const dateOnlyToMidnightIso = (value: string) => {
+  const date = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return date ? `${date}T00:00:00.000Z` : undefined;
+};
 
 const storyCompletionFor = (release: RequirementRelease) => {
   const scopedStories = asArray(release.requirements);
@@ -90,6 +95,8 @@ export function ReleasesPage() {
   const [releaseViewMode, setReleaseViewMode] = useState<"tile" | "list">("tile");
   const [selectedReleaseIds, setSelectedReleaseIds] = useState<string[]>([]);
   const [completionBlockedRelease, setCompletionBlockedRelease] = useState<RequirementRelease | null>(null);
+  const [releaseNotesRelease, setReleaseNotesRelease] = useState<RequirementRelease | null>(null);
+  const [releaseNotes, setReleaseNotes] = useState<RequirementReleaseNotes | null>(null);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
@@ -122,6 +129,10 @@ export function ReleasesPage() {
   const createRelease = useMutation({ mutationFn: api.requirementReleases.create });
   const updateRelease = useMutation({ mutationFn: ({ id, state }: { id: string; state: "in_progress" | "released" }) => api.requirementReleases.update(id, { state }) });
   const deleteRelease = useMutation({ mutationFn: api.requirementReleases.delete });
+  const generateReleaseNotes = useMutation({
+    mutationFn: (releaseId: string) => api.requirementReleases.generateNotes(releaseId),
+    onSuccess: setReleaseNotes
+  });
 
   const sprints = asArray(sprintsQuery.data);
   const stories = asArray(storiesQuery.data);
@@ -234,8 +245,9 @@ export function ReleasesPage() {
         name: draft.name.trim(),
         description: draft.description,
         fix_version: draft.fixVersion.trim(),
-        target_date_label: draft.targetDateLabel.trim() || "Release target date",
-        target_date: draft.targetDate ? new Date(draft.targetDate).toISOString() : undefined,
+        target_date_label: "Release target date",
+        plan_date: dateOnlyToMidnightIso(draft.planDate),
+        target_date: dateOnlyToMidnightIso(draft.targetDate),
         external_link: draft.externalLink.trim() || undefined,
         sprint_ids: draft.sprintIds,
         requirement_ids: draft.requirementIds
@@ -313,6 +325,44 @@ export function ReleasesPage() {
   const openReleaseReadiness = (release: RequirementRelease) => {
     navigate(`/?view=readiness&release=${encodeURIComponent(release.fix_version)}&release_id=${encodeURIComponent(release.id)}`);
   };
+  const openReleaseNotes = (release: RequirementRelease) => {
+    setReleaseNotesRelease(release);
+    setReleaseNotes(null);
+    generateReleaseNotes.reset();
+    generateReleaseNotes.mutate(release.id);
+  };
+  const closeReleaseNotes = () => {
+    if (generateReleaseNotes.isPending) return;
+    setReleaseNotesRelease(null);
+    setReleaseNotes(null);
+    generateReleaseNotes.reset();
+  };
+  const releaseNotesPlainText = releaseNotes ? [
+    `${releaseNotes.release_name} (${releaseNotes.fix_version})`,
+    "",
+    releaseNotes.executive_summary,
+    "",
+    ...releaseNotes.change_groups.flatMap((group) => [group.title, ...group.items.map((item) => `- ${item}`), ""]),
+    "",
+    "Known limitations",
+    ...releaseNotes.known_limitations.map((item) => `- ${item}`),
+    "",
+    "Validation",
+    releaseNotes.validation_summary,
+    "",
+    "Evidence by Story",
+    ...releaseNotes.story_evaluations.map((story) => `- ${story.id} — ${story.title}: ${story.summary}`)
+  ].join("\n") : "";
+  const copyReleaseNotes = async () => {
+    try {
+      await navigator.clipboard.writeText(releaseNotesPlainText);
+      setMessageTone("success");
+      setMessage("Release notes copied to clipboard.");
+    } catch {
+      setMessageTone("error");
+      setMessage("Release notes could not be copied. Select the text and copy it manually.");
+    }
+  };
   const openReleaseStory = (story: Requirement) => {
     const destination = story.iteration_id || story.sprint_id || story.sprint ? "/sprints" : "/backlog";
     navigate(`${destination}?requirement=${encodeURIComponent(story.display_id || story.id)}`);
@@ -334,7 +384,8 @@ export function ReleasesPage() {
           </div>
           <div className="requirement-sprint-meta">
             <span className="requirement-sprint-dates">{release.fix_version}</span>
-            <span>{release.target_date_label || "Release target date"}: {formatDate(release.target_date)}</span>
+            <span>Plan: {formatDate(release.plan_date)}</span>
+            <span>Target: {formatDate(release.target_date)}</span>
             <span>{release.sprint_ids.length} {release.sprint_ids.length === 1 ? "Sprint" : "Sprints"}</span>
           </div>
           {description ? <span className="requirement-sprint-goal" title={description}>{description}</span> : null}
@@ -390,7 +441,8 @@ export function ReleasesPage() {
       {release.persisted_state === "in_progress" ? (
         <button aria-label={`Complete release ${release.name}`} className="ghost-button compact release-complete-button" disabled={!canUpdate || updateRelease.isPending} onClick={() => void changeState(release, "released")} title="Complete Release" type="button"><IconFlagCheck size={16} /></button>
       ) : null}
-      <button aria-label={`Open readiness board for ${release.name}`} className="ghost-button compact release-readiness-button" onClick={() => openReleaseReadiness(release)} title="Open release readiness board" type="button"><IconChartBar size={16} /></button>
+      <button aria-label={`Open readiness board for ${release.name}`} className="ghost-button compact release-readiness-button release-ribbon-action" onClick={() => openReleaseReadiness(release)} title="Open release readiness board" type="button"><ReleaseReadinessIcon size={23} /></button>
+      <button aria-label={`${generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id ? "Generating" : "Generate"} release notes for ${release.name}`} className="ghost-button compact release-notes-button release-ribbon-action" disabled={generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id} onClick={() => openReleaseNotes(release)} title="Evaluate scoped Stories and compose Release notes" type="button"><ReleaseNotesIcon size={23} /></button>
       {release.external_link ? <a aria-label={`Open external reference for ${release.name}`} className="ghost-button compact release-external-action" href={release.external_link} rel="noreferrer" target="_blank" title="Open external Release reference"><IconExternalLink size={16} /></a> : null}
       <button aria-label={`Delete release ${release.name}`} className="ghost-button compact danger release-delete-button" disabled={!canDelete || deleteRelease.isPending} onClick={() => void removeRelease(release)} title="Delete Release" type="button"><IconTrash size={16} /></button>
     </div>
@@ -586,7 +638,7 @@ export function ReleasesPage() {
                   <div className="release-create-grid">
                     <FormField label="Release name" required><input autoFocus data-autofocus="true" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Enter release name" /></FormField>
                     <FormField label="Fix Version" required><input required value={draft.fixVersion} onChange={(event) => setDraft((current) => ({ ...current, fixVersion: event.target.value }))} placeholder="For example 2026.08" /></FormField>
-                    <FormField label="Target date label"><input value={draft.targetDateLabel} onChange={(event) => setDraft((current) => ({ ...current, targetDateLabel: event.target.value }))} /></FormField>
+                    <FormField label="Release plan date"><input type="date" value={draft.planDate} onChange={(event) => setDraft((current) => ({ ...current, planDate: event.target.value }))} /></FormField>
                     <FormField label="Release target date"><input type="date" value={draft.targetDate} onChange={(event) => setDraft((current) => ({ ...current, targetDate: event.target.value }))} /></FormField>
                     <FormField className="is-wide" label="External link"><input placeholder="https://…" type="url" value={draft.externalLink} onChange={(event) => setDraft((current) => ({ ...current, externalLink: event.target.value }))} /></FormField>
                     <FormField className="is-wide release-description-field" label="Release description"><RichTextEditor aria-label="Release description" className="sprint-goal-editor" rows={7} toolbarPreset="sprint-goal" value={draft.description} onChange={(description) => setDraft((current) => ({ ...current, description }))} placeholder="Describe the release outcome and go-live intent..." /></FormField>
@@ -626,6 +678,61 @@ export function ReleasesPage() {
           onClose={() => setCompletionBlockedRelease(null)}
           totalStories={completionBlockedRelease.requirement_count || asArray(completionBlockedRelease.requirements).length}
         />
+      ) : null}
+      {releaseNotesRelease ? (
+        <div className="modal-backdrop release-notes-backdrop" onClick={closeReleaseNotes} role="presentation">
+          <section aria-labelledby="release-notes-title" aria-modal="true" className="modal-card release-notes-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+            <header className="release-notes-dialog-header">
+              <div>
+                <span className="eyebrow">Audience-ready release communication</span>
+                <h2 className="dialog-title" id="release-notes-title">{releaseNotesRelease.name} release notes</h2>
+                <p>Delivered product changes are grouped into a readable narrative; validation evidence and known limitations remain explicit.</p>
+              </div>
+              <DialogCloseButton disabled={generateReleaseNotes.isPending} label="Close release notes" onClick={closeReleaseNotes} />
+            </header>
+            <div className="release-notes-dialog-body" aria-busy={generateReleaseNotes.isPending}>
+              {generateReleaseNotes.isPending ? (
+                <LoadingState label="Evaluating Release Stories and composing notes" />
+              ) : generateReleaseNotes.isError ? (
+                <div className="release-notes-error" role="alert">
+                  <strong>Release notes could not be generated.</strong>
+                  <span>{generateReleaseNotes.error instanceof Error ? generateReleaseNotes.error.message : "Try again after refreshing Release evidence."}</span>
+                  <button className="primary-button" onClick={() => generateReleaseNotes.mutate(releaseNotesRelease.id)} type="button"><IconSparkles size={16} /><span>Try again</span></button>
+                </div>
+              ) : releaseNotes ? (
+                <>
+                  <section className="release-notes-hero">
+                    <div><span>Version</span><strong>{releaseNotes.fix_version}</strong></div>
+                    <div><span>Delivered changes</span><strong>{releaseNotes.scope_summary.delivered_changes}</strong></div>
+                    <div><span>Change categories</span><strong>{releaseNotes.scope_summary.change_categories}</strong></div>
+                    <div><span>Validation signal</span><strong>{releaseNotes.quality_summary.readiness_score}%</strong></div>
+                  </section>
+                  <section className="release-notes-summary-card"><span>What’s in this release</span><p>{releaseNotes.executive_summary}</p></section>
+                  <div className="release-notes-change-grid">
+                    {releaseNotes.change_groups.map((group) => <section className="release-notes-section tone-highlight" key={group.title}><h3>{group.title}</h3><ul>{group.items.map((item) => <li key={item}>{item}</li>)}</ul></section>)}
+                  </div>
+                  <div className="release-notes-columns">
+                    <section className="release-notes-section tone-risk"><h3>Known limitations</h3><ul>{releaseNotes.known_limitations.map((item) => <li key={item}>{item}</li>)}</ul></section>
+                    <section className="release-notes-section tone-validation"><h3>Validation summary</h3><p>{releaseNotes.validation_summary}</p></section>
+                  </div>
+                  <details className="release-notes-story-section">
+                    <summary><div><h3>Traceable scope evidence</h3><span>{releaseNotes.story_evaluations.length} scoped Stories</span></div><span className="release-notes-generation-mode">{releaseNotes.generation_mode === "llm" ? "AI composed · evidence bounded" : "Evidence composed"}</span></summary>
+                    <div className="release-notes-story-list">
+                      {releaseNotes.story_evaluations.map((story) => <article className={`release-notes-story is-${story.health}`} key={story.id}><div><DisplayIdBadge value={story.id} /><strong>{story.title}</strong><StatusBadge value={story.status} /></div>{story.outcome ? <p className="release-notes-story-outcome">{story.outcome}</p> : null}<p>{story.summary}</p></article>)}
+                    </div>
+                  </details>
+                </>
+              ) : null}
+            </div>
+            <footer className="release-notes-dialog-footer">
+              <span>{releaseNotes ? `Generated ${new Date(releaseNotes.generated_at).toLocaleString()}` : "Current linked evidence is evaluated at generation time."}</span>
+              <div>
+                {releaseNotes ? <button className="ghost-button" onClick={() => void copyReleaseNotes()} type="button"><IconCopy size={16} /><span>Copy notes</span></button> : null}
+                <button className="primary-button" disabled={generateReleaseNotes.isPending} onClick={() => { setReleaseNotes(null); generateReleaseNotes.reset(); generateReleaseNotes.mutate(releaseNotesRelease.id); }} type="button"><IconSparkles size={16} /><span>Regenerate</span></button>
+              </div>
+            </footer>
+          </section>
+        </div>
       ) : null}
     </div>
   );

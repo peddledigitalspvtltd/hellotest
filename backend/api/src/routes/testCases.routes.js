@@ -13,6 +13,7 @@ const testCaseVersionService = require("../services/testCaseVersion.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const { paginate, shouldPaginate } = require("../utils/pagination");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
+const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveScopedRequirements = async (requirementIds = [], projectId) => {
@@ -61,6 +62,7 @@ module.exports = async function (fastify) {
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
+      test_case_type: { required: false, type: "string", enum: TEST_CASE_TYPE_VALUES },
       gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
@@ -68,6 +70,7 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
+      test_data_set_ids: { required: false, type: "array", items: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
       review_history: { required: false, type: "array" },
@@ -1066,6 +1069,7 @@ module.exports = async function (fastify) {
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
+      test_case_type: { required: false, type: "string", enum: TEST_CASE_TYPE_VALUES },
       gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
@@ -1073,6 +1077,7 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
+      test_data_set_ids: { required: false, type: "array", items: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
       review_history: { required: false, type: "array" },

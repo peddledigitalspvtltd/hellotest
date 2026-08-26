@@ -2577,6 +2577,15 @@ components:
         manual_test_case_id: { type: string, nullable: true, description: Primary manual test case linked to this independent automation case. }
         manual_test_case_ids: { type: array, items: { type: string }, description: All manual test cases linked to this automation case. }
         authoring_mode: { type: string, enum: [structured, gherkin] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_data_set_ids: { type: array, items: { type: string } }
+        author:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string, nullable: true }
+            email: { type: string, nullable: true }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer, nullable: true }
         status: { type: string, nullable: true }
@@ -2594,6 +2603,8 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_data_set_ids: { type: array, items: { type: string } }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }
@@ -2609,6 +2620,8 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_data_set_ids: { type: array, items: { type: string } }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }

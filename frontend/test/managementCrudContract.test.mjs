@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readBinary = (relativePath) => readFile(new URL(relativePath, import.meta.url));
+
+test("release notes ribbon uses the supplied document-and-rocket artwork exactly", async () => {
+  const [releases, icons, artwork] = await Promise.all([
+    readSource("../src/pages/ReleasesPage.tsx"),
+    readSource("../src/components/AppIcons.tsx"),
+    readBinary("../src/assets/release-notes-icon.png")
+  ]);
+
+  assert.match(releases, /<ReleaseNotesIcon size=\{23\}/);
+  assert.doesNotMatch(releases, /<ReleaseNotesIcon size=\{23\} \/><span>/);
+  assert.match(icons, /import releaseNotesIcon from "\.\.\/assets\/release-notes-icon\.png"/);
+  assert.equal(createHash("sha256").update(artwork).digest("hex"), "d5f3213473172d94b41d25c8683d1802fec2754b98db45e5284cd137d53d4199");
+});
 
 test("People management exposes user CRUD and role editors without Jira-specific UI", async () => {
   const page = await readSource("../src/pages/PeoplePage.tsx");
@@ -17,17 +32,22 @@ test("People management exposes user CRUD and role editors without Jira-specific
 });
 
 test("Product Management replaces Requirements Management and separates Stories, Backlog, Sprints, and Releases", async () => {
-  const [shell, sections, navigationStyles, icons, sectionTabs] = await Promise.all([
+  const [shell, sections, navigationStyles, icons, sectionTabs, productManagementArtwork] = await Promise.all([
     readSource("../src/components/AppShell.tsx"),
     readSource("../src/lib/workspaceSections.ts"),
     readSource("../src/components/module-navigation.css"),
     readSource("../src/components/AppIcons.tsx"),
-    readSource("../src/components/WorkspaceSectionTabs.tsx")
+    readSource("../src/components/WorkspaceSectionTabs.tsx"),
+    readBinary("../src/assets/product-management-icon.png")
   ]);
 
   assert.match(shell, /id: "product-management"/);
   assert.match(shell, /label: "Product Management"/);
-  assert.match(shell, /icon: RequirementsManagementIcon/);
+  assert.match(shell, /icon: ProductManagementIcon/);
+  assert.match(shell, /import productManagementIcon from "\.\.\/assets\/product-management-icon\.png"/);
+  assert.match(shell, /function ProductManagementIcon[\s\S]*product-management-entity-icon[\s\S]*src=\{productManagementIcon\}/);
+  assert.doesNotMatch(shell, /IconTargetArrow/);
+  assert.equal(createHash("sha256").update(productManagementArtwork).digest("hex"), "2ad79ac0fab87d0674bb87ecf81ee239ad0cf1353baa54d1838d3bc32a09c865");
   assert.doesNotMatch(shell, /label: "Requirements Management"/);
   assert.ok(shell.indexOf('label: "Product Management"') < shell.indexOf('id: "authoring"'));
   assert.match(sections, /PRODUCT_MANAGEMENT_SECTION_ITEMS[\s\S]*label: "Stories"[\s\S]*label: "Backlog"[\s\S]*label: "Sprints"[\s\S]*label: "Releases"/);
@@ -42,19 +62,33 @@ test("Product Management replaces Requirements Management and separates Stories,
   assert.match(sectionTabs, /case "release":[\s\S]*<ReleaseIcon/);
   assert.match(icons, /export function SprintIcon/);
   assert.match(icons, /export function ReleaseIcon/);
-  assert.match(navigationStyles, /data-nav-identity="backlog"[\s\S]*backlog-entity-icon__iteration[\s\S]*backlog-entity-icon__list/);
+  assert.match(icons, /import backlogIcon from "\.\.\/assets\/backlog-icon\.png"/);
+  assert.match(icons, /export function BacklogIcon[\s\S]*--backlog-entity-icon-image[\s\S]*backlog-entity-icon/);
+  assert.doesNotMatch(icons, /IconArrowIteration/);
+  assert.match(navigationStyles, /data-nav-identity="backlog"[\s\S]*backlog-entity-icon/);
   assert.match(navigationStyles, /data-nav-identity="sprint"/);
   assert.match(navigationStyles, /data-nav-identity="release"/);
   const authoring = sections.slice(sections.indexOf("TEST_AUTHORING_SECTION_ITEMS"), sections.indexOf("TEST_ENVIRONMENT_SECTION_ITEMS"));
   assert.doesNotMatch(authoring, /label: "Stories"|label: "Backlog"|label: "Sprints"|label: "Releases"/);
 });
 
+test("Backlog uses the approved gear and dual-workflow-arrow artwork", async () => {
+  const [styles, artwork] = await Promise.all([
+    readSource("../src/catalog-list.css"),
+    readBinary("../src/assets/backlog-icon.png")
+  ]);
+
+  assert.match(styles, /\.backlog-entity-icon[\s\S]*mask-image: var\(--backlog-entity-icon-image\)[\s\S]*mask-size: contain/);
+  assert.equal(createHash("sha256").update(artwork).digest("hex"), "769ecfb0735dfd7cf5b59b3035fc14ba444412fad91738e7048b7d66ae7d86b2");
+});
+
 test("Product Management workspaces expose delivery governance without using automation as readiness", async () => {
-  const [app, stories, releases, readiness, issues, completionGuard, projects, api, types] = await Promise.all([
+  const [app, stories, releases, readiness, icons, issues, completionGuard, projects, api, types] = await Promise.all([
     readSource("../src/App.tsx"),
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/pages/ReleasesPage.tsx"),
     readSource("../src/components/ReleaseReadinessDashboard.tsx"),
+    readSource("../src/components/AppIcons.tsx"),
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/components/DeliveryCompletionGuardDialog.tsx"),
     readSource("../src/pages/ProjectsPage.tsx"),
@@ -91,7 +125,13 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(releases, /Create release/);
   assert.match(releases, /Fix Version/);
   assert.match(releases, /Release target date/);
+  assert.match(releases, /Release plan date/);
+  assert.match(releases, /Release notes/);
+  assert.match(releases, /generateReleaseNotes/);
   assert.match(releases, /Open release readiness board/);
+  assert.match(releases, /<ReleaseReadinessIcon size=\{23\}/);
+  assert.match(readiness, /<ReleaseReadinessIcon size=\{28\}/);
+  assert.match(icons, /export function ReleaseReadinessIcon[\s\S]*IconHierarchy3[\s\S]*IconRocket[\s\S]*IconCheckbox/);
   assert.match(releases, /release_id=/);
   assert.match(releases, /Release portfolio health/i);
   for (const metric of ["Release ready", "At risk", "Story completion", "Test coverage", "Open Bugs"]) {
@@ -124,7 +164,12 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.ok(openProjectHandler.indexOf("setFocusedProjectId(item.project.id)") < openProjectHandler.indexOf("setSelectedProjectId(item.project.id)"));
   assert.doesNotMatch(releases, /window\.confirm/);
   assert.match(api, /requirementReleases:/);
+  assert.match(api, /generateNotes/);
   assert.match(api, /replaceRelatedRequirements/);
+  assert.match(stories, /qaScopedStories = workspaceMode === "stories"/);
+  assert.match(stories, /Backlog Stories are excluded/);
+  assert.match(stories, /StoryMetricFact/);
+  assert.match(stories, /\/testops\?process=/);
   assert.match(types, /specification_format\?: "gherkin" \| "speckit"/);
 });
 
@@ -151,16 +196,38 @@ test("project tiles present exact delivery scope in Stories, Modules, Cases, Bug
     readSource("../src/pages/ProjectsPage.tsx"),
     readSource("../src/types.ts")
   ]);
-  const metaGrid = page.slice(page.indexOf('<div className="project-meta-grid">'), page.indexOf('</div>', page.indexOf('<div className="project-meta-grid">')));
+  const metaGrid = page.slice(page.indexOf('<div className="tile-card-facts project-tile-metrics"'), page.indexOf('</div>', page.indexOf('<div className="tile-card-facts project-tile-metrics"')));
 
   assert.ok(metaGrid.indexOf("Stories") < metaGrid.indexOf("Modules"));
-  assert.ok(metaGrid.indexOf("Modules") < metaGrid.indexOf("Cases"));
-  assert.ok(metaGrid.indexOf("Cases") < metaGrid.indexOf("Bugs"));
+  assert.ok(metaGrid.indexOf("Modules") < metaGrid.indexOf("Test cases"));
+  assert.ok(metaGrid.indexOf("Test cases") < metaGrid.indexOf("Bugs"));
+  assert.match(metaGrid, /TileCardMetric/);
   assert.match(metaGrid, /item\.requirementCount/);
   assert.match(metaGrid, /item\.moduleCount/);
   assert.match(metaGrid, /item\.testCaseCount/);
   assert.match(metaGrid, /item\.bugCount/);
   assert.match(types, /story_count\?: number \| null;[\s\S]*module_count\?: number \| null;[\s\S]*case_count\?: number \| null;[\s\S]*bug_count\?: number \| null;/);
+});
+
+test("Story and test-case history lead with comparable execution-health evidence", async () => {
+  const [history, stories, testCases, modalStyles] = await Promise.all([
+    readSource("../src/components/TraceabilityRunHistory.tsx"),
+    readSource("../src/pages/RequirementsPage.tsx"),
+    readSource("../src/pages/TestCasesPage.tsx"),
+    readSource("../src/modal-system.css")
+  ]);
+
+  for (const signal of ["Recent pass rate", "Movement", "Current streak", "Median duration", "Outcome timeline", "Previous 5", "Recent 5"]) {
+    assert.match(history, new RegExp(signal));
+  }
+  assert.match(history, /currentWindow = finalized\.slice\(0, 5\)/);
+  assert.match(history, /previousWindow = finalized\.slice\(5, 10\)/);
+  assert.match(history, /onClick=\{\(\) => openRun\(row\)\}/);
+  assert.match(stories, /StoryDetailSectionContext/);
+  assert.match(modalStyles, /\.story-detail-section-context/);
+  assert.match(modalStyles, /\.execution-health-timeline/);
+  const testHistoryPanel = testCases.slice(testCases.indexOf('activeTestCaseDetailTab === "history"'), testCases.indexOf('activeTestCaseDetailTab === "defects"'));
+  assert.ok(testHistoryPanel.indexOf("TraceabilityRunHistory") < testHistoryPanel.indexOf("TestCaseVersionHistory"));
 });
 
 test("project creation and catalog expose mature visibility, favorite, and locked states", async () => {
@@ -298,6 +365,50 @@ test("native checkboxes retain a white surface across application themes", async
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*color-scheme: light !important/);
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*background-color: #ffffff !important/);
   assert.match(styles, /:where\(input\[type="checkbox"\]\)[\s\S]*accent-color: var\(--brand-blue-600, #2563eb\) !important/);
+});
+
+test("planning dates, simplified Sprint creation, and rich-text links retain the refined authoring contract", async () => {
+  const [stories, releases, editor] = await Promise.all([
+    readSource("../src/pages/RequirementsPage.tsx"),
+    readSource("../src/pages/ReleasesPage.tsx"),
+    readSource("../src/components/RichTextEditor.tsx")
+  ]);
+
+  assert.match(stories, /label="Dev Completion Target Date"><input type="date"/);
+  assert.match(stories, /label="QA Completion Target Date"><input[^>]*type="date"/);
+  assert.match(stories, /label="Start date">[\s\S]*type="date"/);
+  assert.match(stories, /queryKey: \["sprint-backlog-picker", projectId\][\s\S]*unassigned: true/);
+  assert.match(stories, /const selectedStoryIds = \[\.\.\.new Set\(sprintDraftRequirementIds/);
+  assert.match(stories, /aria-label="Filter backlog Stories by status"/);
+  assert.match(stories, /<GherkinEditor featureTitle=\{createDraft\.title/);
+  assert.match(stories, /<SpecKitEditor onChange=/);
+  assert.match(stories, /<optgroup label="HelloTest releases">/);
+  assert.match(stories, /createStorySprintOptions\.map/);
+  assert.match(stories, /story-related-create-actions[\s\S]*Link related Stories/);
+  assert.match(stories, /story-specification-title-row[\s\S]*Gherkin[\s\S]*Spec Kit/);
+  assert.match(releases, /dateOnlyToMidnightIso/);
+  assert.match(editor, /document\.createElement\("a"\)/);
+  assert.match(editor, /pendingRange\.insertNode\(anchor\)/);
+  assert.doesNotMatch(editor, /execCommand\("createLink"/);
+});
+
+test("test data authoring uses an iteration grid and module health loads before expansion", async () => {
+  const [testCases, styles] = await Promise.all([
+    readSource("../src/pages/TestCasesPage.tsx"),
+    readSource("../src/styles.css")
+  ]);
+
+  assert.match(testCases, /function DataSetCreationModal/);
+  assert.match(testCases, /Configure values for variables below/);
+  assert.match(testCases, /onAddRow[\s\S]*onAddColumn/);
+  assert.match(testCases, /Each row becomes a separate execution iteration/);
+  assert.match(testCases, /const moduleMetricHeaders = useMemo/);
+  assert.match(testCases, /moduleMetricHeaders\.flatMap/);
+  assert.doesNotMatch(testCases, /isCollapsed \|\| !modulePageState \|\| isInitialLoading/);
+  assert.equal((testCases.match(/\{renderModuleMetrics\(moduleHealth\.unassigned\)\}/g) || []).length, 2);
+  assert.doesNotMatch(testCases, /isUnassignedModuleExpanded[\s\S]{0,120}renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)/);
+  assert.match(styles, /\.modal-backdrop > \.data-set-create-modal/);
+  assert.match(styles, /\.data-set-entry-grid/);
 });
 
 test("Object Repository separates manual screen creation from the inspection workspace", async () => {

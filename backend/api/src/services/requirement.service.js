@@ -33,6 +33,7 @@ const normalizeDeliveryDate = (value) => {
   if (!normalized) return null;
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) throw new Error("Invalid Story completion target date");
+  parsed.setUTCHours(0, 0, 0, 0);
   return parsed.toISOString();
 };
 
@@ -1420,7 +1421,7 @@ const ensureStoriesInProject = async (requirementIds, projectId) => {
   }
 };
 
-exports.createRequirement = async ({ project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, created_by }) => {
+exports.createRequirement = async ({ project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, related_requirement_ids = [], created_by }) => {
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
@@ -1431,40 +1432,52 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
 
   if (!project) throw new Error("Project not found");
   await ensureIterationBelongsToProject(iteration_id, project_id);
+  const relatedRequirementIds = normalizeReferenceList(related_requirement_ids);
+  await ensureStoriesInProject(relatedRequirementIds, project_id);
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("requirement");
 
-  await db.prepare(`
-    INSERT INTO requirements (id, display_id, project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `).run(
-    id,
-    display_id,
-    project_id,
-    title,
-    description || null,
-    normalizeTextList(gherkin_scenarios, 20, 4_000),
-    normalizeJsonObject(additional_fields),
-    normalizeStoryAiReview(ai_review, created_by),
-    normalizeReferenceList(external_references),
-    normalizeReferenceList(labels),
-    normalizeText(sprint),
-    normalizeText(fix_version),
-    normalizeText(release),
-    normalizeText(iteration_id),
-    normalizeDeliveryDate(dev_completion_target_date),
-    normalizeDeliveryDate(qa_completion_target_date),
-    normalizeText(scrum_team),
-    normalizeSpecificationFormat(specification_format),
-    normalizeText(specification_content),
-    priority ?? 3,
-    status || null,
-    created_by || null,
-    created_by || null
-  );
+  const transaction = db.transaction(async () => {
+    await db.prepare(`
+      INSERT INTO requirements (id, display_id, project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      id,
+      display_id,
+      project_id,
+      title,
+      description || null,
+      normalizeTextList(gherkin_scenarios, 20, 4_000),
+      normalizeJsonObject(additional_fields),
+      normalizeStoryAiReview(ai_review, created_by),
+      normalizeReferenceList(external_references),
+      normalizeReferenceList(labels),
+      normalizeText(sprint),
+      normalizeText(fix_version),
+      normalizeText(release),
+      normalizeText(iteration_id),
+      normalizeDeliveryDate(dev_completion_target_date),
+      normalizeDeliveryDate(qa_completion_target_date),
+      normalizeText(scrum_team),
+      normalizeSpecificationFormat(specification_format),
+      normalizeText(specification_content),
+      priority ?? 3,
+      status || null,
+      created_by || null,
+      created_by || null
+    );
+    for (const relatedId of relatedRequirementIds) {
+      await db.prepare(`
+        INSERT INTO requirement_relations (requirement_id, related_requirement_id, relation)
+        VALUES (?, ?, 'relates to')
+        ON CONFLICT (requirement_id, related_requirement_id) DO NOTHING
+      `).run(id, relatedId);
+    }
+  });
+  await transaction();
 
-  return { id };
+  return { id, related_requirement_ids: relatedRequirementIds };
 };
 
 exports.getRequirements = async ({ project_id, status, priority, ids, limit }) => {

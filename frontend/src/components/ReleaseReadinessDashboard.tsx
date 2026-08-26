@@ -16,7 +16,6 @@ import {
   IconGitBranch,
   IconListCheck,
   IconRefresh,
-  IconRocket,
   IconRoute,
   IconShieldCheck,
   IconSparkles,
@@ -39,6 +38,7 @@ import {
 } from "../lib/releaseReadiness";
 import type { ExecutionResult } from "../types";
 import { AiInsightPreviewDialog, type AiPreviewFinding } from "./AiInsightPreviewDialog";
+import { ReleaseReadinessIcon } from "./AppIcons";
 import { LoadingState } from "./LoadingState";
 import { MetricMethodologyInfo } from "./MetricMethodologyInfo";
 import { ProgressMeter } from "./ProgressMeter";
@@ -475,7 +475,7 @@ export function ReleaseReadinessDashboard() {
       <header className="readiness-command-header">
         <div className="readiness-command-identity">
           <span className="readiness-command-mark" aria-hidden="true">
-            <IconRocket size={24} stroke={1.8} />
+            <ReleaseReadinessIcon size={28} strokeWidth={1.9} />
           </span>
           <div>
             <p>Release decision room</p>

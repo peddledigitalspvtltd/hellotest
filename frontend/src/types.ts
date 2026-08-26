@@ -549,6 +549,7 @@ export type Requirement = {
   priority: number | null;
   status: string | null;
   status_category?: string | null;
+  additional_fields?: Record<string, unknown>;
   test_case_ids?: string[];
   defect_ids?: string[];
   defects?: RequirementDefectLink[];
@@ -591,6 +592,10 @@ export type RequirementIteration = {
   status?: string | null;
   start_date?: string | null;
   end_date?: string | null;
+  assignee_id?: string | null;
+  effort_points?: number | null;
+  original_dev_id?: string | null;
+  original_qa_id?: string | null;
   complete_date?: string | null;
   labels?: string[];
   external_references?: string[];
@@ -610,6 +615,7 @@ export type RequirementRelease = {
   description?: string | null;
   fix_version: string;
   target_date_label?: string | null;
+  plan_date?: string | null;
   target_date?: string | null;
   external_link?: string | null;
   state: "planned" | "in_progress" | "released" | "overdue";
@@ -622,6 +628,48 @@ export type RequirementRelease = {
   updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type RequirementReleaseNotes = {
+  release_id: string;
+  release_name: string;
+  fix_version: string;
+  generated_at: string;
+  generation_mode: "llm" | "deterministic";
+  executive_summary: string;
+  highlights: string[];
+  risks: string[];
+  change_groups: Array<{ title: string; items: string[] }>;
+  known_limitations: string[];
+  validation_summary: string;
+  scope_summary: {
+    scoped_changes: number;
+    delivered_changes: number;
+    change_categories: number;
+  };
+  quality_summary: {
+    readiness_score: number;
+    readiness_state: RequirementReleaseReadiness["readiness_state"];
+    story_completion: string;
+    test_coverage_percent: number | null;
+    pass_rate_percent: number | null;
+    open_bugs: number;
+  };
+  story_evaluations: Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: number;
+    sprint: string | null;
+    completed: boolean;
+    linked_cases: number;
+    total_bugs: number;
+    open_bugs: number;
+    health: "healthy" | "attention" | "at_risk";
+    outcome: string | null;
+    acceptance_scope: string | null;
+    summary: string;
+  }>;
 };
 
 export type RequirementReleaseReadiness = {
@@ -1563,6 +1611,8 @@ export type AiDesignedTestCaseCandidate = {
   description: string | null;
   priority: number;
   authoring_mode?: "structured" | "gherkin";
+  test_case_type?: TestCase["test_case_type"];
+  test_data_set_ids?: string[];
   gherkin_document?: string | null;
   parameter_values?: Record<string, string>;
   parameter_count?: number;
@@ -1892,7 +1942,11 @@ export type TestCase = {
   manual_test_case_id?: string | null;
   manual_test_case_ids?: string[];
   authoring_mode?: "structured" | "gherkin";
+  test_case_type?: "functional" | "regression" | "smoke" | "integration" | "acceptance" | "exploratory" | "performance" | "security" | "accessibility";
   gherkin_document?: string | null;
+  test_data_set_ids?: string[];
+  test_data_sets?: Array<Pick<TestDataSet, "id" | "name" | "mode" | "columns" | "rows">>;
+  author?: { id: string; name?: string | null; email?: string | null } | null;
   priority: number | null;
   status: string | null;
   assignee_id?: string | null;
@@ -2651,6 +2705,11 @@ export type ExecutionResult = {
   duration_ms: number | null;
   error: string | null;
   logs: string | null;
+  test_data_set_id?: string | null;
+  test_data_set_name?: string | null;
+  data_set_iteration_index?: number | null;
+  data_set_iteration_key?: string | null;
+  data_set_row_snapshot?: Record<string, string> | null;
   external_references?: string[];
   defects?: string[];
   case_defects?: string[];

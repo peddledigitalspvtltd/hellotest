@@ -61,6 +61,12 @@ const selectExecutionCaseIds = db.prepare(`
   WHERE execution_id = ?
 `);
 
+const selectExecutionDataSetContext = db.prepare(`
+  SELECT test_data_set_id, test_data_set_snapshot
+  FROM executions
+  WHERE id = ?
+`);
+
 const selectExecutionCaseOrder = db.prepare(`
   SELECT test_case_id, suite_id, sort_order
   FROM execution_case_snapshots
@@ -75,10 +81,11 @@ const selectSuiteParallelConfig = db.prepare(`
 `);
 
 const selectLatestResultsForExecution = db.prepare(`
-  SELECT DISTINCT ON (test_case_id) test_case_id, status
+  SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1))
+    test_case_id, data_set_iteration_index, status
   FROM execution_results
   WHERE execution_id = ?
-  ORDER BY test_case_id ASC, created_at DESC, id DESC
+  ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, created_at DESC, id DESC
 `);
 
 const selectLatestJobStatusesForExecution = obsDb.prepare(`
@@ -1001,7 +1008,8 @@ const buildEngineEnvelope = async ({
   steps,
   stepsByCaseId,
   integration,
-  objectRepository = []
+  objectRepository = [],
+  dataSetIteration = null
 }) => {
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
@@ -1121,12 +1129,21 @@ const buildEngineEnvelope = async ({
       : null,
     data_set: execution.test_data_set
       ? {
+          id: execution.test_data_set.id || null,
           name: execution.test_data_set.name,
           mode: execution.test_data_set.snapshot?.mode === "key_value" ? "key_value" : "table",
           columns: Array.isArray(execution.test_data_set.snapshot?.columns)
             ? execution.test_data_set.snapshot.columns.map((entry) => String(entry))
             : [],
-          rows: toEngineDataSetRows(execution.test_data_set.snapshot?.rows)
+          rows: dataSetIteration?.row
+            ? [dataSetIteration.row]
+            : toEngineDataSetRows(execution.test_data_set.snapshot?.rows),
+          iteration: dataSetIteration ? {
+            index: dataSetIteration.index,
+            number: dataSetIteration.index + 1,
+            key: dataSetIteration.key,
+            total: dataSetIteration.total
+          } : null
         }
       : null,
     artifact_policy: {
@@ -1305,6 +1322,35 @@ const resultStatusToJobStatus = (status) => {
   return "failed";
 };
 
+const resolveExecutionDataSetIterations = (execution) => {
+  const dataSet = execution?.test_data_set;
+  const rows = toEngineDataSetRows(dataSet?.snapshot?.rows);
+  if (!dataSet || dataSet.snapshot?.mode === "key_value" || !rows.length) {
+    return [{ index: 0, key: dataSet ? `${dataSet.id || "data-set"}:1` : "default:1", total: 1, row: null }];
+  }
+  return rows.map((row, index) => ({
+    index,
+    key: `${dataSet.id || "data-set"}:${index + 1}`,
+    total: rows.length,
+    row
+  }));
+};
+
+const resultIterationFromJob = (job) => {
+  const iteration = job?.payload?.data_set?.iteration;
+  const dataSetRows = Array.isArray(job?.payload?.data_set?.rows) ? job.payload.data_set.rows : [];
+  const rowSnapshot = job?.payload?.data_set?.mode === "key_value"
+    ? Object.fromEntries(dataSetRows.map((row) => [normalizeText(row?.key), row?.value]).filter(([key]) => key))
+    : dataSetRows[0] || null;
+  return {
+    test_data_set_id: job?.payload?.data_set ? job.payload.data_set.id || null : null,
+    test_data_set_name: job?.payload?.data_set?.name || null,
+    data_set_iteration_index: Number.isInteger(iteration?.index) ? iteration.index : null,
+    data_set_iteration_key: normalizeText(iteration?.key),
+    data_set_row_snapshot: rowSnapshot
+  };
+};
+
 async function planExecutionDispatch(execution, options = {}) {
   const [project, appType] = await Promise.all([
     selectProject.get(execution.project_id),
@@ -1330,6 +1376,8 @@ async function planExecutionDispatch(execution, options = {}) {
   let unsupportedAutomatedCaseCount = 0;
   const allowIncompleteAutomation = options.allowIncompleteAutomation === true;
   const allowApiCasesWithoutAutomation = options.allowApiCasesWithoutAutomation === true;
+
+  const dataSetIterations = resolveExecutionDataSetIterations(execution);
 
   for (const caseSnapshot of execution.case_snapshots || []) {
     const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
@@ -1397,14 +1445,16 @@ async function planExecutionDispatch(execution, options = {}) {
       continue;
     }
 
-    const engineRunId = uuid();
-    eligibleCases.push({
-      engine_run_id: engineRunId,
-      case_snapshot: caseSnapshot,
-      case_record: caseRecord,
-      envelope: null,
-      steps: normalizedSteps
-    });
+    for (const dataSetIteration of dataSetIterations) {
+      eligibleCases.push({
+        engine_run_id: uuid(),
+        case_snapshot: caseSnapshot,
+        case_record: caseRecord,
+        data_set_iteration: dataSetIteration,
+        envelope: null,
+        steps: normalizedSteps
+      });
+    }
   }
 
   return {
@@ -1435,18 +1485,30 @@ async function settleExecutionIfComplete(executionId) {
   }
 
   const latestResults = await selectLatestResultsForExecution.all(executionId);
-  const latestStatusByCaseId = new Map(
-    latestResults.map((result) => [normalizeText(result.test_case_id), normalizeText(result.status)])
+  const executionContext = await selectExecutionDataSetContext.get(executionId);
+  const dataSetSnapshot = normalizeJsonValue(executionContext?.test_data_set_snapshot, null);
+  const dataSetRows = dataSetSnapshot?.mode === "table" && Array.isArray(dataSetSnapshot?.rows)
+    ? dataSetSnapshot.rows
+    : [];
+  const iterationIndexes = executionContext?.test_data_set_id
+    ? dataSetRows.length ? dataSetRows.map((_row, index) => index) : [0]
+    : [-1];
+  const latestStatusByIteration = new Map(latestResults.map((result) => [
+    `${normalizeText(result.test_case_id)}:${Number.isInteger(result.data_set_iteration_index) ? result.data_set_iteration_index : -1}`,
+    normalizeText(result.status)
+  ]));
+  const requiredIterationKeys = [...requiredCaseIds].flatMap((testCaseId) =>
+    iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`)
   );
 
   if (
-    [...requiredCaseIds].some((testCaseId) => !latestStatusByCaseId.has(testCaseId))
-    || [...latestStatusByCaseId.values()].some((status) => status === "running")
+    requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))
+    || requiredIterationKeys.some((key) => latestStatusByIteration.get(key) === "running")
   ) {
     return;
   }
 
-  const nextExecutionStatus = [...latestStatusByCaseId.values()].every((status) => status === "passed")
+  const nextExecutionStatus = requiredIterationKeys.every((key) => latestStatusByIteration.get(key) === "passed")
     ? "completed"
     : "failed";
 
@@ -1482,7 +1544,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         steps: item.steps,
         stepsByCaseId: plan.stepsByCaseId,
         integration,
-        objectRepository
+        objectRepository,
+        dataSetIteration: item.data_set_iteration
       });
       const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
       const stepEngineClasses = resolveStepEngineClasses(item.steps, plan.appType?.type || "web");
@@ -1616,7 +1679,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       caseSnapshot: item.case_snapshot,
       steps: item.steps,
       integration: directIntegration,
-      objectRepository
+      objectRepository,
+      dataSetIteration: item.data_set_iteration
     });
     const envelope = {
       ...baseEnvelope,
@@ -2243,7 +2307,8 @@ exports.startQueuedJob = async ({ job_id, worker_id } = {}) => {
     duration_ms: null,
     error: null,
     logs: JSON.stringify(logs),
-    executed_by: job.created_by || null
+    executed_by: job.created_by || null,
+    ...resultIterationFromJob(job)
   });
   if (job.transaction_id) {
     await appendQueueTransactionEvent(job.transaction_id, {
@@ -2369,7 +2434,8 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     duration_ms: durationMs,
     error: stepResult.status === "failed" ? stepResult.note : null,
     logs: JSON.stringify(mergedLogs),
-    executed_by: job.created_by || null
+    executed_by: job.created_by || null,
+    ...resultIterationFromJob(job)
   });
 
   if (job.transaction_id) {
@@ -2553,7 +2619,8 @@ exports.reportQueuedStep = async ({
     duration_ms: durationMs,
     error: caseStatus === "failed" ? errorMessage : null,
     logs: JSON.stringify(mergedLogs),
-    executed_by: job.created_by || null
+    executed_by: job.created_by || null,
+    ...resultIterationFromJob(job)
   });
 
   if (job.transaction_id) {
@@ -2687,7 +2754,8 @@ exports.completeQueuedJob = async ({
     duration_ms: durationMs,
     error: errorMessage,
     logs: JSON.stringify(logs),
-    executed_by: job.created_by || null
+    executed_by: job.created_by || null,
+    ...resultIterationFromJob(job)
   });
 
   if (job.transaction_id) {

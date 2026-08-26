@@ -193,6 +193,10 @@ module.exports = async function (fastify) {
       state: { required: false, type: "string", enum: ["future", "active", "closed"] },
       start_date: { required: false, type: "string" },
       end_date: { required: false, type: "string" },
+      assignee_id: { required: false, type: "string" },
+      effort_points: { required: false, type: "number" },
+      original_dev_id: { required: false, type: "string" },
+      original_qa_id: { required: false, type: "string" },
       requirement_ids: { required: false, type: "array", items: "string" }
     }, req.body || {});
 
@@ -221,6 +225,10 @@ module.exports = async function (fastify) {
       state: { required: false, type: "string", enum: ["future", "active", "closed"] },
       start_date: { required: false, type: "string" },
       end_date: { required: false, type: "string" },
+      assignee_id: { required: false, type: "string" },
+      effort_points: { required: false, type: "number" },
+      original_dev_id: { required: false, type: "string" },
+      original_qa_id: { required: false, type: "string" },
       requirement_ids: { required: false, type: "array", items: "string" }
     }, req.body || {});
 

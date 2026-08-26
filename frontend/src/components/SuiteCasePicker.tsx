@@ -180,11 +180,13 @@ function OrderedSelectionPicker({
     [itemById, selectedIds]
   );
   const orderedItems = useMemo(
-    () => [
-      ...selectedItems.filter((item) => allVisibleItemIds.includes(item.id)),
-      ...filteredItems.filter((item) => !selectedIds.includes(item.id))
-    ],
-    [allVisibleItemIds, filteredItems, selectedIds, selectedItems]
+    () => showCaseFilters
+      ? filteredItems
+      : [
+          ...selectedItems.filter((item) => allVisibleItemIds.includes(item.id)),
+          ...filteredItems.filter((item) => !selectedIds.includes(item.id))
+        ],
+    [allVisibleItemIds, filteredItems, selectedIds, selectedItems, showCaseFilters]
   );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const areAllVisibleItemsSelected = Boolean(allVisibleItemIds.length) && allVisibleItemIds.every((itemId) => selectedIdSet.has(itemId));

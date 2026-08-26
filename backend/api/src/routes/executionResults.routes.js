@@ -48,6 +48,11 @@ module.exports = async function (fastify) {
       duration_ms: { required: false, type: "number" },
       error: { required: false, type: "string" },
       logs: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      test_data_set_name: { required: false, type: "string" },
+      data_set_iteration_index: { required: false, type: "number" },
+      data_set_iteration_key: { required: false, type: "string" },
+      data_set_row_snapshot: { required: false, type: "object" },
       external_references: { required: false, type: "array", items: "string" },
       defects: { required: false, type: "array", items: "string" },
       executed_by: { required: false, type: "string" }

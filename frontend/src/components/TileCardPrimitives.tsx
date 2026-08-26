@@ -77,6 +77,31 @@ export function TileCardFact({
   );
 }
 
+export function TileCardMetric({
+  className = "",
+  label,
+  title,
+  tone = "neutral",
+  value
+}: {
+  className?: string;
+  label: string;
+  title?: string;
+  tone?: TileCardTone;
+  value: ReactNode;
+}) {
+  return (
+    <span
+      aria-label={title || `${label}: ${String(value)}`}
+      className={["tile-card-metric", `tone-${tone}`, className].filter(Boolean).join(" ")}
+      title={title}
+    >
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </span>
+  );
+}
+
 export function TileCardStatusIndicator({
   title,
   tone = "neutral",

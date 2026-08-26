@@ -66,7 +66,7 @@ const normalizeDescriptionLines = (value) => {
 };
 
 const findStructuredSection = (line, profile) => {
-  const labels = profile === "story" ? STORY_SECTION_LABELS : TEST_CASE_SECTION_LABELS;
+  const labels = profile === "story" ? STORY_SECTION_LABELS : profile === "test-case" ? TEST_CASE_SECTION_LABELS : [];
   let earliestIndex = -1;
   let earliestLabel = "";
 

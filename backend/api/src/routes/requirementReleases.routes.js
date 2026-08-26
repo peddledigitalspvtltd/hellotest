@@ -12,6 +12,7 @@ const releaseFields = {
   description: { required: false, type: "string", maxLength: 20000 },
   fix_version: { required: false, type: "string", maxLength: 255 },
   target_date_label: { required: false, type: "string", maxLength: 255 },
+  plan_date: { required: false, type: "string" },
   target_date: { required: false, type: "string" },
   external_link: { required: false, type: "string", maxLength: 2000 },
   state: { required: false, type: "string", enum: ["planned", "in_progress", "released"] },
@@ -55,6 +56,12 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     await ensureReleaseAccess(req.params.id, req.user.id);
     return service.getReadiness(req.params.id);
+  });
+
+  fastify.post("/requirement-releases/:id/release-notes", async (req) => {
+    await fastify.authenticate(req);
+    await ensureReleaseAccess(req.params.id, req.user.id);
+    return service.generateReleaseNotes(req.params.id, { user_id: req.user.id });
   });
 
   fastify.put("/requirement-releases/:id", async (req) => {

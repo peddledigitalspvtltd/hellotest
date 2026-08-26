@@ -558,9 +558,17 @@ export function RichTextEditor({
     if (editor && pendingRange && editor.contains(pendingRange.commonAncestorContainer)) {
       editor.focus();
       const selection = window.getSelection();
+      const anchor = document.createElement("a");
+      anchor.href = safeUrl;
+      anchor.target = "_blank";
+      anchor.rel = "noreferrer";
+      const selectedContents = pendingRange.extractContents();
+      anchor.appendChild(selectedContents);
+      pendingRange.insertNode(anchor);
+      pendingRange.selectNodeContents(anchor);
+      pendingRange.collapse(false);
       selection?.removeAllRanges();
       selection?.addRange(pendingRange);
-      document.execCommand("createLink", false, safeUrl);
       emitChange();
     } else {
       const linkText = linkDraft.text.trim() || safeUrl;

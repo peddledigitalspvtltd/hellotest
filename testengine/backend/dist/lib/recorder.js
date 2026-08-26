@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 const sessions = new Map();
 const inspectResults = new Map();
+const REPOSITORY_HIGHLIGHT_DURATION_MS = 3_000;
 const RECORDER_ACTION_TYPES = new Set([
     "click",
     "dblclick",
@@ -659,7 +660,9 @@ const installInspectMode = async (page) => {
                 .join("") || "element";
         };
         const locatorCandidates = (element) => {
-            const testId = clean(element.getAttribute("data-testid"));
+            const testAttribute = ["data-testid", "data-test", "data-qa", "data-cy"]
+                .map((attribute) => ({ attribute, value: clean(element.getAttribute(attribute)) }))
+                .find((candidate) => candidate.value);
             const aria = clean(element.getAttribute("aria-label"));
             const explicitRole = clean(element.getAttribute("role"));
             const label = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
@@ -673,24 +676,63 @@ const installInspectMode = async (page) => {
             const tag = element.tagName.toLowerCase();
             const inputType = clean(element.getAttribute("type")).toLowerCase();
             const quoted = (value) => JSON.stringify(value);
-            const semanticRole = explicitRole
-                || (tag === "button" ? "button" : "")
-                || (tag === "a" ? "link" : "")
-                || (tag === "select" ? "combobox" : "")
-                || (tag === "textarea" || (tag === "input" && !["checkbox", "radio", "file"].includes(inputType)) ? "textbox" : "")
-                || (tag === "input" && ["checkbox", "radio"].includes(inputType) ? inputType : "");
+            const dynamicValue = (value) => /(?:^|[-_])(?:\d{4,}|[a-f0-9]{8,}|[a-z0-9]{12,})(?:$|[-_])/i.test(value);
+            const safeCount = (selector) => {
+                try {
+                    return document.querySelectorAll(selector).length;
+                }
+                catch {
+                    return 0;
+                }
+            };
+            const accessibleText = (candidate) => clean(candidate.getAttribute("aria-label")
+                || (candidate instanceof HTMLInputElement || candidate instanceof HTMLTextAreaElement || candidate instanceof HTMLSelectElement
+                    ? candidate.labels?.[0]?.innerText || candidate.labels?.[0]?.textContent
+                    : "")
+                || inspectWindow.__hellotestRecorderVisibleTextFor?.(candidate));
+            const roleFor = (candidate) => {
+                const candidateTag = candidate.tagName.toLowerCase();
+                const candidateType = clean(candidate.getAttribute("type")).toLowerCase();
+                return clean(candidate.getAttribute("role"))
+                    || (candidateTag === "button" || (candidateTag === "input" && ["button", "submit", "reset", "image"].includes(candidateType)) ? "button" : "")
+                    || (candidateTag === "a" ? "link" : "")
+                    || (candidateTag === "select" ? "combobox" : "")
+                    || (candidateTag === "textarea" || (candidateTag === "input" && !["button", "submit", "reset", "image", "checkbox", "radio", "file"].includes(candidateType)) ? "textbox" : "")
+                    || (candidateTag === "input" && ["checkbox", "radio"].includes(candidateType) ? candidateType : "");
+            };
+            const semanticRole = explicitRole || roleFor(element);
             return [
-                testId ? { locator: `getByTestId(${quoted(testId)})`, strategy: "playwright test id", confidenceScore: 0.99 } : null,
-                semanticRole && accessibleName ? { locator: `getByRole(${quoted(semanticRole)}, { name: ${quoted(accessibleName)} })`, strategy: "playwright role + name", confidenceScore: 0.97 } : null,
-                label ? { locator: `getByLabel(${quoted(label)})`, strategy: "playwright label", confidenceScore: 0.95 } : null,
-                placeholder ? { locator: `getByPlaceholder(${quoted(placeholder)})`, strategy: "playwright placeholder", confidenceScore: 0.91 } : null,
-                aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.9 } : null,
-                id ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88 } : null,
-                name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84 } : null,
-                text && ["button", "a"].includes(tag) ? { locator: `getByText(${quoted(text)})`, strategy: "playwright text", confidenceScore: 0.72 } : null,
-                { locator: inspectWindow.__hellotestRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55 }
+                testAttribute ? {
+                    locator: testAttribute.attribute === "data-testid"
+                        ? `getByTestId(${quoted(testAttribute.value)})`
+                        : `[${testAttribute.attribute}="${testAttribute.value.replace(/"/g, '\\"')}"]`,
+                    strategy: testAttribute.attribute, confidenceScore: 0.99,
+                    matchCount: safeCount(`[${testAttribute.attribute}="${cssEscape(testAttribute.value)}"]`), stabilitySignals: ["explicit test contract", testAttribute.attribute], warning: null
+                } : null,
+                semanticRole && accessibleName ? {
+                    locator: `getByRole(${quoted(semanticRole)}, { name: ${quoted(accessibleName)} })`, strategy: "playwright role + name", confidenceScore: 0.97,
+                    matchCount: [...document.querySelectorAll("button,a,input,select,textarea,[role]")].filter((candidate) => {
+                        return roleFor(candidate) === semanticRole && accessibleText(candidate) === accessibleName;
+                    }).length,
+                    stabilitySignals: ["user-facing role", "accessible name"], warning: null
+                } : null,
+                label ? { locator: `getByLabel(${quoted(label)})`, strategy: "playwright label", confidenceScore: 0.95, matchCount: [...document.querySelectorAll("input,select,textarea")].filter((candidate) => accessibleText(candidate) === label).length, stabilitySignals: ["form label", "user-facing"], warning: null } : null,
+                placeholder ? { locator: `getByPlaceholder(${quoted(placeholder)})`, strategy: "playwright placeholder", confidenceScore: 0.91, matchCount: safeCount(`[placeholder="${cssEscape(placeholder)}"]`), stabilitySignals: ["user-facing placeholder"], warning: null } : null,
+                aria ? { locator: `${tag}[aria-label="${aria.replace(/"/g, '\\"')}"]`, strategy: "aria-label", confidenceScore: 0.9, matchCount: safeCount(`${tag}[aria-label="${cssEscape(aria)}"]`), stabilitySignals: ["accessible name"], warning: null } : null,
+                id && !dynamicValue(id) ? { locator: `#${cssEscape(id)}`, strategy: "stable id", confidenceScore: 0.88, matchCount: safeCount(`#${cssEscape(id)}`), stabilitySignals: ["stable id"], warning: null } : null,
+                id && dynamicValue(id) ? { locator: `#${cssEscape(id)}`, strategy: "dynamic id", confidenceScore: 0.42, matchCount: safeCount(`#${cssEscape(id)}`), stabilitySignals: ["unique in current DOM"], warning: "ID appears generated and may change between builds." } : null,
+                name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84, matchCount: safeCount(`${tag}[name="${cssEscape(name)}"]`), stabilitySignals: ["semantic form attribute"], warning: null } : null,
+                text && ["button", "a"].includes(tag) ? { locator: `getByText(${quoted(text)})`, strategy: "playwright text", confidenceScore: 0.72, matchCount: [...document.querySelectorAll(tag)].filter((candidate) => clean(candidate.textContent) === clean(text)).length, stabilitySignals: ["user-facing text"], warning: "Visible copy can change with content or localization." } : null,
+                { locator: inspectWindow.__hellotestRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55, matchCount: 1, stabilitySignals: ["DOM fallback"], warning: "Structural selectors are a last-resort fallback." }
             ].filter((candidate) => Boolean(candidate))
-                .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index);
+                .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index)
+                .map((candidate) => ({
+                ...candidate,
+                confidenceScore: candidate.matchCount === 1 ? candidate.confidenceScore : Math.max(0.25, candidate.confidenceScore - 0.24),
+                warning: candidate.matchCount > 1 ? `Matches ${candidate.matchCount} elements on this screen.` : candidate.warning,
+                recommended: candidate.matchCount === 1 && candidate.confidenceScore >= 0.9 && !candidate.warning
+            }))
+                .sort((left, right) => Number(right.matchCount === 1) - Number(left.matchCount === 1) || right.confidenceScore - left.confidenceScore);
         };
         const restoreInspectStyle = (target) => {
             const isRepositoryHighlighted = target.dataset.hellotestRepositoryHighlight === "true";
@@ -723,7 +765,8 @@ const installInspectMode = async (page) => {
             });
         };
         clearSelectionHighlight();
-        const highlight = (element, persistent = false) => {
+        let hoverFrame = 0;
+        const highlight = (element, selection = false) => {
             if (!(element instanceof HTMLElement))
                 return;
             clearHoverHighlight();
@@ -731,15 +774,27 @@ const installInspectMode = async (page) => {
                 element.dataset.hellotestInspectPreviousOutline = element.style.outline || "";
                 element.dataset.hellotestInspectPreviousBoxShadow = element.style.boxShadow || "";
             }
-            if (persistent) {
+            if (selection) {
+                clearSelectionHighlight();
                 element.dataset.hellotestInspectSelection = "true";
             }
             else {
                 element.dataset.hellotestInspectHighlight = "true";
             }
+            const highlightToken = `${Date.now()}-${Math.random()}`;
+            element.dataset.hellotestInspectHighlightToken = highlightToken;
             element.style.outline = "3px solid #2f6df6";
-            element.style.boxShadow = `0 0 0 6px ${persistent ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.22)"}`;
-            element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+            element.style.boxShadow = `0 0 0 6px ${selection ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.22)"}`;
+            if (selection) {
+                element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+                window.setTimeout(() => {
+                    if (element.dataset.hellotestInspectHighlightToken !== highlightToken)
+                        return;
+                    delete element.dataset.hellotestInspectSelection;
+                    delete element.dataset.hellotestInspectHighlightToken;
+                    restoreInspectStyle(element);
+                }, 3_000);
+            }
         };
         const queueSelection = (selection, locator) => {
             const current = Array.isArray(inspectWindow.__hellotestInspectSelections)
@@ -751,16 +806,24 @@ const installInspectMode = async (page) => {
             ].slice(-80);
             inspectWindow.__hellotestInspectResult = selection;
         };
-        const candidateElement = (target) => target instanceof Element
-            ? target.closest("input,button,select,textarea,a,[role],label,[data-testid]") || target
-            : null;
+        const candidateElement = (target, path) => {
+            const composedTarget = path?.find((item) => item instanceof Element) || target;
+            return composedTarget instanceof Element
+                ? composedTarget.closest("input,button,select,textarea,a,[role],label,[data-testid],[data-test],[data-qa],[data-cy]") || composedTarget
+                : null;
+        };
         const hoverHandler = (event) => {
-            const element = candidateElement(event.target);
-            if (element)
-                highlight(element);
+            if (hoverFrame)
+                return;
+            hoverFrame = window.requestAnimationFrame(() => {
+                hoverFrame = 0;
+                const element = candidateElement(event.target, event.composedPath());
+                if (element)
+                    highlight(element);
+            });
         };
         const handler = (event) => {
-            const element = candidateElement(event.target);
+            const element = candidateElement(event.target, event.composedPath());
             if (!element)
                 return;
             event.preventDefault();
@@ -795,11 +858,13 @@ const installInspectMode = async (page) => {
         inspectWindow.__hellotestInspectCleanup = () => {
             document.removeEventListener("mousemove", hoverHandler, true);
             document.removeEventListener("click", handler, true);
+            if (hoverFrame)
+                window.cancelAnimationFrame(hoverFrame);
             clearHoverHighlight();
         };
     });
 };
-const highlightRepositoryElement = async (page, locator, label, retainExisting = false) => page.evaluate(({ targetLocator, targetLabel, keepExisting }) => {
+const highlightRepositoryElement = async (page, locator, label, retainExisting = false) => page.evaluate(({ targetLocator, targetLabel, keepExisting, durationMs }) => {
     const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const clearHighlight = () => {
         document.querySelectorAll("[data-hellotest-repository-highlight='true']").forEach((node) => {
@@ -809,6 +874,7 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
             delete element.dataset.hellotestRepositoryPreviousOutline;
             delete element.dataset.hellotestRepositoryPreviousBoxShadow;
             delete element.dataset.hellotestRepositoryHighlight;
+            delete element.dataset.hellotestRepositoryHighlightToken;
         });
         document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
     };
@@ -924,6 +990,8 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
         element.dataset.hellotestRepositoryPreviousBoxShadow = element.dataset.hellotestPreviousBoxShadow || element.style.boxShadow || "";
     }
     element.dataset.hellotestRepositoryHighlight = "true";
+    const highlightToken = `${Date.now()}-${Math.random()}`;
+    element.dataset.hellotestRepositoryHighlightToken = highlightToken;
     element.style.outline = "3px solid #2f6df6";
     element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.2)";
     element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
@@ -937,8 +1005,19 @@ const highlightRepositoryElement = async (page, locator, label, retainExisting =
         badge.style.top = `${Math.max(8, rect.top - 32)}px`;
         document.body.appendChild(badge);
     }
-    return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase() };
-}, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting });
+    window.setTimeout(() => {
+        if (element.dataset.hellotestRepositoryHighlightToken !== highlightToken)
+            return;
+        element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
+        element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
+        delete element.dataset.hellotestRepositoryPreviousOutline;
+        delete element.dataset.hellotestRepositoryPreviousBoxShadow;
+        delete element.dataset.hellotestRepositoryHighlight;
+        delete element.dataset.hellotestRepositoryHighlightToken;
+        document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
+    }, durationMs);
+    return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase(), duration_ms: durationMs };
+}, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting, durationMs: REPOSITORY_HIGHLIGHT_DURATION_MS });
 const clearRepositoryHighlights = async (page) => page.evaluate(() => {
     document.querySelectorAll("[data-hellotest-repository-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-inspect-highlight='true']").forEach((node) => {
         const element = node;
@@ -947,12 +1026,14 @@ const clearRepositoryHighlights = async (page) => page.evaluate(() => {
         delete element.dataset.hellotestRepositoryPreviousOutline;
         delete element.dataset.hellotestRepositoryPreviousBoxShadow;
         delete element.dataset.hellotestRepositoryHighlight;
+        delete element.dataset.hellotestRepositoryHighlightToken;
         delete element.dataset.hellotestInspectPreviousOutline;
         delete element.dataset.hellotestInspectPreviousBoxShadow;
         delete element.dataset.hellotestPreviousOutline;
         delete element.dataset.hellotestPreviousBoxShadow;
         delete element.dataset.hellotestInspectSelection;
         delete element.dataset.hellotestInspectHighlight;
+        delete element.dataset.hellotestInspectHighlightToken;
     });
     document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
 });

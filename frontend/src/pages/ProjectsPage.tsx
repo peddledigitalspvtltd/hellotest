@@ -28,6 +28,7 @@ import { CatalogSelectionControls } from "../components/CatalogSelectionControls
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
+import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { DialogCloseButton } from "../components/DialogCloseButton";
@@ -42,11 +43,10 @@ import { ProjectTraceabilityMap } from "../components/ProjectTraceabilityMap";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
   TileCardCaseIcon,
-  TileCardFact,
   TileCardIconFrame,
+  TileCardMetric,
   TileCardProjectIcon,
-  TileCardRequirementIcon,
-  TileCardUsersIcon
+  TileCardRequirementIcon
 } from "../components/TileCardPrimitives";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
@@ -2534,15 +2534,12 @@ export function ProjectsPage() {
               projectViewMode === "tile" ? (
                 <div className="projects-grid">
                   {filteredProjectItems.map((item) => {
-                    const { project, coverage, automationCoverage, passCoverage } = item;
+                    const { project, coverage, passCoverage } = item;
                     const isLocked = project.has_access === false;
                     const isSelected = String(selectedProjectId) === String(project.id);
                     const requirementCoverageDetail = coverage.totalRequirements
                       ? `${coverage.coveredRequirements}/${coverage.totalRequirements} stories covered`
                       : "No stories available to measure coverage";
-                    const automationCoverageDetail = automationCoverage.totalCases
-                      ? `${automationCoverage.automatedCases}/${automationCoverage.totalCases} cases automated`
-                      : "No test cases available to measure automation coverage";
                     const passCoverageDetail = formatPassCoverageDetail(passCoverage);
 
                     return (
@@ -2550,7 +2547,7 @@ export function ProjectsPage() {
                         key={project.id}
                         aria-pressed={isSelected}
                         className={[
-                          "project-portfolio-card",
+                          "record-card tile-card project-portfolio-card project-catalog-card",
                           `is-${item.healthTone}`,
                           project.is_favorite ? "is-favorite" : "",
                           isLocked ? "is-locked" : "",
@@ -2634,22 +2631,11 @@ export function ProjectsPage() {
                             </div>
                           </div>
                         ) : <>
-                        <div className={`project-readiness-row ${item.healthTone}`}>
-                          <div>
-                            <span>Release Readiness</span>
-                            <strong>{item.readinessLabel}</strong>
-                          </div>
-                          <button
-                            className="project-mini-action"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openPortfolioProject(item);
-                            }}
-                            type="button"
-                          >
-                            Open
-                          </button>
-                        </div>
+                        <CatalogCardDescription
+                          fallback={item.insight || "No project description captured yet."}
+                          profile="project"
+                          value={project.description}
+                        />
 
                         <div className="project-card-progress-stack" aria-label={`${project.name} coverage summary`}>
                           <ProjectProgressBar
@@ -2659,12 +2645,6 @@ export function ProjectsPage() {
                             value={coverage.coveragePercent}
                           />
                           <ProjectProgressBar
-                            detail={automationCoverageDetail}
-                            label="Automation coverage"
-                            tone={getMetricTone(automationCoverage.automatedCases, automationCoverage.totalCases)}
-                            value={automationCoverage.coveragePercent}
-                          />
-                          <ProjectProgressBar
                             detail={passCoverageDetail}
                             label="Pass rate"
                             tone={getMetricTone(passCoverage.passedCases, passCoverage.totalCases)}
@@ -2672,25 +2652,11 @@ export function ProjectsPage() {
                           />
                         </div>
 
-                        {item.latestExecution ? (
-                          <div className="project-execution-strip">
-                            <div><span>Last Run</span><strong>{item.latestRunLabel}</strong></div>
-                            <div><span>Status</span><strong>{item.latestExecution.status || "Unknown"}</strong></div>
-                            <div><span>Failed</span><strong>{item.latestFailedCount}</strong></div>
-                            <div><span>Duration</span><strong>{item.latestDurationLabel}</strong></div>
-                          </div>
-                        ) : null}
-
-                        <div className="project-meta-grid">
-                          <span><b>{item.requirementCount}</b> Stories</span>
-                          <span><b>{item.moduleCount}</b> Modules</span>
-                          <span><b>{item.testCaseCount}</b> Cases</span>
-                          <span><b>{item.bugCount}</b> Bugs</span>
-                        </div>
-
-                        <div className={`project-risk-note ${item.healthTone}`}>
-                          <span>{item.healthTone === "danger" ? "!" : "Focus"}</span>
-                          <p>{item.insight}</p>
+                        <div className="tile-card-facts project-tile-metrics" aria-label={`${project.name} scope metrics`}>
+                          <TileCardMetric label="Stories" tone={item.requirementCount ? "info" : "neutral"} value={item.requirementCount} />
+                          <TileCardMetric label="Modules" tone={item.moduleCount ? "info" : "neutral"} value={item.moduleCount} />
+                          <TileCardMetric label="Test cases" tone={item.testCaseCount ? "success" : "neutral"} value={item.testCaseCount} />
+                          <TileCardMetric label="Bugs" tone={item.bugCount ? "danger" : "success"} value={item.bugCount} />
                         </div>
                         </>}
 

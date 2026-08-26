@@ -27,6 +27,20 @@ const formatDuration = (startedAt?: string | null, endedAt?: string | null) => {
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
 
+const durationMsFor = (item: TraceabilityRunHistoryItem) => {
+  if (!item.started_at || !item.ended_at) return null;
+  const durationMs = new Date(item.ended_at).getTime() - new Date(item.started_at).getTime();
+  return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null;
+};
+
+const formatDurationMs = (value: number | null) => {
+  if (value === null) return "—";
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+};
+
 export function TraceabilityRunHistory({
   appTypeId,
   projectId,
@@ -77,6 +91,53 @@ export function TraceabilityRunHistory({
     () => Array.from(new Set(rows.map((row) => row.result_status).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
     [rows]
   );
+  const runHealth = useMemo(() => {
+    const comparableStatuses = ["passed", "failed", "blocked", "error"];
+    const finalized = rows.filter((row) => comparableStatuses.includes(String(row.result_status || "").toLowerCase()));
+    const recent = rows.slice(0, 16).reverse();
+    const latestFirst = [...recent].reverse();
+    const latestStatus = String(latestFirst[0]?.result_status || "").toLowerCase();
+    const streak = latestFirst.findIndex((row) => String(row.result_status || "").toLowerCase() !== latestStatus);
+    const rateFor = (items: TraceabilityRunHistoryItem[]) => {
+      const comparable = items.filter((row) => comparableStatuses.includes(String(row.result_status || "").toLowerCase()));
+      return comparable.length ? Math.round((comparable.filter((row) => String(row.result_status || "").toLowerCase() === "passed").length / comparable.length) * 100) : null;
+    };
+    const currentWindow = finalized.slice(0, 5);
+    const previousWindow = finalized.slice(5, 10);
+    const recentRate = rateFor(currentWindow);
+    const previousRate = rateFor(previousWindow);
+    const rateDelta = recentRate === null || previousRate === null ? null : recentRate - previousRate;
+    const direction = rateDelta === null || Math.abs(rateDelta) < 5
+      ? "stable"
+      : rateDelta > 0 ? "improving" : "declining";
+    const durations = currentWindow.map(durationMsFor).filter((value): value is number => value !== null).sort((left, right) => left - right);
+    const medianDurationMs = durations.length
+      ? durations.length % 2
+        ? durations[Math.floor(durations.length / 2)]
+        : (durations[(durations.length / 2) - 1] + durations[durations.length / 2]) / 2
+      : null;
+    const defectCount = new Set(currentWindow.flatMap((row) => row.defects)).size;
+    const health = recentRate === null
+      ? { label: "No signal", tone: "neutral" }
+      : latestStatus === "passed" && recentRate >= 80
+        ? { label: "Healthy", tone: "success" }
+        : recentRate >= 60
+          ? { label: "Watch", tone: "warning" }
+          : { label: "At risk", tone: "danger" };
+    return {
+      finalized: finalized.length,
+      recent,
+      recentRate,
+      previousRate,
+      rateDelta,
+      latestStatus,
+      streak: streak === -1 ? latestFirst.length : streak,
+      direction,
+      medianDurationMs,
+      defectCount,
+      health
+    };
+  }, [rows]);
 
   const openRun = (item: TraceabilityRunHistoryItem) => {
     const view = item.trigger === "local" ? "local-runs" : item.suite_ids.length ? "suite-runs" : "test-case-runs";
@@ -150,6 +211,48 @@ export function TraceabilityRunHistory({
 
   return (
     <div className="traceability-run-history">
+      <section className={`story-run-health-trend execution-health-overview is-${runHealth.direction} health-${runHealth.health.tone}`} aria-label={`${testCaseId ? "Test case" : "Story"} execution health trend`}>
+        <header className="execution-health-header">
+          <div>
+            <span>Execution health</span>
+            <strong>{runHealth.health.label}</strong>
+            <p>{runHealth.finalized
+              ? `${runHealth.recentRate ?? "—"}% pass rate across the latest ${Math.min(runHealth.finalized, 5)} finalized outcomes${runHealth.defectCount ? ` · ${runHealth.defectCount} linked ${runHealth.defectCount === 1 ? "Bug" : "Bugs"}` : ""}.`
+              : "Finalized outcomes will establish the first health signal."}</p>
+          </div>
+          <span className="story-run-trend-direction">{runHealth.direction}</span>
+        </header>
+        <div className="story-run-health-summary execution-health-metrics">
+          <div><span>Recent pass rate</span><strong>{runHealth.recentRate === null ? "—" : `${runHealth.recentRate}%`}</strong><small>Latest {Math.min(runHealth.finalized, 5)} finalized</small></div>
+          <div><span>Movement</span><strong>{runHealth.rateDelta === null ? "—" : `${runHealth.rateDelta > 0 ? "+" : ""}${runHealth.rateDelta} pp`}</strong><small>Versus previous window</small></div>
+          <div><span>Current streak</span><strong>{runHealth.streak || "—"}</strong><small>{runHealth.latestStatus ? `${runHealth.latestStatus} outcomes` : "No outcome yet"}</small></div>
+          <div><span>Median duration</span><strong>{formatDurationMs(runHealth.medianDurationMs)}</strong><small>Latest finalized window</small></div>
+        </div>
+        {(runHealth.recentRate !== null || runHealth.previousRate !== null) ? (
+          <div className="execution-health-comparison" aria-label="Recent pass rate compared with the previous five finalized outcomes">
+            <div><span>Previous 5</span><div><i style={{ width: `${runHealth.previousRate || 0}%` }} /></div><strong>{runHealth.previousRate === null ? "—" : `${runHealth.previousRate}%`}</strong></div>
+            <div className="is-current"><span>Recent 5</span><div><i style={{ width: `${runHealth.recentRate || 0}%` }} /></div><strong>{runHealth.recentRate === null ? "—" : `${runHealth.recentRate}%`}</strong></div>
+          </div>
+        ) : null}
+        {runHealth.recent.length ? (
+          <div className="execution-health-timeline-block">
+            <div className="execution-health-timeline-heading"><strong>Outcome timeline</strong><span>Oldest to newest · select a state to inspect the run</span></div>
+            <ol className="story-run-trend-plot execution-health-timeline" aria-label={`Last ${runHealth.recent.length} run outcomes, oldest to newest`}>
+            {runHealth.recent.map((row, index) => {
+              const status = String(row.result_status || "unknown").toLowerCase();
+              return (
+                <li className={`is-${status}`} key={`${row.id}:${index}`}>
+                  <button aria-label={`${formatTimestamp(row.started_at || row.result_created_at)}: ${row.result_status}. Open ${row.execution_name}`} onClick={() => openRun(row)} title={`${row.execution_name} · ${row.result_status} · ${formatTimestamp(row.started_at || row.result_created_at)}`} type="button">
+                    <span aria-hidden="true" />
+                  </button>
+                </li>
+              );
+            })}
+            </ol>
+            <div className="execution-health-legend" aria-label="Outcome legend"><span className="is-passed">Passed</span><span className="is-failed">Failed / error</span><span className="is-blocked">Blocked</span><span className="is-skipped">Skipped</span></div>
+          </div>
+        ) : <div className="story-run-trend-empty">Run outcomes will form a health trend here after the first linked execution.</div>}
+      </section>
       <div className="traceability-section-toolbar">
         <ActivityIcon />
         <strong>{filteredRows.length} of {rows.length} run outcome{rows.length === 1 ? "" : "s"}</strong>
