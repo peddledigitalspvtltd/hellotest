@@ -117,6 +117,7 @@ export function EvidenceFlipCard({
             <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
               <path d="m15 18-6-6 6-6" />
             </svg>
+            <span>Back</span>
           </button>
           <div className="evidence-flip-card-back-heading">
             <span>{label}</span>

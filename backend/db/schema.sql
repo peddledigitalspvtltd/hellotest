@@ -157,6 +157,7 @@ CREATE TABLE requirements (
   sprint TEXT,
   fix_version TEXT,
   release TEXT,
+  iteration_id TEXT,
   dev_completion_target_date TIMESTAMPTZ,
   qa_completion_target_date TIMESTAMPTZ,
   scrum_team TEXT,
@@ -246,6 +247,23 @@ CREATE TABLE IF NOT EXISTS requirement_iterations (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Native Story-to-Sprint scope is persisted by id. The Sprint table is
+-- declared after Stories, so install the referential contract here rather
+-- than on the initial requirements declaration.
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS iteration_id TEXT;
+UPDATE requirements
+SET iteration_id = NULL
+WHERE iteration_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM requirement_iterations
+    WHERE requirement_iterations.id = requirements.iteration_id
+  );
+ALTER TABLE requirements DROP CONSTRAINT IF EXISTS requirements_iteration_id_fkey;
+ALTER TABLE requirements
+  ADD CONSTRAINT requirements_iteration_id_fkey
+  FOREIGN KEY (iteration_id) REFERENCES requirement_iterations(id) ON DELETE SET NULL;
 
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS goal TEXT;
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -340,11 +358,13 @@ CREATE TABLE test_cases (
   review_status TEXT NOT NULL DEFAULT 'not_requested' CHECK(review_status IN ('not_requested','pending','accepted','changes_requested')),
   review_history JSONB NOT NULL DEFAULT '[]'::jsonb,
   ai_quality_score INTEGER CHECK(ai_quality_score IS NULL OR (ai_quality_score >= 0 AND ai_quality_score <= 100)),
+  author_id TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (suite_id) REFERENCES test_suites(id),
   FOREIGN KEY (requirement_id) REFERENCES requirements(id),
-  FOREIGN KEY (manual_test_case_id) REFERENCES test_cases(id) ON DELETE SET NULL
+  FOREIGN KEY (manual_test_case_id) REFERENCES test_cases(id) ON DELETE SET NULL,
+  FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE automation_case_links (
@@ -399,6 +419,17 @@ CREATE TABLE IF NOT EXISTS test_case_module_cases (
   sort_order INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (module_id, test_case_id)
 );
+
+CREATE TABLE IF NOT EXISTS test_case_module_requirements (
+  module_id TEXT NOT NULL REFERENCES test_case_modules(id) ON DELETE CASCADE,
+  requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (module_id, requirement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_case_module_requirements_module_sort
+  ON test_case_module_requirements (module_id, sort_order, requirement_id);
 
 CREATE TABLE IF NOT EXISTS test_case_defects (
   test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
@@ -470,6 +501,7 @@ CREATE TABLE test_configurations (
   browser TEXT,
   mobile_os TEXT,
   platform_version TEXT,
+  targets JSONB NOT NULL DEFAULT '[]'::jsonb CONSTRAINT test_configurations_targets_array_check CHECK (jsonb_typeof(targets) = 'array'),
   variables JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -506,8 +538,21 @@ CREATE TABLE test_case_data_sets (
   FOREIGN KEY (test_data_set_id) REFERENCES test_data_sets(id) ON DELETE CASCADE
 );
 
+CREATE TABLE test_case_data_set_link_archive (
+  test_case_id TEXT NOT NULL,
+  test_data_set_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 1,
+  original_created_at TIMESTAMPTZ,
+  archived_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  archive_reason TEXT NOT NULL DEFAULT 'single-data-set-enforcement',
+  PRIMARY KEY (test_case_id, test_data_set_id)
+);
+
 CREATE INDEX idx_test_case_data_sets_case_order
   ON test_case_data_sets (test_case_id, sort_order, test_data_set_id);
+
+CREATE UNIQUE INDEX idx_test_case_data_sets_one_per_case
+  ON test_case_data_sets (test_case_id);
 
 -- =========================
 -- EXECUTION
@@ -578,6 +623,10 @@ CREATE TABLE execution_case_snapshots (
   parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
   suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+  test_data_set_id TEXT,
+  test_data_set_name TEXT,
+  test_data_set_snapshot JSONB,
+  data_set_source TEXT CHECK(data_set_source IS NULL OR data_set_source IN ('run','test_case')),
   sort_order INTEGER NOT NULL DEFAULT 1,
   assigned_to TEXT,
   assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -820,6 +869,8 @@ ALTER TABLE requirements ADD COLUMN IF NOT EXISTS qa_completion_target_date TIME
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS scrum_team TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_format TEXT NOT NULL DEFAULT 'gherkin';
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_content TEXT;
+CREATE INDEX IF NOT EXISTS idx_requirements_iteration
+  ON requirements (iteration_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS requirement_releases (
   id TEXT PRIMARY KEY,
@@ -833,7 +884,8 @@ CREATE TABLE IF NOT EXISTS requirement_releases (
   target_date TIMESTAMPTZ,
   external_link TEXT,
   state TEXT NOT NULL DEFAULT 'planned' CHECK (state IN ('planned', 'in_progress', 'released')),
-  sprint_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  sprint_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+    CONSTRAINT requirement_releases_sprint_ids_array_check CHECK (jsonb_typeof(sprint_ids) = 'array'),
   created_by TEXT,
   updated_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -851,6 +903,15 @@ CREATE TABLE IF NOT EXISTS requirement_release_items (
 CREATE INDEX IF NOT EXISTS idx_requirement_releases_project
   ON requirement_releases (project_id, target_date, updated_at DESC);
 ALTER TABLE requirement_releases ADD COLUMN IF NOT EXISTS plan_date TIMESTAMPTZ;
+UPDATE requirement_releases
+SET sprint_ids = '[]'::jsonb
+WHERE sprint_ids IS NULL OR jsonb_typeof(sprint_ids) <> 'array';
+ALTER TABLE requirement_releases DROP CONSTRAINT IF EXISTS requirement_releases_sprint_ids_array_check;
+ALTER TABLE requirement_releases
+  ADD CONSTRAINT requirement_releases_sprint_ids_array_check
+  CHECK (jsonb_typeof(sprint_ids) = 'array');
+CREATE INDEX IF NOT EXISTS idx_requirement_releases_sprint_ids
+  ON requirement_releases USING GIN (sprint_ids);
 CREATE INDEX IF NOT EXISTS idx_requirement_release_items_requirement
   ON requirement_release_items (requirement_id, release_id);
 
@@ -893,6 +954,7 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_review_status TEXT
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_job_id TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -906,6 +968,15 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFA
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER;
 
+UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL;
+UPDATE test_cases
+SET author_id = NULL
+WHERE author_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = test_cases.author_id);
+ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_author_id_fkey;
+ALTER TABLE test_cases
+  ADD CONSTRAINT test_cases_author_id_fkey
+  FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL;
 UPDATE test_cases SET labels = '[]'::jsonb WHERE labels IS NULL;
 UPDATE test_cases SET review_status = 'not_requested' WHERE review_status IS NULL OR BTRIM(review_status) = '';
 UPDATE test_cases SET review_history = '[]'::jsonb WHERE review_history IS NULL;
@@ -1071,6 +1142,13 @@ CREATE INDEX IF NOT EXISTS idx_execution_schedules_project_next_run
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_id TEXT;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_name TEXT;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB;
+ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS data_set_source TEXT;
+UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'test_case');
+ALTER TABLE execution_case_snapshots DROP CONSTRAINT IF EXISTS execution_case_snapshots_data_set_source_check;
+ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'test_case'));
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT;

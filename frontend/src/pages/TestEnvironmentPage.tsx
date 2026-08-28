@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -34,7 +34,7 @@ import { hasPermission } from "../lib/permissions";
 import { parseTestDataFile, toKeyValueRows } from "../lib/testDataImport";
 import { countGeneratedTestDataFields, evaluateTestDataTemplate, hasTestDataGeneratorTemplate, materializeTestDataRows, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import type { AiTestDataGenerationPreviewResponse, KeyValueEntry, TestConfiguration, TestDataSet, TestDataSetMode, TestDataSetRow, TestEnvironment } from "../types";
+import type { AiTestDataGenerationPreviewResponse, KeyValueEntry, TestConfiguration, TestConfigurationTarget, TestDataSet, TestDataSetMode, TestDataSetRow, TestEnvironment } from "../types";
 import "./TestEnvironmentPage.rovo.css";
 
 type TestEnvironmentPageView = "environments" | "data" | "configurations";
@@ -57,6 +57,20 @@ const DEFAULT_TEST_DATA_UTILS: TestDataUtilityOption[] = [
   { id: "default-timestamp", key: "timestamp", label: "Timestamp", template: TEST_DATA_GENERATOR_TEMPLATES.timestamp, group: "Data utility" }
 ];
 
+const CONFIGURATION_HOST_OS_OPTIONS = [
+  { value: "Windows", label: "Windows" },
+  { value: "macOS", label: "macOS" },
+  { value: "Linux", label: "Linux" }
+] as const;
+
+const RESERVED_CONFIGURATION_VARIABLE_KEYS = new Set([
+  "os",
+  "browser",
+  "mobile_os",
+  "version",
+  "platform_version"
+]);
+
 type EnvironmentDraft = {
   name: string;
   description: string;
@@ -67,13 +81,11 @@ type EnvironmentDraft = {
 type ConfigurationDraft = {
   name: string;
   description: string;
-  browser: string;
-  mobile_os: string;
-  platform_version: string;
+  targets: TestConfigurationTarget[];
   variables: KeyValueEntry[];
 };
 
-type DataSetDraft = {
+export type DataSetDraft = {
   name: string;
   description: string;
   mode: TestDataSetMode;
@@ -112,16 +124,22 @@ const buildEmptyEnvironmentDraft = (): EnvironmentDraft => ({
   variables: []
 });
 
+const createConfigurationTarget = (values: Partial<TestConfigurationTarget> = {}): TestConfigurationTarget => ({
+  id: values.id || globalThis.crypto?.randomUUID?.() || `configuration-target-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  os: values.os || "",
+  browser: values.browser || "",
+  mobile_os: values.mobile_os || "",
+  version: values.version || ""
+});
+
 const buildEmptyConfigurationDraft = (): ConfigurationDraft => ({
   name: "",
   description: "",
-  browser: "",
-  mobile_os: "",
-  platform_version: "",
+  targets: [createConfigurationTarget()],
   variables: []
 });
 
-const buildEmptyDataSetDraft = (defaultMode: TestDataSetMode = "table"): DataSetDraft => ({
+export const buildEmptyDataSetDraft = (defaultMode: TestDataSetMode = "table"): DataSetDraft => ({
   name: "",
   description: "",
   mode: defaultMode,
@@ -152,6 +170,57 @@ const normalizeVariableRows = (rows: KeyValueEntry[]) =>
     }))
     .filter((row) => row.key);
 
+const normalizeConfigurationTargets = (targets: TestConfigurationTarget[]) =>
+  targets
+    .map((target) => createConfigurationTarget({
+      id: String(target.id || "").trim(),
+      os: String(target.os || "").trim(),
+      browser: String(target.browser || "").trim(),
+      mobile_os: String(target.mobile_os || "").trim(),
+      version: String(target.version || "").trim()
+    }))
+    .filter((target) => target.os || target.browser || target.mobile_os || target.version);
+
+const getDuplicateConfigurationTargetIndexes = (targets: TestConfigurationTarget[]) => {
+  const seen = new Map<string, number>();
+  const duplicateIndexes = new Set<number>();
+
+  targets.forEach((target, index) => {
+    const values = [target.os, target.browser, target.mobile_os, target.version]
+      .map((value) => String(value || "").trim());
+    if (!values.some(Boolean)) return;
+
+    const key = values
+      .map((value) => value.toLocaleLowerCase())
+      .join("\u0000");
+    const existingIndex = seen.get(key);
+    if (existingIndex !== undefined) {
+      duplicateIndexes.add(existingIndex);
+      duplicateIndexes.add(index);
+      return;
+    }
+    seen.set(key, index);
+  });
+
+  return duplicateIndexes;
+};
+
+const getConfigurationDraftValidationError = (draft: ConfigurationDraft) => {
+  const duplicateIndexes = getDuplicateConfigurationTargetIndexes(draft.targets);
+  if (duplicateIndexes.size) {
+    return "Configuration target rows must be unique. Update or remove the highlighted duplicate rows.";
+  }
+
+  const reservedEntry = normalizeVariableRows(draft.variables).find((entry) =>
+    RESERVED_CONFIGURATION_VARIABLE_KEYS.has(entry.key.toLocaleLowerCase())
+  );
+  if (reservedEntry) {
+    return `“${reservedEntry.key}” is managed by the target matrix. Remove it from additional runtime variables.`;
+  }
+
+  return "";
+};
+
 const normalizeDataSetKeyValueRows = (rows: TestDataSetRow[]) =>
   rows
     .map((row) => ({
@@ -180,14 +249,26 @@ const environmentToDraft = (environment: TestEnvironment): EnvironmentDraft => (
   variables: environment.variables
 });
 
-const configurationToDraft = (configuration: TestConfiguration): ConfigurationDraft => ({
-  name: configuration.name,
-  description: configuration.description || "",
-  browser: configuration.browser || "",
-  mobile_os: configuration.mobile_os || "",
-  platform_version: configuration.platform_version || "",
-  variables: configuration.variables
-});
+const configurationToDraft = (configuration: TestConfiguration): ConfigurationDraft => {
+  const persistedTargets = Array.isArray(configuration.targets) ? configuration.targets : [];
+  const legacyTarget = createConfigurationTarget({
+    browser: configuration.browser || "",
+    mobile_os: configuration.mobile_os || "",
+    version: configuration.platform_version || ""
+  });
+  const targets = persistedTargets.length
+    ? persistedTargets.map((target) => createConfigurationTarget(target))
+    : legacyTarget.browser || legacyTarget.mobile_os || legacyTarget.version
+      ? [legacyTarget]
+      : [createConfigurationTarget()];
+
+  return {
+    name: configuration.name,
+    description: configuration.description || "",
+    targets,
+    variables: configuration.variables
+  };
+};
 
 const dataSetToDraft = (dataSet: TestDataSet): DataSetDraft => ({
   name: dataSet.name,
@@ -321,18 +402,8 @@ const moveArrayItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
   return nextItems;
 };
 
-const getSpreadsheetColumnLabel = (index: number) => {
-  let label = "";
-  let value = index + 1;
-
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    label = String.fromCharCode(65 + remainder) + label;
-    value = Math.floor((value - 1) / 26);
-  }
-
-  return label;
-};
+const getTestDataColumnWidth = (name: string) =>
+  `clamp(8rem, ${Math.min(32, Math.max(12, name.trim().length + 9))}ch, 24rem)`;
 
 const draftHasInvalidDataSetChars = (draft: DataSetDraft) => {
   if (hasInvalidDataSetChars(draft.name) || hasInvalidDataSetChars(draft.description)) {
@@ -346,22 +417,63 @@ const draftHasInvalidDataSetChars = (draft: DataSetDraft) => {
   return draft.rows.some((row) => Object.values(row).some((value) => hasInvalidDataSetChars(value)));
 };
 
+const getConfigurationTargets = (
+  configuration: Pick<TestConfiguration, "browser" | "mobile_os" | "platform_version" | "targets">
+) => {
+  const targets = Array.isArray(configuration.targets) ? configuration.targets.filter(Boolean) : [];
+  if (targets.length) return targets;
+  const legacy = createConfigurationTarget({
+    browser: configuration.browser || "",
+    mobile_os: configuration.mobile_os || "",
+    version: configuration.platform_version || ""
+  });
+  return legacy.browser || legacy.mobile_os || legacy.version ? [legacy] : [];
+};
+
+const formatConfigurationTargetRow = (target: TestConfigurationTarget, includeMobileMetadata: boolean) =>
+  [target.os, target.browser, includeMobileMetadata ? target.mobile_os : "", target.version]
+    .filter(Boolean)
+    .join(" · ");
+
 const formatConfigurationTarget = (
-  configuration: Pick<TestConfiguration, "browser" | "mobile_os" | "platform_version">,
+  configuration: Pick<TestConfiguration, "browser" | "mobile_os" | "platform_version" | "targets">,
   includeMobileMetadata: boolean
-) => [configuration.browser, includeMobileMetadata ? configuration.mobile_os : "", configuration.platform_version].filter(Boolean).join(" · ");
+) => {
+  const targets = getConfigurationTargets(configuration);
+  const primary = targets[0] ? formatConfigurationTargetRow(targets[0], includeMobileMetadata) : "";
+  if (!targets.length) return "";
+  return `${primary || "Flexible target"}${targets.length > 1 ? ` · +${targets.length - 1} more` : ""}`;
+};
+
+const getConfigurationCoverage = (
+  configuration: Pick<TestConfiguration, "browser" | "mobile_os" | "platform_version" | "targets">,
+  includeMobileMetadata: boolean
+) => {
+  const targets = getConfigurationTargets(configuration);
+  const hostOsCount = new Set(targets.map((target) => target.os).filter(Boolean)).size;
+  const browserCount = new Set(targets.map((target) => target.browser).filter(Boolean)).size;
+  const mobileOsCount = includeMobileMetadata
+    ? new Set(targets.map((target) => target.mobile_os).filter(Boolean)).size
+    : 0;
+  const parts = [
+    hostOsCount ? `${hostOsCount} host OS` : "",
+    browserCount ? `${browserCount} browser${browserCount === 1 ? "" : "s"}` : "",
+    mobileOsCount ? `${mobileOsCount} mobile OS` : ""
+  ].filter(Boolean);
+  return parts.join(" · ") || "Draft profile";
+};
 
 export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView }) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [searchParams, setSearchParams] = useSearchParams();
   const domainMetadataQuery = useDomainMetadata();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canUseMobileMetadata = hasPermission(session, "mobile.view")
+  const canUseMobileMetadata = hasPermission(session, "mobile.view", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const [projectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
@@ -468,9 +580,12 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
         configuration.id,
         configuration.name,
         configuration.description,
-        configuration.browser,
-        canUseMobileMetadata ? configuration.mobile_os : "",
-        configuration.platform_version,
+        ...getConfigurationTargets(configuration).flatMap((target) => [
+          target.os,
+          target.browser,
+          canUseMobileMetadata ? target.mobile_os : "",
+          target.version
+        ]),
         selectedAppTypeName
       ]
         .filter(Boolean)
@@ -583,12 +698,23 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       render: () => selectedAppTypeName
     },
     {
-      key: "target",
-      label: "Target",
-      width: 240,
-      minWidth: 160,
+      key: "targets",
+      label: "Targets",
+      width: 108,
+      minWidth: 88,
+      sortValue: (configuration) => getConfigurationTargets(configuration).length,
+      render: (configuration) => {
+        const count = getConfigurationTargets(configuration).length;
+        return count ? `${count} target${count === 1 ? "" : "s"}` : "Draft";
+      }
+    },
+    {
+      key: "coverage",
+      label: "Coverage",
+      width: 300,
+      minWidth: 180,
       sortValue: (configuration) => formatConfigurationTarget(configuration, canUseMobileMetadata),
-      render: (configuration) => formatConfigurationTarget(configuration, canUseMobileMetadata) || "Draft profile"
+      render: (configuration) => formatConfigurationTarget(configuration, canUseMobileMetadata) || "No target rows"
     },
     {
       key: "variables",
@@ -952,15 +1078,25 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const handleCreateConfiguration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    const validationError = getConfigurationDraftValidationError(createConfigurationDraft);
+    if (validationError) {
+      showError(new Error(validationError), validationError);
+      return;
+    }
+
+    const targets = normalizeConfigurationTargets(createConfigurationDraft.targets);
+    const primaryTarget = targets[0];
+
     try {
       const response = await createConfiguration.mutateAsync({
         project_id: projectId,
         app_type_id: appTypeId || undefined,
         name: createConfigurationDraft.name,
         description: createConfigurationDraft.description || undefined,
-        browser: createConfigurationDraft.browser || undefined,
-        mobile_os: canUseMobileMetadata ? createConfigurationDraft.mobile_os || undefined : undefined,
-        platform_version: createConfigurationDraft.platform_version || undefined,
+        browser: primaryTarget?.browser || undefined,
+        mobile_os: primaryTarget?.mobile_os || undefined,
+        platform_version: primaryTarget?.version || undefined,
+        targets,
         variables: normalizeVariableRows(createConfigurationDraft.variables)
       });
       setIsCreateConfigurationModalOpen(false);
@@ -980,6 +1116,15 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
       return;
     }
 
+    const validationError = getConfigurationDraftValidationError(configurationDraft);
+    if (validationError) {
+      showError(new Error(validationError), validationError);
+      return;
+    }
+
+    const targets = normalizeConfigurationTargets(configurationDraft.targets);
+    const primaryTarget = targets[0];
+
     try {
       await updateConfiguration.mutateAsync({
         id: selectedConfiguration.id,
@@ -988,9 +1133,10 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
           app_type_id: selectedConfiguration.app_type_id || "",
           name: configurationDraft.name,
           description: configurationDraft.description,
-          browser: configurationDraft.browser,
-          mobile_os: canUseMobileMetadata ? configurationDraft.mobile_os : undefined,
-          platform_version: configurationDraft.platform_version,
+          browser: primaryTarget?.browser || "",
+          mobile_os: primaryTarget?.mobile_os || "",
+          platform_version: primaryTarget?.version || "",
+          targets,
           variables: normalizeVariableRows(configurationDraft.variables)
         }
       });
@@ -1257,15 +1403,15 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                 {configurationsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
                 {!configurationsQuery.isLoading && filteredConfigurations.length && configurationViewMode === "tile" ? (
                   <div className="tile-browser-grid">
-                    {filteredConfigurations.map((configuration) => (
-                      <button
-                        className={selectedConfigurationId === configuration.id ? "record-card tile-card is-active" : "record-card tile-card"}
-                        key={configuration.id}
-                        onClick={() => openConfigurationWorkspace(configuration.id)}
-                        type="button"
-                      >
-                        <div className="tile-card-main">
-                          <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+                    {filteredConfigurations.map((configuration) => {
+                      const targets = getConfigurationTargets(configuration);
+                      const primaryTarget = targets[0];
+                      return (
+                        <article
+                          className={selectedConfigurationId === configuration.id ? "record-card tile-card configuration-card is-active" : "record-card tile-card configuration-card"}
+                          key={configuration.id}
+                        >
+                          <div className="tile-card-select-row">
                             <label className="checkbox-field">
                               <input
                                 aria-label={`Select ${configuration.name}`}
@@ -1276,21 +1422,37 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
                               <span className="sr-only">Select configuration</span>
                             </label>
                           </div>
-                          <div className="tile-card-header">
-                            <span className="resource-card-badge">CFG</span>
-                            <div className="tile-card-title-group">
-                              <strong>{configuration.name}</strong>
-                              <span className="tile-card-kicker">{selectedAppTypeName}</span>
+                          <button
+                            aria-label={`Open ${configuration.name}`}
+                            className="tile-card-main configuration-card-open"
+                            onClick={() => openConfigurationWorkspace(configuration.id)}
+                            type="button"
+                          >
+                            <div className="tile-card-header">
+                              <span className="resource-card-badge">CFG</span>
+                              <div className="tile-card-title-group">
+                                <strong>{configuration.name}</strong>
+                                <span className="tile-card-kicker">{selectedAppTypeName}</span>
+                              </div>
+                              <TileCardStatusIndicator title={targets.length ? "Target rows configured" : "Draft profile"} tone={targets.length ? "success" : "neutral"} />
                             </div>
-                            <TileCardStatusIndicator title={formatConfigurationTarget(configuration, canUseMobileMetadata) ? "Target configured" : "Draft profile"} tone={formatConfigurationTarget(configuration, canUseMobileMetadata) ? "success" : "neutral"} />
-                          </div>
-                          {formatConfigurationTarget(configuration, canUseMobileMetadata) ? <p className="tile-card-description">{formatConfigurationTarget(configuration, canUseMobileMetadata)}</p> : <RichTextContent className="tile-card-description" value={configuration.description} fallback={canUseMobileMetadata ? "No browser, mobile OS, or version defined yet." : "No browser or version defined yet."} />}
-                          <div className="resource-card-footer">
-                            <span className="count-pill">{configuration.variables.length} variable{configuration.variables.length === 1 ? "" : "s"}</span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+                            {primaryTarget ? (
+                              <div className="configuration-target-summary">
+                                <span className="configuration-target-summary-count">{targets.length} target{targets.length === 1 ? "" : "s"}</span>
+                                <strong className="configuration-target-summary-primary">{formatConfigurationTargetRow(primaryTarget, canUseMobileMetadata) || "Flexible target"}</strong>
+                                {targets.length > 1 ? <span className="configuration-target-summary-more">+{targets.length - 1} more row{targets.length === 2 ? "" : "s"}</span> : null}
+                              </div>
+                            ) : (
+                              <RichTextContent className="tile-card-description" value={configuration.description} fallback="No target rows defined yet." />
+                            )}
+                            <div className="resource-card-footer">
+                              <span className="count-pill">{getConfigurationCoverage(configuration, canUseMobileMetadata)}</span>
+                              <span className="count-pill">{configuration.variables.length} variable{configuration.variables.length === 1 ? "" : "s"}</span>
+                            </div>
+                          </button>
+                        </article>
+                      );
+                    })}
                   </div>
                 ) : null}
                 {!configurationsQuery.isLoading && filteredConfigurations.length && configurationViewMode === "list" ? (
@@ -1490,6 +1652,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
 
       {isCreateConfigurationModalOpen ? (
         <ResourceModalShell
+          className="resource-modal-card--configuration"
           closeDisabled={createConfiguration.isPending}
           onClose={() => !createConfiguration.isPending && setIsCreateConfigurationModalOpen(false)}
           title="Create configuration"
@@ -1530,7 +1693,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   );
 }
 
-function buildDataSetPayload(projectId: string, appTypeId: string | undefined, draft: DataSetDraft): DataSetBuildResult {
+export function buildDataSetPayload(projectId: string, appTypeId: string | undefined, draft: DataSetDraft): DataSetBuildResult {
   const mode = draft.mode;
   const columns = mode === "table" ? normalizeTableColumns(draft.columns) : ["key", "value"];
   const rows =
@@ -1552,7 +1715,7 @@ function buildDataSetPayload(projectId: string, appTypeId: string | undefined, d
   };
 }
 
-function ResourceModalShell({
+export function ResourceModalShell({
   className,
   closeDisabled = false,
   titleIcon,
@@ -1662,58 +1825,239 @@ function ConfigurationForm({
   submitLabel: string;
   isSubmitting: boolean;
 }) {
+  const [announcement, setAnnouncement] = useState("");
+  const firstControlRefs = useRef(new Map<string, HTMLSelectElement>());
+  const duplicateTargetIndexes = getDuplicateConfigurationTargetIndexes(draft.targets);
+  const validationError = getConfigurationDraftValidationError(draft);
+
+  const focusTarget = (targetId: string) => {
+    const applyFocus = () => firstControlRefs.current.get(targetId)?.focus();
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(applyFocus);
+    } else {
+      globalThis.setTimeout(applyFocus, 0);
+    }
+  };
+
+  const updateTarget = (
+    index: number,
+    field: "os" | "browser" | "mobile_os" | "version",
+    value: string
+  ) => {
+    onChange({
+      ...draft,
+      targets: draft.targets.map((target, currentIndex) =>
+        currentIndex === index ? { ...target, [field]: value } : target
+      )
+    });
+  };
+
+  const addTarget = () => {
+    const target = createConfigurationTarget();
+    onChange({ ...draft, targets: [...draft.targets, target] });
+    setAnnouncement(`Target row ${draft.targets.length + 1} added.`);
+    focusTarget(target.id);
+  };
+
+  const duplicateTarget = (index: number) => {
+    const source = draft.targets[index];
+    if (!source) return;
+    const target = createConfigurationTarget({ ...source, id: "" });
+    const targets = [...draft.targets];
+    targets.splice(index + 1, 0, target);
+    onChange({ ...draft, targets });
+    setAnnouncement(`Target row ${index + 1} duplicated as row ${index + 2}.`);
+    focusTarget(target.id);
+  };
+
+  const moveTarget = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= draft.targets.length) return;
+    const targets = [...draft.targets];
+    const [target] = targets.splice(index, 1);
+    targets.splice(nextIndex, 0, target);
+    onChange({ ...draft, targets });
+    setAnnouncement(`Target row ${index + 1} moved to row ${nextIndex + 1}.`);
+    focusTarget(target.id);
+  };
+
+  const removeTarget = (index: number) => {
+    const targets = draft.targets.filter((_, currentIndex) => currentIndex !== index);
+    const nextFocusTarget = targets[Math.min(index, targets.length - 1)];
+    onChange({ ...draft, targets });
+    setAnnouncement(
+      targets.length
+        ? `Target row ${index + 1} removed.`
+        : "Target row removed. This configuration will be saved as a draft until a target is added."
+    );
+    if (nextFocusTarget) focusTarget(nextFocusTarget.id);
+  };
+
   return (
     <form className="resource-form" onSubmit={onSubmit}>
       <div className="resource-form-body">
-        <div className="record-grid">
-          <FormField label="Configuration name" required>
-            <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
-          </FormField>
-          <FormField label="Browser">
-            <select value={draft.browser} onChange={(event) => onChange({ ...draft, browser: event.target.value })}>
-              <option value="">Any browser</option>
-              {browserOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </FormField>
-          {showMobileMetadata ? (
-            <FormField label="Mobile OS">
-              <select value={draft.mobile_os} onChange={(event) => onChange({ ...draft, mobile_os: event.target.value })}>
-                <option value="">Any mobile OS</option>
-                {mobileOsOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-          ) : null}
-          <FormField label="Version">
-            <input placeholder="17, 14, 124, or API v2" value={draft.platform_version} onChange={(event) => onChange({ ...draft, platform_version: event.target.value })} />
-          </FormField>
-        </div>
+        <FormField label="Configuration name" required>
+          <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
+        </FormField>
 
         <FormField label="Description">
           <RichTextEditor appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
+        <section aria-labelledby="configuration-targets-heading" className="configuration-matrix">
+          <div className="configuration-matrix-header">
+            <div>
+              <h3 id="configuration-targets-heading">Configuration targets</h3>
+              <p className="configuration-matrix-helper">
+                Keep the operating system, browser, mobile OS, and version together in one row. Add another row for each exact combination—rows are never cross-multiplied.
+              </p>
+            </div>
+            <button aria-label="Add target row" className="ghost-button configuration-matrix-add" onClick={addTarget} type="button">
+              <AddIcon />
+              Add target
+            </button>
+          </div>
+
+          <p className="configuration-matrix-warning" role="note">
+            Host OS values are saved for scheduling and reporting; runner capacity is validated when execution starts. iOS requires a compatible external runner.
+          </p>
+
+          {draft.targets.length ? (
+            <div className="configuration-matrix-table-wrap">
+              <table className="configuration-matrix-table">
+                <caption className="sr-only">Configuration target rows</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Row</th>
+                    <th scope="col">Host OS</th>
+                    <th scope="col">Browser</th>
+                    {showMobileMetadata ? <th scope="col">Mobile OS</th> : null}
+                    <th scope="col">Version</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.targets.map((target, index) => {
+                    const rowNumber = index + 1;
+                    const isDuplicate = duplicateTargetIndexes.has(index);
+                    const duplicateErrorId = `configuration-target-${target.id}-duplicate`;
+                    return (
+                      <tr className={isDuplicate ? "is-invalid" : ""} key={target.id}>
+                        <td className="configuration-matrix-index" data-label="Row">
+                          <strong>{rowNumber}</strong>
+                          {index === 0 ? <span className="configuration-matrix-default">Default</span> : null}
+                        </td>
+                        <td data-label="Host OS">
+                          <select
+                            aria-describedby={isDuplicate ? duplicateErrorId : undefined}
+                            aria-invalid={isDuplicate || undefined}
+                            aria-label={`Host OS for target row ${rowNumber}`}
+                            ref={(node) => {
+                              if (node) firstControlRefs.current.set(target.id, node);
+                              else firstControlRefs.current.delete(target.id);
+                            }}
+                            value={target.os}
+                            onChange={(event) => updateTarget(index, "os", event.target.value)}
+                          >
+                            <option value="">Any host OS</option>
+                            {CONFIGURATION_HOST_OS_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td data-label="Browser">
+                          <select
+                            aria-describedby={isDuplicate ? duplicateErrorId : undefined}
+                            aria-invalid={isDuplicate || undefined}
+                            aria-label={`Browser for target row ${rowNumber}`}
+                            value={target.browser}
+                            onChange={(event) => updateTarget(index, "browser", event.target.value)}
+                          >
+                            <option value="">Any browser</option>
+                            {browserOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        {showMobileMetadata ? (
+                          <td data-label="Mobile OS">
+                            <select
+                              aria-describedby={isDuplicate ? duplicateErrorId : undefined}
+                              aria-invalid={isDuplicate || undefined}
+                              aria-label={`Mobile OS for target row ${rowNumber}`}
+                              value={target.mobile_os}
+                              onChange={(event) => updateTarget(index, "mobile_os", event.target.value)}
+                            >
+                              <option value="">Not a mobile target</option>
+                              {mobileOsOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                        ) : null}
+                        <td data-label="Version">
+                          <input
+                            aria-describedby={isDuplicate ? duplicateErrorId : undefined}
+                            aria-invalid={isDuplicate || undefined}
+                            aria-label={`Mobile or platform version for target row ${rowNumber}`}
+                            list="configuration-version-options"
+                            placeholder="13, 14, 17.4, or Latest"
+                            value={target.version}
+                            onChange={(event) => updateTarget(index, "version", event.target.value)}
+                          />
+                          {isDuplicate ? <span className="sr-only" id={duplicateErrorId}>This target duplicates another row.</span> : null}
+                        </td>
+                        <td data-label="Actions">
+                          <div className="configuration-matrix-actions">
+                            <button aria-label={`Duplicate target row ${rowNumber}`} className="configuration-matrix-action" onClick={() => duplicateTarget(index)} title="Duplicate row" type="button">⧉</button>
+                            <button aria-label={`Move target row ${rowNumber} up`} className="configuration-matrix-action" disabled={index === 0} onClick={() => moveTarget(index, -1)} title="Move row up" type="button">↑</button>
+                            <button aria-label={`Move target row ${rowNumber} down`} className="configuration-matrix-action" disabled={index === draft.targets.length - 1} onClick={() => moveTarget(index, 1)} title="Move row down" type="button">↓</button>
+                            <button aria-label={`Remove target row ${rowNumber}`} className="configuration-matrix-action configuration-matrix-action--danger" onClick={() => removeTarget(index)} title="Remove row" type="button">×</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state compact resource-table-empty">
+              No target rows defined. This configuration is a draft until you add one.
+            </div>
+          )}
+
+          <datalist id="configuration-version-options">
+            <option value="13" />
+            <option value="14" />
+            <option value="15" />
+            <option value="16" />
+            <option value="17" />
+            <option value="Latest" />
+          </datalist>
+          <span aria-live="polite" className="sr-only">{announcement}</span>
+          {duplicateTargetIndexes.size ? <p className="form-field-error" role="alert">Duplicate target rows are highlighted. Every row must represent a unique combination.</p> : null}
+        </section>
+
         <KeyValueEditor
           entries={draft.variables}
-          heading="Configuration variables"
-          emptyMessage="No configuration variables added yet."
+          heading="Additional runtime variables"
+          emptyMessage="No additional runtime variables added yet."
           onChange={(variables) => onChange({ ...draft, variables })}
           allowSecret
         />
+        {validationError && !duplicateTargetIndexes.size ? <p className="form-field-error" role="alert">{validationError}</p> : null}
       </div>
 
       <div className="action-row resource-form-actions">
-        <button className="primary-button" disabled={isSubmitting} type="submit">{submitLabel}</button>
+        <button className="primary-button" disabled={isSubmitting || Boolean(validationError)} type="submit">{submitLabel}</button>
         {onDelete ? <button className="ghost-button danger" disabled={isSubmitting} onClick={onDelete} type="button">Delete</button> : null}
       </div>
     </form>
   );
 }
 
-function DataSetForm({
+export function DataSetForm({
   draft,
   dataSetModeOptions,
   onChange,
@@ -1904,33 +2248,21 @@ function DataUtilityPicker({
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canGenerateAiData = hasPermission(session, "data.ai")
+  const canGenerateAiData = hasPermission(session, "data.ai", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.test_data_generation"]);
   const { getPrompt, getLlmIntegrationId } = useAiPromptRegistry(Boolean(session) && canGenerateAiData);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedUtilityId, setSelectedUtilityId] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [sampleCount, setSampleCount] = useState(6);
   const [aiPreview, setAiPreview] = useState<AiTestDataGenerationPreviewResponse | null>(null);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState("");
   const [aiMessage, setAiMessage] = useState("");
   const generateAiData = useMutation({ mutationFn: api.testDataSets.previewAiData });
-  const filteredOptions = useMemo(() => {
-    const search = searchTerm.trim().toLowerCase();
-
-    if (!search) {
-      return options;
-    }
-
-    return options.filter((option) =>
-      [
-        option.label,
-        option.template,
-        option.group,
-        option.source || "",
-        option.key
-      ].join(" ").toLowerCase().includes(search)
-    );
-  }, [options, searchTerm]);
+  const selectedUtility = options.find((option) => option.id === selectedUtilityId) || null;
+  const selectedUtilityPreview = useMemo(
+    () => selectedUtility ? evaluateTestDataTemplate(selectedUtility.template) : "",
+    [selectedUtility]
+  );
   const selectedSuggestion = aiPreview?.suggestions.find((item) => item.id === selectedSuggestionId)
     || aiPreview?.suggestions[0]
     || null;
@@ -2045,59 +2377,59 @@ function DataUtilityPicker({
           ) : null}
         </section>
       ) : null}
-      <div className="test-data-utility-search">
-        <strong>Reusable utilities</strong>
-        <input
-          aria-label="Search data utilities"
-          onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search utilities"
-          type="search"
-          value={searchTerm}
-        />
-      </div>
-      <div className="test-data-utility-list">
-        {filteredOptions.map((option) => {
-          const staticPreview = evaluateTestDataTemplate(option.template);
-
-          return (
-            <article
-              className="test-data-utility-option"
-              onClick={() => onSelect(option.template, "template")}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelect(option.template, "template");
-                }
-              }}
-              key={option.id}
-              role="button"
-              tabIndex={0}
-            >
+      <section className="test-data-utility-library" aria-label="Reusable data utilities">
+        <div className="test-data-utility-library-head">
+          <div>
+            <strong>Reusable utilities</strong>
+            <span>Choose from every built-in utility and saved generator available in this project.</span>
+          </div>
+          <span className="count-pill">{options.length} available</span>
+        </div>
+        <label className="test-data-utility-select-field">
+          <span>Available utilities</span>
+          <select
+            aria-label="Available data utilities"
+            onChange={(event) => setSelectedUtilityId(event.target.value)}
+            value={selectedUtilityId}
+          >
+            <option value="">Choose a utility…</option>
+            {(["Data utility", "Saved template"] as const).map((group) => {
+              const groupOptions = options.filter((option) => option.group === group);
+              return groupOptions.length ? (
+                <optgroup key={group} label={group === "Data utility" ? "Built-in utilities" : "Saved templates"}>
+                  {groupOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}{option.source ? ` — ${option.source}` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+        </label>
+        {selectedUtility ? (
+          <div className="test-data-utility-selection">
+            <div className="test-data-utility-selection-copy">
               <span className="test-data-utility-option-meta">
-                {option.group}{option.source ? ` · ${option.source}` : ""}
+                {selectedUtility.group}{selectedUtility.source ? ` · ${selectedUtility.source}` : ""}
               </span>
-              <strong>{option.label}</strong>
-              <code>{option.template}</code>
-              <small>Sample: {staticPreview || "-"}</small>
-              <div className="test-data-utility-option-actions">
-                <button className="primary-button compact" onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect(option.template, "template");
-                }} type="button">
-                  Randomize
-                </button>
-                <button className="ghost-button compact" onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect(option.template, "static");
-                }} type="button">
-                  Static
-                </button>
-              </div>
-            </article>
-          );
-        })}
-        {!filteredOptions.length ? <div className="empty-state compact test-data-utility-empty">No matching utilities.</div> : null}
-      </div>
+              <strong>{selectedUtility.label}</strong>
+              <code>{selectedUtility.template}</code>
+              <small>Sample: {selectedUtilityPreview || "-"}</small>
+            </div>
+            <div className="test-data-utility-option-actions">
+              <button className="primary-button compact" onClick={() => onSelect(selectedUtility.template, "template")} type="button">
+                Use dynamic value
+              </button>
+              <button className="ghost-button compact" onClick={() => onSelect(selectedUtility.template, "static")} type="button">
+                Use this sample
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="test-data-utility-select-hint">Select a utility to preview its template and sample value.</p>
+        )}
+      </section>
     </div>
   );
 }
@@ -2160,8 +2492,9 @@ function TestDataCellValueEditor({
     <div className="test-data-cell-editor">
       <div className="test-data-cell-input-row">
         <textarea
+          aria-label={`Value for ${modalContextLabel || "test data cell"}`}
           className="resource-data-cell"
-          rows={Math.min(Math.max(String(value || "").split("\n").length, 2), 5)}
+          rows={Math.min(Math.max(String(value || "").split("\n").length, 1), 3)}
           value={value}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -2263,7 +2596,7 @@ function KeyValueEditor({
                     />
                   ) : multilineValue && !entry.is_secret ? (
                     <textarea
-                      rows={Math.min(Math.max(String(entry.value || "").split("\n").length, 2), 5)}
+                      rows={Math.min(Math.max(String(entry.value || "").split("\n").length, 1), 3)}
                       value={entry.value}
                       onChange={(event) =>
                         onChange(
@@ -2309,11 +2642,13 @@ function KeyValueEditor({
                 ) : null}
                 <td>
                   <button
-                    className="ghost-button danger resource-table-remove"
+                    aria-label={`Remove pair ${index + 1}`}
+                    className="ghost-button danger resource-table-remove resource-remove-icon"
                     onClick={() => onChange(entries.filter((_, currentIndex) => currentIndex !== index))}
+                    title="Remove pair"
                     type="button"
                   >
-                    Remove
+                    <span aria-hidden="true">X</span>
                   </button>
                 </td>
               </tr>
@@ -2340,6 +2675,10 @@ function DataTableEditor({
   const [activeUtilityCell, setActiveUtilityCell] = useState("");
   const [dragState, setDragState] = useState<{ type: "column" | "row"; index: number } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const expandedDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isExpanded,
+    onClose: () => setIsExpanded(false)
+  });
   const handleAddColumn = () => {
     const nextColumnName = `Column ${columns.length + 1}`;
     onChange({
@@ -2458,9 +2797,12 @@ function DataTableEditor({
 
   return (
     <div
+      aria-label={isExpanded ? "Expanded table data editor" : undefined}
       aria-modal={isExpanded ? "true" : undefined}
       className={isExpanded ? "resource-table-shell is-expanded" : "resource-table-shell"}
+      ref={expandedDialogRef}
       role={isExpanded ? "dialog" : undefined}
+      tabIndex={isExpanded ? -1 : undefined}
     >
       <div className="resource-table-toolbar">
         <strong>Table data</strong>
@@ -2513,11 +2855,11 @@ function DataTableEditor({
                       }
                     }}
                     onDrop={() => handleColumnDrop(columnIndex)}
+                    style={{ "--test-data-column-width": getTestDataColumnWidth(column) } as CSSProperties}
                   >
                     <div className="resource-column-header">
-                      <span className="resource-column-letter">{getSpreadsheetColumnLabel(columnIndex)}</span>
                       <button
-                        aria-label={`Move column ${getSpreadsheetColumnLabel(columnIndex)}`}
+                        aria-label={`Move column ${column || columnIndex + 1}`}
                         className="resource-column-drag-handle"
                         draggable
                         onDragEnd={() => setDragState(null)}
@@ -2532,17 +2874,18 @@ function DataTableEditor({
                         <span aria-hidden="true">::</span>
                       </button>
                       <input
-                        aria-label={`Column ${getSpreadsheetColumnLabel(columnIndex)} name`}
+                        aria-label={`Column ${columnIndex + 1} name`}
                         value={column}
                         onChange={(event) => handleRenameColumn(columnIndex, event.target.value)}
                       />
                       <button
-                        className="ghost-button danger resource-column-remove"
+                        aria-label={`Remove column ${column || columnIndex + 1}`}
+                        className="ghost-button danger resource-column-remove resource-remove-icon"
                         onClick={() => handleRemoveColumn(columnIndex)}
                         title="Remove column"
                         type="button"
                       >
-                        x
+                        <span aria-hidden="true">X</span>
                       </button>
                     </div>
                   </th>
@@ -2582,7 +2925,11 @@ function DataTableEditor({
                     </button>
                   </td>
                   {columns.map((column, columnIndex) => (
-                    <td key={`${rowIndex}-${columnIndex}`}>
+                    <td
+                      className="resource-sheet-data-cell"
+                      key={`${rowIndex}-${columnIndex}`}
+                      style={{ "--test-data-column-width": getTestDataColumnWidth(column) } as CSSProperties}
+                    >
                       <TestDataCellValueEditor
                         isUtilityOpen={activeUtilityCell === `${rowIndex}:${columnIndex}`}
                         onApplyUtility={(template, mode) => {
@@ -2603,7 +2950,8 @@ function DataTableEditor({
                   ))}
                   <td className="resource-sheet-action-cell">
                     <button
-                      className="ghost-button danger resource-table-remove"
+                      aria-label={`Remove row ${rowIndex + 1}`}
+                      className="ghost-button danger resource-table-remove resource-remove-icon"
                       onClick={() =>
                         onChange({
                           ...draft,
@@ -2611,9 +2959,10 @@ function DataTableEditor({
                           rows: rows.filter((_, currentIndex) => currentIndex !== rowIndex)
                         })
                       }
+                      title="Remove row"
                       type="button"
                     >
-                      Remove
+                      <span aria-hidden="true">X</span>
                     </button>
                   </td>
                 </tr>

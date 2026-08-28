@@ -9,8 +9,13 @@ info:
 servers:
   - url: http://localhost:3000
     description: Local development server
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
 tags:
   - name: Auth
+  - name: Settings
+  - name: Feature Flags
   - name: Users
   - name: Roles
   - name: Projects
@@ -18,9 +23,14 @@ tags:
   - name: App Types
   - name: Integrations
   - name: Requirements
+  - name: Releases
+  - name: Issues
   - name: Test Suites
   - name: Test Cases
+  - name: Test Case Modules
   - name: Test Steps
+  - name: Test Configurations
+  - name: Test Data
   - name: Executions
   - name: Execution Schedules
   - name: Execution Results
@@ -32,6 +42,7 @@ paths:
     post:
       tags: [Auth]
       summary: Create account and start a session
+      security: []
       requestBody:
         required: true
         content:
@@ -51,6 +62,7 @@ paths:
     post:
       tags: [Auth]
       summary: Login and return a signed session token
+      security: []
       requestBody:
         required: true
         content:
@@ -70,6 +82,8 @@ paths:
     get:
       tags: [Auth]
       summary: Resolve the current session from a Bearer token
+      security:
+        - bearerAuth: []
       parameters:
         - name: Authorization
           in: header
@@ -86,6 +100,137 @@ paths:
                 $ref: "#/components/schemas/SessionResponse"
         "500":
           $ref: "#/components/responses/ErrorResponse"
+
+  /settings/localization:
+    get:
+      tags: [Settings]
+      summary: Read workspace localization overrides
+      responses:
+        "200":
+          description: Localization string overrides
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalizationSettingsResponse" }
+    put:
+      tags: [Settings]
+      summary: Replace workspace localization overrides
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateLocalizationSettingsRequest" }
+      responses:
+        "200":
+          description: Updated localization string overrides
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedLocalizationSettingsResponse" }
+  /settings/workspace-preferences:
+    get:
+      tags: [Settings]
+      summary: Read personal preferences merged with governed workspace policy
+      description: Governed preference keys are stored once for the workspace and are returned identically to every authenticated user; all other keys remain personal to the current user.
+      responses:
+        "200":
+          description: Personal preferences plus governed AI prompt, LLM selection, metric criteria, and metric formula preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspacePreferencesResponse" }
+    put:
+      tags: [Settings]
+      summary: Merge personal preferences or update governed workspace policy
+      description: Governed AI prompt, LLM selection, and metric criteria keys require AI prompt administration; governed metric formula values require workspace preference administration. Other serializable keys update only the current user's preferences.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateWorkspacePreferencesRequest" }
+      responses:
+        "200":
+          description: Merged workspace preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedWorkspacePreferencesResponse" }
+  /settings/api-keys:
+    get:
+      tags: [Settings]
+      summary: List the current user's scoped API keys and available scopes
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: API key metadata; secret values are never returned by list operations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyListResponse" }
+    post:
+      tags: [Settings]
+      summary: Create a scoped API key and return its secret once
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateApiKeyRequest" }
+      responses:
+        "200":
+          description: Created API key metadata and one-time secret
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateApiKeyResponse" }
+  /settings/api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    delete:
+      tags: [Settings]
+      summary: Revoke an API key while retaining its audit metadata
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Revoked API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevokeApiKeyResponse" }
+  /settings/api-keys/{id}/permanent:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    delete:
+      tags: [Settings]
+      summary: Permanently delete an API key owned by the current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: API key permanently deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermanentDeleteApiKeyResponse" }
+  /feature-flags:
+    get:
+      tags: [Feature Flags]
+      summary: Read grouped feature definitions and effective local flags
+      responses:
+        "200":
+          description: Feature flag snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagSnapshot" }
+    put:
+      tags: [Feature Flags]
+      summary: Replace local feature flag values
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateFeatureFlagsRequest" }
+      responses:
+        "200":
+          description: Updated effective feature flag snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagSnapshot" }
 
   /users:
     get:
@@ -456,6 +601,14 @@ paths:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/StatusQuery"
         - $ref: "#/components/parameters/PriorityQuery"
+        - name: sprint_id
+          in: query
+          description: Filter Stories assigned to the native Sprint identifier.
+          schema: { type: string }
+        - name: unassigned
+          in: query
+          description: When true, return only Stories that are not assigned to a native Sprint.
+          schema: { type: boolean }
       responses:
         "200":
           description: List of requirements
@@ -748,6 +901,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IdResponse"
+  /test-cases/resolve-requirements:
+    post:
+      tags: [Test Cases]
+      summary: Resolve all app-scoped Test Cases linked to selected Requirements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app_type_id, requirement_ids]
+              properties:
+                app_type_id: { type: string }
+                requirement_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string }
+      responses:
+        "200":
+          description: Complete deduplicated Test Case scope for the selected Requirements and app type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestCase"
   /test-cases/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1044,13 +1224,13 @@ paths:
                 $ref: "#/components/schemas/Execution"
     put:
       tags: [Executions]
-      summary: Update execution assignment
+      summary: Update execution assignment or delivery context
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateExecutionAssignmentRequest"
+              $ref: "#/components/schemas/UpdateExecutionRequest"
       responses:
         "200":
           description: Update result
@@ -1144,6 +1324,14 @@ paths:
     post:
       tags: [Executions]
       summary: Run a single API step from the execution console
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
       responses:
         "200":
           description: Step execution result
@@ -1262,9 +1450,24 @@ paths:
       tags: [Execution Results]
       summary: List execution results
       parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/ExecutionIdQuery"
         - $ref: "#/components/parameters/TestCaseIdQuery"
         - $ref: "#/components/parameters/AppTypeIdQuery"
+        - name: run_limit
+          in: query
+          description: Restrict evidence to the most recent scoped runs (maximum 500).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: limit
+          in: query
+          description: Maximum result records returned (maximum 5,000).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
       responses:
         "200":
           description: List of execution results
@@ -1334,6 +1537,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: Receive signed Test Engine execution callbacks
+      security:
+        - testEngineCallbackSignature: []
       parameters:
         - $ref: "#/components/parameters/TestEngineSignatureHeader"
       requestBody:
@@ -1354,6 +1559,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: lease the next queued Test Engine job"
+      security:
+        - testEngineSecret: []
       requestBody:
         content:
           application/json:
@@ -1372,6 +1579,8 @@ paths:
     get:
       tags: [Test Engine]
       summary: "Internal: get a queued Test Engine job by ID"
+      security:
+        - testEngineSecret: []
       responses:
         "200":
           description: Queued job
@@ -1385,6 +1594,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: mark a queued job as running"
+      security:
+        - testEngineSecret: []
       requestBody:
         content:
           application/json:
@@ -1404,6 +1615,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: execute an API step for a queued job"
+      security:
+        - testEngineSecret: []
       responses:
         "200":
           description: Step execution result
@@ -1418,6 +1631,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: report a queued step result back to HelloTest"
+      security:
+        - testEngineSecret: []
       requestBody:
         required: true
         content:
@@ -1437,6 +1652,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: complete a queued Test Engine job"
+      security:
+        - testEngineSecret: []
       requestBody:
         content:
           application/json:
@@ -1455,6 +1672,8 @@ paths:
     post:
       tags: [Test Engine]
       summary: "Internal: fail a queued Test Engine job"
+      security:
+        - testEngineSecret: []
       requestBody:
         content:
           application/json:
@@ -1604,7 +1823,7 @@ paths:
         - { name: release, in: query, schema: { type: string } }
         - { name: sprint, in: query, schema: { type: string } }
       responses:
-        "200": { description: Release readiness metrics, findings, limitations, and provenance }
+        "200": { description: "Release readiness metrics, findings, limitations, and provenance" }
   /ai/rich-text-rephrase:
     post:
       tags: [Quality Analytics]
@@ -1632,13 +1851,99 @@ paths:
       tags: [Issues]
       summary: Create a review-only bug draft from bounded HelloTest evidence
       responses:
-        "200": { description: Evidence-linked draft, confidence, provenance, and human-review requirement }
+        "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /issues/ai-draft-preview:
     post:
       tags: [Issues]
       summary: Alias for the review-only bug drafting endpoint
       responses:
-        "200": { description: Evidence-linked draft, confidence, provenance, and human-review requirement }
+        "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
+  /feedback:
+    get:
+      tags: [Issues]
+      summary: List Bugs visible to the current user
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: user_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/StatusQuery"
+        - name: q
+          in: query
+          description: Case-insensitive search over Bug ID, title, description, and Jira key.
+          schema: { type: string }
+        - name: include_page
+          in: query
+          schema: { type: boolean }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bugs, optionally wrapped in a cursor-paged response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items: { $ref: "#/components/schemas/Issue" }
+                  - $ref: "#/components/schemas/IssuePage"
+    post:
+      tags: [Issues]
+      summary: Create a Bug with optional delivery and traceability context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateIssueRequest" }
+      responses:
+        "200":
+          description: Bug created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueCreatedResponse" }
+  /feedback/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Issues]
+      summary: Read a Bug
+      responses:
+        "200":
+          description: Bug record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+    put:
+      tags: [Issues]
+      summary: Update a Bug, including its delivery and traceability context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateIssueRequest" }
+      responses:
+        "200":
+          description: Bug updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedResponse" }
+    delete:
+      tags: [Issues]
+      summary: Delete a Bug
+      responses:
+        "200":
+          description: Bug deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletedResponse" }
+  /issues:
+    $ref: "#/paths/~1feedback"
+  /issues/{id}:
+    $ref: "#/paths/~1feedback~1{id}"
   /requirement-iterations:
     get:
       tags: [Requirements]
@@ -1690,6 +1995,121 @@ paths:
       summary: Delete an iteration without deleting its requirements
       responses:
         "200": { description: Deleted iteration }
+  /requirement-releases:
+    get:
+      tags: [Releases]
+      summary: List project Releases with resolved Sprint and Story scope
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Project Releases
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RequirementRelease" }
+    post:
+      tags: [Releases]
+      summary: Create a Release with optional Sprint and Story scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRequirementReleaseRequest" }
+      responses:
+        "200":
+          description: Created Release and hydrated scope
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateRequirementReleaseResponse" }
+  /requirement-releases/readiness:
+    get:
+      tags: [Releases]
+      summary: List readiness metrics for every project Release
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Release readiness summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RequirementReleaseReadiness" }
+  /requirement-releases/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Releases]
+      summary: Read a Release with effective Sprint-derived and direct Story scope
+      responses:
+        "200":
+          description: Hydrated Release
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequirementRelease" }
+    put:
+      tags: [Releases]
+      summary: Update Release metadata or replace its Sprint and Story scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRequirementReleaseRequest" }
+      responses:
+        "200":
+          description: Updated Release
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateRequirementReleaseResponse" }
+    delete:
+      tags: [Releases]
+      summary: Delete a Release without deleting its Stories or Sprints
+      responses:
+        "200":
+          description: Release deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletedResponse" }
+  /requirement-releases/{id}/scope:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Releases]
+      summary: Append native Stories and Sprints to an existing Release without replacing current scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppendRequirementReleaseScopeRequest" }
+      responses:
+        "200":
+          description: Exact appended identifiers and the resulting hydrated Release
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppendRequirementReleaseScopeResponse" }
+        "409": { description: Completed Releases are read-only }
+  /requirement-releases/{id}/readiness:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Releases]
+      summary: Calculate readiness metrics for one Release
+      responses:
+        "200":
+          description: Release readiness evidence
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequirementReleaseReadiness" }
+  /requirement-releases/{id}/release-notes:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Releases]
+      summary: Generate evidence-bounded release notes for human review
+      responses:
+        "200": { description: "Release notes, generation provenance, scope summary, and readiness evidence" }
   /quality-dashboards:
     get:
       tags: [Quality Analytics]
@@ -1790,7 +2210,7 @@ paths:
       tags: [Requirements]
       summary: Create an evidence-grounded, human-reviewed Story grooming preview
       responses:
-        "200": { description: Grooming summary, risks, questions, evidence, provenance, and review requirement }
+        "200": { description: "Grooming summary, risks, questions, evidence, provenance, and review requirement" }
   /requirements/ai-description-rephrase:
     post:
       tags: [Requirements]
@@ -1802,7 +2222,7 @@ paths:
       tags: [Requirements]
       summary: Export authoritative project-scoped Story records with an audit transaction
       responses:
-        "200": { description: Exported Story records, skipped selections, and transaction ID }
+        "200": { description: "Exported Story records, skipped selections, and transaction ID" }
   /requirements/ai-gherkin-preview:
     post:
       tags: [Requirements]
@@ -1832,7 +2252,7 @@ paths:
       tags: [Requirements]
       summary: Read one project-scoped Story generation job
       responses:
-        "200": { description: Generation job status, drafts, provenance, and failure details }
+        "200": { description: "Generation job status, drafts, provenance, and failure details" }
   /requirement-iterations/health:
     get:
       tags: [Requirements]
@@ -1840,7 +2260,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
-        "200": { description: Sprint metrics, completeness disclosure, methodology, and scan limits }
+        "200": { description: "Sprint metrics, completeness disclosure, methodology, and scan limits" }
   /requirement-iterations/{id}/requirements:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1923,19 +2343,189 @@ paths:
       summary: Compatibility endpoint for governed Test Case assignment
       responses:
         "200": { description: Assignment count and next suite revision }
+  /test-case-modules:
+    get:
+      tags: [Test Case Modules]
+      summary: List Test Case modules with Test Case and Requirement membership
+      parameters:
+        - $ref: "#/components/parameters/AppTypeIdQuery"
+      responses:
+        "200":
+          description: Test Case modules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TestCaseModule" }
+    post:
+      tags: [Test Case Modules]
+      summary: Create a module and resolve its Requirement-linked Test Case scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTestCaseModuleRequest" }
+      responses:
+        "200":
+          description: Module created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdResponse" }
+  /test-case-modules/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Test Case Modules]
+      summary: Read a module with Test Case and Requirement membership
+      responses:
+        "200":
+          description: Test Case module
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestCaseModule" }
+    put:
+      tags: [Test Case Modules]
+      summary: Update a module and optionally replace Test Case or Requirement membership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTestCaseModuleRequest" }
+      responses:
+        "200":
+          description: Module updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedResponse" }
+    delete:
+      tags: [Test Case Modules]
+      summary: Delete a module
+      responses:
+        "200":
+          description: Module deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletedResponse" }
   /test-case-modules/{id}/test-cases:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     get:
-      tags: [Test Cases]
+      tags: [Test Case Modules]
       summary: List module Test Cases using cursor pagination
       responses:
         "200": { description: Paginated Test Case records }
-    put:
-      tags: [Test Cases]
-      summary: Replace Test Case assignment for a module
+    post:
+      tags: [Test Case Modules]
+      summary: Append Test Cases to a module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssignTestCaseModuleCasesRequest" }
       responses:
-        "200": { description: Assignment result }
+        "200":
+          description: Assignment result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestCaseModuleAssignmentResponse" }
+    put:
+      tags: [Test Case Modules]
+      summary: Append or replace Test Case assignment for a module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssignTestCaseModuleCasesRequest" }
+      responses:
+        "200":
+          description: Assignment result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestCaseModuleAssignmentResponse" }
+    delete:
+      tags: [Test Case Modules]
+      summary: Remove selected Test Cases from a module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [test_case_ids]
+              properties:
+                test_case_ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Removal result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestCaseModuleAssignmentResponse" }
+  /test-configurations:
+    get:
+      tags: [Test Configurations]
+      summary: List project-scoped reusable test configurations
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - $ref: "#/components/parameters/AppTypeIdQuery"
+      responses:
+        "200":
+          description: Test configurations with their ordered target matrices
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TestConfiguration" }
+    post:
+      tags: [Test Configurations]
+      summary: Create a reusable test configuration and ordered target matrix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTestConfigurationRequest" }
+      responses:
+        "200":
+          description: Configuration created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdResponse" }
+  /test-configurations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Test Configurations]
+      summary: Read a test configuration
+      responses:
+        "200":
+          description: Test configuration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestConfiguration" }
+    put:
+      tags: [Test Configurations]
+      summary: Update a test configuration and ordered target matrix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTestConfigurationRequest" }
+      responses:
+        "200":
+          description: Configuration updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedResponse" }
+    delete:
+      tags: [Test Configurations]
+      summary: Delete a test configuration
+      responses:
+        "200":
+          description: Configuration deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletedResponse" }
   /test-data-sets/ai-generate-preview:
     post:
       tags: [Test Data]
@@ -1985,7 +2575,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
-        "200": { description: Metrics with completeness, methodology, and human-decision disclosure }
+        "200": { description: "Metrics with completeness, methodology, and human-decision disclosure" }
   /execution-results/{id}/defect-links:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2049,6 +2639,27 @@ paths:
       responses:
         "200": { description: Delivery result and transaction ID }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Signed HelloTest browser-session token returned by the login or signup flow.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Scoped HelloTest API key. API-key management endpoints require bearerAuth instead.
+    testEngineSecret:
+      type: apiKey
+      in: header
+      name: X-HelloTest-TestEngine-Secret
+      description: Shared secret accepted by internal Test Engine job endpoints.
+    testEngineCallbackSignature:
+      type: apiKey
+      in: header
+      name: x-testengine-signature
+      description: HMAC SHA-256 signature of the raw Test Engine callback payload.
   parameters:
     IdParam:
       name: id
@@ -2211,6 +2822,18 @@ components:
         role: { type: string, enum: [admin, member] }
         role_id: { type: string, nullable: true }
         role_name: { type: string, nullable: true }
+        permissions:
+          type: array
+          description: Effective deduplicated workspace and project permission codes for the session.
+          items: { type: string }
+        workspace_permissions:
+          type: array
+          items: { type: string }
+        project_permissions:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
         created_at: { type: string, format: date-time }
     SessionResponse:
       type: object
@@ -2219,6 +2842,166 @@ components:
         user:
           $ref: "#/components/schemas/User"
       required: [token, user]
+    LocalizationStringMap:
+      type: object
+      additionalProperties:
+        type: string
+    LocalizationSettingsResponse:
+      type: object
+      required: [strings]
+      properties:
+        strings: { $ref: "#/components/schemas/LocalizationStringMap" }
+    UpdateLocalizationSettingsRequest:
+      type: object
+      required: [strings]
+      properties:
+        strings: { $ref: "#/components/schemas/LocalizationStringMap" }
+    UpdatedLocalizationSettingsResponse:
+      allOf:
+        - $ref: "#/components/schemas/UpdatedResponse"
+        - $ref: "#/components/schemas/LocalizationSettingsResponse"
+    SerializablePreferences:
+      type: object
+      description: Personal serializable preferences merged with the governed workspace keys below.
+      properties:
+        ai_prompt_registry_overrides:
+          type: object
+          description: Workspace-wide mapping from AI usage keys to governed prompt text or prompt identifiers.
+          additionalProperties: true
+        ai_prompt_registry_llm_overrides:
+          type: object
+          description: Workspace-wide mapping from AI usage keys to configured LLM integration identifiers.
+          additionalProperties: true
+        ai_metric_criteria_overrides:
+          type: object
+          description: Workspace-wide metric evaluation criteria overrides.
+          additionalProperties: true
+        ai_metric_formula_values:
+          type: object
+          description: Workspace-wide metric formula parameters.
+          additionalProperties: true
+      additionalProperties: true
+    WorkspacePreferencesResponse:
+      type: object
+      required: [preferences]
+      properties:
+        preferences: { $ref: "#/components/schemas/SerializablePreferences" }
+    UpdateWorkspacePreferencesRequest:
+      type: object
+      required: [preferences]
+      properties:
+        preferences: { $ref: "#/components/schemas/SerializablePreferences" }
+    UpdatedWorkspacePreferencesResponse:
+      allOf:
+        - $ref: "#/components/schemas/UpdatedResponse"
+        - $ref: "#/components/schemas/WorkspacePreferencesResponse"
+    ApiKeyScopeValue:
+      type: string
+      enum: [user, read, design, automation, runs, environment, integrations, admin]
+    ApiKeyScope:
+      type: object
+      required: [value, label, description]
+      properties:
+        value: { $ref: "#/components/schemas/ApiKeyScopeValue" }
+        label: { type: string }
+        description: { type: string }
+    ApiKey:
+      type: object
+      required: [id, name, key_prefix, scope, is_active]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        key_prefix: { type: string }
+        scope: { $ref: "#/components/schemas/ApiKeyScopeValue" }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time, nullable: true }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+    ApiKeyListResponse:
+      type: object
+      required: [api_keys, scopes]
+      properties:
+        api_keys:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKey" }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        scope: { $ref: "#/components/schemas/ApiKeyScopeValue" }
+    CreateApiKeyResponse:
+      type: object
+      required: [key, api_key, authorization_header, x_api_key_header]
+      properties:
+        key: { type: string, description: One-time secret value. }
+        api_key: { $ref: "#/components/schemas/ApiKey" }
+        authorization_header: { type: string }
+        x_api_key_header: { type: string }
+    RevokeApiKeyResponse:
+      type: object
+      required: [revoked, api_key]
+      properties:
+        revoked: { type: boolean }
+        api_key: { $ref: "#/components/schemas/ApiKey" }
+    PermanentDeleteApiKeyResponse:
+      type: object
+      required: [deleted, id]
+      properties:
+        deleted: { type: boolean }
+        id: { type: string }
+    FeatureFlagDefinition:
+      type: object
+      required: [key, label, permissions]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        description: { type: string, nullable: true }
+        routes:
+          type: array
+          items: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+        default_enabled: { type: boolean }
+    FeatureFlagGroup:
+      type: object
+      required: [key, label, features]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        description: { type: string, nullable: true }
+        features:
+          type: array
+          items: { $ref: "#/components/schemas/FeatureFlagDefinition" }
+    FeatureFlagMap:
+      type: object
+      additionalProperties:
+        type: boolean
+    FeatureFlagSnapshot:
+      type: object
+      required: [groups, flags, local_flags, provider]
+      properties:
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/FeatureFlagGroup" }
+        flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+        local_flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+        provider:
+          type: object
+          required: [type, configured, connected]
+          properties:
+            type: { type: string, enum: [local] }
+            configured: { type: boolean }
+            connected: { type: boolean }
+    UpdateFeatureFlagsRequest:
+      type: object
+      required: [flags]
+      properties:
+        flags: { $ref: "#/components/schemas/FeatureFlagMap" }
     SignupRequest:
       type: object
       required: [email, password]
@@ -2327,6 +3110,126 @@ components:
             assigned_issue_keys:
               type: array
               items: { type: string }
+    RequirementRelease:
+      type: object
+      required: [id, project_id, name, fix_version, state, sprint_ids, requirement_ids]
+      properties:
+        id: { type: string }
+        display_id: { type: string, nullable: true }
+        project_id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        fix_version: { type: string }
+        target_date_label: { type: string, nullable: true }
+        plan_date: { type: string, format: date-time, nullable: true }
+        target_date: { type: string, format: date-time, nullable: true }
+        external_link: { type: string, nullable: true }
+        state:
+          type: string
+          enum: [planned, in_progress, released, overdue]
+          description: Effective state; overdue is derived when an unfinished Release passes its target date.
+        persisted_state: { type: string, enum: [planned, in_progress, released] }
+        sprint_ids:
+          type: array
+          items: { type: string }
+        requirement_ids:
+          type: array
+          description: Effective direct and Sprint-derived Story identifiers.
+          items: { type: string }
+        requirement_count: { type: integer, minimum: 0 }
+        requirements:
+          type: array
+          items: { $ref: "#/components/schemas/Requirement" }
+        created_by: { type: string, nullable: true }
+        updated_by: { type: string, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+    RequirementReleaseFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 255 }
+        description: { type: string, maxLength: 20000 }
+        fix_version: { type: string, maxLength: 255 }
+        target_date_label: { type: string, maxLength: 255 }
+        plan_date: { type: string }
+        target_date: { type: string }
+        external_link: { type: string, maxLength: 2000 }
+        state: { type: string, enum: [planned, in_progress, released] }
+        sprint_ids:
+          type: array
+          items: { type: string }
+        requirement_ids:
+          type: array
+          items: { type: string }
+    CreateRequirementReleaseRequest:
+      allOf:
+        - $ref: "#/components/schemas/RequirementReleaseFields"
+        - type: object
+          required: [project_id, name, fix_version]
+          properties:
+            project_id: { type: string }
+    UpdateRequirementReleaseRequest:
+      $ref: "#/components/schemas/RequirementReleaseFields"
+    CreateRequirementReleaseResponse:
+      type: object
+      required: [id, release]
+      properties:
+        id: { type: string }
+        release: { $ref: "#/components/schemas/RequirementRelease" }
+    UpdateRequirementReleaseResponse:
+      type: object
+      required: [updated, release]
+      properties:
+        updated: { type: boolean }
+        release: { $ref: "#/components/schemas/RequirementRelease" }
+    AppendRequirementReleaseScopeRequest:
+      type: object
+      anyOf:
+        - required: [requirement_ids]
+        - required: [sprint_ids]
+      properties:
+        requirement_ids:
+          type: array
+          minItems: 1
+          items: { type: string }
+        sprint_ids:
+          type: array
+          minItems: 1
+          items: { type: string }
+    AppendRequirementReleaseScopeResponse:
+      type: object
+      required: [updated, appended_requirement_ids, appended_sprint_ids, release]
+      properties:
+        updated: { type: boolean }
+        appended_requirement_ids:
+          type: array
+          items: { type: string }
+        appended_sprint_ids:
+          type: array
+          items: { type: string }
+        release: { $ref: "#/components/schemas/RequirementRelease" }
+    RequirementReleaseReadiness:
+      type: object
+      required: [release_id, total_stories, readiness_score, readiness_state]
+      properties:
+        release_id: { type: string }
+        total_stories: { type: integer, minimum: 0 }
+        covered_stories: { type: integer, minimum: 0 }
+        test_coverage_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        linked_cases: { type: integer, minimum: 0 }
+        executed_cases: { type: integer, minimum: 0 }
+        passed_cases: { type: integer, minimum: 0 }
+        pass_rate_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        total_bugs: { type: integer, minimum: 0 }
+        open_bugs: { type: integer, minimum: 0 }
+        bug_density: { type: number, minimum: 0, nullable: true }
+        automated_cases: { type: integer, minimum: 0 }
+        automation_coverage_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        readiness_score: { type: integer, minimum: 0, maximum: 100 }
+        readiness_state: { type: string, enum: [ready, at_risk, not_ready] }
+        methodology:
+          type: object
+          additionalProperties: true
     Role:
       type: object
       properties:
@@ -2423,8 +3326,10 @@ components:
           type: array
           items: { type: string }
         sprint: { type: string, nullable: true }
+        iteration_id: { type: string, nullable: true, description: Native Sprint identifier. Jira-only sprint text can exist without this field. }
         fix_version: { type: string, nullable: true }
         release: { type: string, nullable: true }
+        release_membership_source: { type: string, nullable: true, enum: [manual, sprint] }
         priority: { type: integer, nullable: true }
         status: { type: string, nullable: true }
         test_case_ids:
@@ -2472,6 +3377,7 @@ components:
           type: array
           items: { type: string }
         sprint: { type: string }
+        iteration_id: { type: string }
         fix_version: { type: string }
         release: { type: string }
         priority: { type: integer }
@@ -2489,10 +3395,117 @@ components:
           type: array
           items: { type: string }
         sprint: { type: string }
+        iteration_id: { type: string }
         fix_version: { type: string }
         release: { type: string }
         priority: { type: integer }
         status: { type: string }
+    Issue:
+      type: object
+      required: [id, project_id, user_id, title, message, status]
+      properties:
+        id: { type: string }
+        display_id: { type: string, nullable: true }
+        project_id: { type: string }
+        user_id: { type: string }
+        user_name: { type: string, nullable: true }
+        user_email: { type: string, format: email, nullable: true }
+        title: { type: string }
+        message: { type: string }
+        steps_to_reproduce: { type: string, nullable: true }
+        expected_result: { type: string, nullable: true }
+        actual_result: { type: string, nullable: true }
+        severity: { type: string, nullable: true }
+        priority: { type: string, nullable: true }
+        environment: { type: string, nullable: true }
+        build: { type: string, nullable: true }
+        jira_bug_key: { type: string, nullable: true }
+        linked_test_run_id: { type: string, nullable: true }
+        linked_test_case_ids:
+          type: array
+          items: { type: string }
+        linked_test_suite_ids:
+          type: array
+          items: { type: string }
+        linked_module_ids:
+          type: array
+          items: { type: string }
+        linked_requirement_ids:
+          type: array
+          items: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        sprint: { type: string, nullable: true }
+        fix_version: { type: string, nullable: true }
+        release: { type: string, nullable: true }
+        assignee_id: { type: string, nullable: true }
+        assignee_name: { type: string, nullable: true }
+        assignee_email: { type: string, format: email, nullable: true }
+        root_cause: { type: string, nullable: true }
+        status: { type: string, enum: [open, reviewed, planned, closed] }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+    IssueWriteFields:
+      type: object
+      properties:
+        project_id: { type: string }
+        user_id: { type: string, description: Compatibility field; authenticated creation records the acting user. }
+        title: { type: string, minLength: 2 }
+        message: { type: string, minLength: 2 }
+        steps_to_reproduce: { type: string }
+        expected_result: { type: string }
+        actual_result: { type: string }
+        severity: { type: string }
+        priority: { type: string }
+        environment: { type: string }
+        build: { type: string }
+        jira_bug_key: { type: string }
+        linked_test_run_id: { type: string }
+        linked_test_case_ids:
+          type: array
+          items: { type: string }
+        linked_test_suite_ids:
+          type: array
+          items: { type: string }
+        linked_module_ids:
+          type: array
+          items: { type: string }
+        linked_requirement_ids:
+          type: array
+          items: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        sprint: { type: string }
+        fix_version: { type: string }
+        release: { type: string }
+        assignee_id: { type: string }
+        root_cause: { type: string }
+        status: { type: string, enum: [open, reviewed, planned, closed] }
+    CreateIssueRequest:
+      allOf:
+        - $ref: "#/components/schemas/IssueWriteFields"
+        - type: object
+          required: [project_id, user_id, title, message]
+    UpdateIssueRequest:
+      $ref: "#/components/schemas/IssueWriteFields"
+    IssueCreatedResponse:
+      type: object
+      required: [id, display_id]
+      properties:
+        id: { type: string }
+        display_id: { type: string }
+    IssuePage:
+      type: object
+      required: [items, total, next_cursor, is_last]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Issue" }
+        total: { type: integer, minimum: 0 }
+        next_cursor: { type: string, nullable: true }
+        is_last: { type: boolean }
     ReplaceRequirementDefectsRequest:
       type: object
       required: [requirement_id, issue_ids]
@@ -2565,20 +3578,89 @@ components:
       properties:
         name: { type: string }
         parent_id: { type: string }
+    TestCaseModule:
+      type: object
+      required: [id, app_type_id, name, test_case_ids, requirement_ids]
+      properties:
+        id: { type: string }
+        display_id: { type: string, nullable: true }
+        app_type_id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        test_case_count: { type: integer, minimum: 0 }
+        test_case_ids:
+          type: array
+          items: { type: string }
+        requirement_ids:
+          type: array
+          description: Requirements selected for module scope; their linked Test Cases are resolved during authoring.
+          items: { type: string }
+        created_by: { type: string, nullable: true }
+        updated_by: { type: string, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+    CreateTestCaseModuleRequest:
+      type: object
+      required: [app_type_id, name]
+      properties:
+        app_type_id: { type: string }
+        name: { type: string, minLength: 2 }
+        description: { type: string }
+        test_case_ids:
+          type: array
+          items: { type: string }
+        requirement_ids:
+          type: array
+          items: { type: string }
+    UpdateTestCaseModuleRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2 }
+        description: { type: string }
+        test_case_ids:
+          type: array
+          items: { type: string }
+        requirement_ids:
+          type: array
+          items: { type: string }
+    AssignTestCaseModuleCasesRequest:
+      type: object
+      required: [test_case_ids]
+      properties:
+        test_case_ids:
+          type: array
+          items: { type: string }
+        append:
+          type: boolean
+          default: true
+          description: Set false to replace existing module membership.
+    TestCaseModuleAssignmentResponse:
+      type: object
+      required: [updated]
+      properties:
+        updated: { type: boolean }
+        assigned: { type: integer, minimum: 0 }
+        removed: { type: integer, minimum: 0 }
     TestCase:
       type: object
       properties:
         id: { type: string }
-        suite_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        suite_id: { type: string, nullable: true }
+        suite_ids: { type: array, items: { type: string } }
         title: { type: string }
         description: { type: string, nullable: true }
+        external_references: { type: array, items: { type: string } }
+        labels: { type: array, items: { type: string } }
+        parameter_values: { $ref: "#/components/schemas/StringMap" }
         automated: { type: string, enum: [yes, no] }
         automation_status: { type: string, enum: [not_automated, ready, incomplete] }
         manual_test_case_id: { type: string, nullable: true, description: Primary manual test case linked to this independent automation case. }
         manual_test_case_ids: { type: array, items: { type: string }, description: All manual test cases linked to this automation case. }
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
-        test_data_set_ids: { type: array, items: { type: string } }
+        test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. Table rows remain separate execution iterations. }
+        author_id: { type: string, nullable: true, description: Selected Test Case author. Legacy records fall back to the immutable creator. }
         author:
           type: object
           nullable: true
@@ -2590,42 +3672,73 @@ components:
         priority: { type: integer, nullable: true }
         status: { type: string, nullable: true }
         requirement_id: { type: string, nullable: true }
+        requirement_ids: { type: array, items: { type: string } }
+        reviewer_id: { type: string, nullable: true }
+        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
+        review_history: { type: array, items: { type: object, additionalProperties: true } }
+        ai_quality_score: { type: number, nullable: true }
+        created_by: { type: string, nullable: true, description: Immutable user who created the Test Case. }
+        updated_by: { type: string, nullable: true, description: User who most recently changed the Test Case. }
         created_at: { type: string }
     CreateTestCaseRequest:
       type: object
-      required: [suite_id, title]
+      required: [title]
       properties:
+        app_type_id: { type: string }
         suite_id: { type: string }
+        suite_ids: { type: array, items: { type: string } }
         title: { type: string }
         description: { type: string }
+        external_references: { type: array, items: { type: string } }
+        labels: { type: array, items: { type: string } }
+        parameter_values: { type: object, additionalProperties: true }
         automated: { type: string, enum: [yes, no] }
         automation_status: { type: string, enum: [not_automated, ready, incomplete] }
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
-        test_data_set_ids: { type: array, items: { type: string } }
+        test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. }
+        author_id: { type: string, description: Project member recorded as the Test Case author. Defaults to the acting user. }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }
         requirement_id: { type: string }
+        requirement_ids: { type: array, items: { type: string } }
+        reviewer_id: { type: string }
+        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
+        review_history: { type: array, items: { type: object, additionalProperties: true } }
+        ai_quality_score: { type: number }
+        steps: { type: array, items: { type: object, additionalProperties: true } }
     UpdateTestCaseRequest:
       type: object
       properties:
+        app_type_id: { type: string }
         suite_id: { type: string }
+        suite_ids: { type: array, items: { type: string } }
         title: { type: string }
         description: { type: string }
+        external_references: { type: array, items: { type: string } }
+        labels: { type: array, items: { type: string } }
+        parameter_values: { type: object, additionalProperties: true }
         automated: { type: string, enum: [yes, no] }
         automation_status: { type: string, enum: [not_automated, ready, incomplete] }
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
-        test_data_set_ids: { type: array, items: { type: string } }
+        test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Replaces the Test Case data link with zero or one reusable data set. }
+        author_id: { type: string, description: Project member to record as the Test Case author. }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
         status: { type: string }
         requirement_id: { type: string }
+        requirement_ids: { type: array, items: { type: string } }
+        reviewer_id: { type: string }
+        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
+        review_history: { type: array, items: { type: object, additionalProperties: true } }
+        ai_quality_score: { type: number }
+        steps: { type: array, items: { type: object, additionalProperties: true } }
     TestStep:
       type: object
       properties:
@@ -2831,6 +3944,70 @@ components:
         key: { type: string }
         value: { type: string }
         is_secret: { type: boolean, nullable: true }
+    ConfigurationTarget:
+      type: object
+      description: One ordered execution-target row. At least one of operating system, browser, mobile OS, or version must be non-empty; duplicate rows are rejected case-insensitively.
+      properties:
+        id: { type: string, nullable: true, description: Stable client row identity. Generated by the server when omitted or duplicated. }
+        os: { type: string, enum: ["", Windows, macOS, Linux], description: Desktop operating system. }
+        browser: { type: string, description: Browser name such as Chrome, Firefox, Safari, or Edge. }
+        mobile_os: { type: string, enum: ["", Android, iOS], description: Mobile operating system. }
+        version: { type: string, description: Free-text target version such as 13, 14, 17, or latest. }
+    TestConfiguration:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        browser: { type: string, nullable: true, deprecated: true, description: Legacy compatibility value derived from the first target when omitted on writes. }
+        mobile_os: { type: string, nullable: true, deprecated: true, description: Legacy compatibility value derived from the first target when omitted on writes. }
+        platform_version: { type: string, nullable: true, deprecated: true, description: Legacy compatibility value derived from the first target version when omitted on writes. }
+        targets:
+          type: array
+          maxItems: 100
+          description: Ordered rows combining desktop OS, browser, mobile OS, and version. Legacy scalar configurations are exposed as one compatibility row when no rows are stored.
+          items: { $ref: "#/components/schemas/ConfigurationTarget" }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
+        created_at: { type: string, format: date-time, nullable: true }
+    CreateTestConfigurationRequest:
+      type: object
+      required: [project_id, name]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true }
+        browser: { type: string, nullable: true, deprecated: true }
+        mobile_os: { type: string, nullable: true, deprecated: true }
+        platform_version: { type: string, nullable: true, deprecated: true }
+        targets:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ConfigurationTarget" }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
+    UpdateTestConfigurationRequest:
+      type: object
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true }
+        browser: { type: string, nullable: true, deprecated: true }
+        mobile_os: { type: string, nullable: true, deprecated: true }
+        platform_version: { type: string, nullable: true, deprecated: true }
+        targets:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ConfigurationTarget" }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
     TestDataSetRow:
       type: object
       additionalProperties:
@@ -2857,6 +4034,10 @@ components:
         browser: { type: string, nullable: true }
         mobile_os: { type: string, nullable: true }
         platform_version: { type: string, nullable: true }
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationTarget"
         variables:
           type: array
           items:
@@ -2876,6 +4057,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TestDataSetRow"
+        template_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestDataSetRow"
+        generated_at: { type: string, format: date-time, nullable: true }
+        generated_field_count: { type: integer, minimum: 0, nullable: true }
     ExecutionScopedEnvironment:
       type: object
       properties:
@@ -2960,6 +4147,13 @@ components:
           $ref: "#/components/schemas/StringMap"
         suite_parameter_values:
           $ref: "#/components/schemas/StringMap"
+        test_data_set_id: { type: string, nullable: true }
+        test_data_set_name: { type: string, nullable: true }
+        test_data_set_snapshot:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ExecutionDataSetSnapshot"
+        data_set_source: { type: string, nullable: true, enum: [run, test_case] }
         sort_order: { type: integer }
         assigned_to: { type: string, nullable: true }
         assigned_to_ids:
@@ -2993,6 +4187,7 @@ components:
       type: object
       properties:
         id: { type: string }
+        display_id: { type: string, nullable: true }
         project_id: { type: string }
         app_type_id: { type: string, nullable: true }
         suite_ids:
@@ -3015,7 +4210,8 @@ components:
         trigger:
           type: string
           nullable: true
-          enum: [manual, ci]
+          enum: [manual, ci, local]
+        execution_mode: { type: string, nullable: true, enum: [local, remote, scheduled] }
         status:
           type: string
           nullable: true
@@ -3032,6 +4228,9 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionScopedDataSet"
+        release: { type: string, nullable: true }
+        sprint: { type: string, nullable: true }
+        build: { type: string, nullable: true }
         assigned_to: { type: string, nullable: true }
         assigned_to_ids:
           type: array
@@ -3077,12 +4276,33 @@ components:
         test_environment_id: { type: string }
         test_configuration_id: { type: string }
         test_data_set_id: { type: string }
+        execution_hooks:
+          type: array
+          items: { type: object, additionalProperties: true }
+        parallel_enabled: { type: boolean }
+        parallel_count: { type: integer, minimum: 1 }
+        execution_mode: { type: string, enum: [manual, local, remote] }
+        engine_base_url: { type: string }
         assigned_to: { type: string }
         assigned_to_ids:
           type: array
           items: { type: string }
         name: { type: string }
+        release: { type: string }
+        sprint: { type: string }
+        build: { type: string }
         created_by: { type: string }
+    UpdateExecutionRequest:
+      type: object
+      properties:
+        assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
+        release: { type: string, nullable: true }
+        sprint: { type: string, nullable: true }
+        build: { type: string, nullable: true }
+        expected_revision: { type: integer, minimum: 1 }
     UpdateExecutionAssignmentRequest:
       type: object
       properties:
@@ -3090,6 +4310,7 @@ components:
         assigned_to_ids:
           type: array
           items: { type: string }
+        expected_revision: { type: integer, minimum: 1 }
     RerunExecutionRequest:
       type: object
       required: [created_by]
@@ -3160,13 +4381,21 @@ components:
         execution_id: { type: string }
         test_case_id: { type: string }
         step_id: { type: string }
-        step_status: { type: string, enum: [passed, failed] }
+        step_status: { type: string, nullable: true, enum: [passed, failed] }
         case_status: { type: string, enum: [running, passed, failed, blocked] }
         execution_status: { type: string, enum: [queued, running, completed, failed, aborted] }
         note: { type: string }
         detail:
           $ref: "#/components/schemas/ExecutionApiDetail"
         execution_result_id: { type: string }
+        test_data_set_id: { type: string, nullable: true }
+        test_data_set_name: { type: string, nullable: true }
+        data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
+        data_set_iteration_key: { type: string, nullable: true }
+        data_set_row_snapshot:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TestDataSetRow"
     CompleteExecutionRequest:
       type: object
       required: [status]
@@ -3195,7 +4424,13 @@ components:
         test_environment_id: { type: string, nullable: true }
         test_configuration_id: { type: string, nullable: true }
         test_data_set_id: { type: string, nullable: true }
+        release: { type: string, nullable: true }
+        sprint: { type: string, nullable: true }
+        build: { type: string, nullable: true }
         assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
         assigned_user:
           nullable: true
           allOf:
@@ -3224,7 +4459,13 @@ components:
         test_environment_id: { type: string }
         test_configuration_id: { type: string }
         test_data_set_id: { type: string }
+        release: { type: string }
+        sprint: { type: string }
+        build: { type: string }
         assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
         created_by: { type: string }
     UpdateExecutionScheduleRequest:
       type: object
@@ -3245,7 +4486,13 @@ components:
         test_environment_id: { type: string, nullable: true }
         test_configuration_id: { type: string, nullable: true }
         test_data_set_id: { type: string, nullable: true }
+        release: { type: string, nullable: true }
+        sprint: { type: string, nullable: true }
+        build: { type: string, nullable: true }
         assigned_to: { type: string, nullable: true }
+        assigned_to_ids:
+          type: array
+          items: { type: string }
     SmartExecutionImpactCase:
       type: object
       properties:
@@ -3325,6 +4572,14 @@ components:
         duration_ms: { type: number, nullable: true }
         error: { type: string, nullable: true }
         logs: { type: string, nullable: true }
+        test_data_set_id: { type: string, nullable: true }
+        test_data_set_name: { type: string, nullable: true }
+        data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
+        data_set_iteration_key: { type: string, nullable: true }
+        data_set_row_snapshot:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TestDataSetRow"
         external_references:
           type: array
           items: { type: string }
@@ -3355,6 +4610,12 @@ components:
         duration_ms: { type: number }
         error: { type: string }
         logs: { type: string }
+        test_data_set_id: { type: string }
+        test_data_set_name: { type: string }
+        data_set_iteration_index: { type: integer, minimum: 0 }
+        data_set_iteration_key: { type: string }
+        data_set_row_snapshot:
+          $ref: "#/components/schemas/TestDataSetRow"
         external_references:
           type: array
           items: { type: string }
@@ -3565,9 +4826,14 @@ components:
       type: object
       properties:
         name: { type: string }
+        os: { type: string, nullable: true }
         browser: { type: string, nullable: true }
         mobile_os: { type: string, nullable: true }
         platform_version: { type: string, nullable: true }
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationTarget"
         variables:
           type: array
           items:

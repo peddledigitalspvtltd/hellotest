@@ -2,10 +2,13 @@ import { ChangeEvent, CSSProperties, Dispatch, DragEvent as ReactDragEvent, Form
 import { createPortal } from "react-dom";
 import {
   IconBug as InsightBugIcon,
+  IconBraces,
   IconChartBar,
   IconCheck,
   IconChecklist,
   IconDatabase,
+  IconFileDescription,
+  IconFilter,
   IconLibraryPlus,
   IconPlayerPlay,
   IconFlagCheck,
@@ -82,6 +85,7 @@ import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay
 import { buildBugReportPath } from "../lib/bugReportNavigation";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { composeGherkinDocument, splitGherkinDocument } from "../lib/gherkin";
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
 import { downloadCsvRecords } from "../lib/csvExport";
 import { loadAllCursorPages } from "../lib/cursorPagination";
@@ -390,21 +394,21 @@ const composeAiRequirementDescription = (suggestion: Pick<RequirementCreationSug
   ].filter(Boolean).join("\n");
 };
 
-const formatGherkinScenarios = (scenarios?: string[]) =>
-  asArray(scenarios).map((scenario) => String(scenario).trim()).filter(Boolean).join("\n\n");
+const formatGherkinScenarios = (scenarios?: string[], featureTitle = "Story behavior") => {
+  const document = asArray(scenarios).map((scenario) => String(scenario).trim()).filter(Boolean).join("\n\n");
+  if (!document || /^\s*Feature\s*:/im.test(document)) return document;
+  return `Feature: ${featureTitle.trim() || "Story behavior"}\n\n${document}`;
+};
 
 const parseGherkinScenarios = (value: string) => {
   const normalized = String(value || "").trim();
   if (!normalized) return [];
-  const featureMatch = normalized.match(/^Feature:[^\n]*(?:\n+|$)/i);
-  const featureHeader = featureMatch?.[0].trim() || "";
-  const scenarioBody = featureMatch ? normalized.slice(featureMatch[0].length).trim() : normalized;
-  const scenarios = scenarioBody
-    .split(/(?=^\s*(?:Scenario|Scenario Outline):)/gim)
-    .map((scenario) => scenario.trim())
-    .filter(Boolean);
-  if (!scenarios.length) return [];
-  return scenarios.map((scenario, index) => index === 0 && featureHeader ? `${featureHeader}\n\n${scenario}` : scenario);
+  const sections = splitGherkinDocument(normalized);
+  return sections.scenarios.map((scenario, index) => composeGherkinDocument({
+    preamble: index === 0 ? sections.preamble : "",
+    background: index === 0 ? sections.background : "",
+    scenarios: [scenario]
+  }));
 };
 
 const getRequirementCoverageTone = (covered: number, total: number) => {
@@ -690,28 +694,29 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const { session } = useAuth();
   const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canCreateRequirements = hasPermission(session, "requirement.create");
-  const canImportRequirements = hasPermission(session, "requirement.import");
-  const canExportRequirements = hasPermission(session, "requirement.export");
-  const canUpdateRequirements = hasPermission(session, "requirement.update");
-  const canDeleteRequirements = hasPermission(session, "requirement.delete");
-  const canViewAttachments = hasPermission(session, "attachment.view");
-  const canCreateAttachments = hasPermission(session, "attachment.create");
-  const canDeleteAttachments = hasPermission(session, "attachment.delete");
-  const canUseRequirementAi = hasPermission(session, "requirement.ai")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.requirement_design"]);
-  const canUseAiBugCreation = hasPermission(session, "feedback.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
-  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const canViewRequirementIterations = hasPermission(session, "requirement_iteration.view");
-  const canCreateRequirementIterations = hasPermission(session, "requirement_iteration.create");
-  const canUpdateRequirementIterations = hasPermission(session, "requirement_iteration.update");
-  const canDeleteRequirementIterations = hasPermission(session, "requirement_iteration.delete");
-  const canCreateTestCases = hasPermission(session, "testcase.create");
-  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const domainMetadataQuery = useDomainMetadata();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
+  const canCreateRequirements = hasPermission(session, "requirement.create", projectId);
+  const canImportRequirements = hasPermission(session, "requirement.import", projectId);
+  const canExportRequirements = hasPermission(session, "requirement.export", projectId);
+  const canUpdateRequirements = hasPermission(session, "requirement.update", projectId);
+  const canDeleteRequirements = hasPermission(session, "requirement.delete", projectId);
+  const canViewAttachments = hasPermission(session, "attachment.view", projectId);
+  const canCreateAttachments = hasPermission(session, "attachment.create", projectId);
+  const canDeleteAttachments = hasPermission(session, "attachment.delete", projectId);
+  const canUseRequirementAi = hasPermission(session, "requirement.ai", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.requirement_design"]);
+  const canUseAiBugCreation = hasPermission(session, "feedback.manage", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
+  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
+  const canViewRequirementIterations = hasPermission(session, "requirement_iteration.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
+  const canCreateRequirementIterations = hasPermission(session, "requirement_iteration.create", projectId);
+  const canUpdateRequirementIterations = hasPermission(session, "requirement_iteration.update", projectId);
+  const canDeleteRequirementIterations = hasPermission(session, "requirement_iteration.delete", projectId);
+  const canCreateTestCases = hasPermission(session, "testcase.create", projectId);
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
+  const domainMetadataQuery = useDomainMetadata();
   const [selectedRequirementId, setSelectedRequirementId] = useState("");
   const dismissedRequirementRouteRef = useRef("");
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
@@ -729,6 +734,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [iterationDraftDuration, setIterationDraftDuration] = useState<SprintDurationPreset>("2-weeks");
   const [iterationDraftStartDate, setIterationDraftStartDate] = useState(() => defaultSprintDates().start);
   const [iterationDraftEndDate, setIterationDraftEndDate] = useState(() => defaultSprintDates().end);
+  const [iterationDraftReleaseId, setIterationDraftReleaseId] = useState("");
   const isEditingClosedSprint = String(editingIteration?.state || editingIteration?.status || "").toLowerCase() === "closed";
   const isEditingActiveSprint = String(editingIteration?.state || editingIteration?.status || "").toLowerCase() === "active";
   const areEditingSprintDates = Boolean(editingIteration)
@@ -740,6 +746,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const sprintDraftRequirementSnapshotsRef = useRef<Map<string, Requirement>>(new Map());
   const [iterationRequirementSearch, setIterationRequirementSearch] = useState("");
   const [iterationRequirementStatusFilter, setIterationRequirementStatusFilter] = useState("all");
+  const [isSprintStoryFilterMenuOpen, setIsSprintStoryFilterMenuOpen] = useState(false);
+  const sprintStoryFilterMenuRef = useRef<HTMLDivElement>(null);
+  const sprintStoryFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const [expandedIterationIds, setExpandedIterationIds] = useState<string[]>([]);
   const [isBacklogExpanded, setIsBacklogExpanded] = useState(true);
   const [sprintPageCursorsById, setSprintPageCursorsById] = useState<Record<string, Array<string | null>>>({});
@@ -801,11 +810,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => (domainMetadataQuery.data?.jira?.versions || []).filter((version) => !version.archived),
     [domainMetadataQuery.data?.jira?.versions]
   );
+  const selectableJiraVersions = useMemo(
+    () => jiraVersions.filter((version) => !version.released),
+    [jiraVersions]
+  );
   const emptyRequirementDraft = useMemo(() => createEmptyRequirementDraft(defaultRequirementStatus), [defaultRequirementStatus]);
   const [draft, setDraft] = useState<RequirementDraft>(() => createEmptyRequirementDraft());
   const seededRequirementDraftKeyRef = useRef("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<RequirementDraft>(() => createEmptyRequirementDraft());
+  const [createRequirementReleaseId, setCreateRequirementReleaseId] = useState("");
   const [createRelatedRequirementIds, setCreateRelatedRequirementIds] = useState<string[]>([]);
   const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
   const [aiRequirementId, setAiRequirementId] = useState("");
@@ -1036,7 +1050,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const requirementReleasesQuery = useQuery({
     queryKey: ["requirement-releases", projectId],
     queryFn: () => api.requirementReleases.list({ project_id: projectId }),
-    enabled: Boolean(projectId && (isCreateModalOpen || selectedRequirementId)),
+    enabled: Boolean(projectId && canViewRequirementIterations && (
+      isCreateModalOpen
+      || isCreateIterationModalOpen
+      || (isOptimizeModalOpen && requirementAiMode === "create")
+      || selectedRequirementId
+      || ((searchParams.get("create") === "1" || searchParams.get("create_sprint") === "1") && (searchParams.get("release_id") || searchParams.get("release")))
+    )),
     staleTime: 30_000
   });
   const discoveredRequirementIterations = useMemo(() => {
@@ -1192,6 +1212,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setSelectedIterationIds([]);
     setDraggingRequirementIds([]);
     setSprintDraftRequirementIds([]);
+    setIterationDraftReleaseId("");
+    setCreateRequirementReleaseId("");
     setIterationRequirementSearch("");
     setIterationRequirementStatusFilter("all");
     sprintDraftRequirementSnapshotsRef.current.clear();
@@ -1368,7 +1390,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   });
   const executionResultsQuery = useQuery({
     queryKey: ["requirements-execution-results", projectId, appTypeId],
-    queryFn: async () => asArray(await api.executionResults.list({ app_type_id: appTypeId, run_limit: 10, limit: 100 })),
+    queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 })),
     enabled: Boolean(appTypeId)
   });
   const executionsQuery = useQuery({
@@ -1404,6 +1426,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
   const createRequirement = useMutation({ mutationFn: api.requirements.create });
   const createRequirementIteration = useMutation({ mutationFn: api.requirementIterations.create });
+  const appendRequirementReleaseScope = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.requirementReleases.appendScope>[1] }) =>
+      api.requirementReleases.appendScope(id, input)
+  });
   const updateRequirementIteration = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.requirementIterations.update>[1] }) =>
       api.requirementIterations.update(id, input)
@@ -1592,23 +1618,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     ),
     [loadedRequirementEvidence, requirementSprintHeaderCatalog, requirements]
   );
-  const visibleJiraSprints = useMemo(
-    () => requirementIterations
-      .filter((iteration) => Boolean(iteration.jira_sprint_id))
-      .map((iteration) => ({
-        id: String(iteration.jira_sprint_id),
-        name: iteration.jira_sprint_name || iteration.name,
-        state: iteration.state || iteration.status || null,
-        start_date: iteration.start_date || null,
-        end_date: iteration.end_date || null
-      })),
-    [requirementIterations]
-  );
-  const assignableJiraSprints = useMemo(
-    () => visibleJiraSprints.filter((sprint) => String(sprint.state || "").toLowerCase() !== "closed"),
-    [visibleJiraSprints]
-  );
   const requirementReleases = asArray<RequirementRelease>(requirementReleasesQuery.data);
+  const selectableRequirementReleases = useMemo(
+    () => requirementReleases.filter((release) => release.persisted_state !== "released"),
+    [requirementReleases]
+  );
   const testCases = asArray(testCasesQuery.data);
   const executionResults = asArray(executionResultsQuery.data);
   const executions = asArray<Execution>(executionsQuery.data);
@@ -1873,15 +1887,53 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => getStoryDetailSprintOptions(requirementIterations, createDraft.sprint),
     [createDraft.sprint, requirementIterations]
   );
+  const createStorySprintAssignment = useMemo(
+    () => resolveRequirementSprintAssignment(createDraft.sprint, requirementIterations),
+    [createDraft.sprint, requirementIterations]
+  );
+  const createStoryRequiresIterationUpdate = Boolean(
+    createRequirementReleaseId
+    || (createStorySprintAssignment.iteration && !createStorySprintAssignment.iteration.jira_sprint_id)
+  );
   const createStoryReleaseSelection = useMemo(() => {
-    const localRelease = requirementReleases.find((release) =>
+    const selectedLocalRelease = createRequirementReleaseId
+      ? selectableRequirementReleases.find((release) => release.id === createRequirementReleaseId)
+      : null;
+    if (selectedLocalRelease) return `release:${selectedLocalRelease.id}`;
+
+    const localRelease = selectableRequirementReleases.find((release) =>
       release.name === createDraft.release && release.fix_version === createDraft.fixVersion
     );
     if (localRelease) return `release:${localRelease.id}`;
 
-    const jiraVersion = jiraVersions.find((version) => version.name === (createDraft.fixVersion || createDraft.release));
+    const jiraVersion = selectableJiraVersions.find((version) => version.name === (createDraft.fixVersion || createDraft.release));
     return jiraVersion ? `jira:${jiraVersion.id}` : "";
-  }, [createDraft.fixVersion, createDraft.release, jiraVersions, requirementReleases]);
+  }, [createDraft.fixVersion, createDraft.release, createRequirementReleaseId, selectableJiraVersions, selectableRequirementReleases]);
+  const setCreateStorySprintSelection = (sprint: string) => {
+    const iteration = requirementIterations.find((candidate) => requirementSprintOptionValue(candidate) === sprint || candidate.id === sprint);
+    setCreateDraft((current) => ({
+      ...current,
+      sprint,
+      iterationId: iteration && !iteration.jira_sprint_id ? iteration.id : ""
+    }));
+  };
+  const setCreateStoryReleaseSelection = (selection: string) => {
+    const [source, id] = selection.split(":", 2);
+    if (source === "release") {
+      const release = selectableRequirementReleases.find((candidate) => candidate.id === id);
+      setCreateRequirementReleaseId(release?.id || "");
+      setCreateDraft((current) => ({ ...current, fixVersion: release?.fix_version || "", release: release?.name || "" }));
+      return;
+    }
+    if (source === "jira") {
+      const version = selectableJiraVersions.find((candidate) => String(candidate.id) === id);
+      setCreateRequirementReleaseId("");
+      setCreateDraft((current) => ({ ...current, fixVersion: version?.name || "", release: version?.name || "" }));
+      return;
+    }
+    setCreateRequirementReleaseId("");
+    setCreateDraft((current) => ({ ...current, fixVersion: "", release: "" }));
+  };
 
   const syncRequirementSearchParams = (requirementId?: string | null) => {
     const currentRequirementId = searchParams.get("requirement") || "";
@@ -3063,6 +3115,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const runIds = [...new Set(selectedRequirementFailureContext.map((row) => row.executionId).filter(Boolean))];
     const selectedRunId = runIds.length === 1 ? runIds[0] : "";
     const selectedRun = selectedRunId ? executionById.get(selectedRunId) : null;
+    const selectedSprint = requirementIterationById.get(selectedRequirement.id) || null;
+    const linkedReleases = requirementReleases.filter((release) =>
+      release.requirement_ids.includes(selectedRequirement.id)
+    );
+    const selectedRelease = linkedReleases.find((release) =>
+      release.fix_version === selectedRequirement.fix_version
+      || release.name === selectedRequirement.release
+    ) || linkedReleases[0] || null;
     const evidenceLines = selectedRequirementFailureContext.slice(0, 5).map((row) =>
       `${row.testCaseTitle}: ${formatTileCardLabel(row.resultStatus, "Failed")}`
     );
@@ -3074,6 +3134,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       runStatus: selectedRun?.status || null,
       testCaseIds: selectedRequirementFailureContext.map((row) => row.testCaseId),
       requirementIds: [selectedRequirement.id],
+      sprint: selectedSprint?.jira_sprint_name || selectedSprint?.name || selectedRequirement.sprint,
+      sprintId: selectedSprint?.id || selectedRequirement.iteration_id || selectedRequirement.sprint_id,
+      release: selectedRequirement.release || selectedRelease?.name,
+      releaseId: selectedRelease?.id,
+      fixVersion: selectedRequirement.fix_version || selectedRelease?.fix_version,
       title: `Investigate failed coverage for ${selectedRequirement.title}`,
       message: [
         `${selectedRequirementFailureContext.length} recent failed or blocked linked case${selectedRequirementFailureContext.length === 1 ? "" : "s"} selected as bounded evidence.`,
@@ -3192,7 +3257,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setDraft({
       title: selectedRequirement.title,
       description: selectedRequirement.description || "",
-      gherkinScenariosText: formatGherkinScenarios(selectedRequirement.gherkin_scenarios),
+      gherkinScenariosText: formatGherkinScenarios(selectedRequirement.gherkin_scenarios, selectedRequirement.title),
       externalReferencesText: formatReferenceList(selectedRequirement.external_references),
       labelsText: formatReferenceList(selectedRequirement.labels),
       sprint: selectedRequirementSprintValue,
@@ -3275,6 +3340,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       queryClient.invalidateQueries({ queryKey: ["requirement-detail", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirement-route-detail", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirement-iterations", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-releases", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirement-sprint-health", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["create-sprint-story-picker", projectId] }),
       queryClient.invalidateQueries({
@@ -3350,17 +3416,40 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
   };
 
-  const openCreateRequirementModal = (iteration?: RequirementIteration) => {
+  const openCreateRequirementModal = (
+    iteration?: RequirementIteration,
+    release?: RequirementRelease,
+    connectedReleaseVersion = ""
+  ) => {
     if (!canCreateRequirements) {
       showError(null, "Permission required to create Stories.");
       return;
     }
 
-    setCreateDraft(iteration ? {
+    if (iteration && String(iteration.state || iteration.status || "").toLowerCase() === "closed") {
+      showError(null, "Completed Sprints are read-only. Select a planned or active Sprint for the new Story.");
+      return;
+    }
+    if (release?.persisted_state === "released") {
+      showError(null, "Completed Releases are read-only. Select a planned or in-progress Release for the new Story.");
+      return;
+    }
+
+    setCreateDraft(iteration || release || connectedReleaseVersion ? {
       ...emptyRequirementDraft,
-      sprint: requirementSprintOptionValue(iteration),
-      iterationId: iteration.id
+      ...(iteration ? {
+        sprint: requirementSprintOptionValue(iteration),
+        iterationId: iteration.id
+      } : {}),
+      ...(release ? {
+        fixVersion: release.fix_version,
+        release: release.name
+      } : connectedReleaseVersion ? {
+        fixVersion: connectedReleaseVersion,
+        release: connectedReleaseVersion
+      } : {})
     } : emptyRequirementDraft);
+    setCreateRequirementReleaseId(release?.id || "");
     setCreateRelatedRequirementIds([]);
     setIsCreateModalOpen(true);
   };
@@ -3379,17 +3468,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   };
 
   const closeCreateRequirementModal = () => {
-    if (createRequirement.isPending) {
+    if (createRequirement.isPending || appendRequirementReleaseScope.isPending) {
       return;
     }
 
     setIsCreateModalOpen(false);
+    setCreateRequirementReleaseId("");
     setCreateRelatedRequirementIds([]);
   };
   const resetCreateSprintDraft = () => {
     const nextDates = defaultSprintDates();
     setIterationRequirementSearch("");
     setIterationRequirementStatusFilter("all");
+    setIsSprintStoryFilterMenuOpen(false);
     setIterationDraftName("");
     setIterationDraftDescription("");
     setIterationDraftLabelsText("");
@@ -3397,11 +3488,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setIterationDraftDuration("2-weeks");
     setIterationDraftStartDate(nextDates.start);
     setIterationDraftEndDate(nextDates.end);
+    setIterationDraftReleaseId("");
     setSprintDraftRequirementIds([]);
     sprintDraftRequirementSnapshotsRef.current.clear();
   };
   const closeCreateIterationModal = () => {
-    if (createRequirementIteration.isPending || updateRequirementIteration.isPending) {
+    if (createRequirementIteration.isPending || updateRequirementIteration.isPending || appendRequirementReleaseScope.isPending) {
       return;
     }
 
@@ -3411,27 +3503,132 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   };
   const createRequirementDialogRef = useDialogFocus<HTMLDivElement>({
     active: isCreateModalOpen,
-    closeDisabled: createRequirement.isPending,
+    closeDisabled: createRequirement.isPending || appendRequirementReleaseScope.isPending,
     onClose: closeCreateRequirementModal
   });
   const createIterationDialogRef = useDialogFocus<HTMLFormElement>({
     active: isCreateIterationModalOpen,
-    closeDisabled: createRequirementIteration.isPending || updateRequirementIteration.isPending,
+    closeDisabled: createRequirementIteration.isPending || updateRequirementIteration.isPending || appendRequirementReleaseScope.isPending || isSprintStoryFilterMenuOpen,
     onClose: closeCreateIterationModal
   });
+
+  useEffect(() => {
+    if (!isSprintStoryFilterMenuOpen) return;
+
+    const closeFilterMenu = (restoreFocus = false) => {
+      setIsSprintStoryFilterMenuOpen(false);
+      if (restoreFocus) window.requestAnimationFrame(() => sprintStoryFilterTriggerRef.current?.focus());
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!sprintStoryFilterMenuRef.current?.contains(event.target as Node)) closeFilterMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeFilterMenu(true);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSprintStoryFilterMenuOpen]);
 
   useEffect(() => {
     if (searchParams.get("create") !== "1" || isCreateModalOpen) {
       return;
     }
 
-    openCreateRequirementModal();
+    const requestedSprintId = String(searchParams.get("sprint_id") || "").trim();
+    const requestedSprintValue = String(searchParams.get("sprint") || "").trim();
+    const requestedReleaseId = String(searchParams.get("release_id") || "").trim();
+    const requestedReleaseValue = String(searchParams.get("release") || "").trim();
+    const hasSprintContext = Boolean(requestedSprintId || requestedSprintValue);
+    const hasReleaseContext = Boolean(requestedReleaseId || requestedReleaseValue);
+    if (hasSprintContext && (requirementIterationsQuery.isLoading || domainMetadataQuery.isLoading)) return;
+    if (hasReleaseContext && (requirementReleasesQuery.isLoading || domainMetadataQuery.isLoading)) return;
+
+    const normalizedSprintValue = requestedSprintValue.toLowerCase();
+    const requestedIteration = requirementIterations.find((iteration) =>
+      (requestedSprintId && [iteration.id, String(iteration.jira_sprint_id || "")].includes(requestedSprintId))
+      || (normalizedSprintValue && [
+        requirementSprintOptionValue(iteration),
+        iteration.name,
+        iteration.jira_sprint_name || ""
+      ].some((value) => String(value).trim().toLowerCase() === normalizedSprintValue))
+    );
+    const isRequestedSprintClosed = Boolean(
+      requestedIteration
+      && String(requestedIteration.state || requestedIteration.status || "").toLowerCase() === "closed"
+    );
+
+    const normalizedReleaseValue = requestedReleaseValue.toLowerCase();
+    const requestedLocalRelease = requirementReleases.find((release) =>
+      (requestedReleaseId && release.id === requestedReleaseId)
+      || (normalizedReleaseValue && [release.id, release.name, release.fix_version]
+        .some((value) => String(value).trim().toLowerCase() === normalizedReleaseValue))
+    );
+    const requestedJiraVersionCandidate = !requestedLocalRelease && normalizedReleaseValue
+      ? jiraVersions.find((version) => String(version.name).trim().toLowerCase() === normalizedReleaseValue)
+      : null;
+    const isRequestedReleaseClosed = requestedLocalRelease?.persisted_state === "released"
+      || Boolean(requestedJiraVersionCandidate?.released);
+    const requestedJiraVersion = requestedJiraVersionCandidate?.released ? null : requestedJiraVersionCandidate;
+
+    openCreateRequirementModal(
+      isRequestedSprintClosed ? undefined : requestedIteration,
+      isRequestedReleaseClosed ? undefined : requestedLocalRelease,
+      requestedJiraVersion?.name || ""
+    );
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.delete("create");
+      ["create", "release_id", "release", "sprint_id", "sprint"].forEach((key) => next.delete(key));
       return next;
     }, { replace: true });
-  }, [isCreateModalOpen, searchParams, setSearchParams]);
+    const invalidContexts = [
+      hasSprintContext && !requestedIteration ? "Sprint" : null,
+      isRequestedSprintClosed ? "completed Sprint" : null,
+      hasReleaseContext && !requestedLocalRelease && !requestedJiraVersionCandidate ? "Release" : null,
+      isRequestedReleaseClosed ? "completed Release" : null
+    ].filter(Boolean);
+    if (invalidContexts.length) {
+      setMessageTone("error");
+      setMessage(`The requested ${invalidContexts.join(" and ")} cannot be applied. Choose an available value in the creation dialog.`);
+    }
+  }, [
+    domainMetadataQuery.isLoading,
+    isCreateModalOpen,
+    jiraVersions,
+    requirementIterations,
+    requirementIterationsQuery.isLoading,
+    requirementReleases,
+    requirementReleasesQuery.isLoading,
+    searchParams,
+    setSearchParams
+  ]);
+
+  useEffect(() => {
+    if (workspaceMode !== "sprints" || searchParams.get("create_sprint") !== "1" || isCreateIterationModalOpen) return;
+    const requestedReleaseId = String(searchParams.get("release_id") || "").trim();
+    if (requestedReleaseId && requirementReleasesQuery.isLoading) return;
+
+    openCreateIteration([], requestedReleaseId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("create_sprint");
+      next.delete("release_id");
+      return next;
+    }, { replace: true });
+  }, [
+    isCreateIterationModalOpen,
+    requirementReleasesQuery.isLoading,
+    searchParams,
+    setSearchParams,
+    selectableRequirementReleases,
+    workspaceMode
+  ]);
 
   const openRequirementImportModal = () => {
     if (!canImportRequirements) {
@@ -3462,6 +3659,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
     if (!projectId) {
       showError(null, "Select a project before creating a Story.");
+      return;
+    }
+
+    if (createRequirementReleaseId && !canUpdateRequirementIterations) {
+      showError(null, "Release update permission is required to add this Story to a HelloTest Release.");
+      return;
+    }
+
+    if (createStorySprintAssignment.iteration && !createStorySprintAssignment.iteration.jira_sprint_id && !canUpdateRequirementIterations) {
+      showError(null, "Sprint update permission is required to add this Story to a HelloTest Sprint.");
       return;
     }
 
@@ -3520,15 +3727,31 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         }], targetIteration);
         scheduleRequirementSprintRevalidation(targetIteration.id, projectId);
       }
+      let releaseScopeError: unknown = null;
+      if (createRequirementReleaseId) {
+        try {
+          await appendRequirementReleaseScope.mutateAsync({
+            id: createRequirementReleaseId,
+            input: { requirement_ids: [response.id] }
+          });
+        } catch (error) {
+          releaseScopeError = error;
+        }
+      }
       syncRequirementSearchParams(response.id);
       setSelectedRequirementId(response.id);
       setAiRequirementId(response.id);
       setIsCreateModalOpen(false);
       setCreateDraft(emptyRequirementDraft);
+      setCreateRequirementReleaseId("");
       setCreateRelatedRequirementIds([]);
-      showSuccess(response.status_warning
-        ? `Story created. HelloTest kept its workflow status because ${response.status_warning.requested_status || createDraft.status} is not available from the current workflow state.`
-        : "Story created.");
+      if (releaseScopeError) {
+        showError(null, "Story created, but its selected Release scope could not be updated. Open the Release and add the Story before continuing release planning.");
+      } else {
+        showSuccess(response.status_warning
+          ? `Story created. HelloTest kept its workflow status because ${response.status_warning.requested_status || createDraft.status} is not available from the current workflow state.`
+          : "Story created.");
+      }
       await refresh();
     } catch (error) {
       showError(error, "Unable to create Story");
@@ -3554,9 +3777,23 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     );
   };
 
-  const openCreateIteration = (initialRequirementIds: string[] = []) => {
+  const openCreateIteration = (initialRequirementIds: string[] = [], initialReleaseId = "") => {
+    if (!canCreateRequirementIterations || !projectId) {
+      showError(null, "Permission and an active project are required to create Sprints.");
+      return;
+    }
+    if (initialReleaseId && !canUpdateRequirementIterations) {
+      showError(null, "Release update permission is required to create a Sprint in that Release.");
+      return;
+    }
     resetCreateSprintDraft();
     setEditingIteration(null);
+    const initialRelease = selectableRequirementReleases.find((release) => release.id === initialReleaseId);
+    if (initialReleaseId && !initialRelease) {
+      showError(null, "Completed or unavailable Releases cannot accept a new Sprint.");
+      return;
+    }
+    setIterationDraftReleaseId(initialRelease?.id || "");
     const normalizedInitialIds = setSelectionIds([], initialRequirementIds, true).filter((requirementId) => {
       const requirement = requirements.find((item) => String(item.id) === requirementId)
         || selectedRequirementSnapshotsRef.current.get(requirementId);
@@ -3605,6 +3842,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     if (!projectId || !iterationDraftName.trim()) {
+      return;
+    }
+
+    if (!editingIteration && iterationDraftReleaseId && !canUpdateRequirementIterations) {
+      showError(null, "Release update permission is required to add this Sprint to a HelloTest Release.");
       return;
     }
 
@@ -3686,6 +3928,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     const canonicalSprint = response.sprint?.id ? response.sprint : null;
+    let releaseScopeError: unknown = null;
+    const createdSprintId = canonicalSprint?.id || response.id;
+    if (iterationDraftReleaseId && createdSprintId) {
+      try {
+        await appendRequirementReleaseScope.mutateAsync({
+          id: iterationDraftReleaseId,
+          input: { sprint_ids: [createdSprintId] }
+        });
+      } catch (error) {
+        releaseScopeError = error;
+      }
+    }
     const selectedStoryIdSet = new Set(selectedStoryIds);
     const receiptStoryIds = [...new Set(
       (response.assignment?.assigned_issue_ids || []).map(String).filter(Boolean)
@@ -3726,14 +3980,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
     setDeleteSelectedRequirementIds([]);
 
-    const creationMessage = !canonicalSprint
+    const creationMessage = releaseScopeError
+      ? "Sprint created in HelloTest, but its selected Release scope could not be updated. Open the Release and add the Sprint before continuing release planning."
+      : !canonicalSprint
       ? "Sprint was created in HelloTest, but its canonical identity was not returned. Refresh the Stories page before making another Sprint change; do not retry creation."
       : !assignmentIsComplete
         ? `Sprint created in HelloTest. HelloTest confirmed ${confirmedStoryIds.length} of ${selectedStoryIds.length} selected ${selectedStoryIds.length === 1 ? "Story" : "Stories"}; unconfirmed Stories remain in their previous scope. Refresh before making another Sprint change.`
         : selectedStoryIds.length
           ? `Sprint created in HelloTest with ${selectedStoryIds.length} selected ${selectedStoryIds.length === 1 ? "Story" : "Stories"}.`
           : "Sprint created in HelloTest.";
-    const creationTone = canonicalSprint && assignmentIsComplete ? "success" as const : "error" as const;
+    const creationTone = !releaseScopeError && canonicalSprint && assignmentIsComplete ? "success" as const : "error" as const;
     setMessageTone(creationTone);
     setMessage(creationMessage);
 
@@ -4051,9 +4307,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return;
     }
 
-    if (jiraRequirementEditCoreRequired.description && !richTextToPlainText(draft.description).trim()) {
-      showError(null, "HelloTest requires a description for this Story type.");
-      return;
+	    if (jiraRequirementEditCoreRequired.description && !richTextToPlainText(draft.description).trim()) {
+	      showError(null, "HelloTest requires a description for this Story type.");
+	      return;
+	    }
+
+	    const nextSprintAssignment = resolveRequirementSprintAssignment(draft.sprint, requirementIterations);
+	    const changesNativeSprintScope = draft.sprint !== requirementSprintSelectionValue(selectedRequirement)
+	      && Boolean(selectedRequirement.iteration_id || (nextSprintAssignment.iteration && !nextSprintAssignment.iteration.jira_sprint_id));
+	    if (changesNativeSprintScope && !canUpdateRequirementIterations) {
+	      showError(null, "Sprint update permission is required to move this Story's HelloTest Sprint scope.");
+	      return;
 	    }
 
 	    try {
@@ -4586,6 +4850,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     setRequirementAiMode("create");
+    setCreateDraft(emptyRequirementDraft);
+    setCreateRequirementReleaseId("");
     createRequirementGenerationJob.reset();
     previewRequirementCreation.reset();
     ignoredRequirementCreationJobIdRef.current = "";
@@ -4617,6 +4883,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     || createRequirementGenerationJob.isPending
     || isGeneratingGherkin
     || createRequirement.isPending
+    || appendRequirementReleaseScope.isPending
     || updateRequirement.isPending
     || isRequirementAiContextBusy
     || isRequirementAiReferenceBusy;
@@ -4628,6 +4895,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     setIsOptimizeModalOpen(false);
+    setCreateRequirementReleaseId("");
     setOptimizeRequirementIds([]);
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
@@ -4902,9 +5170,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         return;
       }
 
-      const targetIteration = createDraft.sprint
-        ? requirementIterations.find((iteration) => String(iteration.jira_sprint_id || "") === createDraft.sprint) || null
-        : null;
+      const createSprintAssignment = resolveRequirementSprintAssignment(createDraft.sprint, requirementIterations);
+      const targetIteration = createSprintAssignment.iteration;
+      const requiresNativeSprintUpdate = Boolean(targetIteration && !targetIteration.jira_sprint_id);
+      if ((createRequirementReleaseId || requiresNativeSprintUpdate) && !canUpdateRequirementIterations) {
+        setPreviewTone("error");
+        setPreviewMessage(createRequirementReleaseId
+          ? "Release update permission is required before accepting these Story drafts."
+          : "Sprint update permission is required before accepting these Story drafts.");
+        return;
+      }
       const createdIds: string[] = [];
       const createdDraftIds: string[] = [];
       try {
@@ -4919,7 +5194,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             gherkin_scenarios: gherkinScenarios,
             external_references: candidate.external_references,
             labels: ["ai-drafted"],
-            sprint: createDraft.sprint || undefined,
+            ...createSprintAssignment.input,
             fix_version: createDraft.fixVersion || undefined,
             release: createDraft.release || undefined,
             priority: candidate.priority,
@@ -4953,6 +5228,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           }
         }
 
+        let releaseScopeError: unknown = null;
+        if (createRequirementReleaseId && createdIds.length) {
+          try {
+            await appendRequirementReleaseScope.mutateAsync({
+              id: createRequirementReleaseId,
+              input: { requirement_ids: createdIds }
+            });
+          } catch (error) {
+            releaseScopeError = error;
+          }
+        }
+
         const firstCreatedId = createdIds[0];
         if (firstCreatedId) {
           syncRequirementSearchParams(firstCreatedId);
@@ -4964,12 +5251,28 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         setRequirementCreationDrafts([]);
         setSelectedRequirementCreationDraftIds([]);
         setExpandedRequirementCreationDraftIds([]);
-        showSuccess(`${createdIds.length} AI-assisted ${createdIds.length === 1 ? "Story" : "Stories"} created.${statusWarningCount ? ` HelloTest kept workflow status on ${statusWarningCount} item${statusWarningCount === 1 ? "" : "s"} because the requested AI draft status was not transitionable.` : ""} Review the saved ${createdIds.length === 1 ? "Story" : "Stories"} before using ${createdIds.length === 1 ? "it" : "them"} in downstream workflows.`);
+        setCreateRequirementReleaseId("");
+        if (releaseScopeError) {
+          showError(null, `${createdIds.length} AI-assisted ${createdIds.length === 1 ? "Story was" : "Stories were"} created, but the selected Release scope could not be updated. Add ${createdIds.length === 1 ? "it" : "them"} from the Release workspace.`);
+        } else {
+          showSuccess(`${createdIds.length} AI-assisted ${createdIds.length === 1 ? "Story" : "Stories"} created.${statusWarningCount ? ` HelloTest kept workflow status on ${statusWarningCount} item${statusWarningCount === 1 ? "" : "s"} because the requested AI draft status was not transitionable.` : ""} Review the saved ${createdIds.length === 1 ? "Story" : "Stories"} before using ${createdIds.length === 1 ? "it" : "them"} in downstream workflows.`);
+        }
         await refresh();
       } catch (error) {
         setPreviewTone("error");
         const errorMessage = error instanceof Error ? error.message : "Unable to create AI Stories";
         if (createdDraftIds.length) {
+          let releaseScopeMessage = "";
+          if (createRequirementReleaseId && createdIds.length) {
+            try {
+              await appendRequirementReleaseScope.mutateAsync({
+                id: createRequirementReleaseId,
+                input: { requirement_ids: createdIds }
+              });
+            } catch {
+              releaseScopeMessage = " Their selected Release scope could not be updated; add them from the Release workspace.";
+            }
+          }
           const completedDraftIdSet = new Set(createdDraftIds);
           setRequirementCreationDrafts((current) => current.filter((candidate, index) =>
             !completedDraftIdSet.has(getRequirementCreationDraftId(candidate, index))
@@ -4978,7 +5281,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           setExpandedRequirementCreationDraftIds((current) => current.filter((draftId) => !completedDraftIdSet.has(draftId)));
           setPreviewMessage(
             `${createdDraftIds.length} ${createdDraftIds.length === 1 ? "Story was" : "Stories were"} created before HelloTest stopped the batch. `
-            + `Those completed drafts were removed from this review to prevent duplicates. Retry only the remaining selected drafts. ${errorMessage}`
+            + `Those completed drafts were removed from this review to prevent duplicates.${releaseScopeMessage} Retry only the remaining selected drafts. ${errorMessage}`
           );
           await refresh().catch(() => undefined);
         } else {
@@ -5015,7 +5318,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const baseDraft = {
       title: fullRequirement.title,
       description: fullRequirement.description || "",
-      gherkinScenariosText: formatGherkinScenarios(fullRequirement.gherkin_scenarios),
+      gherkinScenariosText: formatGherkinScenarios(fullRequirement.gherkin_scenarios, fullRequirement.title),
       externalReferencesText: formatReferenceList(fullRequirement.external_references),
       labelsText: formatReferenceList(fullRequirement.labels),
       sprint: fullRequirement.sprint || "",
@@ -5040,7 +5343,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       title: optimizationFields.title ? optimizationSuggestion.title : baseDraft.title,
       description: nextDescription,
       gherkinScenariosText: optimizationFields.gherkin
-        ? formatGherkinScenarios(optimizationSuggestion.gherkin_scenarios)
+        ? formatGherkinScenarios(optimizationSuggestion.gherkin_scenarios, optimizationFields.title ? optimizationSuggestion.title : baseDraft.title)
         : baseDraft.gherkinScenariosText,
       externalReferencesText: optimizationFields.external_references ? formatReferenceList(optimizationSuggestion.external_references) : baseDraft.externalReferencesText,
       labelsText: baseDraft.labelsText,
@@ -5529,7 +5832,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             </button>
             {renderSprintIdentity(iteration)}
             <div className="action-row hierarchy-parent-actions">
-              <button className="ghost-button compact" disabled={!canCreateRequirements} onClick={() => openCreateRequirementModal(iteration)} title="Create Story in this Sprint" type="button"><AddIcon size={15} /></button>
+              <button className="ghost-button compact" disabled={!canCreateRequirements || deriveSprintLifecycleState(iteration) === "closed"} onClick={() => openCreateRequirementModal(iteration)} title={deriveSprintLifecycleState(iteration) === "closed" ? "Completed Sprints are read-only" : "Create Story in this Sprint"} type="button"><AddIcon size={15} /></button>
               {deriveSprintLifecycleState(iteration) === "future" || deriveSprintLifecycleState(iteration) === "overdue" ? (
                 <button aria-label={`Start sprint ${iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button>
               ) : null}
@@ -5919,7 +6222,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 <SprintIcon size={16} />
                 <span>Create sprint</span>
               </button> : null}
-              <button className="primary-button catalog-selection-button" disabled={!canCreateRequirements || !projectId} onClick={() => openCreateRequirementModal()} type="button">
+              <button className="primary-button catalog-selection-button requirement-create-story-button" disabled={!canCreateRequirements || !projectId} onClick={() => openCreateRequirementModal()} type="button">
                 <AddIcon size={16} />
                 <span>Create Story</span>
               </button>
@@ -6064,7 +6367,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           </button>
                           {renderSprintIdentity(entry.iteration)}
                           <div className="action-row hierarchy-parent-actions">
-                            <button className="ghost-button compact" disabled={!canCreateRequirements} onClick={() => openCreateRequirementModal(entry.iteration)} title="Create Story in this Sprint" type="button"><AddIcon size={15} /></button>
+                            <button className="ghost-button compact" disabled={!canCreateRequirements || deriveSprintLifecycleState(entry.iteration) === "closed"} onClick={() => openCreateRequirementModal(entry.iteration)} title={deriveSprintLifecycleState(entry.iteration) === "closed" ? "Completed Sprints are read-only" : "Create Story in this Sprint"} type="button"><AddIcon size={15} /></button>
                             {deriveSprintLifecycleState(entry.iteration) === "future" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Start sprint ${entry.iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(entry.iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button> : null}
                             {deriveSprintLifecycleState(entry.iteration) === "active" || deriveSprintLifecycleState(entry.iteration) === "overdue" ? <button aria-label={`Complete sprint ${entry.iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === entry.iteration.id} onClick={() => void changeSprintLifecycle(entry.iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button> : null}
                             <button aria-label={`Open retrospective for ${entry.iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(entry.iteration)} title="Open Sprint retrospective" type="button"><IconHistoryToggle size={17} stroke={2} /></button>
@@ -6565,7 +6868,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                               ? <option value={draft.sprint}>{selectedRequirement.sprint || "Current sprint"}</option>
                               : null}
                             {storyDetailSprintOptions.map((sprint) => (
-                              <option key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}</option>
+                              <option disabled={!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id} key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}{!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id ? " · update permission required" : ""}</option>
                             ))}
                           </select>
                         </FormField>
@@ -6608,13 +6911,29 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         <FormField label="Scrum team"><input value={draft.scrumTeam} onChange={(event) => setDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
                       </div>
                       <StoryPlanningFields additionalFields={draft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("edit", field, value)} users={users} />
-                      <section className={`story-specification-editor is-${draft.specificationFormat}`}>
-                        <div className="story-specification-head"><div><div className="story-specification-title-row"><strong>Acceptance specification</strong><div className="segmented-control"><button aria-pressed={draft.specificationFormat === "gherkin"} className={draft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={draft.specificationFormat === "speckit"} className={draft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div><span>Gherkin and Spec Kit are stored as explicit Story authoring formats.</span></div></div>
-                        {draft.specificationFormat === "gherkin" ? (
-                          <GherkinEditor featureTitle={draft.title || "Story behavior"} onChange={(gherkinScenariosText) => setDraft((current) => ({ ...current, gherkinScenariosText }))} value={draft.gherkinScenariosText} />
-                        ) : (
-                          <SpecKitEditor onChange={(specificationContent) => setDraft((current) => ({ ...current, specificationContent }))} value={draft.specificationContent} />
-                        )}
+                      <section aria-labelledby="story-detail-specification-title" className={`story-specification-editor is-${draft.specificationFormat}`}>
+                        <div className="story-specification-head">
+                          <div className="story-specification-copy">
+                            <strong id="story-detail-specification-title">Acceptance specification</strong>
+                            <span>Choose the authoring structure that best communicates this Story’s expected behavior.</span>
+                          </div>
+                          <StorySpecificationFormatSwitch
+                            idPrefix="story-detail-specification"
+                            onChange={(specificationFormat) => setDraft((current) => ({ ...current, specificationFormat }))}
+                            value={draft.specificationFormat}
+                          />
+                        </div>
+                        <div className="story-specification-format-note">
+                          <span>{draft.specificationFormat === "gherkin" ? "Behavior-driven scenarios" : "Structured product specification"}</span>
+                          <small>{draft.specificationFormat === "gherkin" ? "Feature · Scenario · Given / When / Then" : "Intent · Outcomes · Requirements · Acceptance"}</small>
+                        </div>
+                        <div aria-labelledby={`story-detail-specification-${draft.specificationFormat}-tab`} className="story-specification-panel" id="story-detail-specification-panel" role="tabpanel">
+                          {draft.specificationFormat === "gherkin" ? (
+                            <GherkinEditor featureTitle={draft.title || "Story behavior"} onChange={(gherkinScenariosText) => setDraft((current) => ({ ...current, gherkinScenariosText }))} value={draft.gherkinScenariosText} />
+                          ) : (
+                            <SpecKitEditor onChange={(specificationContent) => setDraft((current) => ({ ...current, specificationContent }))} value={draft.specificationContent} />
+                          )}
+                        </div>
                       </section>
                       <ExternalReferencesField
                         className="story-detail-external-references story-create-external-references"
@@ -6795,7 +7114,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               <div className="requirement-create-title">
                 <h2 className="dialog-title" id="create-requirement-title">Create Story</h2>
               </div>
-              <DialogCloseButton disabled={createRequirement.isPending} label="Close create Story" onClick={closeCreateRequirementModal} />
+              <DialogCloseButton disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending} label="Close create Story" onClick={closeCreateRequirementModal} />
             </div>
 
             <form className="requirement-create-modal-form story-create-dialog-form" onSubmit={(event) => void handleCreateRequirement(event)}>
@@ -6858,14 +7177,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       <select
                         required={jiraRequirementCoreRequired.sprint}
                         value={createDraft.sprint}
-                        onChange={(event) => {
-                          const sprint = event.target.value;
-                          const iteration = requirementIterations.find((candidate) => requirementSprintOptionValue(candidate) === sprint || candidate.id === sprint);
-                          setCreateDraft((current) => ({ ...current, sprint, iterationId: iteration && !iteration.jira_sprint_id ? iteration.id : "" }));
-                        }}
+                        onChange={(event) => setCreateStorySprintSelection(event.target.value)}
                       >
                         <option value="">No sprint</option>
-                        {createStorySprintOptions.map((sprint) => <option key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}</option>)}
+                        {createStorySprintOptions.map((sprint) => <option disabled={!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id} key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}{!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id ? " · update permission required" : ""}</option>)}
                       </select>
                     </FormField>
                   </div>
@@ -6901,30 +7216,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       <select
                         required={jiraRequirementCoreRequired.release}
                         value={createStoryReleaseSelection}
-                        onChange={(event) => {
-                          const [source, id] = event.target.value.split(":", 2);
-                          if (source === "release") {
-                            const release = requirementReleases.find((candidate) => candidate.id === id);
-                            setCreateDraft((current) => ({ ...current, fixVersion: release?.fix_version || "", release: release?.name || "" }));
-                            return;
-                          }
-                          if (source === "jira") {
-                            const version = jiraVersions.find((candidate) => String(candidate.id) === id);
-                            setCreateDraft((current) => ({ ...current, fixVersion: version?.name || "", release: version?.name || "" }));
-                            return;
-                          }
-                          setCreateDraft((current) => ({ ...current, fixVersion: "", release: "" }));
-                        }}
+                        onChange={(event) => setCreateStoryReleaseSelection(event.target.value)}
                       >
                         <option value="">Select Release</option>
-                        {requirementReleases.length ? (
+                        {selectableRequirementReleases.length ? (
                           <optgroup label="HelloTest releases">
-                            {requirementReleases.map((release) => <option key={release.id} value={`release:${release.id}`}>{release.name}{release.state ? ` · ${release.state.replace(/_/g, " ")}` : ""}</option>)}
+                            {selectableRequirementReleases.map((release) => <option disabled={!canUpdateRequirementIterations} key={release.id} value={`release:${release.id}`}>{release.name}{release.state ? ` · ${release.state.replace(/_/g, " ")}` : ""}{!canUpdateRequirementIterations ? " · update permission required" : ""}</option>)}
                           </optgroup>
                         ) : null}
-                        {jiraVersions.length ? (
+                        {selectableJiraVersions.length ? (
                           <optgroup label="Connected release versions">
-                            {jiraVersions.map((version) => <option key={version.id} value={`jira:${version.id}`}>{version.name}{version.released ? " · released" : ""}</option>)}
+                            {selectableJiraVersions.map((version) => <option key={version.id} value={`jira:${version.id}`}>{version.name}</option>)}
                           </optgroup>
                         ) : null}
                       </select>
@@ -6937,14 +7239,29 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   </div>
                   <StoryPlanningFields additionalFields={createDraft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("create", field, value)} users={users} />
                   <StoryCreateRelatedPicker allStories={sprintStoryPickerRequirements} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
-                  <section className={`story-specification-editor is-${createDraft.specificationFormat}`}>
-                    <div className="story-specification-head"><div><div className="story-specification-title-row"><strong>Acceptance specification</strong><div className="segmented-control"><button aria-pressed={createDraft.specificationFormat === "gherkin"} className={createDraft.specificationFormat === "gherkin" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "gherkin" }))} type="button">Gherkin</button><button aria-pressed={createDraft.specificationFormat === "speckit"} className={createDraft.specificationFormat === "speckit" ? "is-active" : ""} onClick={() => setCreateDraft((current) => ({ ...current, specificationFormat: "speckit" }))} type="button">Spec Kit</button></div></div><span>The selected structure is pre-populated in this editor—replace the bracketed guidance with reviewable behavior.</span></div></div>
-                    <div className="story-specification-format-note"><span>{createDraft.specificationFormat === "gherkin" ? "Behavior-driven scenario" : "Structured product specification"}</span><small>{createDraft.specificationFormat === "gherkin" ? "Feature · Scenario · Given / When / Then" : "Intent · Outcomes · Requirements · Acceptance"}</small></div>
-                    {createDraft.specificationFormat === "gherkin" ? (
-                      <GherkinEditor featureTitle={createDraft.title || "Story behavior"} onChange={(gherkinScenariosText) => setCreateDraft((current) => ({ ...current, gherkinScenariosText }))} value={createDraft.gherkinScenariosText} />
-                    ) : (
-                      <SpecKitEditor onChange={(specificationContent) => setCreateDraft((current) => ({ ...current, specificationContent }))} value={createDraft.specificationContent} />
-                    )}
+                  <section aria-labelledby="story-create-specification-title" className={`story-specification-editor is-${createDraft.specificationFormat}`}>
+                    <div className="story-specification-head">
+                      <div className="story-specification-copy">
+                        <strong id="story-create-specification-title">Acceptance specification</strong>
+                        <span>Choose a format, then replace the guidance with reviewable behavior.</span>
+                      </div>
+                      <StorySpecificationFormatSwitch
+                        idPrefix="story-create-specification"
+                        onChange={(specificationFormat) => setCreateDraft((current) => ({ ...current, specificationFormat }))}
+                        value={createDraft.specificationFormat}
+                      />
+                    </div>
+                    <div className="story-specification-format-note">
+                      <span>{createDraft.specificationFormat === "gherkin" ? "Behavior-driven scenarios" : "Structured product specification"}</span>
+                      <small>{createDraft.specificationFormat === "gherkin" ? "Feature · Scenario · Given / When / Then" : "Intent · Outcomes · Requirements · Acceptance"}</small>
+                    </div>
+                    <div aria-labelledby={`story-create-specification-${createDraft.specificationFormat}-tab`} className="story-specification-panel" id="story-create-specification-panel" role="tabpanel">
+                      {createDraft.specificationFormat === "gherkin" ? (
+                        <GherkinEditor featureTitle={createDraft.title || "Story behavior"} onChange={(gherkinScenariosText) => setCreateDraft((current) => ({ ...current, gherkinScenariosText }))} value={createDraft.gherkinScenariosText} />
+                      ) : (
+                        <SpecKitEditor onChange={(specificationContent) => setCreateDraft((current) => ({ ...current, specificationContent }))} value={createDraft.specificationContent} />
+                      )}
+                    </div>
                   </section>
                   <ExternalReferencesField
                     className="story-create-external-references"
@@ -6981,10 +7298,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               </div>
 
               <div className="action-row requirement-create-modal-actions">
-                <button className="ghost-button story-create-cancel-button" disabled={createRequirement.isPending} onClick={closeCreateRequirementModal} type="button">
+                <button className="ghost-button story-create-cancel-button" disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending} onClick={closeCreateRequirementModal} type="button">
                   Cancel
                 </button>
-                <button className="primary-button story-create-submit-button" disabled={!canCreateRequirements || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError} type="submit">
+                <button className="primary-button story-create-submit-button" disabled={!canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || createRequirement.isPending || appendRequirementReleaseScope.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError} type="submit">
                   <span aria-hidden="true" className="story-create-submit-icon"><AddIcon size={14} strokeWidth={2} /></span>
                   <span>{createRequirement.isPending ? "Creating…" : requirementCreateMetadataQuery.isLoading ? "Checking Story fields…" : "Create Story"}</span>
                 </button>
@@ -7026,7 +7343,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     : "Set a clear Sprint window, goal, and planning references."}
                 </p>
               </div>
-              <DialogCloseButton disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending} label={`Close ${editingIteration ? "edit" : "create"} sprint`} onClick={closeCreateIterationModal} />
+              <DialogCloseButton disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending || appendRequirementReleaseScope.isPending} label={`Close ${editingIteration ? "edit" : "create"} sprint`} onClick={closeCreateIterationModal} />
             </div>
             <div className="requirement-create-modal-body requirement-create-modal-body--stacked sprint-create-dialog-body">
               <div className="iteration-create-layout">
@@ -7110,6 +7427,24 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         />
                       </FormField>
                       <div className="sprint-create-metadata-grid">
+                        {!editingIteration ? (
+                          <FormField className="sprint-create-release-field" label="Release">
+                            <select
+                              aria-label="Release for this Sprint"
+                              disabled={!canUpdateRequirementIterations}
+                              onChange={(event) => setIterationDraftReleaseId(event.target.value)}
+                              title={!canUpdateRequirementIterations ? "Release update permission is required to associate this Sprint" : undefined}
+                              value={iterationDraftReleaseId}
+                            >
+                              <option value="">No release</option>
+                              {selectableRequirementReleases.map((release) => (
+                                <option key={release.id} value={release.id}>
+                                  {release.name} · v{String(release.fix_version || "").replace(/^v/i, "")}
+                                </option>
+                              ))}
+                            </select>
+                          </FormField>
+                        ) : null}
                         <RequirementLabelsField
                           className="sprint-create-labels-field"
                           options={requirementLabelOptions}
@@ -7139,29 +7474,58 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   <section className="iteration-requirement-picker sprint-story-picker">
                     <div className="sprint-create-section-heading sprint-story-picker-heading">
                       <h3>Stories in this sprint</h3>
-                      <button className="ghost-button sprint-link-related-stories" onClick={() => document.getElementById("sprint-story-search")?.focus()} type="button"><OpenIcon /><span>Link related Stories</span></button>
                     </div>
                     <div className="sprint-story-picker-panel">
                       <div className="iteration-requirement-picker-toolbar">
                         <FormField className="sprint-story-search-field" composite inputId="sprint-story-search" label="Search Stories">
                           <div className="search-input-with-icon">
-                            <SearchIcon size={18} />
+                            <SearchIcon aria-hidden="true" size={18} />
                             <input
+                              aria-label="Search backlog Stories by ID, title, label, reference, or status"
                               id="sprint-story-search"
-                              placeholder="Search Stories"
+                              onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+                              placeholder="Search by ID, title, label, or status…"
                               type="search"
                               value={iterationRequirementSearch}
                               onChange={(event) => setIterationRequirementSearch(event.target.value)}
                             />
+                            {iterationRequirementSearch ? (
+                              <button aria-label="Clear Story search" className="sprint-story-search-clear" onClick={() => setIterationRequirementSearch("")} type="button">
+                                <IconX aria-hidden="true" size={15} stroke={2} />
+                              </button>
+                            ) : null}
                           </div>
                         </FormField>
-                        <label className="sprint-story-status-filter">
-                          <span>Status</span>
-                          <select aria-label="Filter backlog Stories by status" onChange={(event) => setIterationRequirementStatusFilter(event.target.value)} value={iterationRequirementStatusFilter}>
-                            <option value="all">All statuses</option>
-                            {iterationRequirementStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
-                          </select>
-                        </label>
+                        <div className="sprint-story-filter-wrap" ref={sprintStoryFilterMenuRef}>
+                          <button
+                            aria-controls="sprint-story-filter-menu"
+                            aria-expanded={isSprintStoryFilterMenuOpen}
+                            aria-haspopup="dialog"
+                            className={iterationRequirementStatusFilter === "all" ? "ghost-button sprint-story-filter-trigger" : "ghost-button sprint-story-filter-trigger is-active"}
+                            onClick={() => setIsSprintStoryFilterMenuOpen((current) => !current)}
+                            ref={sprintStoryFilterTriggerRef}
+                            type="button"
+                          >
+                            <IconFilter aria-hidden="true" size={16} stroke={1.9} />
+                            <span>Filters</span>
+                            {iterationRequirementStatusFilter !== "all" ? <span aria-label="1 active filter" className="sprint-story-filter-badge">1</span> : null}
+                          </button>
+                          {isSprintStoryFilterMenuOpen ? (
+                            <div aria-label="Filter backlog Stories" className="sprint-story-filter-menu" id="sprint-story-filter-menu" role="dialog">
+                              <div className="sprint-story-filter-menu-heading"><strong>Filter Stories</strong><span>Narrow the backlog list by delivery status.</span></div>
+                              <FormField label="Status">
+                                <select autoFocus aria-label="Filter backlog Stories by status" onChange={(event) => setIterationRequirementStatusFilter(event.target.value)} value={iterationRequirementStatusFilter}>
+                                  <option value="all">All statuses</option>
+                                  {iterationRequirementStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+                                </select>
+                              </FormField>
+                              <div className="sprint-story-filter-menu-actions">
+                                <button className="ghost-button" disabled={iterationRequirementStatusFilter === "all"} onClick={() => setIterationRequirementStatusFilter("all")} type="button">Clear filter</button>
+                                <button className="primary-button" onClick={() => { setIsSprintStoryFilterMenuOpen(false); sprintStoryFilterTriggerRef.current?.focus(); }} type="button">Done</button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="sprint-story-picker-actions">
                           <button
                             aria-label={`Select all ${sprintStorySelectionState.candidateCount} ${sprintBacklogPickerQuery.hasNextPage ? "loaded " : ""}matching backlog Stories`}
@@ -7301,7 +7665,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             <div className="action-row requirement-create-modal-actions sprint-create-dialog-footer">
               <button
                 className="ghost-button sprint-create-cancel-button"
-                disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending}
+                disabled={createRequirementIteration.isPending || updateRequirementIteration.isPending || appendRequirementReleaseScope.isPending}
                 onClick={closeCreateIterationModal}
                 type="button"
               >
@@ -7311,8 +7675,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 className="primary-button sprint-create-submit-button"
                 disabled={
                   (editingIteration ? !canUpdateRequirementIterations : !canCreateRequirementIterations)
+                  || Boolean(!editingIteration && iterationDraftReleaseId && !canUpdateRequirementIterations)
                   || createRequirementIteration.isPending
                   || updateRequirementIteration.isPending
+                  || appendRequirementReleaseScope.isPending
                   || !iterationDraftName.trim()
                   || (!isEditingClosedSprint && (!editingIteration || areEditingSprintDates) && Boolean(iterationDraftStartDate) !== Boolean(iterationDraftEndDate))
                   || (!isEditingClosedSprint && (!editingIteration || areEditingSprintDates) && Boolean(iterationDraftStartDate && iterationDraftEndDate && iterationDraftEndDate <= iterationDraftStartDate))
@@ -7416,18 +7782,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
             <div className="action-row import-modal-actions">
               <button
-                className="primary-button"
-                disabled={!canImportRequirements || !projectId || !importRows.length || bulkImportRequirements.isPending}
-                onClick={() => void handleBulkImportRequirements()}
-                type="button"
-              >
-                {bulkImportRequirements.isPending
-                  ? "Queuing..."
-                  : importRows.length
-                    ? `Queue ${importRows.length} ${importRows.length === 1 ? "Story" : "Stories"}`
-                    : "Queue Stories"}
-              </button>
-              <button
                 className="ghost-button"
                 disabled={!importRows.length || bulkImportRequirements.isPending}
                 onClick={() => {
@@ -7438,6 +7792,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 type="button"
               >
                 Clear preview
+              </button>
+              <button
+                className="primary-button requirement-import-submit-button"
+                disabled={!canImportRequirements || !projectId || !importRows.length || bulkImportRequirements.isPending}
+                onClick={() => void handleBulkImportRequirements()}
+                type="button"
+              >
+                {bulkImportRequirements.isPending
+                  ? "Queuing..."
+                  : importRows.length
+                    ? `Queue ${importRows.length} ${importRows.length === 1 ? "Story" : "Stories"}`
+                    : "Queue Stories"}
               </button>
             </div>
           </div>
@@ -7495,7 +7861,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   <button
                     className="story-studio-accept-button"
                     disabled={isStoryAiBlockingClose || (requirementAiMode === "create"
-                      ? !canCreateRequirements || !selectedRequirementCreationDraftCount || Boolean(invalidSelectedRequirementCreationDraftTitleCount) || isRequirementAiCreateMetadataIncomplete || previewRequirementCreation.isPending || createRequirementGenerationJob.isPending || isRequirementCreationJobRunning || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError
+                      ? !canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || !selectedRequirementCreationDraftCount || Boolean(invalidSelectedRequirementCreationDraftTitleCount) || isRequirementAiCreateMetadataIncomplete || previewRequirementCreation.isPending || createRequirementGenerationJob.isPending || isRequirementCreationJobRunning || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError
                       : !canUpdateRequirements || activeRequirementCompletionReview !== "generated" || !optimizationSuggestion || !Object.values(optimizationFields).some(Boolean) || (optimizationFields.title && !isValidAiStoryTitle(optimizationSuggestion.title)) || updateRequirement.isPending || !aiCompleteRequirementDetailQuery.data)}
                     onClick={() => void handleApplyRequirementOptimization()}
                     type="button"
@@ -7525,42 +7891,37 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     : activeRequirementCompletionReview === "generated" && Boolean(optimizationSuggestion))}
                   extraContent={requirementAiMode === "create" ? (
                     <>
-                      {jiraRequirementCoreRequired.sprint || jiraRequirementCoreRequired.release ? (
-                        <section className="issue-form-section story-ai-dialog-scope-section">
+                      <section className="issue-form-section story-ai-dialog-scope-section">
                           <div className="issue-form-section-head">
                             <strong>delivery scope</strong>
-                            <span>Required delivery scope is applied to every selected AI-assisted Story.</span>
+                            <span>Optional Sprint and Release scope is applied to every selected AI-assisted Story.</span>
                           </div>
                           <div className="issue-form-grid issue-form-grid--triple">
-                            {jiraRequirementCoreRequired.sprint ? (
-                              <FormField label="Sprint" required>
+                              <FormField label="Sprint" required={jiraRequirementCoreRequired.sprint}>
                                 <select
                                   disabled={isStoryAiGenerateBusy}
-                                  onChange={(event) => setCreateDraft((current) => ({ ...current, sprint: event.target.value, iterationId: "" }))}
-                                  required
+                                  onChange={(event) => setCreateStorySprintSelection(event.target.value)}
+                                  required={jiraRequirementCoreRequired.sprint}
                                   value={createDraft.sprint}
                                 >
-                                  <option value="">Select sprint</option>
-                                  {assignableJiraSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprintOptionLabel(sprint)}</option>)}
+                                  <option value="">No sprint</option>
+                                  {createStorySprintOptions.map((sprint) => <option disabled={!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id} key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}{!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id ? " · update permission required" : ""}</option>)}
                                 </select>
                               </FormField>
-                            ) : null}
-                            {jiraRequirementCoreRequired.release ? (
-                              <FormField label="Release / Fix version" required>
+                              <FormField label="Release / Fix version" required={jiraRequirementCoreRequired.release}>
                                 <select
                                   disabled={isStoryAiGenerateBusy}
-                                  onChange={(event) => setCreateDraft((current) => ({ ...current, fixVersion: event.target.value, release: event.target.value }))}
-                                  required
-                                  value={createDraft.fixVersion || createDraft.release}
+                                  onChange={(event) => setCreateStoryReleaseSelection(event.target.value)}
+                                  required={jiraRequirementCoreRequired.release}
+                                  value={createStoryReleaseSelection}
                                 >
-                                  <option value="">Select release</option>
-                                  {jiraVersions.map((version) => <option key={version.id} value={version.name}>{version.name}{version.released ? " · released" : ""}</option>)}
+                                  <option value="">No release</option>
+                                  {selectableRequirementReleases.length ? <optgroup label="HelloTest releases">{selectableRequirementReleases.map((release) => <option disabled={!canUpdateRequirementIterations} key={release.id} value={`release:${release.id}`}>{release.name}{!canUpdateRequirementIterations ? " · update permission required" : ""}</option>)}</optgroup> : null}
+                                  {selectableJiraVersions.length ? <optgroup label="Connected release versions">{selectableJiraVersions.map((version) => <option key={version.id} value={`jira:${version.id}`}>{version.name}</option>)}</optgroup> : null}
                                 </select>
                               </FormField>
-                            ) : null}
                           </div>
                         </section>
-                      ) : null}
                       {requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError || requiredJiraRequirementFields.length ? (
                         <section className="issue-form-section story-ai-dialog-scope-section">
                           <div className="issue-form-section-head">
@@ -8080,37 +8441,34 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   </div>
                 ) : null}
 
-                {requirementAiMode === "create" && (jiraRequirementCoreRequired.sprint || jiraRequirementCoreRequired.release) ? (
+                {requirementAiMode === "create" ? (
                   <section className="issue-form-section story-ai-dialog-scope-section">
                     <div className="issue-form-section-head">
                       <strong>delivery scope</strong>
-                      <span>Required delivery scope is applied to every selected AI-assisted Story.</span>
+                      <span>Optional Sprint and Release scope is applied to every selected AI-assisted Story.</span>
                     </div>
                     <div className="issue-form-grid issue-form-grid--triple">
-                      {jiraRequirementCoreRequired.sprint ? (
-                        <FormField label="Sprint" required>
+                        <FormField label="Sprint" required={jiraRequirementCoreRequired.sprint}>
                           <select
-                            onChange={(event) => setCreateDraft((current) => ({ ...current, sprint: event.target.value, iterationId: "" }))}
-                            required
+                            onChange={(event) => setCreateStorySprintSelection(event.target.value)}
+                            required={jiraRequirementCoreRequired.sprint}
                             value={createDraft.sprint}
                           >
-                            <option value="">Select sprint</option>
-                            {assignableJiraSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprintOptionLabel(sprint)}</option>)}
+                            <option value="">No sprint</option>
+                            {createStorySprintOptions.map((sprint) => <option disabled={!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id} key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}{!canUpdateRequirementIterations && !sprint.iteration.jira_sprint_id ? " · update permission required" : ""}</option>)}
                           </select>
                         </FormField>
-                      ) : null}
-                      {jiraRequirementCoreRequired.release ? (
-                        <FormField label="Release / Fix version" required>
+                        <FormField label="Release / Fix version" required={jiraRequirementCoreRequired.release}>
                           <select
-                            onChange={(event) => setCreateDraft((current) => ({ ...current, fixVersion: event.target.value, release: event.target.value }))}
-                            required
-                            value={createDraft.fixVersion || createDraft.release}
+                            onChange={(event) => setCreateStoryReleaseSelection(event.target.value)}
+                            required={jiraRequirementCoreRequired.release}
+                            value={createStoryReleaseSelection}
                           >
-                            <option value="">Select release</option>
-                            {jiraVersions.map((version) => <option key={version.id} value={version.name}>{version.name}{version.released ? " · released" : ""}</option>)}
+                            <option value="">No release</option>
+                            {selectableRequirementReleases.length ? <optgroup label="HelloTest releases">{selectableRequirementReleases.map((release) => <option disabled={!canUpdateRequirementIterations} key={release.id} value={`release:${release.id}`}>{release.name}{!canUpdateRequirementIterations ? " · update permission required" : ""}</option>)}</optgroup> : null}
+                            {selectableJiraVersions.length ? <optgroup label="Connected release versions">{selectableJiraVersions.map((version) => <option key={version.id} value={`jira:${version.id}`}>{version.name}</option>)}</optgroup> : null}
                           </select>
                         </FormField>
-                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -8396,7 +8754,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 		              <button
                   className="primary-button story-ai-dialog-submit"
                   disabled={isStoryAiBlockingClose || (requirementAiMode === "create"
-                    ? !canCreateRequirements || !selectedRequirementCreationDraftCount || Boolean(invalidSelectedRequirementCreationDraftTitleCount) || previewRequirementCreation.isPending || createRequirementGenerationJob.isPending || isRequirementCreationJobRunning || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError
+                    ? !canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || !selectedRequirementCreationDraftCount || Boolean(invalidSelectedRequirementCreationDraftTitleCount) || previewRequirementCreation.isPending || createRequirementGenerationJob.isPending || isRequirementCreationJobRunning || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError
                     : !canUpdateRequirements || !optimizationSuggestion || !Object.values(optimizationFields).some(Boolean) || updateRequirement.isPending)}
                   onClick={() => void handleApplyRequirementOptimization()}
                   type="button"
@@ -8685,6 +9043,69 @@ function StoryPlanningFields({
         </FormField>
       </div>
     </section>
+  );
+}
+
+function StorySpecificationFormatSwitch({
+  idPrefix,
+  onChange,
+  value
+}: {
+  idPrefix: string;
+  onChange: (format: RequirementDraft["specificationFormat"]) => void;
+  value: RequirementDraft["specificationFormat"];
+}) {
+  const formats: Array<{
+    description: string;
+    format: RequirementDraft["specificationFormat"];
+    label: string;
+  }> = [
+    { description: "Behavior scenarios", format: "gherkin", label: "Gherkin" },
+    { description: "Product structure", format: "speckit", label: "Spec Kit" }
+  ];
+  const moveSelection = (event: ReactKeyboardEvent<HTMLButtonElement>, format: RequirementDraft["specificationFormat"]) => {
+    const currentIndex = formats.findIndex((item) => item.format === format);
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex + formats.length - 1) % formats.length;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % formats.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = formats.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextFormat = formats[nextIndex].format;
+    onChange(nextFormat);
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(`[data-format="${nextFormat}"]`)
+      ?.focus();
+  };
+
+  return (
+    <div aria-label="Acceptance specification format" className="story-specification-tabs" role="tablist">
+      {formats.map(({ description, format, label }) => {
+        const isSelected = value === format;
+        return (
+          <button
+            aria-controls={`${idPrefix}-panel`}
+            aria-selected={isSelected}
+            className={isSelected ? "story-specification-tab is-active" : "story-specification-tab"}
+            data-format={format}
+            id={`${idPrefix}-${format}-tab`}
+            key={format}
+            onClick={() => onChange(format)}
+            onKeyDown={(event) => moveSelection(event, format)}
+            role="tab"
+            tabIndex={isSelected ? 0 : -1}
+            type="button"
+          >
+            <span aria-hidden="true" className="story-specification-tab-icon">
+              {format === "gherkin" ? <IconBraces size={17} stroke={1.9} /> : <IconFileDescription size={17} stroke={1.9} />}
+            </span>
+            <span className="story-specification-tab-copy"><strong>{label}</strong><small>{description}</small></span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

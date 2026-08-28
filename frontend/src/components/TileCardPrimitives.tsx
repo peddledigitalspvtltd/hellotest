@@ -102,6 +102,58 @@ export function TileCardMetric({
   );
 }
 
+export function TileCardProgress({
+  displayValue,
+  label,
+  segments,
+  title,
+  tone = "info",
+  value
+}: {
+  displayValue?: ReactNode;
+  label: string;
+  segments?: Array<{ value: number; tone: TileCardTone }>;
+  title?: string;
+  tone?: TileCardTone;
+  value: number | null;
+}) {
+  const safeValue = value === null ? null : Math.max(0, Math.min(100, Math.round(value)));
+  const safeSegments = (segments || [])
+    .map((segment) => ({
+      ...segment,
+      value: Math.max(0, Math.min(100, segment.value))
+    }))
+    .filter((segment) => segment.value > 0);
+  const resolvedDisplayValue = displayValue ?? (safeValue === null ? "No data" : `${safeValue}%`);
+
+  return (
+    <div className={`tile-card-progress tone-${tone}`} title={title}>
+      <div className="tile-card-progress-head">
+        <span>{label}</span>
+        <strong>{resolvedDisplayValue}</strong>
+      </div>
+      <div
+        aria-hidden={safeValue === null ? true : undefined}
+        aria-label={safeValue === null ? undefined : title || `${label}: ${String(resolvedDisplayValue)}`}
+        aria-valuemax={safeValue === null ? undefined : 100}
+        aria-valuemin={safeValue === null ? undefined : 0}
+        aria-valuenow={safeValue ?? undefined}
+        aria-valuetext={safeValue === null ? undefined : String(resolvedDisplayValue)}
+        className="tile-card-progress-track"
+        role={safeValue === null ? undefined : "progressbar"}
+      >
+        {safeSegments.length ? safeSegments.map((segment, index) => (
+          <span
+            className={`tone-${segment.tone}`}
+            key={`${segment.tone}-${index}`}
+            style={{ width: `${segment.value}%` }}
+          />
+        )) : <span className={`tone-${tone}`} style={{ width: `${safeValue ?? 0}%` }} />}
+      </div>
+    </div>
+  );
+}
+
 export function TileCardStatusIndicator({
   title,
   tone = "neutral",

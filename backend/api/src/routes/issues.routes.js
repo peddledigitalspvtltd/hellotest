@@ -12,6 +12,7 @@ function registerFeedbackRoutes(fastify, basePath) {
   fastify.get(`${basePath}/create-metadata`, async (req) => {
     await fastify.authenticate(req);
     const project = await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("feedback.view", { projectId: project.id })(req);
     return issueMetadata({ project });
   });
 
@@ -19,6 +20,7 @@ function registerFeedbackRoutes(fastify, basePath) {
     await fastify.authenticate(req);
     const item = await service.getIssueItem(req.params.id);
     const project = await projectService.getProject(item.project_id, req.user.id);
+    await fastify.requirePermission("feedback.view", { projectId: item.project_id })(req);
     return issueMetadata({ project, mode: "edit", currentValues: item });
   });
 
@@ -50,6 +52,7 @@ function registerFeedbackRoutes(fastify, basePath) {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.view", { projectId: req.body.project_id })(req);
     const issues = [];
     for (const id of [...new Set(req.body.issue_ids)]) {
       const item = await service.getIssueItem(id);
@@ -119,13 +122,24 @@ function registerFeedbackRoutes(fastify, basePath) {
 	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
-    if (req.body.project_id) await projectService.getProject(req.body.project_id, req.user.id);
+    if (req.body.project_id) {
+      await projectService.getProject(req.body.project_id, req.user.id);
+      await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+    }
     return service.createIssue({ ...req.body, user_id: req.user.id });
   });
 
   fastify.get(basePath, async (req) => {
     await fastify.authenticate(req);
     const { project_id, user_id, status } = req.query;
+    if (project_id) {
+      await projectService.getProject(project_id, req.user.id);
+      await fastify.requirePermission("feedback.view", { projectId: project_id })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id is required when listing Bugs");
+      error.statusCode = 400;
+      throw error;
+    }
     const items = await service.getIssues({
       project_id,
       user_id,
@@ -175,6 +189,10 @@ function registerFeedbackRoutes(fastify, basePath) {
 
     const item = await service.getIssueItem(req.params.id);
     await fastify.requirePermission("feedback.manage", { projectId: item.project_id })(req);
+    if (req.body.project_id && req.body.project_id !== item.project_id) {
+      await projectService.getProject(req.body.project_id, req.user.id);
+      await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+    }
     return service.updateIssue(req.params.id, req.body);
   });
 

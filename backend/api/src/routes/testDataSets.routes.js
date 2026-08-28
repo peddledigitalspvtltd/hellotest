@@ -15,6 +15,7 @@ module.exports = async function (fastify) {
       prompt_instruction: { required: false, type: "string" }
     }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("data.manage", { projectId: req.body.project_id })(req);
     await fastify.requirePermission("data.ai", { projectId: req.body.project_id })(req);
     if (req.body.app_type_id) {
       const appType = await appTypeService.getAppType(req.body.app_type_id);
@@ -80,21 +81,30 @@ module.exports = async function (fastify) {
   fastify.get("/test-data-sets", async (req) => {
     await fastify.authenticate(req);
     const { project_id, app_type_id } = req.query;
+    let scopedProjectId = project_id || null;
 
     if (project_id) {
       await projectService.getProject(project_id, req.user.id);
     } else if (app_type_id) {
       const appType = await appTypeService.getAppType(app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+      scopedProjectId = appType.project_id;
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id or app_type_id is required when listing Test Data Sets");
+      error.statusCode = 400;
+      throw error;
     }
 
-    return service.getTestDataSets({ project_id, app_type_id });
+    if (scopedProjectId) await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
+
+    return service.getTestDataSets({ project_id: scopedProjectId, app_type_id });
   });
 
   fastify.get("/test-data-sets/:id", async (req) => {
     await fastify.authenticate(req);
     const dataSet = await service.getTestDataSet(req.params.id);
     await projectService.getProject(dataSet.project_id, req.user.id);
+    await fastify.requirePermission("data.view", { projectId: dataSet.project_id })(req);
     return dataSet;
   });
 
@@ -113,9 +123,24 @@ module.exports = async function (fastify) {
 
     const dataSet = await service.getTestDataSet(req.params.id);
     await projectService.getProject(dataSet.project_id, req.user.id);
+    await fastify.requirePermission("data.manage", { projectId: dataSet.project_id })(req);
 
-    if (req.body.project_id) {
-      await projectService.getProject(req.body.project_id, req.user.id);
+    const targetProjectId = req.body.project_id || dataSet.project_id;
+    if (targetProjectId !== dataSet.project_id) {
+      await projectService.getProject(targetProjectId, req.user.id);
+      await fastify.requirePermission("data.manage", { projectId: targetProjectId })(req);
+    }
+
+    const effectiveAppTypeId = Object.prototype.hasOwnProperty.call(req.body, "app_type_id")
+      ? req.body.app_type_id
+      : dataSet.app_type_id;
+    if (effectiveAppTypeId) {
+      const appType = await appTypeService.getAppType(effectiveAppTypeId);
+      if (appType.project_id !== targetProjectId) {
+        const error = new Error("App type must belong to the target project");
+        error.statusCode = 400;
+        throw error;
+      }
     }
 
     return service.updateTestDataSet(req.params.id, req.body);
@@ -125,6 +150,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const dataSet = await service.getTestDataSet(req.params.id);
     await projectService.getProject(dataSet.project_id, req.user.id);
+    await fastify.requirePermission("data.manage", { projectId: dataSet.project_id })(req);
     return service.deleteTestDataSet(req.params.id);
   });
 };

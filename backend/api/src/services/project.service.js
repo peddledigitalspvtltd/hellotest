@@ -17,13 +17,6 @@ const selectAdminUsers = db.prepare(`
   SELECT DISTINCT users.id
   FROM users
   WHERE COALESCE(users.is_workspace_admin, FALSE) = TRUE
-     OR EXISTS (
-       SELECT 1
-       FROM project_members
-       JOIN roles ON roles.id = project_members.role_id
-       WHERE project_members.user_id = users.id
-         AND LOWER(roles.name) = 'admin'
-     )
 `);
 
 const insertProjectMember = db.prepare(`

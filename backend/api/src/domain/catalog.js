@@ -184,7 +184,7 @@ const REQUIREMENT_STATUS_OPTIONS = freezeOptions([
 
 const TEST_STEP_GROUP_KIND_OPTIONS = freezeOptions([
   { value: "local", label: "Local", description: "Scoped only to the current test case." },
-  { value: "reusable", label: "Reusable", description: "Linked shared group reused across test cases." }
+  { value: "reusable", label: "Reusable", description: "Linked Shared Step Group reused across test cases." }
 ]);
 
 const TEST_STEP_TYPE_OPTIONS = freezeOptions([
@@ -211,6 +211,12 @@ const TEST_ENVIRONMENT_BROWSER_OPTIONS = freezeOptions([
 const TEST_ENVIRONMENT_MOBILE_OS_OPTIONS = freezeOptions([
   { value: "Android", label: "Android" },
   { value: "iOS", label: "iOS" }
+]);
+
+const TEST_CONFIGURATION_OPERATING_SYSTEM_OPTIONS = freezeOptions([
+  { value: "Windows", label: "Windows" },
+  { value: "macOS", label: "macOS" },
+  { value: "Linux", label: "Linux" }
 ]);
 
 const EXECUTION_STATUS_OPTIONS = freezeOptions([
@@ -284,6 +290,11 @@ const DOMAIN_METADATA = Object.freeze({
     browsers: TEST_ENVIRONMENT_BROWSER_OPTIONS,
     mobile_os: TEST_ENVIRONMENT_MOBILE_OS_OPTIONS
   },
+  test_configurations: {
+    operating_systems: TEST_CONFIGURATION_OPERATING_SYSTEM_OPTIONS,
+    browsers: TEST_ENVIRONMENT_BROWSER_OPTIONS,
+    mobile_os: TEST_ENVIRONMENT_MOBILE_OS_OPTIONS
+  },
   executions: {
     statuses: EXECUTION_STATUS_OPTIONS,
     final_statuses: EXECUTION_FINAL_STATUS_OPTIONS,
@@ -321,6 +332,8 @@ module.exports = {
   TEST_STEP_TYPE_VALUES: optionValues(TEST_STEP_TYPE_OPTIONS),
   TEST_DATA_SET_MODE_OPTIONS,
   TEST_DATA_SET_MODE_VALUES: optionValues(TEST_DATA_SET_MODE_OPTIONS),
+  TEST_CONFIGURATION_OPERATING_SYSTEM_OPTIONS,
+  TEST_CONFIGURATION_OPERATING_SYSTEM_VALUES: optionValues(TEST_CONFIGURATION_OPERATING_SYSTEM_OPTIONS),
   EXECUTION_STATUS_OPTIONS,
   EXECUTION_STATUS_VALUES: optionValues(EXECUTION_STATUS_OPTIONS),
   EXECUTION_FINAL_STATUS_OPTIONS,

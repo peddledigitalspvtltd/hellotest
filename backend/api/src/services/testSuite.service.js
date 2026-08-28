@@ -103,13 +103,18 @@ exports.createTestSuite = async ({ app_type_id, name, parent_id, labels, paramet
   return { id };
 };
 
-exports.getTestSuites = async ({ app_type_id, parent_id }) => {
+exports.getTestSuites = async ({ project_id, app_type_id, parent_id }) => {
   let query = `SELECT * FROM test_suites WHERE 1=1`;
   const params = [];
 
   if (app_type_id) {
     query += ` AND app_type_id = ?`;
     params.push(app_type_id);
+  }
+
+  if (project_id) {
+    query += ` AND app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)`;
+    params.push(project_id);
   }
 
   if (parent_id !== undefined) {

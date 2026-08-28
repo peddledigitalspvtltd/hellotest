@@ -37,6 +37,10 @@ module.exports = async function (fastify) {
       fix_version: { ...releaseFields.fix_version, required: true }
     }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.create", { projectId: req.body.project_id })(req);
+    if (req.body.sprint_ids?.length || req.body.requirement_ids?.length) {
+      await fastify.requirePermission("requirement_iteration.update", { projectId: req.body.project_id })(req);
+    }
     return service.createRelease({ ...req.body, created_by: req.user.id });
   });
 
@@ -49,31 +53,55 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirement-releases/:id", async (req) => {
     await fastify.authenticate(req);
-    return ensureReleaseAccess(req.params.id, req.user.id);
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.view", { projectId: release.project_id })(req);
+    return release;
   });
 
   fastify.get("/requirement-releases/:id/readiness", async (req) => {
     await fastify.authenticate(req);
-    await ensureReleaseAccess(req.params.id, req.user.id);
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.view", { projectId: release.project_id })(req);
     return service.getReadiness(req.params.id);
   });
 
   fastify.post("/requirement-releases/:id/release-notes", async (req) => {
     await fastify.authenticate(req);
-    await ensureReleaseAccess(req.params.id, req.user.id);
-    return service.generateReleaseNotes(req.params.id, { user_id: req.user.id });
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.view", { projectId: release.project_id })(req);
+    let allowAi = false;
+    try {
+      await fastify.requirePermission("requirement.ai", { projectId: release.project_id })(req);
+      allowAi = true;
+    } catch (error) {
+      if (error?.statusCode !== 403) throw error;
+    }
+    return service.generateReleaseNotes(req.params.id, { user_id: req.user.id, allow_ai: allowAi });
   });
 
   fastify.put("/requirement-releases/:id", async (req) => {
     await fastify.authenticate(req);
     fastify.validate(releaseFields, req.body || {});
-    await ensureReleaseAccess(req.params.id, req.user.id);
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.update", { projectId: release.project_id })(req);
     return service.updateRelease(req.params.id, { ...req.body, updated_by: req.user.id });
+  });
+
+  fastify.post("/requirement-releases/:id/scope", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      requirement_ids: { required: false, type: "array", items: "string" },
+      sprint_ids: { required: false, type: "array", items: "string" }
+    }, req.body || {});
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.update", { projectId: release.project_id })(req);
+    return service.appendScope(req.params.id, { ...req.body, updated_by: req.user.id });
   });
 
   fastify.delete("/requirement-releases/:id", async (req) => {
     await fastify.authenticate(req);
-    await ensureReleaseAccess(req.params.id, req.user.id);
+    const release = await ensureReleaseAccess(req.params.id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.delete", { projectId: release.project_id })(req);
     return service.deleteRelease(req.params.id);
   });
 };

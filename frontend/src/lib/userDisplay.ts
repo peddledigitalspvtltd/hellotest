@@ -46,15 +46,18 @@ export function resolveUserInitials(user?: DisplayUser) {
     .join("") || "U";
 }
 
-export function buildAssigneeOptions(projectMembers: ProjectMember[], users: User[]): AssigneeOption[] {
+export function buildAssigneeOptions(projectMembers: ProjectMember[], users: User[] = []): AssigneeOption[] {
   const userById = users.reduce<Record<string, User>>((accumulator, user) => {
     accumulator[user.id] = user;
     return accumulator;
   }, {});
 
   return projectMembers
-    .map((member) => userById[member.user_id])
-    .filter((user): user is User => Boolean(user))
+    .map((member) => userById[member.user_id] || {
+      id: member.user_id,
+      name: member.user_name || null,
+      email: member.user_email || ""
+    })
     .map((user) => ({
       id: user.id,
       name: user.name || null,

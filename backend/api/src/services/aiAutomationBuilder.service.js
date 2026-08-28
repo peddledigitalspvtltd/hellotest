@@ -9,6 +9,7 @@ const testEnvironmentService = require("./testEnvironment.service");
 const testConfigurationService = require("./testConfiguration.service");
 const testDataSetService = require("./testDataSet.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
+const mobileFeatureService = require("./mobileFeature.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const {
   normalizeApiRequest,
@@ -17,6 +18,7 @@ const {
   parseJsonValue
 } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
+const { isMobileAppType, isMobileRecorderTarget } = require("../utils/mobileFeature");
 
 const LLM_TIMEOUT_MS = Math.max(10_000, Number(process.env.AUTOMATION_BUILDER_LLM_TIMEOUT_MS || 90_000));
 const ENGINE_TIMEOUT_MS = Math.max(2_000, Number(process.env.AUTOMATION_BUILDER_ENGINE_TIMEOUT_MS || 15_000));
@@ -410,6 +412,7 @@ const resolveBuildContext = async ({
           browser: normalizeText(scopedConfiguration.browser),
           mobile_os: normalizeText(scopedConfiguration.mobile_os),
           platform_version: normalizeText(scopedConfiguration.platform_version),
+          targets: Array.isArray(scopedConfiguration.targets) ? scopedConfiguration.targets : [],
           variables: summarizeVariables(scopedConfiguration.variables)
         }
       : null,
@@ -4599,7 +4602,11 @@ exports.startRecorderSession = async ({
   });
   const integration = await resolveTestEngineIntegration(testCase);
   const recorderMode = normalizeText(recorder_mode) === "local" ? "local" : "remote";
-  const recorderTarget = normalizeText(recorder_target) === "mobile" || testCase.app_type_kind === "android" ? "mobile" : "web";
+  const recorderTarget = isMobileRecorderTarget(recorder_target) || isMobileAppType(testCase.app_type_kind) ? "mobile" : "web";
+
+  if (recorderTarget === "mobile") {
+    await mobileFeatureService.assertMobileFeatureEnabled();
+  }
 
   if (recorderTarget === "mobile" && recorderMode === "remote" && !hasRemoteMobileProvider(integration)) {
     throw new Error("Configure a mobile cloud provider connection before starting remote mobile recording.");
@@ -4748,7 +4755,11 @@ exports.finishRecorderSession = async ({
   if (targetStepId && !targetSteps.some((step) => step.id === targetStepId)) {
     throw new Error("The selected recorder target step does not belong to this test case.");
   }
-  const target = normalizeText(recorder_target) || normalizeText(metadata.recorder_target) || "web";
+  const requestedTarget = normalizeText(recorder_target) || normalizeText(metadata.recorder_target);
+  const target = isMobileRecorderTarget(requestedTarget) || isMobileAppType(testCase.app_type_kind) ? "mobile" : "web";
+  if (target === "mobile") {
+    await mobileFeatureService.assertMobileFeatureEnabled();
+  }
   const localBaseUrl = normalizeText(recorder_mode) === "local" && target !== "mobile" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || metadata.engine_base_url || engineIntegration.base_url || "").replace(/\/+$/, "");
   const mobileBaseUrl = String(metadata.mobile_engine_base_url || resolveMobileEngineBaseUrl(engineIntegration, normalizeText(recorder_mode) || metadata.recorder_mode || "remote")).replace(/\/+$/, "");

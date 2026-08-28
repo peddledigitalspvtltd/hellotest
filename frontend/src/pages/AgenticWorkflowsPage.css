@@ -270,6 +270,9 @@
 }
 
 .agent-workbench-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   justify-self: start;
   margin: 0 0 5px;
   padding: 0;

@@ -640,17 +640,17 @@ export function AgenticWorkflowsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const [projectId, setProjectId] = useCurrentProject();
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const isAgenticWorkflowsEnabled = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
     ["hellotest.ai.agentic_workflows"]
   );
   const canManageAgenticWorkflows = isAgenticWorkflowsEnabled
-    && hasPermission(session, "agentic_workflow.manage");
+    && hasPermission(session, "agentic_workflow.manage", projectId);
   const canRunAgenticWorkflows = isAgenticWorkflowsEnabled
-    && hasPermission(session, "agentic_workflow.run");
-  const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
+    && hasPermission(session, "agentic_workflow.run", projectId);
   const requestedSurface = searchParams.get("view");
   const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
     || requestedSurface === "workflows"
@@ -723,7 +723,11 @@ export function AgenticWorkflowsPage() {
   }, []);
 
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: api.projects.list });
-  const appTypesQuery = useQuery({ queryKey: ["app-types"], queryFn: () => api.appTypes.list() });
+  const appTypesQuery = useQuery({
+    queryKey: ["app-types", projectId],
+    queryFn: () => api.appTypes.list({ project_id: projectId }),
+    enabled: Boolean(projectId)
+  });
   const llmIntegrationsQuery = useQuery({
     queryKey: ["integrations", "agentic-workflows", "llm"],
     queryFn: () => api.integrations.list({ type: "llm" }),
@@ -1696,7 +1700,7 @@ export function AgenticWorkflowsPage() {
           <section className="agent-workbench-hero" aria-labelledby="agent-workbench-title">
             <div className="agent-workbench-hero__head">
               <div>
-                <button className="agent-workbench-back-link" onClick={openAgentCatalog} type="button">← All AI Agents</button>
+                <button aria-label="Back to all AI Agents" className="agent-workbench-back-link" onClick={openAgentCatalog} title="Back to all AI Agents" type="button"><span aria-hidden="true">←</span><span>Back</span></button>
                 <span>Agent Workbench</span>
                 <h2 id="agent-workbench-title">Delegate to {selectedAssistantAgent.name}</h2>
                 <p>Define the task once, choose the evidence it may use, and review the grounded outcome when the specialist finishes.</p>

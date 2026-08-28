@@ -1,6 +1,7 @@
 const db = require("../db");
 const { createHash, randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
+const requirementReleaseService = require("./requirementRelease.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const integrationService = require("./integration.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
@@ -1397,7 +1398,7 @@ const ensureIterationBelongsToProject = async (iterationId, projectId) => {
   }
 
   const iteration = await db.prepare(`
-    SELECT id, project_id
+    SELECT id, project_id, name
     FROM requirement_iterations
     WHERE id = ?
   `).get(normalizedIterationId);
@@ -1431,7 +1432,7 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
   `).get(project_id);
 
   if (!project) throw new Error("Project not found");
-  await ensureIterationBelongsToProject(iteration_id, project_id);
+  const nativeIteration = await ensureIterationBelongsToProject(iteration_id, project_id);
   const relatedRequirementIds = normalizeReferenceList(related_requirement_ids);
   await ensureStoriesInProject(relatedRequirementIds, project_id);
 
@@ -1453,7 +1454,7 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
       normalizeStoryAiReview(ai_review, created_by),
       normalizeReferenceList(external_references),
       normalizeReferenceList(labels),
-      normalizeText(sprint),
+      nativeIteration?.name || normalizeText(sprint),
       normalizeText(fix_version),
       normalizeText(release),
       normalizeText(iteration_id),
@@ -1474,6 +1475,7 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
         ON CONFLICT (requirement_id, related_requirement_id) DO NOTHING
       `).run(id, relatedId);
     }
+    await requirementReleaseService.syncSprintMembership(iteration_id, { updated_by: created_by });
   });
   await transaction();
 
@@ -1537,7 +1539,20 @@ exports.updateRequirement = async (id, data) => {
       const project = await db.prepare(`SELECT id FROM projects WHERE id = ?`).get(data.project_id);
       if (!project) throw new Error("Project not found");
     }
-    await ensureIterationBelongsToProject(data.iteration_id, data.project_id ?? existing.project_id);
+    const previousIterationId = normalizeText(existing.iteration_id);
+    const nextIterationId = data.iteration_id !== undefined ? normalizeText(data.iteration_id) : previousIterationId;
+    const targetProjectId = data.project_id ?? existing.project_id;
+    const [previousIteration, nextIteration] = await Promise.all([
+      previousIterationId ? ensureIterationBelongsToProject(previousIterationId, existing.project_id) : null,
+      nextIterationId ? ensureIterationBelongsToProject(nextIterationId, targetProjectId) : null
+    ]);
+    const nextSprint = nextIteration
+      ? nextIteration.name
+      : data.sprint !== undefined
+        ? normalizeText(data.sprint)
+        : previousIterationId && previousIteration?.name === normalizeText(existing.sprint)
+          ? null
+          : existing.sprint;
 
     await db.prepare(`
       UPDATE requirements
@@ -1562,10 +1577,10 @@ exports.updateRequirement = async (id, data) => {
       data.labels !== undefined
         ? normalizeReferenceList(data.labels)
         : normalizeStoredReferenceList(existing.labels),
-      data.sprint !== undefined ? normalizeText(data.sprint) : existing.sprint,
+      nextSprint,
       data.fix_version !== undefined ? normalizeText(data.fix_version) : existing.fix_version,
       data.release !== undefined ? normalizeText(data.release) : existing.release,
-      data.iteration_id !== undefined ? normalizeText(data.iteration_id) : existing.iteration_id,
+      nextIterationId,
       data.dev_completion_target_date !== undefined ? normalizeDeliveryDate(data.dev_completion_target_date) : existing.dev_completion_target_date,
       data.qa_completion_target_date !== undefined ? normalizeDeliveryDate(data.qa_completion_target_date) : existing.qa_completion_target_date,
       data.scrum_team !== undefined ? normalizeText(data.scrum_team) : existing.scrum_team,
@@ -1577,6 +1592,12 @@ exports.updateRequirement = async (id, data) => {
       currentRevision + 1,
       id
     );
+
+    if (previousIterationId !== nextIterationId) {
+      for (const sprintId of [...new Set([previousIterationId, nextIterationId].filter(Boolean))]) {
+        await requirementReleaseService.syncSprintMembership(sprintId, { updated_by: data.updated_by });
+      }
+    }
 
     return { updated: true, revision: currentRevision + 1 };
   });

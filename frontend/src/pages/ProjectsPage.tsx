@@ -3,6 +3,7 @@ import type { CSSProperties, DragEvent, ReactNode } from "react";
 import {
   IconActivity,
   IconAlertTriangle,
+  IconApps,
   IconChartBar,
   IconChevronDown,
   IconChevronUp,
@@ -10,11 +11,14 @@ import {
   IconInfoCircle,
   IconBug,
   IconDownload,
+  IconFileDescription,
+  IconGitBranch,
   IconLock,
   IconPaperclip,
   IconSearch,
   IconStar,
   IconUpload,
+  IconUsers,
   IconX,
   IconShieldCheck
 } from "@tabler/icons-react";
@@ -611,19 +615,20 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const { session } = useAuth();
+  const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
   const { getMetricCriteria } = useAiPromptRegistry();
   const hasJiraAdministration = session?.user.role === "admin";
   const canManageUsers = hasPermission(session, "user.view");
-  const canManageProjects = hasJiraAdministration && hasPermission(session, "project.manage");
-  const canCreateProjects = canManageProjects;
-  const canDeleteProjects = hasJiraAdministration && hasPermission(session, "project.delete");
-  const canSyncProjects = hasPermission(session, "project.sync");
+  const canManageProjects = hasPermission(session, "project.update", selectedProjectId);
+  const canCreateProjects = hasPermission(session, "project.create");
+  const canDeleteProjects = hasPermission(session, "project.delete", selectedProjectId);
+  const canSyncProjects = hasPermission(session, "project.sync", selectedProjectId);
   const canExportPortfolioAttention = hasPermission(session, "run.report.export");
-  const canManageProjectMembers = hasJiraAdministration && hasPermission(session, "project_member.manage");
-  const canManageAppTypes = hasJiraAdministration && hasPermission(session, "project.manage");
-  const canViewAttachments = hasPermission(session, "attachment.view");
-  const canCreateAttachments = hasPermission(session, "attachment.create");
-  const canDeleteAttachments = hasPermission(session, "attachment.delete");
+  const canManageProjectMembers = hasPermission(session, "project_member.manage", selectedProjectId);
+  const canManageAppTypes = hasPermission(session, "app_type.manage", selectedProjectId);
+  const canViewAttachments = hasPermission(session, "attachment.view", selectedProjectId);
+  const canCreateAttachments = hasPermission(session, "attachment.create", selectedProjectId);
+  const canDeleteAttachments = hasPermission(session, "attachment.delete", selectedProjectId);
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
   const [loadProjectMetrics, setLoadProjectMetrics] = useState(false);
@@ -637,9 +642,8 @@ export function ProjectsPage() {
     executionResults: loadProjectMetrics,
     testCasesProjection: "summary"
   });
-  const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewProjectAutomationCoverage = hasPermission(session, "automation.analytics.view")
+  const canViewProjectAutomationCoverage = hasPermission(session, "automation.analytics.view", selectedProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.analytics"]);
   const [focusedProjectId, setFocusedProjectId] = useState("");
   const [section, setSection] = useState<ProjectSection>("details");
@@ -1448,7 +1452,7 @@ export function ProjectsPage() {
     }
   }, [scopedAppTypes, setCurrentAppTypeId, traceabilityAppTypeId]);
   const assignableProjectRoles = useMemo(
-    () => (roles.data || []).filter((role) => role.id !== "jira-admin"),
+    () => (roles.data || []).filter((role) => role.id !== "jira-admin" && String(role.name || "").trim().toLowerCase() !== "admin"),
     [roles.data]
   );
   const newProjectRoleOptions = useMemo(
@@ -1738,7 +1742,7 @@ export function ProjectsPage() {
   const openCreateProjectModal = () => {
     if (!canCreateProjects) {
       setMessageTone("error");
-      setMessage("Permission required: project.manage");
+      setMessage("Permission required: project.create");
       return;
     }
 
@@ -1988,7 +1992,7 @@ export function ProjectsPage() {
 
     if (!canCreateProjects) {
       setMessageTone("error");
-      setMessage("Permission required: project.manage");
+      setMessage("Permission required: project.create");
       return;
     }
 
@@ -2616,6 +2620,7 @@ export function ProjectsPage() {
                                 <CatalogActionMenu
                                   actions={getProjectActionItems(item)}
                                   label={`${project.name} actions`}
+                                  projectId={String(project.id)}
                                 />
                               ) : null}
                             </div>
@@ -2682,7 +2687,7 @@ export function ProjectsPage() {
                   renderRowActions={(item) => (
                     <div className="projects-list-actions">
                       {item.project.has_access !== false ? (
-                        <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} />
+                        <CatalogActionMenu actions={getProjectActionItems(item)} label={`${item.project.name} actions`} projectId={String(item.project.id)} />
                       ) : null}
                     </div>
                   )}
@@ -2708,14 +2713,16 @@ export function ProjectsPage() {
               {focusedProject ? (
                 <>
                   <SubnavTabs
+                    ariaLabel="Project detail sections"
+                    className="project-detail-tabs"
                     value={section}
                     onChange={setSection}
                     items={[
-                      { value: "details", label: "Project details" },
-                      { value: "members", label: "Members", meta: `${scopedMembers.length}` },
-                      { value: "applications", label: "Applications", meta: `${scopedAppTypes.length}` },
-                      { value: "attachments", label: "Attachments" },
-                      { value: "traceability", label: "Traceability", meta: traceabilityAppTypeId ? "Live" : "—" }
+                      { value: "details", label: "Project details", icon: <IconFileDescription aria-hidden="true" size={17} stroke={1.9} /> },
+                      { value: "members", label: "Members", meta: `${scopedMembers.length}`, icon: <IconUsers aria-hidden="true" size={17} stroke={1.9} /> },
+                      { value: "applications", label: "Applications", meta: `${scopedAppTypes.length}`, icon: <IconApps aria-hidden="true" size={17} stroke={1.9} /> },
+                      { value: "attachments", label: "Attachments", icon: <IconPaperclip aria-hidden="true" size={17} stroke={1.9} /> },
+                      { value: "traceability", label: "Traceability", meta: traceabilityAppTypeId ? "Live" : "—", icon: <IconGitBranch aria-hidden="true" size={17} stroke={1.9} /> }
                     ]}
                   />
                   {section === "details" ? <div className="detail-stack">

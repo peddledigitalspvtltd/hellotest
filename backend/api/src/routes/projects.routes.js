@@ -69,7 +69,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     // Verify access
     await service.getProject(req.params.id, req.user.id);
-    await fastify.requirePermission("project.manage", { projectId: req.params.id })(req);
+    await fastify.requirePermission("project.update", { projectId: req.params.id })(req);
     return service.updateProject(req.params.id, req.body);
   });
 

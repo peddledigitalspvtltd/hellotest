@@ -7,7 +7,6 @@ import {
   IconFileDescription,
   IconFlask2,
   IconFolderOff,
-  IconHierarchy3,
   IconLink,
   IconRocket,
   IconTag
@@ -306,22 +305,20 @@ export function ReleaseNotesIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** Rocket launch gated by three completed checks, matching the supplied readiness identity. */
+/** A clearly visible release launch with one compact readiness check below. */
 export function ReleaseReadinessIcon({ size = 18, strokeWidth = 1.9 }: IconProps) {
   const style = {
     "--release-readiness-icon-size": `${size}px`,
-    "--release-readiness-icon-width": `${Math.round(size * 1.22)}px`
+    "--release-readiness-icon-width": `${Math.round(size * 1.15)}px`
   } as CSSProperties;
-  const checkSize = Math.max(8, Math.round(size * 0.36));
+  const checkSize = Math.max(3, Math.round(size * 0.15));
+  const rocketSize = Math.max(15, Math.round(size * 0.82));
 
   return (
     <span aria-hidden="true" className="release-readiness-icon" style={style}>
-      <IconHierarchy3 className="release-readiness-icon__hierarchy" size={size} stroke={Math.max(1.2, strokeWidth * 0.62)} />
-      <IconRocket className="release-readiness-icon__rocket" size={Math.max(12, Math.round(size * 0.58))} stroke={Math.max(2, strokeWidth)} />
+      <IconRocket className="release-readiness-icon__rocket" size={rocketSize} stroke={Math.max(2.1, strokeWidth * 1.12)} />
       <span className="release-readiness-icon__checks">
-        <IconCheckbox size={checkSize} stroke={strokeWidth} />
-        <IconCheckbox size={checkSize} stroke={strokeWidth} />
-        <IconCheckbox size={checkSize} stroke={strokeWidth} />
+        <IconCheckbox size={checkSize} stroke={Math.max(1.6, strokeWidth * 0.9)} />
       </span>
     </span>
   );

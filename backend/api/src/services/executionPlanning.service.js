@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const db = require("../db");
+const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
@@ -71,7 +72,7 @@ const selectTestEnvironment = db.prepare(`
 `);
 
 const selectTestConfiguration = db.prepare(`
-  SELECT id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, variables
+  SELECT id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, targets, variables
   FROM test_configurations
   WHERE id = ?
 `);
@@ -425,12 +426,15 @@ const summarizeEnvironment = (resource) => {
 
 const summarizeConfiguration = (resource) => {
   const variables = parseJsonValue(resource.variables, []);
+  const targets = configurationTargetsForRead(resource.targets, resource);
 
   return [
     resource.name,
-    normalizeText(resource.browser) ? `Browser: ${resource.browser}` : null,
-    normalizeText(resource.mobile_os) ? `Mobile OS: ${resource.mobile_os}` : null,
-    normalizeText(resource.platform_version) ? `Platform: ${resource.platform_version}` : null,
+    targets.length ? `${targets.length} target${targets.length === 1 ? "" : "s"}` : null,
+    targets[0]?.os ? `OS: ${targets[0].os}` : null,
+    targets[0]?.browser ? `Browser: ${targets[0].browser}` : null,
+    targets[0]?.mobile_os ? `Mobile OS: ${targets[0].mobile_os}` : null,
+    targets[0]?.version ? `Version: ${targets[0].version}` : null,
     Array.isArray(variables) && variables.length ? `${variables.length} variables` : null
   ]
     .filter(Boolean)

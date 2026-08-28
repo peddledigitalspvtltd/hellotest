@@ -1,6 +1,10 @@
 const assistance = require("../services/qualityAssistance.service");
 const projectService = require("../services/project.service");
 const richTextAi = require("../services/richTextAi.service");
+const requirementService = require("../services/requirement.service");
+const testCaseService = require("../services/testCase.service");
+const executionService = require("../services/execution.service");
+const appTypeService = require("../services/appType.service");
 
 module.exports = async function (fastify) {
   fastify.post("/ai/rich-text-rephrase", async (req) => {
@@ -29,16 +33,26 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/:id/ai-impact-preview", async (req) => {
     await fastify.authenticate(req);
+    const requirement = await requirementService.getRequirement(req.params.id);
+    await projectService.getProject(requirement.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: requirement.project_id })(req);
     return assistance.previewRequirementImpact({ user: req.user, requirementId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {} });
   });
 
   fastify.post("/test-cases/:id/ai-impact-preview", async (req) => {
     await fastify.authenticate(req);
+    const testCase = await testCaseService.getTestCase(req.params.id);
+    const appType = await appTypeService.getAppType(testCase.app_type_id);
+    await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("testcase.ai", { projectId: appType.project_id })(req);
     return assistance.previewTestCaseImpact({ user: req.user, testCaseId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {} });
   });
 
   fastify.post("/executions/:id/ai-failure-clusters", async (req) => {
     await fastify.authenticate(req);
+    const execution = await executionService.getExecution(req.params.id);
+    await projectService.getProject(execution.project_id, req.user.id);
+    await fastify.requirePermission("run.ai", { projectId: execution.project_id })(req);
     return assistance.previewFailureClusters({ user: req.user, executionId: req.params.id, requestedScope: req.body?.scope });
   });
 };

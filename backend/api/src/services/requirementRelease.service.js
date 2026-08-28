@@ -147,6 +147,123 @@ const replaceMembership = async (release, requirementIds, sprintIds, previousSta
   return sourceById.size;
 };
 
+exports.appendScope = async (id, { requirement_ids = [], sprint_ids = [], updated_by } = {}) => {
+  const appendedRequirementIds = normalizeList(requirement_ids);
+  const appendedSprintIds = normalizeList(sprint_ids);
+  if (!appendedRequirementIds.length && !appendedSprintIds.length) {
+    throw new Error("At least one Story or Sprint is required");
+  }
+
+  let releaseId = normalizeText(id);
+  const transaction = db.transaction(async () => {
+    // Serialize additive updates for this Release. Without the row lock, two
+    // simultaneous Story/Sprint creations could both read the old scope and the
+    // later writer would accidentally discard the earlier append.
+    await db.prepare("SELECT id FROM requirement_releases WHERE id = ? FOR UPDATE").get(releaseId);
+    const release = await exports.getRelease(releaseId);
+    releaseId = release.id;
+    if (release.persisted_state === "released") {
+      const error = new Error("Completed Releases are read-only and cannot accept new scope");
+      error.statusCode = 409;
+      error.code = "RELEASE_SCOPE_LOCKED";
+      throw error;
+    }
+
+    await ensureStories(appendedRequirementIds, release.project_id);
+    await ensureSprints(appendedSprintIds, release.project_id);
+
+    // Hydrated `requirement_ids` includes Sprint-derived Stories. Read only the
+    // direct rows here so rebuilding membership never turns inherited scope into
+    // manual scope and never replaces another user's existing direct selection.
+    const existingDirectRows = await db.prepare(`
+      SELECT requirement_id
+      FROM requirement_release_items
+      WHERE release_id = ? AND source = 'manual'
+    `).all(release.id);
+    const nextRequirementIds = normalizeList([
+      ...existingDirectRows.map((row) => row.requirement_id),
+      ...appendedRequirementIds
+    ]);
+    const nextSprintIds = normalizeList([
+      ...(Array.isArray(release.sprint_ids) ? release.sprint_ids : []),
+      ...appendedSprintIds
+    ]);
+
+    await db.prepare(`
+      UPDATE requirement_releases
+      SET sprint_ids = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(JSON.stringify(nextSprintIds), normalizeText(updated_by) || release.updated_by || release.created_by, release.id);
+    await replaceMembership(release, nextRequirementIds, nextSprintIds);
+  });
+  await transaction();
+
+  return {
+    updated: true,
+    appended_requirement_ids: appendedRequirementIds,
+    appended_sprint_ids: appendedSprintIds,
+    release: await exports.getRelease(releaseId)
+  };
+};
+
+// Keep the materialized Release membership rows and Story delivery stamps in
+// step with native Sprint membership changes. Release scope keeps sprint_ids
+// for API compatibility, while requirement_release_items is the durable,
+// queryable membership projection used by readiness and traceability.
+exports.syncSprintMembership = async (sprintId, { remove = false, updated_by } = {}) => {
+  const normalizedSprintId = normalizeText(sprintId);
+  if (!normalizedSprintId) return { updated: false, releases: 0 };
+
+  const releaseRows = await db.prepare(`
+    SELECT id
+    FROM requirement_releases
+    WHERE sprint_ids @> ?::jsonb
+  `).all(JSON.stringify([normalizedSprintId]));
+  const scopedReleaseIds = releaseRows.map((release) => release.id);
+  if (!scopedReleaseIds.length) return { updated: false, releases: 0 };
+
+  const transaction = db.transaction(async () => {
+    for (const releaseId of scopedReleaseIds) {
+      await db.prepare("SELECT id FROM requirement_releases WHERE id = ? FOR UPDATE").get(releaseId);
+      const release = await getReleaseRow(releaseId);
+      if (!release) continue;
+      if (release.state === "released") {
+        const error = new Error("Completed Releases are read-only and cannot change Sprint scope");
+        error.statusCode = 409;
+        error.code = "RELEASE_SCOPE_LOCKED";
+        throw error;
+      }
+
+      const directRows = await db.prepare(`
+        SELECT requirement_id
+        FROM requirement_release_items
+        WHERE release_id = ? AND source = 'manual'
+      `).all(release.id);
+      const sprintIds = normalizeList(release.sprint_ids)
+        .filter((candidateId) => !remove || candidateId !== normalizedSprintId);
+
+      await db.prepare(`
+        UPDATE requirement_releases
+        SET sprint_ids = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        JSON.stringify(sprintIds),
+        normalizeText(updated_by) || release.updated_by || release.created_by,
+        release.id
+      );
+      await replaceMembership(
+        release,
+        directRows.map((row) => row.requirement_id),
+        sprintIds,
+        { name: release.name, fixVersion: release.fix_version }
+      );
+    }
+  });
+  await transaction();
+
+  return { updated: true, releases: scopedReleaseIds.length };
+};
+
 exports.listReleases = async ({ project_id } = {}) => {
   if (!normalizeText(project_id)) throw new Error("project_id is required");
   let query = "SELECT * FROM requirement_releases WHERE 1 = 1";
@@ -375,7 +492,7 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
   return parseReleaseNotesJson(payload?.choices?.[0]?.message?.content);
 };
 
-exports.generateReleaseNotes = async (id, { user_id } = {}) => {
+exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) => {
   const release = await exports.getRelease(id);
   const readiness = await exports.getReadiness(id);
   const storyIds = release.requirement_ids;
@@ -466,6 +583,7 @@ exports.generateReleaseNotes = async (id, { user_id } = {}) => {
   let narrative = deterministic;
   let generationMode = "deterministic";
   try {
+    if (!allow_ai) throw new Error("AI release-note composition is not available for this request");
     const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId: user_id,
       usageKey: "ai.release.notes",

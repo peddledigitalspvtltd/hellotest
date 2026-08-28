@@ -346,11 +346,26 @@ const statements = [
   `ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'suspended'))`,
   `UPDATE users
     SET default_role_id = (
-      SELECT project_members.role_id
-      FROM project_members
-      JOIN roles ON roles.id = project_members.role_id
-      WHERE project_members.user_id = users.id
-      ORDER BY CASE WHEN LOWER(roles.name) = 'admin' THEN 0 ELSE 1 END, roles.name ASC
+      SELECT roles.id
+      FROM roles
+      WHERE LOWER(roles.name) = CASE
+        WHEN COALESCE(users.is_workspace_admin, FALSE)
+          OR (
+            NOT EXISTS (
+              SELECT 1
+              FROM users workspace_admins
+              WHERE COALESCE(workspace_admins.is_workspace_admin, FALSE) = TRUE
+            )
+            AND EXISTS (
+              SELECT 1
+              FROM project_members
+              JOIN roles legacy_roles ON legacy_roles.id = project_members.role_id
+              WHERE project_members.user_id = users.id
+                AND LOWER(legacy_roles.name) = 'admin'
+            )
+          ) THEN 'admin'
+        ELSE 'member'
+      END
       LIMIT 1
     )
     WHERE users.default_role_id IS NULL`,
@@ -359,12 +374,10 @@ const statements = [
     UPDATE users
     SET is_workspace_admin = TRUE
     WHERE COALESCE(is_workspace_admin, FALSE) = FALSE
-      AND EXISTS (
-        SELECT 1
-        FROM project_members
-        JOIN roles ON roles.id = project_members.role_id
-        WHERE project_members.user_id = users.id
-          AND LOWER(roles.name) = 'admin'
+      AND default_role_id IN (
+        SELECT roles.id
+        FROM roles
+        WHERE LOWER(roles.name) = 'admin'
       )
   `,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub_unique ON users (google_sub) WHERE google_sub IS NOT NULL`,
@@ -484,6 +497,7 @@ const statements = [
       browser TEXT,
       mobile_os TEXT,
       platform_version TEXT,
+      targets JSONB NOT NULL DEFAULT '[]'::jsonb,
       variables JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )
@@ -495,8 +509,12 @@ const statements = [
   `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS browser TEXT`,
   `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS mobile_os TEXT`,
   `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS platform_version TEXT`,
+  `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS targets JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS variables JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_configurations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `UPDATE test_configurations SET targets = '[]'::jsonb WHERE targets IS NULL OR jsonb_typeof(targets) <> 'array'`,
+  `ALTER TABLE test_configurations DROP CONSTRAINT IF EXISTS test_configurations_targets_array_check`,
+  `ALTER TABLE test_configurations ADD CONSTRAINT test_configurations_targets_array_check CHECK (jsonb_typeof(targets) = 'array')`,
   `CREATE INDEX IF NOT EXISTS idx_test_configurations_project_scope ON test_configurations (project_id, app_type_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_configurations_catalog_order ON test_configurations (project_id, (app_type_id IS NOT NULL), name ASC, created_at DESC)`,
   `
@@ -537,6 +555,58 @@ const statements = [
     )
   `,
   `CREATE INDEX IF NOT EXISTS idx_test_case_data_sets_case_order ON test_case_data_sets (test_case_id, sort_order, test_data_set_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_data_set_link_archive (
+      test_case_id TEXT NOT NULL,
+      test_data_set_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      original_created_at TIMESTAMPTZ,
+      archived_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      archive_reason TEXT NOT NULL DEFAULT 'single-data-set-enforcement',
+      PRIMARY KEY (test_case_id, test_data_set_id)
+    )
+  `,
+  `
+    INSERT INTO test_case_data_set_link_archive (
+      test_case_id,
+      test_data_set_id,
+      sort_order,
+      original_created_at,
+      archive_reason
+    )
+    SELECT
+      test_case_id,
+      test_data_set_id,
+      sort_order,
+      created_at,
+      'single-data-set-enforcement'
+    FROM (
+      SELECT
+        test_case_id,
+        test_data_set_id,
+        sort_order,
+        created_at,
+        ROW_NUMBER() OVER (PARTITION BY test_case_id ORDER BY sort_order ASC, test_data_set_id ASC) AS link_rank
+      FROM test_case_data_sets
+    ) AS ranked_links
+    WHERE link_rank > 1
+    ON CONFLICT (test_case_id, test_data_set_id) DO NOTHING
+  `,
+  `
+    DELETE FROM test_case_data_sets
+    WHERE (test_case_id, test_data_set_id) IN (
+      SELECT test_case_id, test_data_set_id
+      FROM (
+        SELECT
+          test_case_id,
+          test_data_set_id,
+          ROW_NUMBER() OVER (PARTITION BY test_case_id ORDER BY sort_order ASC, test_data_set_id ASC) AS link_rank
+        FROM test_case_data_sets
+      ) AS ranked_links
+      WHERE link_rank > 1
+    )
+  `,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_data_sets_one_per_case ON test_case_data_sets (test_case_id)`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_id TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_name TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_snapshot JSONB`,
@@ -705,6 +775,18 @@ const statements = [
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `CREATE INDEX IF NOT EXISTS idx_requirement_iterations_project ON requirement_iterations (project_id, updated_at DESC)`,
+  `
+    UPDATE requirements
+    SET iteration_id = NULL
+    WHERE iteration_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM requirement_iterations
+        WHERE requirement_iterations.id = requirements.iteration_id
+      )
+  `,
+  `ALTER TABLE requirements DROP CONSTRAINT IF EXISTS requirements_iteration_id_fkey`,
+  `ALTER TABLE requirements ADD CONSTRAINT requirements_iteration_id_fkey FOREIGN KEY (iteration_id) REFERENCES requirement_iterations(id) ON DELETE SET NULL`,
   `CREATE INDEX IF NOT EXISTS idx_requirements_iteration ON requirements (iteration_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_requirements_project_activity ON requirements (project_id, (COALESCE(updated_at, created_at)) DESC, created_at DESC)`,
   `ALTER TABLE requirements DROP CONSTRAINT IF EXISTS requirements_specification_format_check`,
@@ -723,7 +805,8 @@ const statements = [
       target_date TIMESTAMPTZ,
       external_link TEXT,
       state TEXT NOT NULL DEFAULT 'planned',
-      sprint_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      sprint_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+        CONSTRAINT requirement_releases_sprint_ids_array_check CHECK (jsonb_typeof(sprint_ids) = 'array'),
       created_by TEXT,
       updated_by TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -743,7 +826,9 @@ const statements = [
   `ALTER TABLE requirement_releases ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE requirement_releases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE requirement_releases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
-  `UPDATE requirement_releases SET sprint_ids = '[]'::jsonb WHERE sprint_ids IS NULL`,
+  `UPDATE requirement_releases SET sprint_ids = '[]'::jsonb WHERE sprint_ids IS NULL OR jsonb_typeof(sprint_ids) <> 'array'`,
+  `ALTER TABLE requirement_releases DROP CONSTRAINT IF EXISTS requirement_releases_sprint_ids_array_check`,
+  `ALTER TABLE requirement_releases ADD CONSTRAINT requirement_releases_sprint_ids_array_check CHECK (jsonb_typeof(sprint_ids) = 'array')`,
   `ALTER TABLE requirement_releases DROP CONSTRAINT IF EXISTS requirement_releases_state_check`,
   `ALTER TABLE requirement_releases ADD CONSTRAINT requirement_releases_state_check CHECK (state IN ('planned', 'in_progress', 'released'))`,
   `
@@ -758,6 +843,7 @@ const statements = [
   `ALTER TABLE requirement_release_items DROP CONSTRAINT IF EXISTS requirement_release_items_source_check`,
   `ALTER TABLE requirement_release_items ADD CONSTRAINT requirement_release_items_source_check CHECK (source IN ('manual', 'sprint'))`,
   `CREATE INDEX IF NOT EXISTS idx_requirement_releases_project ON requirement_releases (project_id, target_date, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_requirement_releases_sprint_ids ON requirement_releases USING GIN (sprint_ids)`,
   `CREATE INDEX IF NOT EXISTS idx_requirement_release_items_requirement ON requirement_release_items (requirement_id, release_id)`,
   `
     CREATE TABLE IF NOT EXISTS requirement_relations (
@@ -858,6 +944,10 @@ const statements = [
       status TEXT,
       parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
       suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+      test_data_set_id TEXT,
+      test_data_set_name TEXT,
+      test_data_set_snapshot JSONB,
+      data_set_source TEXT,
       sort_order INTEGER NOT NULL DEFAULT 1,
       assigned_to TEXT,
       assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -879,6 +969,13 @@ const statements = [
   `ALTER TABLE execution_case_snapshots ALTER COLUMN suite_parameter_values SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_case_snapshots ALTER COLUMN suite_parameter_values SET NOT NULL`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_id TEXT`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_name TEXT`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB`,
+  `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS data_set_source TEXT`,
+  `UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'test_case')`,
+  `ALTER TABLE execution_case_snapshots DROP CONSTRAINT IF EXISTS execution_case_snapshots_data_set_source_check`,
+  `ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'test_case'))`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT`,
@@ -1080,6 +1177,7 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_job_id TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS external_references JSONB`,
@@ -1092,6 +1190,10 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested'`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER`,
+  `UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL`,
+  `UPDATE test_cases SET author_id = NULL WHERE author_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = test_cases.author_id)`,
+  `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_author_id_fkey`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_author_id_fkey FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL`,
   `UPDATE test_cases SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
   `UPDATE test_cases SET labels = '[]'::jsonb WHERE labels IS NULL`,
   `UPDATE test_cases SET review_status = 'not_requested' WHERE review_status IS NULL OR BTRIM(review_status) = ''`,
@@ -1185,6 +1287,16 @@ const statements = [
   `,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_module_cases_case ON test_case_module_cases (test_case_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_module_sort ON test_case_module_cases (module_id, sort_order)`,
+  `
+    CREATE TABLE IF NOT EXISTS test_case_module_requirements (
+      module_id TEXT NOT NULL REFERENCES test_case_modules(id) ON DELETE CASCADE,
+      requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (module_id, requirement_id)
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_module_requirements_module_sort ON test_case_module_requirements (module_id, sort_order, requirement_id)`,
   `
     CREATE TABLE IF NOT EXISTS test_case_defects (
       test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
@@ -1730,6 +1842,66 @@ const statements = [
   `,
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS value JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `
+    INSERT INTO app_settings (key, value, updated_at)
+    SELECT
+      'workspace_governed_preference:ai_metric_formula_values',
+      value,
+      COALESCE(updated_at, CURRENT_TIMESTAMP)
+    FROM app_settings
+    WHERE key = 'workspace_metric_formula_values'
+    ON CONFLICT (key) DO NOTHING
+  `,
+  `
+    WITH governed_preferences (preference_key) AS (
+      VALUES
+        ('ai_prompt_registry_overrides'),
+        ('ai_prompt_registry_llm_overrides'),
+        ('ai_metric_criteria_overrides'),
+        ('ai_metric_formula_values')
+    ),
+    ranked_legacy_preferences AS (
+      SELECT
+        governed_preferences.preference_key,
+        legacy_setting.value -> governed_preferences.preference_key AS preference_value,
+        COALESCE(legacy_setting.updated_at, CURRENT_TIMESTAMP) AS preference_updated_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY governed_preferences.preference_key
+          ORDER BY legacy_setting.updated_at DESC NULLS LAST, legacy_setting.key ASC
+        ) AS preference_rank
+      FROM governed_preferences
+      JOIN app_settings AS legacy_setting
+        ON LEFT(legacy_setting.key, LENGTH('workspace_preferences:')) = 'workspace_preferences:'
+        AND jsonb_typeof(legacy_setting.value) = 'object'
+        AND jsonb_exists(legacy_setting.value, governed_preferences.preference_key)
+    )
+    INSERT INTO app_settings (key, value, updated_at)
+    SELECT
+      'workspace_governed_preference:' || preference_key,
+      preference_value,
+      preference_updated_at
+    FROM ranked_legacy_preferences
+    WHERE preference_rank = 1
+    ON CONFLICT (key) DO NOTHING
+  `,
+  `
+    UPDATE app_settings
+    SET
+      value = value
+        - 'ai_prompt_registry_overrides'
+        - 'ai_prompt_registry_llm_overrides'
+        - 'ai_metric_criteria_overrides'
+        - 'ai_metric_formula_values',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE LEFT(key, LENGTH('workspace_preferences:')) = 'workspace_preferences:'
+      AND jsonb_typeof(value) = 'object'
+      AND (
+        value ? 'ai_prompt_registry_overrides'
+        OR value ? 'ai_prompt_registry_llm_overrides'
+        OR value ? 'ai_metric_criteria_overrides'
+        OR value ? 'ai_metric_formula_values'
+      )
+  `,
   `
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id TEXT PRIMARY KEY,

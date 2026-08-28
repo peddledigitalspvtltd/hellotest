@@ -54,6 +54,28 @@ const isPlainObject = (value) => {
   return prototype === Object.prototype || prototype === null;
 };
 
+const resolveCaseDataSetContext = (execution, caseSnapshot) => {
+  const caseSnapshotData = isPlainObject(caseSnapshot?.test_data_set_snapshot)
+    ? caseSnapshot.test_data_set_snapshot
+    : null;
+
+  if (caseSnapshotData || caseSnapshot?.test_data_set_id) {
+    return {
+      id: caseSnapshot?.test_data_set_id || caseSnapshotData?.id || null,
+      name: caseSnapshot?.test_data_set_name || caseSnapshotData?.name || "Deleted data set",
+      snapshot: caseSnapshotData,
+      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+    };
+  }
+
+  return execution?.test_data_set
+    ? {
+        ...execution.test_data_set,
+        source: "run"
+      }
+    : null;
+};
+
 const normalizeCaptureRecord = (value) => {
   if (!isPlainObject(value)) {
     return {};
@@ -427,18 +449,22 @@ async function settleExecutionIfComplete(execution) {
       normalizeText(result.status)
     ])
   );
-  const requiredCaseIds = new Set((execution.case_snapshots || []).map((snapshot) => normalizeText(snapshot.test_case_id)).filter(Boolean));
-  const dataSetRows = execution.test_data_set?.snapshot?.mode === "table" && Array.isArray(execution.test_data_set?.snapshot?.rows)
-    ? execution.test_data_set.snapshot.rows
-    : [];
-  const iterationIndexes = execution.test_data_set
-    ? dataSetRows.length ? dataSetRows.map((_row, index) => index) : [0]
-    : [-1];
-  const requiredIterationKeys = [...requiredCaseIds].flatMap((testCaseId) =>
-    iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`)
-  );
+  const requiredCases = (execution.case_snapshots || [])
+    .filter((snapshot) => normalizeText(snapshot.test_case_id));
+  const requiredIterationKeys = requiredCases.flatMap((caseSnapshot) => {
+    const testCaseId = normalizeText(caseSnapshot.test_case_id);
+    const dataSet = resolveCaseDataSetContext(execution, caseSnapshot);
+    const dataSetRows = dataSet?.snapshot?.mode === "table" && Array.isArray(dataSet.snapshot.rows)
+      ? dataSet.snapshot.rows
+      : [];
+    const iterationIndexes = dataSet
+      ? dataSetRows.length ? dataSetRows.map((_row, index) => index) : [0]
+      : [-1];
 
-  if (!requiredCaseIds.size || requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))) {
+    return iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`);
+  });
+
+  if (!requiredCases.length || requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))) {
     return;
   }
 
@@ -515,10 +541,11 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
   const appTypeId = normalizeText(execution.app_type_id) || normalizeText(testCase?.app_type_id);
   const dataSetIteration = isPlainObject(payload.data_set_iteration) ? payload.data_set_iteration : null;
   const dataSetIterationIndex = Number.isInteger(dataSetIteration?.index) ? dataSetIteration.index : null;
-  const executionDataSetRows = Array.isArray(execution.test_data_set?.snapshot?.rows) ? execution.test_data_set.snapshot.rows : [];
-  const dataSetRowSnapshot = execution.test_data_set?.snapshot?.mode === "key_value"
-    ? Object.fromEntries(executionDataSetRows.map((row) => [normalizeText(row?.key), row?.value]).filter(([key]) => key))
-    : dataSetIterationIndex !== null ? executionDataSetRows[dataSetIterationIndex] || null : null;
+  const caseDataSet = resolveCaseDataSetContext(execution, caseSnapshot);
+  const caseDataSetRows = Array.isArray(caseDataSet?.snapshot?.rows) ? caseDataSet.snapshot.rows : [];
+  const dataSetRowSnapshot = caseDataSet?.snapshot?.mode === "key_value"
+    ? Object.fromEntries(caseDataSetRows.map((row) => [normalizeText(row?.key), row?.value]).filter(([key]) => key))
+    : dataSetIterationIndex !== null ? caseDataSetRows[dataSetIterationIndex] || null : null;
 
   if (!appTypeId) {
     throw new Error("Unable to resolve the execution app type for this callback");
@@ -566,8 +593,8 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     error: errorMessage,
     logs: JSON.stringify(mergedLogs),
     executed_by: existingResult?.executed_by || caseSnapshot.assigned_to || execution.assigned_to || null,
-    test_data_set_id: execution.test_data_set?.id || null,
-    test_data_set_name: execution.test_data_set?.name || null,
+    test_data_set_id: caseDataSet?.id || null,
+    test_data_set_name: caseDataSet?.name || null,
     data_set_iteration_index: dataSetIterationIndex,
     data_set_iteration_key: normalizeText(dataSetIteration?.key),
     data_set_row_snapshot: dataSetRowSnapshot

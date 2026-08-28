@@ -1,10 +1,32 @@
 const service = require("../services/integration.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
+const projectService = require("../services/project.service");
 const { INTEGRATION_TYPE_VALUES } = require("../domain/catalog");
+const { containsMobileIntegrationConfig } = require("../utils/mobileFeature");
 
 const MASKED_SECRET_VALUE = "********";
 
 const maskSecret = (value) => value ? MASKED_SECRET_VALUE : null;
+
+const requireMobileIntegrationWrite = async (fastify, req, input = {}, existing = null) => {
+  const type = input.type || existing?.type;
+  const submittedConfig = input.config && typeof input.config === "object" && !Array.isArray(input.config)
+    ? input.config
+    : {};
+
+  if (!containsMobileIntegrationConfig({ type, config: submittedConfig })) return;
+
+  const projectId = submittedConfig.project_id || existing?.config?.project_id || null;
+  if (!projectId && req.user.role !== "admin") {
+    const error = new Error("Project scope is required to manage mobile integration configuration.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (projectId) {
+    await projectService.getProject(projectId, req.user.id);
+  }
+  await fastify.requirePermission("mobile.manage", projectId ? { projectId } : {})(req);
+};
 
 const sanitizeIntegration = (integration) => {
   const config = integration.config || {};
@@ -169,6 +191,8 @@ module.exports = async function (fastify) {
       is_active: { required: false, type: "boolean" }
     }, req.body);
 
+    await requireMobileIntegrationWrite(fastify, req, req.body);
+
     return service.createIntegration(req.body);
   });
 
@@ -197,6 +221,8 @@ module.exports = async function (fastify) {
       api_key: { required: false, type: "string" },
       config: { required: false, type: "object" }
     }, req.body);
+
+    await requireMobileIntegrationWrite(fastify, req, req.body);
 
     return service.testConnection(req.body);
   });
@@ -276,6 +302,12 @@ module.exports = async function (fastify) {
     fastify.validate({
       integrations: { required: true, type: "array" }
     }, req.body);
+
+    for (const integration of req.body.integrations) {
+      if (integration && typeof integration === "object" && !Array.isArray(integration)) {
+        await requireMobileIntegrationWrite(fastify, req, integration);
+      }
+    }
 
     const startedAt = new Date().toISOString();
     const transaction = await workspaceTransactionService.createTransaction({
@@ -387,6 +419,9 @@ module.exports = async function (fastify) {
       config: { required: false, type: "object" },
       is_active: { required: false, type: "boolean" }
     }, req.body);
+
+    const existing = await service.getIntegration(req.params.id);
+    await requireMobileIntegrationWrite(fastify, req, req.body, existing);
 
     return service.updateIntegration(req.params.id, req.body);
   });

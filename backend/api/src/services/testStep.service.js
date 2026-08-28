@@ -2,6 +2,8 @@ const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const apiRequestExecutionService = require("./apiRequestExecution.service");
+const mobileFeatureService = require("./mobileFeature.service");
+const { containsMobileStepPayload } = require("../utils/mobileFeature");
 const {
   normalizeApiRequest,
   normalizeRichText,
@@ -207,6 +209,12 @@ const syncSharedGroupFromStep = async (step) => {
   );
 };
 
+const assertMobileStepMutationEnabled = async (testCaseId, payload) => {
+  if (containsMobileStepPayload(payload) || await mobileFeatureService.testCaseUsesMobile(testCaseId)) {
+    await mobileFeatureService.assertMobileFeatureEnabled();
+  }
+};
+
 exports.createTestStep = async ({
   test_case_id,
   step_order,
@@ -225,6 +233,7 @@ exports.createTestStep = async ({
   }
 
   await ensureTestCase(test_case_id);
+  await assertMobileStepMutationEnabled(test_case_id, { step_type });
 
   const id = uuid();
   const transaction = db.transaction(async () => {
@@ -262,6 +271,7 @@ exports.createTestSteps = async ({ test_case_id, insertion_index = 0, steps = []
   await ensureTestCase(test_case_id);
   if (!Array.isArray(steps) || !steps.length) throw new Error("Select at least one step to insert");
   if (steps.length > 100) throw new Error("Insert at most 100 steps at a time");
+  await assertMobileStepMutationEnabled(test_case_id, steps);
 
   const existingSteps = await listStepsForCase(test_case_id);
   const parsedIndex = Number.parseInt(String(insertion_index), 10);
@@ -355,7 +365,15 @@ exports.updateTestStep = async (id, data = {}) => {
   const existing = await ensureStep(id);
   const nextTestCaseId = data.test_case_id ?? existing.test_case_id;
   const nextStepOrder = data.step_order !== undefined ? normalizeStepOrder(data.step_order, existing.step_order) : existing.step_order;
-  await ensureTestCase(nextTestCaseId);
+  const sourceTestCase = await ensureTestCase(existing.test_case_id);
+  const targetTestCase = await ensureTestCase(nextTestCaseId);
+  if (sourceTestCase.app_type_id !== targetTestCase.app_type_id) {
+    throw new Error("Test Steps can only move between Test Cases in the same app type");
+  }
+  await assertMobileStepMutationEnabled(existing.test_case_id, [existing, data]);
+  if (nextTestCaseId !== existing.test_case_id) {
+    await assertMobileStepMutationEnabled(nextTestCaseId, [existing, data]);
+  }
 
   const transaction = db.transaction(async () => {
     if (nextTestCaseId !== existing.test_case_id) {
@@ -420,6 +438,7 @@ exports.moveTestStepAutomation = async ({ source_step_id, target_step_id } = {})
   if (source.test_case_id !== target.test_case_id) {
     throw new Error("Automation can only move between steps in the same test case");
   }
+  await assertMobileStepMutationEnabled(source.test_case_id, [source, target]);
 
   const transaction = db.transaction(async () => {
     await updateStepAutomation.run(
@@ -512,15 +531,15 @@ exports.duplicateTestSteps = async ({ test_case_id, step_ids = [], insert_after_
 
   await ensureTestCase(test_case_id);
   const uniqueStepIds = [...new Set(step_ids)];
+  const existingSteps = await listStepsForCase(test_case_id);
+  const selectedSteps = existingSteps.filter((step) => uniqueStepIds.includes(step.id));
+
+  if (selectedSteps.length !== uniqueStepIds.length) {
+    throw new Error("All duplicated steps must belong to the selected test case");
+  }
+  await assertMobileStepMutationEnabled(test_case_id, selectedSteps);
 
   const transaction = db.transaction(async () => {
-    const existingSteps = await listStepsForCase(test_case_id);
-    const selectedSteps = existingSteps.filter((step) => uniqueStepIds.includes(step.id));
-
-    if (selectedSteps.length !== uniqueStepIds.length) {
-      throw new Error("All duplicated steps must belong to the selected test case");
-    }
-
     const insertAfterStep = insert_after_step_id
       ? existingSteps.find((step) => step.id === insert_after_step_id)
       : selectedSteps[selectedSteps.length - 1];
@@ -627,18 +646,19 @@ exports.insertSharedStepGroup = async ({ test_case_id, shared_step_group_id, ins
   const sharedGroup = await selectSharedStepGroup.get(shared_step_group_id);
 
   if (!sharedGroup) {
-    throw new Error("Shared step group not found");
+    throw new Error("Shared Step Group not found");
   }
 
   if (testCase.app_type_id && sharedGroup.app_type_id !== testCase.app_type_id) {
-    throw new Error("Shared step group must belong to the same app type");
+    throw new Error("Shared Step Group must belong to the same app type");
   }
 
   const sharedSteps = normalizeSharedSteps(parseJsonValue(sharedGroup.steps, []));
 
   if (!sharedSteps.length) {
-    throw new Error("Shared step group does not contain any steps");
+    throw new Error("Shared Step Group does not contain any steps");
   }
+  await assertMobileStepMutationEnabled(test_case_id, sharedSteps);
 
   const transaction = db.transaction(async () => {
     const existingSteps = await listStepsForCase(test_case_id);

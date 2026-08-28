@@ -31,44 +31,49 @@ export const AUTOMATION_RECORDER_FEATURE_FLAGS = [
 
 export function canViewAutomationCode(
   session: SessionPayload | null,
-  featureFlags: FeatureFlagSnapshot | null | undefined
+  featureFlags: FeatureFlagSnapshot | null | undefined,
+  projectId?: string | null
 ) {
-  return hasPermission(session, "automation.code.view")
+  return hasPermission(session, "automation.code.view", projectId)
     && areFeatureFlagsEnabled(featureFlags, AUTOMATION_CODE_FEATURE_FLAGS);
 }
 
 export function canEditAutomationCode(
   session: SessionPayload | null,
-  featureFlags: FeatureFlagSnapshot | null | undefined
+  featureFlags: FeatureFlagSnapshot | null | undefined,
+  projectId?: string | null
 ) {
-  return canViewAutomationCode(session, featureFlags)
-    && hasPermission(session, "automation.build")
+  return canViewAutomationCode(session, featureFlags, projectId)
+    && hasPermission(session, "automation.build", projectId)
     && areFeatureFlagsEnabled(featureFlags, AUTOMATION_BUILD_FEATURE_FLAGS);
 }
 
 export function canPreviewAutomationCode(
   session: SessionPayload | null,
-  featureFlags: FeatureFlagSnapshot | null | undefined
+  featureFlags: FeatureFlagSnapshot | null | undefined,
+  projectId?: string | null
 ) {
-  return canViewAutomationCode(session, featureFlags)
-    && hasPermission(session, "automation.preview")
+  return canViewAutomationCode(session, featureFlags, projectId)
+    && hasPermission(session, "automation.preview", projectId)
     && areFeatureFlagsEnabled(featureFlags, AUTOMATION_PREVIEW_FEATURE_FLAGS);
 }
 
 export function canGenerateAutomationCode(
   session: SessionPayload | null,
-  featureFlags: FeatureFlagSnapshot | null | undefined
+  featureFlags: FeatureFlagSnapshot | null | undefined,
+  projectId?: string | null
 ) {
-  return canEditAutomationCode(session, featureFlags)
-    && hasPermission(session, "automation.ai")
+  return canEditAutomationCode(session, featureFlags, projectId)
+    && hasPermission(session, "automation.ai", projectId)
     && areFeatureFlagsEnabled(featureFlags, AUTOMATION_AI_FEATURE_FLAGS);
 }
 
 export function canRecordAutomationCode(
   session: SessionPayload | null,
-  featureFlags: FeatureFlagSnapshot | null | undefined
+  featureFlags: FeatureFlagSnapshot | null | undefined,
+  projectId?: string | null
 ) {
-  return canEditAutomationCode(session, featureFlags)
-    && hasPermission(session, "automation.recorder")
+  return canEditAutomationCode(session, featureFlags, projectId)
+    && hasPermission(session, "automation.recorder", projectId)
     && areFeatureFlagsEnabled(featureFlags, AUTOMATION_RECORDER_FEATURE_FLAGS);
 }

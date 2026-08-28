@@ -9,6 +9,11 @@ export type BugReportContext = {
   moduleIds?: string[];
   moduleName?: string | null;
   requirementIds?: string[];
+  sprint?: string | null;
+  sprintId?: string | null;
+  release?: string | null;
+  releaseId?: string | null;
+  fixVersion?: string | null;
   environment?: string | null;
   build?: string | null;
   title?: string | null;
@@ -23,7 +28,8 @@ const SAFE_RETURN_ROUTES = new Set([
   "/design",
   "/requirements",
   "/backlog",
-  "/sprints"
+  "/sprints",
+  "/releases"
 ]);
 
 const uniqueIds = (values: string[] | undefined) =>
@@ -62,6 +68,11 @@ export function buildBugReportPath(context: BugReportContext, mode: "manual" | "
   if (moduleIds.length) params.set("linked_module_ids", moduleIds.join(","));
   if (context.moduleName) params.set("moduleName", context.moduleName);
   if (requirementIds.length) params.set("linked_requirement_ids", requirementIds.join(","));
+  if (context.sprint) params.set("sprint", context.sprint);
+  if (context.sprintId) params.set("sprintId", context.sprintId);
+  if (context.release) params.set("release", context.release);
+  if (context.releaseId) params.set("releaseId", context.releaseId);
+  if (context.fixVersion) params.set("fixVersion", context.fixVersion);
   if (context.environment) params.set("environment", context.environment);
   if (context.build) params.set("build", context.build);
   if (context.title) params.set("title", context.title);

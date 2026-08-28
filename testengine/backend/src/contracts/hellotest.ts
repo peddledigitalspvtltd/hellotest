@@ -277,6 +277,14 @@ export type EngineCaseResultPayload = {
   logs: HelloTestExecutionLogsPayload;
 };
 
+export type EngineConfigurationTarget = {
+  id?: string | null;
+  os?: "Windows" | "macOS" | "Linux" | "";
+  browser?: string;
+  mobile_os?: "Android" | "iOS" | "";
+  version?: string;
+};
+
 export type EngineRunEnvelope = {
   engine_run_id: string;
   hellotest_run_id: string;
@@ -348,14 +356,17 @@ export type EngineRunEnvelope = {
   } | null;
   configuration?: {
     name: string;
+    os?: string | null;
     browser?: string | null;
     mobile_os?: string | null;
     platform_version?: string | null;
+    targets?: EngineConfigurationTarget[];
     variables: EngineKeyValueEntry[];
   } | null;
   data_set?: {
     id?: string | null;
     name: string;
+    source?: "run" | "test_case";
     mode: "key_value" | "table";
     columns: string[];
     rows: Array<Record<string, string>>;

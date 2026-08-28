@@ -11,7 +11,7 @@ There should not be a second UI here. The right split is:
 
 HelloTest already owns:
 
-- requirements, suites, test cases, shared steps, environments, and data
+- requirements, suites, test cases, Shared Step Groups, environments, and data
 - run creation and run status
 - case snapshots and step snapshots
 - manual result review and preserved history

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { SubnavTabs } from "./SubnavTabs";
 import { TileCardRequirementIcon } from "./TileCardPrimitives";
 import { BacklogIcon, ReleaseIcon, SprintIcon, StoryIcon } from "./AppIcons";
@@ -19,6 +20,7 @@ export function WorkspaceSectionTabs({
   items: Array<WorkspaceSectionItem & { meta?: string }>;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLocalization();
@@ -26,7 +28,7 @@ export function WorkspaceSectionTabs({
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const pageAccess = domainMetadataQuery.data?.access?.pages;
   const visibleItems = items.filter((item) =>
-    hasAnyPermission(session, requiredPermissionsForPath(item.to, pageAccess))
+    hasAnyPermission(session, requiredPermissionsForPath(item.to, pageAccess), projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath(item.to))
   );
   const activeItem = visibleItems.find((item) => item.to === location.pathname) || visibleItems[0];

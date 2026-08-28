@@ -2274,6 +2274,51 @@ h6,
   color: #ffffff !important;
 }
 
+/* Story creation uses the same confident action treatment as Create Project.
+   Keep this scoped so selection, AI, and destructive toolbar actions preserve
+   their own visual hierarchy. */
+.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled) {
+  border-color: var(--project-create-action, #0758c9) !important;
+  background: var(--project-create-action, #0758c9) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(5, 35, 91, 0.24) !important;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease, transform 100ms ease !important;
+}
+
+.requirement-toolbar-actions > .requirement-create-story-button:hover:not(:disabled) {
+  border-color: var(--project-create-action-hover, #0649aa) !important;
+  background: var(--project-create-action-hover, #0649aa) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
+}
+
+.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled):focus-visible {
+  outline: 0 !important;
+  box-shadow: 0 0 0 3px var(--project-create-action-ring, rgba(7, 88, 201, 0.24)),
+    0 4px 12px rgba(20, 38, 75, 0.16) !important;
+}
+
+.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled):active {
+  transform: translateY(1px) scale(0.985) !important;
+  box-shadow: 0 1px 3px rgba(20, 38, 75, 0.2) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .requirement-toolbar-actions > .requirement-create-story-button {
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .requirement-toolbar-actions > .requirement-create-story-button:not(:disabled) {
+    border-color: ButtonText !important;
+    background: ButtonFace !important;
+    color: ButtonText !important;
+    forced-color-adjust: auto;
+  }
+}
+
 .requirement-metric-strip.requirements-health-strip {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -2570,45 +2615,46 @@ h6,
 .release-readiness-icon {
   block-size: var(--release-readiness-icon-size, 18px);
   color: currentColor;
-  display: inline-block;
+  display: inline-grid;
   flex: 0 0 var(--release-readiness-icon-width, 22px);
+  grid-template-rows: minmax(0, 1fr) auto;
   inline-size: var(--release-readiness-icon-width, 22px);
+  align-items: center;
+  justify-items: center;
   line-height: 0;
   overflow: visible;
-  position: relative;
   vertical-align: -0.125em;
-}
-
-.release-readiness-icon__hierarchy {
-  block-size: 72%;
-  inline-size: 76%;
-  inset-block-start: 28%;
-  inset-inline-start: 12%;
-  opacity: 0.48;
-  position: absolute;
-}
-
-.release-readiness-icon__rocket {
-  inset-block-start: -7%;
-  inset-inline-start: 50%;
-  position: absolute;
-  transform: translateX(-50%) rotate(-45deg);
 }
 
 .release-readiness-icon__checks {
   align-items: center;
   display: flex;
-  inset-block-end: -5%;
-  inset-inline: 0;
-  justify-content: space-between;
-  position: absolute;
+  gap: 1px;
+  grid-row: 2;
+  justify-content: center;
+  color: var(--ds-icon-success, #1f845a);
 }
 
 .release-readiness-icon__checks > svg {
   display: block;
-  padding: 1px;
-  border-radius: 2px;
-  background: var(--surface-strong, #fff);
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.release-readiness-icon__rocket {
+  display: block;
+  grid-row: 1;
+  transform: none;
+}
+
+:root[data-theme="dark"] .release-readiness-icon__checks {
+  color: var(--ds-icon-success, #7ee2b8);
+}
+
+@media (forced-colors: active) {
+  .release-readiness-icon__checks {
+    color: CanvasText;
+  }
 }
 
 .test-case-entity-icon__file {

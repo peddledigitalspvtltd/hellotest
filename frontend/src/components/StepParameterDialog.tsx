@@ -4,7 +4,7 @@ import { DialogCloseButton } from "./DialogCloseButton";
 import { FormField } from "./FormField";
 import { TestDataIcon } from "./AppIcons";
 import type { StepParameterDefinition } from "../lib/stepParameters";
-import { evaluateTestDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 
 type StepParameterDialogInputState = {
   disabled?: boolean;
@@ -52,7 +52,12 @@ export function StepParameterDialog({
   onChange,
   onClose,
   headerContent,
-  getInputState
+  getInputState,
+  defaultValues = {},
+  overrideValues = {},
+  previewValues = {},
+  onReset,
+  onRefreshPreviews
 }: {
   title: string;
   subtitle: string;
@@ -62,31 +67,37 @@ export function StepParameterDialog({
   onClose: () => void;
   headerContent?: ReactNode;
   getInputState?: (parameter: StepParameterDefinition) => StepParameterDialogInputState;
+  defaultValues?: Record<string, string>;
+  overrideValues?: Record<string, string>;
+  previewValues?: Record<string, string>;
+  onReset?: (name: string) => void;
+  onRefreshPreviews?: () => void;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
-    t: true,
+    t: false,
     s: true,
     r: true
   });
   const groupedParameters = [
     {
       scope: "t",
-      title: "Test case data",
+      title: "Test Params",
       items: parameters.filter((parameter) => parameter.scope === "t")
     },
     {
       scope: "s",
-      title: "Suite-shared data",
+      title: "Suite Params",
       items: parameters.filter((parameter) => parameter.scope === "s")
     },
     {
       scope: "r",
-      title: "Run data",
+      title: "Run Params",
       items: parameters.filter((parameter) => parameter.scope === "r")
     }
   ].filter((group) => group.items.length);
   const parameterCount = parameters.length;
+  const dynamicParameterCount = parameters.filter((parameter) => hasTestDataGeneratorTemplate(values[parameter.name])).length;
   const [activeUtilityParameter, setActiveUtilityParameter] = useState("");
   const [utilityDrafts, setUtilityDrafts] = useState<Record<string, string>>({});
   const [utilityFeedbackByParameter, setUtilityFeedbackByParameter] = useState<Record<string, string>>({});
@@ -206,6 +217,11 @@ export function StepParameterDialog({
             {subtitle ? <span>{subtitle}</span> : null}
           </div>
           <div className="step-parameter-dialog-head-meta">
+            {dynamicParameterCount && onRefreshPreviews ? (
+              <button className="ghost-button compact" onClick={onRefreshPreviews} type="button">
+                Refresh previews
+              </button>
+            ) : null}
             <span className="count-pill">{parameterCount} field{parameterCount === 1 ? "" : "s"}</span>
             <DialogCloseButton label={`Close ${title}`} onClick={onClose} />
           </div>
@@ -248,18 +264,37 @@ export function StepParameterDialog({
                     <div className="step-parameter-group-items">
                       {group.items.map((parameter) => {
                         const inputState = getInputState?.(parameter) || {};
+                        const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues, parameter.name);
+                        const hasOverrideValue = Object.prototype.hasOwnProperty.call(overrideValues, parameter.name);
+                        const currentValue = values[parameter.name] ?? "";
+                        const isDynamicValue = hasTestDataGeneratorTemplate(currentValue);
+                        const previewValue = previewValues[parameter.name] ?? currentValue;
+                        const sourceLabel = hasOverrideValue
+                          ? "Test Case override"
+                          : hasDefaultValue
+                            ? parameter.sourceLabel ? `Inherited from ${parameter.sourceLabel}` : "Inherited from Data Set"
+                            : parameter.scopeLabel;
 
                         return (
                           <div className="step-parameter-row" key={parameter.name}>
                             <FormField
-                              label={parameter.token}
-                              hint={inputState.hint || `${parameter.occurrenceCount} reference${parameter.occurrenceCount === 1 ? "" : "s"} in this design`}
+                              label={parameter.label || parameter.token}
+                              hint={inputState.hint || (parameter.occurrenceCount
+                                ? `${parameter.occurrenceCount} reference${parameter.occurrenceCount === 1 ? "" : "s"} in this design`
+                                : `Available from ${parameter.sourceLabel || "the linked Data Set"}`)}
                             >
+                              <div className="step-parameter-row-meta">
+                                <code>{parameter.token}</code>
+                                <span className={isDynamicValue ? "step-parameter-mode-badge is-dynamic" : "step-parameter-mode-badge is-static"}>
+                                  {isDynamicValue ? "Dynamic" : "Static"}
+                                </span>
+                                <span className="step-parameter-source-badge">{sourceLabel}</span>
+                              </div>
                               <div className="step-parameter-input-row">
                                 <input
                                   disabled={inputState.disabled}
                                   placeholder={inputState.placeholder || `Value for ${parameter.token}`}
-                                  value={values[parameter.name] || ""}
+                                  value={currentValue}
                                   onChange={(event) => onChange(parameter.name, event.target.value)}
                                 />
                                 <button
@@ -273,6 +308,17 @@ export function StepParameterDialog({
                                   <StepParameterUtilityIcon />
                                 </button>
                               </div>
+                              {isDynamicValue ? (
+                                <div className="step-parameter-resolved-preview">
+                                  <span>Resolved preview</span>
+                                  <strong>{previewValue || "—"}</strong>
+                                </div>
+                              ) : null}
+                              {hasDefaultValue && hasOverrideValue && onReset ? (
+                                <button className="link-button step-parameter-reset-button" disabled={inputState.disabled} onClick={() => onReset(parameter.name)} type="button">
+                                  Reset to Data Set value
+                                </button>
+                              ) : null}
                               {activeUtilityParameter === parameter.name ? (
                                 <div aria-label={`Data utilities for ${parameter.token}`} className="step-parameter-utility-panel" role="dialog">
                                   <div className="step-parameter-utility-modal-head">
@@ -368,7 +414,7 @@ export function StepParameterDialog({
               ))}
             </div>
           ) : (
-            <div className="empty-state compact">No `@params` detected in these steps yet.</div>
+            <div className="empty-state compact">No Test Params are referenced or inherited from a linked Data Set yet.</div>
           )}
         </div>
 

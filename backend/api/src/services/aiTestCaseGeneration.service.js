@@ -369,7 +369,8 @@ async function generateCasesForRequirement({
       ai_generation_source: "scheduler",
       ai_generation_review_status: "pending",
       ai_generation_job_id: job.id,
-      ai_generated_at: new Date().toISOString()
+      ai_generated_at: new Date().toISOString(),
+      created_by: job.created_by
     });
     createdCount += 1;
   }

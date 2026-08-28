@@ -11,10 +11,11 @@ const PERMISSION_FEATURES = {
   "project.update": ["hellotest.ops.projects"],
   "project.delete": ["hellotest.ops.projects"],
   "project.sync": ["hellotest.ops.projects"],
-  "settings.manage": ["hellotest.ops.admin"],
-  "workspace_preferences.manage": ["hellotest.ops.admin"],
+  "settings.view": ["hellotest.ops.settings"],
+  "settings.manage": ["hellotest.ops.settings", "hellotest.ops.admin"],
+  "workspace_preferences.manage": ["hellotest.ops.settings", "hellotest.ops.admin"],
   "api_key.manage": ["hellotest.api.keys"],
-  "localization.manage": ["hellotest.ops.admin"],
+  "localization.manage": ["hellotest.ops.settings", "hellotest.ops.admin"],
   "ai_prompt.manage": ["hellotest.ai.prompt_mapping"],
   "feature_flag.manage": ["hellotest.ops.admin"],
   "user.view": ["hellotest.ops.admin"],
@@ -22,7 +23,6 @@ const PERMISSION_FEATURES = {
   "user.import": ["hellotest.ops.admin"],
   "role.view": ["hellotest.ops.admin"],
   "role.manage": ["hellotest.ops.admin"],
-  "project_member.view": ["hellotest.ops.admin"],
   "project_member.manage": ["hellotest.ops.admin"],
   "requirement.view": ["hellotest.manual.requirements"],
   "requirement.create": ["hellotest.manual.requirements"],
@@ -78,6 +78,7 @@ const PERMISSION_FEATURES = {
   "agentic_workflow.view": ["hellotest.ai.agentic_workflows"],
   "agentic_workflow.manage": ["hellotest.ai.agentic_workflows"],
   "agentic_workflow.run": ["hellotest.ai.agentic_workflows"],
+  "run.view": ["hellotest.manual.runs"],
   "run.create": ["hellotest.manual.runs"],
   "run.update": ["hellotest.manual.runs"],
   "run.execute": ["hellotest.manual.runs"],
@@ -87,11 +88,11 @@ const PERMISSION_FEATURES = {
   "run.report.share": ["hellotest.manual.runs"],
   "result.view": ["hellotest.manual.runs"],
   "result.manage": ["hellotest.manual.runs"],
-  "schedule.view": ["hellotest.automation.batch_process"],
-  "schedule.create": ["hellotest.automation.batch_process"],
-  "schedule.update": ["hellotest.automation.batch_process"],
-  "schedule.run": ["hellotest.automation.batch_process"],
-  "schedule.delete": ["hellotest.automation.batch_process"],
+  "schedule.view": ["hellotest.manual.runs"],
+  "schedule.create": ["hellotest.manual.runs"],
+  "schedule.update": ["hellotest.manual.runs"],
+  "schedule.run": ["hellotest.manual.runs"],
+  "schedule.delete": ["hellotest.manual.runs"],
   "environment.view": ["hellotest.manual.environments"],
   "environment.manage": ["hellotest.manual.environments"],
   "configuration.view": ["hellotest.manual.environments"],
@@ -103,8 +104,10 @@ const PERMISSION_FEATURES = {
   "data.ai": ["hellotest.ai.test_data_generation"],
   "mobile.view": ["hellotest.mobile.appium"],
   "mobile.manage": ["hellotest.mobile.appium"],
-  "app_type.view": ["hellotest.mobile.appium"],
-  "app_type.manage": ["hellotest.mobile.appium"],
+  // Application scopes are core project metadata used by Stories, Test Cases,
+  // Runs, and other non-mobile surfaces. Only their administration belongs to
+  // the Projects feature; mobile.* remains independently Appium-gated.
+  "app_type.manage": ["hellotest.ops.projects"],
   "integration.view": ["hellotest.api.integrations"],
   "integration.manage": ["hellotest.api.integrations"],
   "integration.import_export": ["hellotest.api.integrations"],
@@ -112,9 +115,9 @@ const PERMISSION_FEATURES = {
   "knowledge.manage": ["hellotest.ai.knowledge"],
   "prompt_template.view": ["hellotest.ai.test_authoring"],
   "prompt_template.manage": ["hellotest.ai.test_authoring"],
-  "transaction.view": ["hellotest.ops.background_jobs"],
-  "transaction.manage": ["hellotest.ops.background_jobs"],
-  "transaction.artifact.download": ["hellotest.ops.background_jobs"],
+  "transaction.view": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
+  "transaction.manage": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
+  "transaction.artifact.download": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
   "notification.view": ["hellotest.ops.notifications"],
   "notification.manage": ["hellotest.ops.notifications"],
   "feedback.view": ["hellotest.manual.bugs"],
@@ -139,17 +142,47 @@ const FEATURE_GROUPS = [
   {
     key: "manual_testing",
     label: "Manual Testing",
-    description: "Requirements, manual cases, suites, shared steps, manual execution, and evidence review.",
+    description: "Stories, delivery planning, manual cases, suites, Shared Step Groups, execution, and evidence review.",
     features: [
-      { key: "hellotest.manual.requirements", label: "Product Management", routes: ["/backlog", "/sprints", "/releases"] },
-      { key: "hellotest.manual.test_cases", label: "Test cases", routes: ["/test-cases", "/shared-steps", "/design"] },
-      { key: "hellotest.manual.suites", label: "Suites and shared steps", routes: ["/design", "/shared-steps"] },
-      { key: "hellotest.manual.runs", label: "Manual runs and reports", routes: ["/executions"] },
-      { key: "hellotest.manual.bugs", label: "Bugs", routes: ["/issues", "/feedback"] },
+      {
+        key: "hellotest.manual.requirements",
+        label: "Product Management — Stories, Sprints, and Releases",
+        description: "Manage Stories, backlog, Sprints, and Releases. This also supplies the editable Release and Sprint choices used by creation dialogs.",
+        routes: ["/requirements", "/stories", "/backlog", "/sprints", "/releases"]
+      },
+      {
+        key: "hellotest.manual.test_cases",
+        label: "Test cases",
+        description: "Author test cases with selectable ownership. Delivery planning adds requirement-linked modules and Story/Release/Sprint context; Test data and datasets add dataset links.",
+        routes: ["/test-cases", "/shared-steps", "/design"]
+      },
+      {
+        key: "hellotest.manual.suites",
+        label: "Suites and Shared Step Groups",
+        description: "Organize cases into suites and maintain reusable Shared Step Groups for consistent manual authoring.",
+        routes: ["/design", "/shared-steps"]
+      },
+      {
+        key: "hellotest.manual.runs",
+        label: "Runs, schedules, and reports",
+        description: "Create manual and scheduled runs and review reports. Delivery planning adds editable Release/Sprint context; Test data and datasets expand linked rows into case instances.",
+        routes: ["/executions"]
+      },
+      {
+        key: "hellotest.manual.bugs",
+        label: "Bugs",
+        description: "Create and triage Bugs, with populated and editable Release/Sprint context when delivery planning is available.",
+        routes: ["/issues", "/feedback"]
+      },
       { key: "hellotest.manual.plans", label: "Test plans", routes: ["/test-plans"] },
       { key: "hellotest.manual.quality_gates", label: "Quality gates", routes: ["/quality-gates"] },
       { key: "hellotest.manual.environments", label: "Environments and configurations", routes: ["/test-environments", "/test-configurations"] },
-      { key: "hellotest.manual.test_data", label: "Test data", routes: ["/test-data"] }
+      {
+        key: "hellotest.manual.test_data",
+        label: "Test data and datasets",
+        description: "Create reusable datasets, manage static or generated values, and link one dataset with one or many rows to a test case.",
+        routes: ["/test-data", "/test-cases"]
+      }
     ]
   },
   {
@@ -166,7 +199,14 @@ const FEATURE_GROUPS = [
     description: "Automation authoring, object repository, recorder capture, step code, local/remote execution, and batch process operations.",
     features: [
       { key: "hellotest.automation.workspace", label: "Automation workspace", routes: ["/automation"] },
-      { key: "hellotest.automation.preview", label: "Run step automation preview", routes: ["/executions", "/test-cases"], permissions: ["automation.preview"], default_enabled: false },
+      {
+        key: "hellotest.automation.preview",
+        label: "API request validation previews",
+        description: "Validate API request contracts and inspect approved response evidence from Test Case, Shared Step Group, and Automation editors.",
+        routes: ["/test-cases", "/shared-steps", "/automation"],
+        permissions: ["automation.preview"],
+        default_enabled: false
+      },
       { key: "hellotest.automation.analytics", label: "Automation quality analytics", routes: ["/"], permissions: ["automation.analytics.view", "dashboard.view"], default_enabled: false },
       { key: "hellotest.automation.assets", label: "Automation assets", routes: ["/automation-assets"] },
       { key: "hellotest.automation.object_repository", label: "Object repository", routes: ["/object-repository"] },
@@ -176,7 +216,12 @@ const FEATURE_GROUPS = [
       { key: "hellotest.automation.local_execution", label: "Local Playwright and local runs", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "hellotest.automation.remote_execution", label: "Remote automation runs", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "hellotest.automation.parallel_execution", label: "Parallel automation execution", routes: ["/design", "/test-cases", "/executions"] },
-      { key: "hellotest.automation.batch_process", label: "Batch process", routes: ["/testops"] }
+      {
+        key: "hellotest.automation.batch_process",
+        label: "Batch processing jobs",
+        description: "Operate background batch jobs in TestOps. Scheduled test runs are governed by Runs, schedules, and reports.",
+        routes: ["/testops"]
+      }
     ]
   },
   {
@@ -200,10 +245,8 @@ const FEATURE_GROUPS = [
   {
     key: "api",
     label: "API",
-    description: "API testing, API request previews, integrations, scoped API keys, and external automation clients.",
+    description: "API integrations, scoped API keys, and external automation clients.",
     features: [
-      { key: "hellotest.api.testing", label: "API test steps", routes: ["/test-cases", "/automation"] },
-      { key: "hellotest.api.preview", label: "API previews", routes: ["/automation"] },
       { key: "hellotest.api.keys", label: "Scoped API keys", routes: ["/admin-space"] },
       { key: "hellotest.api.integrations", label: "API integrations", routes: ["/integrations", "/admin-space"] }
     ]
@@ -211,12 +254,14 @@ const FEATURE_GROUPS = [
   {
     key: "mobile",
     label: "Mobile",
-    description: "Android, iOS, Appium, mobile recorder, and mobile execution capabilities.",
+    description: "Supported Android authoring, configuration, recording, and execution through Appium.",
     features: [
-      { key: "hellotest.mobile.android", label: "Android testing", routes: ["/automation", "/test-environments"] },
-      { key: "hellotest.mobile.ios", label: "iOS testing", routes: ["/automation", "/test-environments"] },
-      { key: "hellotest.mobile.recorder", label: "Mobile recorder", routes: ["/automation"] },
-      { key: "hellotest.mobile.appium", label: "Appium execution", routes: ["/test-environments", "/executions"] }
+      {
+        key: "hellotest.mobile.appium",
+        label: "Android and Appium",
+        description: "Enable supported Android Appium authoring, recorder, configuration, and execution controls.",
+        routes: ["/automation", "/test-cases", "/test-environments", "/executions", "/integrations"]
+      }
     ]
   },
   {
@@ -228,8 +273,18 @@ const FEATURE_GROUPS = [
       { key: "hellotest.ops.telemetry", label: "OPS telemetry", routes: ["/ops-telemetry", "/traces"] },
       { key: "hellotest.ops.notifications", label: "Notifications", routes: ["/notifications"] },
       { key: "hellotest.ops.projects", label: "Projects and application types", routes: ["/projects"] },
-      { key: "hellotest.ops.settings", label: "Workspace settings", routes: ["/settings"] },
-      { key: "hellotest.ops.admin", label: "Administration", routes: ["/admin-space", "/people"] }
+      {
+        key: "hellotest.ops.settings",
+        label: "Workspace settings",
+        description: "Provide personal workspace preferences and the Settings surface. Workspace-wide policy changes also require the Administration feature.",
+        routes: ["/settings"]
+      },
+      {
+        key: "hellotest.ops.admin",
+        label: "Administration",
+        description: "Govern people, permissions, integrations, feature availability, localization, and workspace-wide policy.",
+        routes: ["/admin-space", "/people"]
+      }
     ]
   }
 ];

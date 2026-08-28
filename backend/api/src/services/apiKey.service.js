@@ -19,7 +19,7 @@ const API_KEY_SCOPES = [
   {
     value: "design",
     label: "Design",
-    description: "Requirements, test cases, suites, shared steps, and test data APIs."
+    description: "Requirements, test cases, suites, Shared Step Groups, and test data APIs."
   },
   {
     value: "automation",
@@ -55,7 +55,7 @@ const COMMON_READ_PERMISSIONS = new Set(["workspace.view", "project.view", "app_
 
 const SCOPE_RULES = {
   design: {
-    prefixes: ["requirement.", "testcase.", "step.", "shared_step.", "suite.", "data."],
+    prefixes: ["requirement.", "requirement_iteration.", "testcase.", "step.", "shared_step.", "suite.", "data."],
     readPermissions: COMMON_READ_PERMISSIONS
   },
   automation: {

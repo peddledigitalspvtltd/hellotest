@@ -56,6 +56,7 @@ export function ReportBugModal({
               <svg aria-hidden="true" fill="none" height="24" viewBox="0 0 24 24" width="24">
                 <path d="m10 6-6 6 6 6M4 12h16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
               </svg>
+              <span>Back</span>
             </button>
             <h2 id="report-bug-modal-title">Report Bug</h2>
           </div>

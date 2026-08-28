@@ -44,7 +44,7 @@ export const PRODUCT_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: WORKSPACE_ROUTES.testCases, label: "Cases", shortLabel: "Cases", icon: "cases", featureKeys: ["hellotest.manual.test_cases"] },
-  { to: WORKSPACE_ROUTES.sharedSteps, label: "Shared Steps", shortLabel: "Shared", icon: "shared", featureKeys: ["hellotest.manual.suites"] },
+  { to: WORKSPACE_ROUTES.sharedSteps, label: "Shared Step Groups", shortLabel: "Groups", icon: "shared", featureKeys: ["hellotest.manual.suites"] },
   { to: WORKSPACE_ROUTES.design, label: "Suites", shortLabel: "Suites", icon: "suites", featureKeys: ["hellotest.manual.suites"] }
 ];
 

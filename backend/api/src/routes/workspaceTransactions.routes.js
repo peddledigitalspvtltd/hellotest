@@ -8,6 +8,15 @@ const createError = (message, statusCode) => {
   return error;
 };
 
+const requireTransactionPermission = async (fastify, req, transaction, permissionCode) => {
+  if (transaction.project_id) {
+    await projectService.getProject(transaction.project_id, req.user.id);
+    await fastify.requirePermission(permissionCode, { projectId: transaction.project_id })(req);
+  } else if (req.user?.role !== "admin") {
+    throw createError("Project scope is required.", 403);
+  }
+};
+
 module.exports = async function (fastify) {
   fastify.get("/workspace-transactions", async (req) => {
     await fastify.authenticate(req);
@@ -30,6 +39,10 @@ module.exports = async function (fastify) {
       throw createError("Project scope is required.", 403);
     }
 
+    if (scopedProjectId) {
+      await fastify.requirePermission("transaction.view", { projectId: scopedProjectId })(req);
+    }
+
     return workspaceTransactionService.listTransactions({
       project_id: scopedProjectId || undefined,
       app_type_id: app_type_id || undefined,
@@ -44,11 +57,7 @@ module.exports = async function (fastify) {
 
     const transaction = await workspaceTransactionService.getTransaction(req.params.id);
 
-    if (transaction.project_id) {
-      await projectService.getProject(transaction.project_id, req.user.id);
-    } else if (req.user?.role !== "admin") {
-      throw createError("Project scope is required.", 403);
-    }
+    await requireTransactionPermission(fastify, req, transaction, "transaction.view");
 
     return workspaceTransactionService.listTransactionEvents(transaction.id);
   });
@@ -58,11 +67,7 @@ module.exports = async function (fastify) {
 
     const transaction = await workspaceTransactionService.getTransaction(req.params.id);
 
-    if (transaction.project_id) {
-      await projectService.getProject(transaction.project_id, req.user.id);
-    } else if (req.user?.role !== "admin") {
-      throw createError("Project scope is required.", 403);
-    }
+    await requireTransactionPermission(fastify, req, transaction, "transaction.view");
 
     return workspaceTransactionService.listTransactionArtifacts(transaction.id);
   });
@@ -72,11 +77,7 @@ module.exports = async function (fastify) {
 
     const transaction = await workspaceTransactionService.getTransaction(req.params.id);
 
-    if (transaction.project_id) {
-      await projectService.getProject(transaction.project_id, req.user.id);
-    } else if (req.user?.role !== "admin") {
-      throw createError("Project scope is required.", 403);
-    }
+    await requireTransactionPermission(fastify, req, transaction, "transaction.artifact.download");
 
     const artifact = await workspaceTransactionService.getTransactionArtifact(req.params.artifactId);
 
@@ -101,6 +102,9 @@ module.exports = async function (fastify) {
   });
 
   fastify.delete("/workspace-transactions/:id", async (req) => {
+    await fastify.authenticate(req);
+    const transaction = await workspaceTransactionService.getTransaction(req.params.id);
+    await requireTransactionPermission(fastify, req, transaction, "transaction.manage");
     return workspaceTransactionService.deleteTransaction(req.params.id);
   });
 };

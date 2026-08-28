@@ -26,7 +26,7 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "workspace.sprints": "Sprints",
   "workspace.releases": "Releases",
   "workspace.testCases": "Test Cases",
-  "workspace.sharedSteps": "Shared Steps",
+  "workspace.sharedSteps": "Shared Step Groups",
   "workspace.testSuites": "Test Suites",
   "workspace.executions": "Test Runs",
   "workspace.automationCases": "Automation Cases",

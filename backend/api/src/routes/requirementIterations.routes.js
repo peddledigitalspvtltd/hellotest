@@ -131,10 +131,23 @@ const ensureIterationAccess = async (iterationId, userId) => {
   return iteration;
 };
 
+const ensureIterationPermission = async (fastify, req, permissionCode) => {
+  const iteration = await ensureIterationAccess(req.params.id, req.user.id);
+  await fastify.requirePermission(permissionCode, { projectId: iteration.project_id })(req);
+  return iteration;
+};
+
 module.exports = async function (fastify) {
   fastify.get("/requirement-iterations/health", async (req) => {
     await fastify.authenticate(req);
-    if (req.query.project_id) await ensureProjectAccess(req.query.project_id, req.user.id);
+    if (req.query.project_id) {
+      await ensureProjectAccess(req.query.project_id, req.user.id);
+      await fastify.requirePermission("requirement_iteration.view", { projectId: req.query.project_id })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id is required when reading Sprint health");
+      error.statusCode = 400;
+      throw error;
+    }
     const requestedIds = String(req.query.sprint_ids || "").split(",").map((value) => value.trim()).filter(Boolean);
     const iterations = await service.listIterations({ project_id: req.query.project_id });
     const matched = requestedIds.length ? iterations.filter((iteration) => requestedIds.includes(iteration.id)) : iterations;
@@ -175,6 +188,11 @@ module.exports = async function (fastify) {
 
     if (project_id) {
       await ensureProjectAccess(project_id, req.user.id);
+      await fastify.requirePermission("requirement_iteration.view", { projectId: project_id })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id is required when listing Sprints");
+      error.statusCode = 400;
+      throw error;
     }
 
     return service.listIterations({ project_id });
@@ -201,6 +219,10 @@ module.exports = async function (fastify) {
     }, req.body || {});
 
     await ensureProjectAccess(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement_iteration.create", { projectId: req.body.project_id })(req);
+    if (req.body.requirement_ids?.length) {
+      await fastify.requirePermission("requirement_iteration.update", { projectId: req.body.project_id })(req);
+    }
 
     return service.createIteration({
       ...req.body,
@@ -210,7 +232,7 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirement-iterations/:id", async (req) => {
     await fastify.authenticate(req);
-    return ensureIterationAccess(req.params.id, req.user.id);
+    return ensureIterationPermission(fastify, req, "requirement_iteration.view");
   });
 
   fastify.put("/requirement-iterations/:id", async (req) => {
@@ -232,7 +254,7 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" }
     }, req.body || {});
 
-    await ensureIterationAccess(req.params.id, req.user.id);
+    await ensureIterationPermission(fastify, req, "requirement_iteration.update");
 
     return service.updateIteration(req.params.id, {
       ...req.body,
@@ -248,7 +270,7 @@ module.exports = async function (fastify) {
       append: { required: false, type: "boolean" }
     }, req.body || {});
 
-    await ensureIterationAccess(req.params.id, req.user.id);
+    await ensureIterationPermission(fastify, req, "requirement_iteration.update");
 
     return service.assignRequirements(req.params.id, req.body.requirement_ids, {
       append: req.body.append !== false
@@ -257,7 +279,7 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirement-iterations/:id/requirements", async (req) => {
     await fastify.authenticate(req);
-    await ensureIterationAccess(req.params.id, req.user.id);
+    await ensureIterationPermission(fastify, req, "requirement_iteration.view");
     return paginate(await service.listRequirements(req.params.id), req.query);
   });
 
@@ -267,7 +289,7 @@ module.exports = async function (fastify) {
       requirement_ids: { required: true, type: "array", items: "string" },
       append: { required: false, type: "boolean" }
     }, req.body || {});
-    const iteration = await ensureIterationAccess(req.params.id, req.user.id);
+    const iteration = await ensureIterationPermission(fastify, req, "requirement_iteration.update");
     const result = await service.assignRequirements(req.params.id, req.body.requirement_ids, {
       append: req.body.append !== false
     });
@@ -284,13 +306,13 @@ module.exports = async function (fastify) {
       requirement_ids: { required: true, type: "array", items: "string" }
     }, req.body || {});
 
-    await ensureIterationAccess(req.params.id, req.user.id);
+    await ensureIterationPermission(fastify, req, "requirement_iteration.update");
     return service.removeRequirements(req.params.id, req.body.requirement_ids);
   });
 
   fastify.delete("/requirement-iterations/:id", async (req) => {
     await fastify.authenticate(req);
-    await ensureIterationAccess(req.params.id, req.user.id);
+    await ensureIterationPermission(fastify, req, "requirement_iteration.delete");
     return service.deleteIteration(req.params.id);
   });
 };

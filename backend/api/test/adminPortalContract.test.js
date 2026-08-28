@@ -33,7 +33,12 @@ test("admin foundation is additive, auditable, and forces bootstrap password rep
 
   assert.match(service, /BOOTSTRAP_EMAIL/);
   assert.match(service, /must_change_password[\s\S]*TRUE/);
-  assert.match(service, /SELECT DISTINCT users\.id[\s\S]*users\.is_workspace_admin[\s\S]*roles\.name/);
+  const administratorSelection = service.slice(
+    service.indexOf("const administrators = await db.prepare"),
+    service.indexOf("for (const administrator of administrators)")
+  );
+  assert.match(administratorSelection, /SELECT DISTINCT users\.id[\s\S]*users\.is_workspace_admin/);
+  assert.doesNotMatch(administratorSelection, /JOIN roles|project_members/);
   assert.match(service, /ON CONFLICT \(project_id, user_id\)[\s\S]*DO UPDATE SET role_id = EXCLUDED\.role_id/);
   assert.match(service, /administrator_memberships: administratorMemberships/);
   assert.match(service, /idempotent: true/);

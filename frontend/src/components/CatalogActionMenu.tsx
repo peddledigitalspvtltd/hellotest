@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { createPortal } from "react-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasAnyPermission, hasPermission } from "../lib/permissions";
 import { MoreIcon } from "./AppIcons";
@@ -22,15 +23,19 @@ export type CatalogActionMenuItem = {
 export function CatalogActionMenu({
   label,
   actions,
+  projectId,
   className = "",
   disabled = false
 }: {
   label: string;
   actions: CatalogActionMenuItem[];
+  projectId?: string | null;
   className?: string;
   disabled?: boolean;
 }) {
   const { session } = useAuth();
+  const [activeProjectId] = useCurrentProject();
+  const permissionProjectId = projectId || activeProjectId;
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
@@ -133,8 +138,8 @@ export function CatalogActionMenu({
 	    const features = action.featureKeys || [];
 	    const hasRequiredPermissions = !permissions.length
 	      || (action.permissionMode === "all"
-	        ? permissions.every((permission) => hasPermission(session, permission))
-	        : hasAnyPermission(session, permissions));
+	        ? permissions.every((permission) => hasPermission(session, permission, permissionProjectId))
+	        : hasAnyPermission(session, permissions, permissionProjectId));
 
 	    return hasRequiredPermissions
 	      && areFeatureFlagsEnabled(featureFlagsQuery.data, features);

@@ -3,7 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
 import { RefreshIcon, TestDataIcon } from "./AppIcons";
+import { useAuth } from "../auth/AuthContext";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { hasPermission } from "../lib/permissions";
 import { countGeneratedTestDataFields, materializeTestDataRows } from "../lib/testDataGenerators";
 import type { TestConfiguration, TestDataSet, TestEnvironment } from "../types";
 
@@ -38,6 +42,12 @@ export function ExecutionContextSelector({
   onDataSetChange,
   prefillFirstAvailable = false
 }: ExecutionContextSelectorProps) {
+  const { session } = useAuth();
+  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canViewEnvironments = hasPermission(session, "environment.view", projectId);
+  const canViewConfigurations = hasPermission(session, "configuration.view", projectId);
+  const canViewTestData = hasPermission(session, "data.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.test_data"]);
   const environmentPrefillScopeRef = useRef("");
   const configurationPrefillScopeRef = useRef("");
   const dataSetPrefillScopeRef = useRef("");
@@ -45,17 +55,17 @@ export function ExecutionContextSelector({
   const environmentsQuery = useQuery({
     queryKey: ["test-environments", projectId, appTypeId],
     queryFn: () => api.testEnvironments.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canViewEnvironments)
   });
   const configurationsQuery = useQuery({
     queryKey: ["test-configurations", projectId, appTypeId],
     queryFn: () => api.testConfigurations.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canViewConfigurations)
   });
   const dataSetsQuery = useQuery({
     queryKey: ["test-data-sets", projectId, appTypeId],
     queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canViewTestData)
   });
 
   const environments = useMemo(
@@ -159,6 +169,7 @@ export function ExecutionContextSelector({
     <div className="execution-context-block">
       <div className="execution-context-grid">
         <ExecutionContextField
+          disabled={!canViewEnvironments}
           items={environments}
           label="Test environment"
           onChange={onEnvironmentChange}
@@ -166,6 +177,7 @@ export function ExecutionContextSelector({
           selectedId={selectedEnvironmentId}
         />
         <ExecutionContextField
+          disabled={!canViewConfigurations}
           items={configurations}
           label="Test configuration"
           onChange={onConfigurationChange}
@@ -173,6 +185,7 @@ export function ExecutionContextSelector({
           selectedId={selectedConfigurationId}
         />
         <ExecutionContextField
+          disabled={!canViewTestData}
           labelIcon={<TestDataIcon size={16} />}
           items={dataSets}
           label="Test data"
@@ -221,6 +234,7 @@ export function ExecutionContextSelector({
 }
 
 function ExecutionContextField<T extends TestEnvironment | TestConfiguration | TestDataSet>({
+  disabled,
   label,
   labelIcon,
   items,
@@ -228,6 +242,7 @@ function ExecutionContextField<T extends TestEnvironment | TestConfiguration | T
   placeholder,
   onChange
 }: {
+  disabled?: boolean;
   label: string;
   labelIcon?: ReactNode;
   items: T[];
@@ -237,7 +252,7 @@ function ExecutionContextField<T extends TestEnvironment | TestConfiguration | T
 }) {
   return (
     <FormField label={label} labelIcon={labelIcon}>
-      <select value={selectedId} onChange={(event) => onChange(event.target.value)}>
+      <select disabled={disabled} value={selectedId} onChange={(event) => onChange(event.target.value)}>
         <option value="">{placeholder}</option>
         {items.map((item) => (
           <option key={item.id} value={item.id}>

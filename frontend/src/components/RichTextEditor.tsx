@@ -437,7 +437,7 @@ export function RichTextEditor({
   const pendingLinkRangeRef = useRef<Range | null>(null);
   const isEmpty = !richTextToPlainText(value);
   const canUseDefaultAiRephrase = Boolean(projectId)
-    && hasPermission(session, "content.ai")
+    && hasPermission(session, "content.ai", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.content_rephrase"]);
 
   useEffect(() => {

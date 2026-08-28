@@ -3,6 +3,7 @@ const db = require("../db");
 const integrationService = require("./integration.service");
 const { getEmailSenderProfile, sendMail } = require("./email.service");
 const { DEFAULT_ROLE_PERMISSIONS } = require("../security/permissions.catalog");
+const { WORKSPACE_ONLY_PERMISSION_CODES } = require("./permission.service");
 const { hashPassword, verifyPassword, createToken, verifyToken } = require("../utils/token");
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
@@ -46,41 +47,53 @@ const generatePlaceholderPassword = () => {
 
 const getSessionRole = async (id) => {
   const row = await db.prepare(`
-    SELECT
-      COALESCE(users.is_workspace_admin, FALSE) AS is_workspace_admin,
-      EXISTS (
-        SELECT 1
-        FROM project_members
-        JOIN roles ON roles.id = project_members.role_id
-        WHERE project_members.user_id = users.id
-          AND LOWER(roles.name) = 'admin'
-      ) AS has_admin_membership
+    SELECT COALESCE(users.is_workspace_admin, FALSE) AS is_workspace_admin
     FROM users
     WHERE users.id = ?
   `).get(id);
 
-  return row?.is_workspace_admin || row?.has_admin_membership ? "admin" : "member";
+  return row?.is_workspace_admin ? "admin" : "member";
 };
 
-const getSessionPermissions = async (id, role) => {
+const getSessionPermissionProfile = async (id, role) => {
   if (role === "admin") {
-    return DEFAULT_ROLE_PERMISSIONS.admin || [];
+    const permissions = DEFAULT_ROLE_PERMISSIONS.admin || [];
+    return { permissions, workspacePermissions: permissions, projectPermissions: {} };
   }
 
-  const rows = await db.prepare(`
+  const workspaceRows = await db.prepare(`
     SELECT DISTINCT permissions.code
+    FROM users
+    JOIN role_permissions ON role_permissions.role_id = users.default_role_id
+    JOIN permissions ON permissions.id = role_permissions.permission_id
+    WHERE users.id = ?
+    ORDER BY permissions.code ASC
+  `).all(id);
+  const projectRows = await db.prepare(`
+    SELECT project_members.project_id, permissions.code
     FROM project_members
     JOIN role_permissions ON role_permissions.role_id = project_members.role_id
     JOIN permissions ON permissions.id = role_permissions.permission_id
     WHERE project_members.user_id = ?
-    ORDER BY permissions.code ASC
+    ORDER BY project_members.project_id ASC, permissions.code ASC
   `).all(id);
-
-  if (rows.length) {
-    return rows.map((row) => row.code);
+  const workspacePermissions = workspaceRows
+    .map((row) => row.code)
+    .filter((code) => WORKSPACE_ONLY_PERMISSION_CODES.has(code));
+  if (!workspacePermissions.length) {
+    workspacePermissions.push("workspace.view", "settings.view");
+  }
+  const projectPermissions = {};
+  for (const row of projectRows) {
+    projectPermissions[row.project_id] = projectPermissions[row.project_id] || [];
+    projectPermissions[row.project_id].push(row.code);
   }
 
-  return DEFAULT_ROLE_PERMISSIONS.member || [];
+  return {
+    permissions: [...new Set([...workspacePermissions, ...projectRows.map((row) => row.code)])].sort(),
+    workspacePermissions: [...new Set(workspacePermissions)].sort(),
+    projectPermissions
+  };
 };
 
 const selectUserForSession = async (id) => {
@@ -97,11 +110,14 @@ const selectUserForSession = async (id) => {
 
   const { is_workspace_admin, ...rest } = user;
   const role = await getSessionRole(id);
+  const permissionProfile = await getSessionPermissionProfile(id, role);
 
   return {
     ...rest,
     role,
-    permissions: await getSessionPermissions(id, role)
+    permissions: permissionProfile.permissions,
+    workspace_permissions: permissionProfile.workspacePermissions,
+    project_permissions: permissionProfile.projectPermissions
   };
 };
 

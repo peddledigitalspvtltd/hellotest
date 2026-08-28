@@ -6,21 +6,63 @@ const test = require("node:test");
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
 test("test case metadata and data set links are durable and scope checked", async () => {
-  const [schema, bootstrap, service, routes] = await Promise.all([
+  const [schema, bootstrap, service, routes, versions] = await Promise.all([
     readSource("../../db/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../src/services/testCase.service.js"),
-    readSource("../src/routes/testCases.routes.js")
+    readSource("../src/routes/testCases.routes.js"),
+    readSource("../src/services/testCaseVersion.service.js")
   ]);
 
   assert.match(schema, /test_case_type TEXT NOT NULL DEFAULT 'functional'/);
   assert.match(schema, /CREATE TABLE test_case_data_sets/);
+  assert.match(schema, /CREATE TABLE test_case_data_set_link_archive/);
+  assert.match(schema, /CREATE UNIQUE INDEX idx_test_case_data_sets_one_per_case/);
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS test_case_data_sets/);
+  assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS test_case_data_set_link_archive/);
+  assert.match(bootstrap, /INSERT INTO test_case_data_set_link_archive/);
+  assert.match(bootstrap, /archive_reason[\s\S]*single-data-set-enforcement/);
+  assert.match(bootstrap, /ROW_NUMBER\(\) OVER \(PARTITION BY test_case_id ORDER BY sort_order ASC, test_data_set_id ASC\) AS link_rank/);
+  assert.match(bootstrap, /CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_data_sets_one_per_case/);
   assert.match(service, /All test data sets must belong to the test case project/);
+  assert.match(service, /A test case can link to only one test data set/);
   assert.match(service, /test_data_set_ids:/);
   assert.match(service, /author:/);
   assert.match(routes, /test_case_type:/);
-  assert.match(routes, /test_data_set_ids:/);
+  assert.equal((routes.match(/test_data_set_ids: \{ required: false, type: "array", items: "string", maxItems: 1 \}/g) || []).length, 2);
+  assert.match(versions, /version\.content\.test_data_set_ids\.slice\(0, 1\)/);
+});
+
+test("test case author can be selected without changing the acting audit user", async () => {
+  const [schema, bootstrap, service, routes, versions, openapi] = await Promise.all([
+    readSource("../../db/schema.sql"),
+    readSource("../src/db/bootstrap.js"),
+    readSource("../src/services/testCase.service.js"),
+    readSource("../src/routes/testCases.routes.js"),
+    readSource("../src/services/testCaseVersion.service.js"),
+    readSource("../../../openapi.yaml")
+  ]);
+  const updateStatement = service.match(/const updateTestCaseRecord = db\.prepare\(`([\s\S]*?)`\);/)?.[1] || "";
+
+  assert.match(schema, /author_id TEXT/);
+  assert.match(schema, /UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL/);
+  assert.match(bootstrap, /ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT/);
+  assert.match(bootstrap, /UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL/);
+  assert.match(routes, /author_id: \{ required: false, type: "string" \}/);
+  assert.match(routes, /author_id: req\.body\.author_id \|\| req\.user\.id/);
+  assert.match(routes, /updated_by: req\.user\.id/);
+  assert.match(service, /Author must be a member of the test case project/);
+  assert.match(service, /Test case creator is required/);
+  assert.match(service, /author_id: resolvedAuthorId,[\s\S]*created_by: resolvedCreatorId,[\s\S]*updated_by: normalizeText\(updated_by\) \|\| resolvedCreatorId/);
+  assert.match(service, /author_id: testCase\.author_id \|\| testCase\.created_by \|\| null/);
+  assert.match(service, /LEFT JOIN users ON users\.id = COALESCE\(test_cases\.author_id, test_cases\.created_by\)/);
+  assert.match(updateStatement, /author_id = \?, updated_by = \?/);
+  assert.doesNotMatch(updateStatement, /created_by = \?/);
+  assert.match(service, /actor_id: payload\.updated_by/);
+  assert.match(versions, /"author_id"/);
+  assert.match(versions, /testCase\.author_id \|\| testCase\.author\?\.id \|\| testCase\.created_by \|\| null/);
+  assert.match(openapi, /author_id: \{ type: string, nullable: true, description: Selected Test Case author/);
+  assert.match(openapi, /created_by: \{ type: string, nullable: true, description: Immutable user who created the Test Case/);
 });
 
 test("table data sets expand into independently tracked engine iterations", async () => {

@@ -8,16 +8,9 @@ const getSuite = db.prepare(`
 `);
 
 const getTestCase = db.prepare(`
-  SELECT id
+  SELECT id, app_type_id
   FROM test_cases
   WHERE id = ?
-`);
-
-const getTestCaseAppTypes = db.prepare(`
-  SELECT DISTINCT test_suites.app_type_id
-  FROM suite_test_cases
-  JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
-  WHERE suite_test_cases.test_case_id = ?
 `);
 
 const getMappingsForSuite = db.prepare(`
@@ -76,9 +69,7 @@ exports.replaceMappingsForSuite = async (suiteId, testCaseIds = [], { append = f
         throw new Error(`Test case not found: ${testCaseId}`);
       }
 
-      const appTypes = (await getTestCaseAppTypes.all(testCaseId)).map((row) => row.app_type_id);
-
-      if (appTypes.length && appTypes.some((appTypeId) => appTypeId !== suite.app_type_id)) {
+      if (testCase.app_type_id !== suite.app_type_id) {
         throw new Error("Test case suites must belong to the same app type");
       }
     }
@@ -115,6 +106,10 @@ exports.replaceMappingsForSuite = async (suiteId, testCaseIds = [], { append = f
 
 exports.syncMappingsForTestCase = async (testCaseId, suiteIds = []) => {
   const uniqueSuiteIds = [...new Set(suiteIds)];
+  const testCase = await getTestCase.get(testCaseId);
+  if (!testCase) {
+    throw new Error(`Test case not found: ${testCaseId}`);
+  }
 
   for (const suiteId of uniqueSuiteIds) {
     const suite = await getSuite.get(suiteId);
@@ -129,6 +124,9 @@ exports.syncMappingsForTestCase = async (testCaseId, suiteIds = []) => {
 
   if (appTypes.some((appTypeId) => appTypeId !== firstAppTypeId)) {
     throw new Error("All assigned suites must belong to the same app type");
+  }
+  if (firstAppTypeId && firstAppTypeId !== testCase.app_type_id) {
+    throw new Error("Test case suites must belong to the same app type");
   }
 
   const removeMappings = db.prepare(`

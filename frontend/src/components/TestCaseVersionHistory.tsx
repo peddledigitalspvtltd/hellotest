@@ -65,7 +65,7 @@ function buildVersionDiff(content: TestCaseVersionContent, currentCase: TestCase
     { key: "labels", label: "Labels", previous: listLabel(content.labels), current: listLabel(currentCase.labels), equal: listLabel(content.labels) === listLabel(currentCase.labels) },
     { key: "requirements", label: "Stories", previous: listLabel(content.requirement_ids), current: listLabel(currentCase.requirement_ids), equal: listLabel(content.requirement_ids) === listLabel(currentCase.requirement_ids) },
     { key: "suites", label: "Suites", previous: listLabel(content.suite_ids), current: listLabel(currentCase.suite_ids), equal: listLabel(content.suite_ids) === listLabel(currentCase.suite_ids) },
-    { key: "parameters", label: "Test data", previous: parameterLabel(content.parameter_values), current: parameterLabel(currentCase.parameter_values), equal: parameterLabel(content.parameter_values) === parameterLabel(currentCase.parameter_values) },
+    { key: "parameters", label: "Test Params", previous: parameterLabel(content.parameter_values), current: parameterLabel(currentCase.parameter_values), equal: parameterLabel(content.parameter_values) === parameterLabel(currentCase.parameter_values) },
     { key: "steps", label: "Steps", previous: `${content.steps?.length || 0} step${content.steps?.length === 1 ? "" : "s"}`, current: `${currentSteps.length} step${currentSteps.length === 1 ? "" : "s"}`, equal: stepsFingerprint(content.steps) === stepsFingerprint(currentSteps) }
   ];
   return candidates.filter((item) => !item.equal).map(({ equal: _equal, ...item }) => item);

@@ -8,6 +8,15 @@ const richTextAiService = require("../services/richTextAi.service");
 const { requirementMetadata } = require("../utils/nativeIssueMetadata");
 const { paginate, shouldPaginate } = require("../utils/pagination");
 
+const normalizeScopeId = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
+
+const ensureRequirementPermission = async (fastify, req, requirement, permissionCode) => {
+  await projectService.getProject(requirement.project_id, req.user.id);
+  await fastify.requirePermission(permissionCode, { projectId: requirement.project_id })(req);
+  return requirement;
+};
+
 module.exports = async function (fastify) {
   fastify.get("/requirements/create-metadata", async (req) => {
     await fastify.authenticate(req);
@@ -130,6 +139,10 @@ module.exports = async function (fastify) {
 
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.create", { projectId: req.body.project_id })(req);
+    if (normalizeScopeId(req.body.iteration_id)) {
+      await fastify.requirePermission("requirement_iteration.update", { projectId: req.body.project_id })(req);
+    }
 
     return service.createRequirement({
       ...req.body,
@@ -233,10 +246,14 @@ module.exports = async function (fastify) {
   fastify.get("/requirements", async (req) => {
     await fastify.authenticate(req);
     const { project_id, status, priority, sprint_id, unassigned } = req.query;
-    
-    // If filtering by project, verify access
+
     if (project_id) {
       await projectService.getProject(project_id, req.user.id);
+      await fastify.requirePermission("requirement.view", { projectId: project_id })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id is required when listing Stories");
+      error.statusCode = 400;
+      throw error;
     }
     
     const items = await service.getRequirements({
@@ -255,9 +272,7 @@ module.exports = async function (fastify) {
   fastify.get("/requirements/:id", async (req) => {
     await fastify.authenticate(req);
     const requirement = await service.getRequirement(req.params.id);
-    // Verify user is member of the requirement's project
-    await projectService.getProject(requirement.project_id, req.user.id);
-    return requirement;
+    return ensureRequirementPermission(fastify, req, requirement, "requirement.view");
   });
 
   fastify.put("/requirements/:id", async (req) => {
@@ -287,8 +302,24 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const requirement = await service.getRequirement(req.params.id);
-    // Verify user is member of the requirement's project
-    await projectService.getProject(requirement.project_id, req.user.id);
+    await ensureRequirementPermission(fastify, req, requirement, "requirement.update");
+
+    const targetProjectId = normalizeScopeId(req.body.project_id) || requirement.project_id;
+    if (targetProjectId !== requirement.project_id) {
+      await projectService.getProject(targetProjectId, req.user.id);
+      await fastify.requirePermission("requirement.update", { projectId: targetProjectId })(req);
+    }
+
+    const previousIterationId = normalizeScopeId(requirement.iteration_id);
+    const nextIterationId = hasOwn(req.body, "iteration_id")
+      ? normalizeScopeId(req.body.iteration_id)
+      : previousIterationId;
+    if (nextIterationId !== previousIterationId) {
+      await fastify.requirePermission("requirement_iteration.update", { projectId: requirement.project_id })(req);
+      if (targetProjectId !== requirement.project_id) {
+        await fastify.requirePermission("requirement_iteration.update", { projectId: targetProjectId })(req);
+      }
+    }
 
     return service.updateRequirement(req.params.id, {
       ...req.body,
@@ -300,7 +331,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({ requirement_ids: { required: true, type: "array", items: "string" } }, req.body || {});
     const requirement = await service.getRequirement(req.params.id);
-    await projectService.getProject(requirement.project_id, req.user.id);
+    await ensureRequirementPermission(fastify, req, requirement, "requirement.update");
     return service.replaceRelatedRequirements(req.params.id, req.body.requirement_ids);
   });
 
@@ -426,15 +457,15 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       status: req.body.status,
-      cases: req.body.cases
+      cases: req.body.cases,
+      created_by: req.user.id
     });
   });
 
   fastify.delete("/requirements/:id", async (req) => {
     await fastify.authenticate(req);
     const requirement = await service.getRequirement(req.params.id);
-    // Verify user is member of the requirement's project
-    await projectService.getProject(requirement.project_id, req.user.id);
+    await ensureRequirementPermission(fastify, req, requirement, "requirement.delete");
     return service.deleteRequirement(req.params.id);
   });
 };

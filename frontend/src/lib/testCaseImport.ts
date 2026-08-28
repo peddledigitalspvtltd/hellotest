@@ -236,7 +236,7 @@ const normalizeImportedGroupKind = (value?: string) => {
     return "";
   }
 
-  if (normalized === "reusable" || normalized === "shared" || normalized === "sharedgroup" || normalized === "snapshot") {
+  if (normalized === "reusable" || normalized === "shared" || normalized === "sharedgroup" || normalized === "sharedstepgroup" || normalized === "snapshot") {
     return "reusable";
   }
 
@@ -247,7 +247,7 @@ const normalizeImportedGroupKind = (value?: string) => {
   return "";
 };
 
-const IMPORTED_ACTION_PREFIX_PATTERN = /^\[(shared|sharedgroup|shared steps|group|grouped|local)\s*:\s*([^\]]+)\]\s*(.*)$/i;
+const IMPORTED_ACTION_PREFIX_PATTERN = /^\[(shared step group|shared steps|sharedgroup|shared|group|grouped|local)\s*:\s*([^\]]+)\]\s*(.*)$/i;
 
 const parseAnnotatedActionLine = (value?: string) => {
   const raw = String(value || "").trim();
@@ -364,5 +364,5 @@ export function getImportedStepPreviewLabel(row: ImportedTestCaseRow) {
     return summary;
   }
 
-  return `${summary} · ${firstStep.step_group_kind === "reusable" ? "Shared" : "Group"}: ${firstStep.step_group_name}`;
+  return `${summary} · ${firstStep.step_group_kind === "reusable" ? "Shared Step Group" : "Group"}: ${firstStep.step_group_name}`;
 }

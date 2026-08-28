@@ -1,6 +1,7 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const executionService = require("./execution.service");
+const mobileFeatureService = require("./mobileFeature.service");
 const { placeholdersFor } = require("../utils/batchHydration");
 
 const selectProject = db.prepare(`
@@ -28,16 +29,22 @@ const selectAppType = db.prepare(`
 `);
 
 const selectSuite = db.prepare(`
-  SELECT id, app_type_id
+  SELECT test_suites.id, test_suites.app_type_id, app_types.project_id
   FROM test_suites
-  WHERE id = ?
+  JOIN app_types ON app_types.id = test_suites.app_type_id
+  WHERE test_suites.id = ?
 `);
 
 const selectTestCase = db.prepare(`
-  SELECT id, app_type_id
+  SELECT test_cases.id, test_cases.app_type_id, app_types.project_id
   FROM test_cases
-  WHERE id = ?
+  JOIN app_types ON app_types.id = test_cases.app_type_id
+  WHERE test_cases.id = ?
 `);
+
+const selectEnvironment = db.prepare(`SELECT id, project_id, app_type_id FROM test_environments WHERE id = ?`);
+const selectConfiguration = db.prepare(`SELECT id, project_id, app_type_id FROM test_configurations WHERE id = ?`);
+const selectDataSet = db.prepare(`SELECT id, project_id, app_type_id FROM test_data_sets WHERE id = ?`);
 
 const selectExecutionSchedule = db.prepare(`
   SELECT *
@@ -224,6 +231,9 @@ async function validateSchedulePayload({
   app_type_id,
   suite_ids = [],
   test_case_ids = [],
+  test_environment_id,
+  test_configuration_id,
+  test_data_set_id,
   assigned_to,
   assigned_to_ids = [],
   created_by
@@ -279,6 +289,10 @@ async function validateSchedulePayload({
       throw new Error(`Suite not found: ${suiteId}`);
     }
 
+    if (suite.project_id !== project_id) {
+      throw new Error("All suites must belong to the selected project");
+    }
+
     if (app_type_id && suite.app_type_id !== app_type_id) {
       throw new Error("All suites must belong to the selected app type");
     }
@@ -291,8 +305,27 @@ async function validateSchedulePayload({
       throw new Error(`Test case not found: ${testCaseId}`);
     }
 
+    if (testCase.project_id !== project_id) {
+      throw new Error("All test cases must belong to the selected project");
+    }
+
     if (app_type_id && testCase.app_type_id !== app_type_id) {
       throw new Error("All test cases must belong to the selected app type");
+    }
+  }
+
+
+  for (const [id, label, selector] of [
+    [test_environment_id, "Test environment", selectEnvironment],
+    [test_configuration_id, "Test configuration", selectConfiguration],
+    [test_data_set_id, "Test Data Set", selectDataSet]
+  ]) {
+    if (!id) continue;
+    const resource = await selector.get(id);
+    if (!resource) throw new Error(`${label} not found`);
+    if (resource.project_id !== project_id) throw new Error(`${label} must belong to the selected project`);
+    if (app_type_id && resource.app_type_id && resource.app_type_id !== app_type_id) {
+      throw new Error(`${label} must apply to the selected app type`);
     }
   }
 }
@@ -309,6 +342,11 @@ exports.createExecutionSchedule = async (input = {}) => {
     ...input,
     assigned_to: assignedToIds[0] || null,
     assigned_to_ids: assignedToIds
+  });
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled({
+    ...input,
+    suite_ids: suiteIds,
+    test_case_ids: testCaseIds
   });
 
   await insertExecutionSchedule.run(
@@ -342,6 +380,9 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
     app_type_id: Object.prototype.hasOwnProperty.call(input, "app_type_id") ? normalizeText(input.app_type_id) : existing.app_type_id,
     suite_ids: Object.prototype.hasOwnProperty.call(input, "suite_ids") ? input.suite_ids : existing.suite_ids,
     test_case_ids: Object.prototype.hasOwnProperty.call(input, "test_case_ids") ? input.test_case_ids : existing.test_case_ids,
+    test_environment_id: Object.prototype.hasOwnProperty.call(input, "test_environment_id") ? normalizeText(input.test_environment_id) : existing.test_environment_id,
+    test_configuration_id: Object.prototype.hasOwnProperty.call(input, "test_configuration_id") ? normalizeText(input.test_configuration_id) : existing.test_configuration_id,
+    test_data_set_id: Object.prototype.hasOwnProperty.call(input, "test_data_set_id") ? normalizeText(input.test_data_set_id) : existing.test_data_set_id,
     assigned_to_ids: Object.prototype.hasOwnProperty.call(input, "assigned_to_ids")
       ? normalizeTextList(input.assigned_to_ids)
       : Object.prototype.hasOwnProperty.call(input, "assigned_to")
@@ -352,6 +393,7 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
   payload.assigned_to = payload.assigned_to_ids[0] || null;
 
   await validateSchedulePayload(payload);
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled(payload);
 
   const suiteIds = normalizeTextList(payload.suite_ids);
   const testCaseIds = normalizeTextList(payload.test_case_ids);
@@ -364,9 +406,9 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
     Object.prototype.hasOwnProperty.call(input, "next_run_at") ? normalizeText(input.next_run_at) : existing.next_run_at,
     suiteIds,
     testCaseIds,
-    Object.prototype.hasOwnProperty.call(input, "test_environment_id") ? normalizeText(input.test_environment_id) : existing.test_environment_id,
-    Object.prototype.hasOwnProperty.call(input, "test_configuration_id") ? normalizeText(input.test_configuration_id) : existing.test_configuration_id,
-    Object.prototype.hasOwnProperty.call(input, "test_data_set_id") ? normalizeText(input.test_data_set_id) : existing.test_data_set_id,
+    payload.test_environment_id,
+    payload.test_configuration_id,
+    payload.test_data_set_id,
     Object.prototype.hasOwnProperty.call(input, "release") ? normalizeText(input.release) : normalizeText(existing.release),
     Object.prototype.hasOwnProperty.call(input, "sprint") ? normalizeText(input.sprint) : normalizeText(existing.sprint),
     Object.prototype.hasOwnProperty.call(input, "build") ? normalizeText(input.build) : normalizeText(existing.build),
@@ -423,6 +465,7 @@ exports.runExecutionSchedule = async (id, created_by) => {
   if (!schedule.is_active) {
     throw new Error("This execution schedule is inactive.");
   }
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled(schedule);
 
   const response = await executionService.createExecution({
     project_id: schedule.project_id,

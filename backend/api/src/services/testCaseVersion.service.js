@@ -33,6 +33,7 @@ const SNAPSHOT_FIELDS = [
   "status",
   "requirement_ids",
   "suite_ids",
+  "author_id",
   "reviewer_id",
   "review_status",
   "ai_quality_score"
@@ -49,7 +50,9 @@ const loadSteps = (testCaseId) => db.prepare(`
 const buildSnapshot = async (testCase) => {
   const snapshot = {};
   SNAPSHOT_FIELDS.forEach((field) => {
-    snapshot[field] = testCase[field] ?? null;
+    snapshot[field] = field === "author_id"
+      ? testCase.author_id || testCase.author?.id || testCase.created_by || null
+      : testCase[field] ?? null;
   });
   snapshot.steps = await loadSteps(testCase.id);
   return snapshot;
@@ -174,6 +177,9 @@ const restore = async ({ testCaseId, revision, userId, expectedRevision }) => {
   const existing = await testCaseService.getTestCase(testCaseId);
   await testCaseService.updateTestCase(testCaseId, {
     ...version.content,
+    test_data_set_ids: Array.isArray(version.content?.test_data_set_ids)
+      ? version.content.test_data_set_ids.slice(0, 1)
+      : [],
     expected_revision: expectedRevision,
     review_status: "not_requested",
     review_history: [

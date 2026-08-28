@@ -662,6 +662,194 @@
   border-radius: 7px;
 }
 
+.test-case-create-module-modal .test-case-create-module-description > .canonical-rich-text-editor {
+  height: clamp(170px, 22vh, 210px);
+  min-height: 170px !important;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirements {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-heading {
+  align-items: center;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-heading h3 {
+  font-size: 14px;
+  line-height: 19px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-heading p {
+  max-width: 17rem;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-panel {
+  height: 276px;
+  min-height: 276px;
+  flex: none;
+  border-radius: 9px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-toolbar {
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  padding: 10px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-search {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-filter-wrap > .ghost-button {
+  width: 42px;
+  min-width: 42px;
+  min-height: 38px;
+  justify-content: center;
+  padding: 0;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding: 7px 0 0;
+  border-top: 1px solid var(--create-module-border);
+  border-left: 0;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions .ghost-button {
+  min-height: 28px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-filter-menu {
+  right: 0;
+  width: min(250px, calc(100vw - 48px));
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-options {
+  min-height: 0;
+  border-radius: 0 0 9px 9px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-table-head,
+.test-case-create-module-modal .test-case-create-module-requirement-option {
+  grid-template-columns: 24px minmax(0, 1fr) 44px minmax(70px, auto);
+  gap: 7px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-table-head {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 9px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-option {
+  min-height: 58px;
+  padding: 8px 10px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-identity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-identity .test-case-create-module-option-id {
+  font-size: 10px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-identity .test-case-create-module-option-id svg {
+  flex: 0 0 14px;
+  color: #0c66e4;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-identity .test-case-create-module-option-title {
+  display: block;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-priority {
+  color: var(--create-module-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-option .status-badge {
+  font-size: 9px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-options > .loading-state,
+.test-case-create-module-modal .test-case-create-module-requirement-options > .empty-state {
+  min-height: 110px;
+  padding: 16px;
+  font-size: 11px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-options .test-case-create-module-load-more {
+  min-height: 46px;
+}
+
+.test-case-create-module-modal .test-case-create-module-requirement-limit {
+  margin: -4px 0 0;
+  color: #c9372c;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+}
+
+.test-case-create-module-modal .test-case-create-module-auto-link-status {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0;
+  padding: 8px 10px;
+  color: #0747a6;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  background: #e9f2ff;
+  border: 1px solid #85b8ff;
+  border-radius: 7px;
+}
+
+.test-case-create-module-modal .test-case-create-module-auto-link-status > svg {
+  flex: 0 0 auto;
+}
+
+.test-case-create-module-modal .test-case-create-module-auto-link-status > span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.test-case-create-module-modal .test-case-create-module-auto-link-status > .ghost-button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  color: inherit;
+  font-size: 11px;
+  background: var(--create-module-surface);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.test-case-create-module-modal .test-case-create-module-auto-link-status.is-error {
+  color: #ae2e24;
+  background: #ffebe6;
+  border-color: #f87168;
+}
+
 .test-case-create-module-modal .test-case-create-module-footer {
   display: grid !important;
   min-width: 0;
@@ -1086,6 +1274,50 @@
   }
 }
 
+@media (max-width: 960px) {
+  .test-case-create-module-modal .test-case-create-module-description > .canonical-rich-text-editor {
+    height: 190px;
+    min-height: 190px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-panel {
+    height: 300px;
+    min-height: 300px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-filter-wrap {
+    width: auto;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-table-head {
+    display: grid;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option {
+    grid-template-columns: 24px minmax(0, 1fr) 44px minmax(70px, auto);
+    grid-template-areas: none;
+    row-gap: 0;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option > :is(
+    .test-case-create-module-option-select,
+    .test-case-create-module-requirement-identity,
+    .test-case-create-module-requirement-priority,
+    .test-case-create-module-option-status
+  ) {
+    grid-area: auto;
+  }
+}
+
 :root[data-theme="dark"] .test-case-create-module-backdrop.modal-backdrop--scroll {
   --create-module-border: rgba(148, 163, 184, 0.32);
   --create-module-ink: #f3f7ff;
@@ -1106,6 +1338,18 @@
   border-color: #579dff;
 }
 
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-auto-link-status {
+  color: #d9e8ff;
+  background: #17345f;
+  border-color: #579dff;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-auto-link-status.is-error {
+  color: #ffd5d2;
+  background: #4f1f1d;
+  border-color: #f87168;
+}
+
 :root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-selection-actions .ghost-button:hover:not(:disabled) {
   background: #17345f;
 }
@@ -1124,6 +1368,7 @@
   .test-case-create-module-modal .test-case-create-module-picker-panel,
   .test-case-create-module-modal .test-case-create-module-search,
   .test-case-create-module-modal .test-case-create-module-retry-note,
+  .test-case-create-module-modal .test-case-create-module-auto-link-status,
   .test-case-create-module-modal .test-case-create-module-option,
   .test-case-create-module-modal .test-case-create-module-footer {
     color: CanvasText !important;

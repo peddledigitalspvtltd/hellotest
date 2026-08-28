@@ -2,8 +2,16 @@ const db = require("../db");
 
 const LOCALIZATION_SETTINGS_KEY = "localization_strings";
 const WORKSPACE_PREFERENCES_KEY_PREFIX = "workspace_preferences:";
+const GOVERNED_WORKSPACE_PREFERENCE_KEY_PREFIX = "workspace_governed_preference:";
 const WORKSPACE_METRIC_FORMULA_VALUES_KEY = "workspace_metric_formula_values";
 const METRIC_FORMULA_VALUES_PREFERENCE_KEY = "ai_metric_formula_values";
+const GOVERNED_WORKSPACE_PREFERENCE_KEYS = Object.freeze([
+  "ai_prompt_registry_overrides",
+  "ai_prompt_registry_llm_overrides",
+  "ai_metric_criteria_overrides",
+  METRIC_FORMULA_VALUES_PREFERENCE_KEY
+]);
+const GOVERNED_WORKSPACE_PREFERENCE_KEY_SET = new Set(GOVERNED_WORKSPACE_PREFERENCE_KEYS);
 
 const normalizeLocalizationStrings = (input) => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -50,6 +58,51 @@ const normalizeWorkspacePreferences = (input) => {
 };
 
 const workspacePreferenceKeyForUser = (userId) => `${WORKSPACE_PREFERENCES_KEY_PREFIX}${userId}`;
+const governedWorkspacePreferenceSettingKey = (preferenceKey) => `${GOVERNED_WORKSPACE_PREFERENCE_KEY_PREFIX}${preferenceKey}`;
+
+const readPersonalWorkspacePreferences = async (userId) => {
+  const row = await db.prepare(`
+    SELECT value
+    FROM app_settings
+    WHERE key = ?
+  `).get(workspacePreferenceKeyForUser(userId));
+  const preferences = normalizeWorkspacePreferences(row?.value);
+
+  // Governed values are workspace-wide. Never let a legacy user row shadow
+  // the global policy while a deployment is being migrated.
+  GOVERNED_WORKSPACE_PREFERENCE_KEYS.forEach((key) => delete preferences[key]);
+  return preferences;
+};
+
+const readGovernedWorkspacePreferences = async () => {
+  const settingKeys = GOVERNED_WORKSPACE_PREFERENCE_KEYS.map(governedWorkspacePreferenceSettingKey);
+  const [rows, metricFormulaRow] = await Promise.all([
+    db.prepare(`
+      SELECT key, value
+      FROM app_settings
+      WHERE key IN (?, ?, ?, ?)
+    `).all(...settingKeys),
+    // Keep a read fallback for deployments that have not yet run the runtime
+    // bootstrap which migrates the original global formula setting.
+    db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(WORKSPACE_METRIC_FORMULA_VALUES_KEY)
+  ]);
+  const preferences = {};
+
+  rows.forEach((row) => {
+    const preferenceKey = String(row.key || "").slice(GOVERNED_WORKSPACE_PREFERENCE_KEY_PREFIX.length);
+    if (GOVERNED_WORKSPACE_PREFERENCE_KEY_SET.has(preferenceKey) && isSerializablePreferenceValue(row.value)) {
+      preferences[preferenceKey] = row.value;
+    }
+  });
+
+  if (!Object.hasOwn(preferences, METRIC_FORMULA_VALUES_PREFERENCE_KEY)
+    && metricFormulaRow
+    && isSerializablePreferenceValue(metricFormulaRow.value)) {
+    preferences[METRIC_FORMULA_VALUES_PREFERENCE_KEY] = metricFormulaRow.value;
+  }
+
+  return preferences;
+};
 
 exports.getLocalizationStrings = async () => {
   const row = await db.prepare(`
@@ -78,56 +131,69 @@ exports.updateLocalizationStrings = async (strings) => {
 };
 
 exports.getWorkspacePreferences = async (userId) => {
-  const [row, metricFormulaRow] = await Promise.all([
-    db.prepare(`
-    SELECT value
-    FROM app_settings
-    WHERE key = ?
-  `).get(workspacePreferenceKeyForUser(userId)),
-    db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(WORKSPACE_METRIC_FORMULA_VALUES_KEY)
+  const [personalPreferences, governedPreferences] = await Promise.all([
+    readPersonalWorkspacePreferences(userId),
+    readGovernedWorkspacePreferences()
   ]);
 
   return {
-    ...normalizeWorkspacePreferences(row?.value),
-    ...(metricFormulaRow?.value ? { [METRIC_FORMULA_VALUES_PREFERENCE_KEY]: metricFormulaRow.value } : {})
+    ...personalPreferences,
+    ...governedPreferences
   };
 };
 
 exports.updateWorkspacePreferences = async (userId, preferences) => {
-  const currentPreferences = await exports.getWorkspacePreferences(userId);
+  const [currentPersonalPreferences, currentGovernedPreferences] = await Promise.all([
+    readPersonalWorkspacePreferences(userId),
+    readGovernedWorkspacePreferences()
+  ]);
   const normalizedInput = normalizeWorkspacePreferences(preferences);
-  const metricFormulaValues = normalizedInput[METRIC_FORMULA_VALUES_PREFERENCE_KEY];
-  const currentMetricFormulaValues = currentPreferences[METRIC_FORMULA_VALUES_PREFERENCE_KEY];
-  delete normalizedInput[METRIC_FORMULA_VALUES_PREFERENCE_KEY];
-  delete currentPreferences[METRIC_FORMULA_VALUES_PREFERENCE_KEY];
-  const nextPreferences = {
-    ...currentPreferences,
+  const governedUpdates = {};
+
+  GOVERNED_WORKSPACE_PREFERENCE_KEYS.forEach((key) => {
+    if (Object.hasOwn(normalizedInput, key)) {
+      governedUpdates[key] = normalizedInput[key];
+      delete normalizedInput[key];
+    }
+  });
+
+  const nextPersonalPreferences = {
+    ...currentPersonalPreferences,
     ...normalizedInput
   };
+  const nextGovernedPreferences = {
+    ...currentGovernedPreferences,
+    ...governedUpdates
+  };
 
-  await db.prepare(`
-    INSERT INTO app_settings (key, value, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT (key)
-    DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
-  `).run(workspacePreferenceKeyForUser(userId), nextPreferences);
+  const updatePreferences = db.transaction(async () => {
+    if (Object.keys(normalizedInput).length) {
+      await db.prepare(`
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (key)
+        DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+      `).run(workspacePreferenceKeyForUser(userId), nextPersonalPreferences);
+    }
 
-  if (metricFormulaValues && typeof metricFormulaValues === "object" && !Array.isArray(metricFormulaValues)) {
-    await db.prepare(`
+    for (const [key, value] of Object.entries(governedUpdates)) {
+      await db.prepare(`
       INSERT INTO app_settings (key, value, updated_at)
       VALUES (?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT (key)
       DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
-    `).run(WORKSPACE_METRIC_FORMULA_VALUES_KEY, metricFormulaValues);
-  }
+      `).run(governedWorkspacePreferenceSettingKey(key), value);
+    }
+  });
+  await updatePreferences();
 
   return {
     updated: true,
     preferences: {
-      ...nextPreferences,
-      ...((metricFormulaValues || currentMetricFormulaValues) ? {
-        [METRIC_FORMULA_VALUES_PREFERENCE_KEY]: metricFormulaValues || currentMetricFormulaValues
-      } : {})
+      ...nextPersonalPreferences,
+      ...nextGovernedPreferences
     }
   };
 };
+
+exports.GOVERNED_WORKSPACE_PREFERENCE_KEYS = GOVERNED_WORKSPACE_PREFERENCE_KEYS;

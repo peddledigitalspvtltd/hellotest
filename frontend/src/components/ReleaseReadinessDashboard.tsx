@@ -158,12 +158,12 @@ export function ReleaseReadinessDashboard() {
   const [selectedHotspotId, setSelectedHotspotId] = useState("");
   const [selectedExecutionId, setSelectedExecutionId] = useState("");
   const { getMetricCriteria } = useAiPromptRegistry();
-  const canViewProjects = hasPermission(session, "project.view");
-  const canViewStories = hasPermission(session, "requirement.view");
-  const canViewCases = hasPermission(session, "testcase.view");
-  const canViewRuns = hasPermission(session, "run.view");
-  const canViewResults = hasPermission(session, "result.view");
-  const canViewBugs = hasPermission(session, "feedback.view");
+  const canViewProjects = hasPermission(session, "project.view", projectId);
+  const canViewStories = hasPermission(session, "requirement.view", projectId);
+  const canViewCases = hasPermission(session, "testcase.view", projectId);
+  const canViewRuns = hasPermission(session, "run.view", projectId);
+  const canViewResults = hasPermission(session, "result.view", projectId);
+  const canViewBugs = hasPermission(session, "feedback.view", projectId);
   const unavailableEvidenceSources = [
     !canViewStories ? "Stories" : "",
     !canViewCases ? "Test Cases" : "",
@@ -346,7 +346,7 @@ export function ReleaseReadinessDashboard() {
     issues,
     evidenceComplete: !evidenceIsProvisional
   }), [evidenceIsProvisional, executions, issues, readinessRequirements, release, results, sprint, testCases]);
-  const canUseAi = hasPermission(session, "quality_insight.view")
+  const canUseAi = hasPermission(session, "quality_insight.view", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
   const qualityInsightPreview = useMutation({
     mutationFn: ({ activeProject, activeRelease }: { activeProject: string; activeRelease: string }) => api.ai.qualityInsights({

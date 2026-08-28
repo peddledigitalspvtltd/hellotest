@@ -84,7 +84,7 @@ The target authoring chain is:
    - step type
    - expected result
    - data references
-   - shared step linkage
+   - Shared Step Group linkage
    - automation hints
 
 Manual clarity should remain the canonical truth. Automation is attached to the case, not a replacement for the case.
@@ -384,7 +384,7 @@ Use retrieval before prompting:
 
 - fetch only page-specific memory
 - fetch only the failing step neighborhood
-- fetch only the relevant shared-step pack
+- fetch only the relevant Shared Step Group pack
 - use DOM digests first, not full DOM
 - use network summaries first, not full HAR
 - reuse prior locator candidates before asking AI

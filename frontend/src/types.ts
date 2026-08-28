@@ -7,6 +7,8 @@ export type User = {
   role_id?: string;
   role_name?: string;
   permissions?: string[];
+  workspace_permissions?: string[];
+  project_permissions?: Record<string, string[]>;
   auth_provider?: "local" | "google";
   email_verified?: boolean;
   created_at?: string;
@@ -63,8 +65,10 @@ export type UserApiKey = {
 export type FeatureFlagDefinition = {
   key: string;
   label: string;
+  description?: string;
   permissions?: string[];
   routes?: string[];
+  default_enabled?: boolean;
   group: string;
   group_label: string;
 };
@@ -505,6 +509,8 @@ export type ProjectMember = {
   project_id: string;
   user_id: string;
   role_id: string;
+  user_name?: string | null;
+  user_email?: string | null;
   fallback_role_id?: string;
   assignment_source?: "jira-permission" | string;
   system_managed?: boolean;
@@ -1945,7 +1951,8 @@ export type TestCase = {
   test_case_type?: "functional" | "regression" | "smoke" | "integration" | "acceptance" | "exploratory" | "performance" | "security" | "accessibility";
   gherkin_document?: string | null;
   test_data_set_ids?: string[];
-  test_data_sets?: Array<Pick<TestDataSet, "id" | "name" | "mode" | "columns" | "rows">>;
+  test_data_sets?: Array<Pick<TestDataSet, "id" | "app_type_id" | "name" | "description" | "mode" | "columns" | "rows">>;
+  author_id?: string | null;
   author?: { id: string; name?: string | null; email?: string | null } | null;
   priority: number | null;
   status: string | null;
@@ -2017,6 +2024,7 @@ export type TestCaseVersionContent = {
   gherkin_document?: string | null;
   priority?: number | null;
   status?: string | null;
+  author_id?: string | null;
   reviewer_id?: string | null;
   ai_quality_score?: number | null;
   steps?: TestStep[];
@@ -2039,6 +2047,7 @@ export type TestCaseModule = {
   description?: string | null;
   test_case_count?: number;
   test_case_ids?: string[];
+  requirement_ids?: string[];
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -2321,6 +2330,14 @@ export type TestEnvironment = {
   created_at?: string;
 };
 
+export type TestConfigurationTarget = {
+  id: string;
+  os: string;
+  browser: string;
+  mobile_os: string;
+  version: string;
+};
+
 export type TestConfiguration = {
   id: string;
   project_id: string;
@@ -2330,6 +2347,7 @@ export type TestConfiguration = {
   browser: string | null;
   mobile_os: string | null;
   platform_version: string | null;
+  targets: TestConfigurationTarget[];
   variables: KeyValueEntry[];
   created_at?: string;
 };
@@ -2383,6 +2401,7 @@ export type ExecutionConfigurationSnapshot = {
   browser: string | null;
   mobile_os: string | null;
   platform_version: string | null;
+  targets: TestConfigurationTarget[];
   variables: KeyValueEntry[];
 };
 
@@ -2663,6 +2682,10 @@ export type ExecutionCaseSnapshot = {
   parameter_template_values?: Record<string, string>;
   suite_parameter_values?: Record<string, string>;
   suite_parameter_template_values?: Record<string, string>;
+  test_data_set_id?: string | null;
+  test_data_set_name?: string | null;
+  test_data_set_snapshot?: ExecutionDataSetSnapshot | null;
+  data_set_source?: "test_case" | "run" | string | null;
   sort_order: number;
   assigned_to?: string | null;
   assigned_to_ids?: string[];

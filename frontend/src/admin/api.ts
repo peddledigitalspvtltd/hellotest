@@ -73,7 +73,22 @@ export type Overview = {
 export type User = { id: string; name?: string; email: string; role: string; role_id?: string; role_name?: string; status?: string; created_at: string; last_login_at?: string };
 export type Role = { id: string; name: string };
 export type SampleCatalog = { project_id: string | null; modules: Array<{ key: string; label: string; description: string; tables: string[] }> };
-export type FlagSnapshot = { groups: Array<{ key: string; label: string; description: string; features: Array<{ key: string; label: string }> }>; flags: Record<string, boolean> };
+export type FlagSnapshot = {
+  groups: Array<{
+    key: string;
+    label: string;
+    description: string;
+    features: Array<{
+      key: string;
+      label: string;
+      description?: string;
+      permissions?: string[];
+      routes?: string[];
+      default_enabled?: boolean;
+    }>;
+  }>;
+  flags: Record<string, boolean>;
+};
 export type Integration = { id: string; type: string; name: string; base_url?: string; model?: string; is_active: boolean; updated_at: string };
 export type IntegrationType = { value: string; label: string; description: string; defaults?: Record<string, unknown> };
 export type AuditEvent = { id: string; action: string; summary: string; target_type?: string; actor_name?: string; actor_email?: string; created_at: string };

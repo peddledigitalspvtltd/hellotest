@@ -30,7 +30,7 @@ import { RichTextContent, RichTextEditor, richTextToPlainText } from "../compone
 import { ReportBugSplitActionButton } from "../components/ReportBugSplitActionButton";
 import { ReportBugModal } from "../components/ReportBugModal";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
-import { TileCardStatusIndicator, formatTileCardLabel, getTileCardTone } from "../components/TileCardPrimitives";
+import { TileCardMetric, TileCardProgress, TileCardStatusIndicator, formatTileCardLabel, getTileCardTone } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -43,12 +43,18 @@ import { isJiraCoreFieldRequired } from "../lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { safeBugReportReturnRoute } from "../lib/bugReportNavigation";
+import {
+  buildDeliveryScopeOptions,
+  resolveDeliveryScopePrefill,
+  type DeliveryScopeCatalogInput,
+  type DeliveryScopePrefillInput
+} from "../lib/deliveryScopeOptions";
 import { hasPermission } from "../lib/permissions";
 import { asArray } from "../lib/collectionGuards";
 import { downloadCsvRecords } from "../lib/csvExport";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
-import type { AiBugDraftEditableField, AiBugDraftPreview, AiDesignImageInput, AiProcessingSnapshot, Issue, Requirement, TestCase } from "../types";
+import type { AiBugDraftEditableField, AiBugDraftPreview, AiDesignImageInput, AiProcessingSnapshot, Issue, Requirement, RequirementIteration, RequirementRelease, TestCase } from "../types";
 import "./IssuesPage.css";
 
 const MAX_AI_BUG_TRIAGE_ITEMS = 10;
@@ -194,6 +200,23 @@ const parseQueryIdList = (...values: Array<string | null | undefined>) =>
     )
   );
 
+const readDeliveryScopePrefill = (searchParams: URLSearchParams): DeliveryScopePrefillInput => ({
+  releaseId: searchParams.get("releaseId") || searchParams.get("release_id"),
+  releaseToken: searchParams.get("fixVersion") || searchParams.get("fix_version") || searchParams.get("release"),
+  sprintId: searchParams.get("sprintId") || searchParams.get("sprint_id"),
+  sprintToken: searchParams.get("sprint")
+});
+
+const deliveryScopePrefillKey = (prefill: DeliveryScopePrefillInput) => [
+  prefill.releaseId || "",
+  prefill.releaseToken || "",
+  prefill.sprintId || "",
+  prefill.sprintToken || ""
+].join("\u0000");
+
+const hasDeliveryScopePrefill = (prefill: DeliveryScopePrefillInput) =>
+  Boolean(prefill.releaseId || prefill.releaseToken || prefill.sprintId || prefill.sprintToken);
+
 const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus: string): IssueDraft => {
   const runId = searchParams.get("run") || "";
   const linkedTestCaseIds = parseQueryIdList(
@@ -253,8 +276,8 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     root_cause: "",
     status: defaultStatus,
     labelsText: "",
-    sprint: "",
-    release: "",
+    sprint: searchParams.get("sprint") || "",
+    release: searchParams.get("fixVersion") || searchParams.get("fix_version") || searchParams.get("release") || "",
     additional_fields: {}
   };
 };
@@ -481,10 +504,12 @@ export function IssuesPage() {
   const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewAttachments = hasPermission(session, "attachment.view");
-  const canCreateAttachments = hasPermission(session, "attachment.create");
-  const canDeleteAttachments = hasPermission(session, "attachment.delete");
-  const canManageBugs = hasPermission(session, "feedback.manage");
+  const canViewAttachments = hasPermission(session, "attachment.view", projectId);
+  const canCreateAttachments = hasPermission(session, "attachment.create", projectId);
+  const canDeleteAttachments = hasPermission(session, "attachment.delete", projectId);
+  const canManageBugs = hasPermission(session, "feedback.manage", projectId);
+  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const canUseAiBugTriage = canManageBugs
@@ -495,12 +520,20 @@ export function IssuesPage() {
   const issueMetadata = domainMetadataQuery.data?.issues || domainMetadataQuery.data?.feedback;
   const defaultIssueStatus = issueMetadata?.default_status || "To Do";
   const issueStatusOptions = issueMetadata?.statuses?.length ? issueMetadata.statuses : DEFAULT_ISSUE_STATUS_OPTIONS;
-  const jiraSprints = asArray(domainMetadataQuery.data?.jira?.sprints);
-  const jiraVersions = asArray(domainMetadataQuery.data?.jira?.versions).filter((version) => !version.archived);
+  const jiraSprints = useMemo(
+    () => asArray(domainMetadataQuery.data?.jira?.sprints),
+    [domainMetadataQuery.data?.jira?.sprints]
+  );
+  const jiraVersions = useMemo(
+    () => asArray(domainMetadataQuery.data?.jira?.versions).filter((version) => !version.archived),
+    [domainMetadataQuery.data?.jira?.versions]
+  );
   const emptyDraft = useMemo(() => createEmptyIssueDraft(defaultIssueStatus), [defaultIssueStatus]);
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
+  const [activeBugDeliveryPrefill, setActiveBugDeliveryPrefill] = useState<DeliveryScopePrefillInput | null>(null);
+  const appliedBugDeliveryPrefillRef = useRef<{ key: string; release: string; sprint: string } | null>(null);
   const seededIssueDraftKeyRef = useRef("");
   const closedIssueIdRef = useRef("");
   const [message, setMessage] = useState("");
@@ -561,8 +594,20 @@ export function IssuesPage() {
   });
   const testCaseModulesQuery = useQuery({
     queryKey: ["test-case-modules", projectId, "bug-scope"],
-    queryFn: () => api.testCaseModules.list(),
+    queryFn: () => api.testCaseModules.list({ project_id: projectId }),
     enabled: Boolean(projectId && shouldLoadBugContext),
+    staleTime: 30_000
+  });
+  const requirementIterationsQuery = useQuery({
+    queryKey: ["requirement-iterations", projectId, "bug-scope"],
+    queryFn: () => api.requirementIterations.list({ project_id: projectId }),
+    enabled: Boolean(projectId && shouldLoadBugContext && canViewDeliveryScopes),
+    staleTime: 30_000
+  });
+  const requirementReleasesQuery = useQuery({
+    queryKey: ["requirement-releases", projectId, "bug-scope"],
+    queryFn: () => api.requirementReleases.list({ project_id: projectId }),
+    enabled: Boolean(projectId && shouldLoadBugContext && canViewDeliveryScopes),
     staleTime: 30_000
   });
   const selectedIssueQuery = useQuery({
@@ -595,6 +640,29 @@ export function IssuesPage() {
   const testSuiteItems = asArray(testSuites.data);
   const testCaseModuleItems = asArray(testCaseModulesQuery.data);
   const requirementItems = asArray<Requirement>(requirements.data);
+  const requirementIterationItems = asArray<RequirementIteration>(requirementIterationsQuery.data);
+  const requirementReleaseItems = asArray<RequirementRelease>(requirementReleasesQuery.data);
+  const deliveryScopeCatalog = useMemo<DeliveryScopeCatalogInput>(() => ({
+    releases: requirementReleaseItems,
+    iterations: requirementIterationItems,
+    jiraVersions,
+    jiraSprints
+  }), [jiraSprints, jiraVersions, requirementIterationItems, requirementReleaseItems]);
+  const resolvedActiveBugDeliveryPrefill = useMemo(
+    () => activeBugDeliveryPrefill
+      ? resolveDeliveryScopePrefill(activeBugDeliveryPrefill, deliveryScopeCatalog)
+      : null,
+    [activeBugDeliveryPrefill, deliveryScopeCatalog]
+  );
+  const { releaseOptions, sprintOptions } = useMemo(
+    () => buildDeliveryScopeOptions({
+      ...deliveryScopeCatalog,
+      currentRelease: draft.release,
+      currentSprint: draft.sprint,
+      includeClosedSprints: true
+    }),
+    [deliveryScopeCatalog, draft.release, draft.sprint]
+  );
   const executionById = useMemo(() => new Map(executionItems.map((execution) => [execution.id, execution])), [executionItems]);
   const testCaseById = useMemo(() => new Map(testCaseItems.map((testCase) => [testCase.id, testCase])), [testCaseItems]);
   const requirementIdsFromTestCases = (testCaseIds: string[]) =>
@@ -1111,16 +1179,53 @@ export function IssuesPage() {
       return;
     }
 
+    const deliveryPrefill = readDeliveryScopePrefill(searchParams);
+    const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
+    const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus);
+    nextDraft.release = resolvedDeliveryPrefill.release || nextDraft.release;
+    nextDraft.sprint = resolvedDeliveryPrefill.sprint || nextDraft.sprint;
+
     setIsCreating(true);
     setSelectedIssueId("");
-    setDraft(createIssueDraftFromQuery(searchParams, defaultIssueStatus));
+    setDraft(nextDraft);
+    setActiveBugDeliveryPrefill(hasDeliveryScopePrefill(deliveryPrefill) ? deliveryPrefill : null);
+    appliedBugDeliveryPrefillRef.current = hasDeliveryScopePrefill(deliveryPrefill)
+      ? { key: deliveryScopePrefillKey(deliveryPrefill), release: nextDraft.release, sprint: nextDraft.sprint }
+      : null;
     setHasAppliedBugContextDefaults(false);
 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("create");
     nextParams.delete("issue");
     setSearchParams(nextParams, { replace: true });
-  }, [defaultIssueStatus, searchParams, setSearchParams]);
+  }, [defaultIssueStatus, deliveryScopeCatalog, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!isCreating || !activeBugDeliveryPrefill || !resolvedActiveBugDeliveryPrefill) return;
+
+    const key = deliveryScopePrefillKey(activeBugDeliveryPrefill);
+    const previousPrefill = appliedBugDeliveryPrefillRef.current;
+    setDraft((current) => {
+      const mayUpdateRelease = !current.release
+        || Boolean(previousPrefill?.key === key && current.release === previousPrefill.release);
+      const mayUpdateSprint = !current.sprint
+        || Boolean(previousPrefill?.key === key && current.sprint === previousPrefill.sprint);
+      const release = mayUpdateRelease && resolvedActiveBugDeliveryPrefill.release
+        ? resolvedActiveBugDeliveryPrefill.release
+        : current.release;
+      const sprint = mayUpdateSprint && resolvedActiveBugDeliveryPrefill.sprint
+        ? resolvedActiveBugDeliveryPrefill.sprint
+        : current.sprint;
+      return release === current.release && sprint === current.sprint
+        ? current
+        : { ...current, release, sprint };
+    });
+    appliedBugDeliveryPrefillRef.current = {
+      key,
+      release: resolvedActiveBugDeliveryPrefill.release,
+      sprint: resolvedActiveBugDeliveryPrefill.sprint
+    };
+  }, [activeBugDeliveryPrefill, isCreating, resolvedActiveBugDeliveryPrefill]);
 
   useEffect(() => {
     if (issues.isLoading || issues.isFetching) {
@@ -1258,6 +1363,8 @@ export function IssuesPage() {
     setIsCreating(true);
     setSelectedIssueId("");
     setDraft(emptyDraft);
+    setActiveBugDeliveryPrefill(null);
+    appliedBugDeliveryPrefillRef.current = null;
     setHasAppliedBugContextDefaults(true);
     setMessage("");
   };
@@ -1268,6 +1375,8 @@ export function IssuesPage() {
     const contextualStatus = String(searchParams.get("status") || "").trim();
     const contextualEnvironment = String(searchParams.get("environment") || "").trim();
     const contextualBuild = String(searchParams.get("build") || "").trim();
+    const deliveryPrefill = readDeliveryScopePrefill(searchParams);
+    const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
     const hasContextualScope = Boolean(
       searchParams.get("run")
       || searchParams.get("testCase")
@@ -1278,6 +1387,7 @@ export function IssuesPage() {
       || searchParams.get("linked_module_ids")
       || searchParams.get("requirement")
       || searchParams.get("linked_requirement_ids")
+      || hasDeliveryScopePrefill(deliveryPrefill)
     );
     setAiDraftPreview(null);
     setIsAiBugEvidenceSetupOpen(false);
@@ -1297,6 +1407,14 @@ export function IssuesPage() {
     setAiLinkedRunId(searchParams.get("run") || "");
     setAiLinkedCaseIds(parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase")));
     setAiLinkedRequirementIds(parseQueryIdList(searchParams.get("linked_requirement_ids"), searchParams.get("requirement")));
+    setActiveBugDeliveryPrefill(hasDeliveryScopePrefill(deliveryPrefill) ? deliveryPrefill : null);
+    appliedBugDeliveryPrefillRef.current = hasDeliveryScopePrefill(deliveryPrefill)
+      ? {
+          key: deliveryScopePrefillKey(deliveryPrefill),
+          release: resolvedDeliveryPrefill.release,
+          sprint: resolvedDeliveryPrefill.sprint
+        }
+      : null;
     setHasAppliedAiBugContextDefaults(false);
     setIsAiBugDraftOpen(true);
   };
@@ -1477,6 +1595,8 @@ export function IssuesPage() {
       environment: candidate.environment,
       build: candidate.build,
       labelsText: candidate.labels.join(", "),
+      sprint: resolvedActiveBugDeliveryPrefill?.sprint || "",
+      release: resolvedActiveBugDeliveryPrefill?.release || "",
       linked_test_run_id: candidate.linked_test_run_id,
       linked_test_case_ids: isHierarchyScopedContext ? [] : candidate.linked_test_case_ids,
       linked_test_suite_ids: parseQueryIdList(searchParams.get("linked_test_suite_ids"), searchParams.get("suite")),
@@ -1658,6 +1778,7 @@ export function IssuesPage() {
     || searchParams.get("linked_module_ids")
     || searchParams.get("requirement")
     || searchParams.get("linked_requirement_ids")
+    || hasDeliveryScopePrefill(readDeliveryScopePrefill(searchParams))
   );
   const normalizedBugReturnLabel = bugReturnLabel.toLowerCase();
   const aiBugExternalLinks = parseExternalLinks(aiExternalLinksText);
@@ -2260,28 +2381,56 @@ export function IssuesPage() {
               {filteredItems.map((item: Issue) => {
                 const issueTone = getTileCardTone(item.status || defaultIssueStatus);
                 const issueStatus = formatTileCardLabel(item.status, "Open");
-
+                const severity = String(item.severity || "").trim().toLowerCase();
+                const priority = String(item.priority || "").trim().toLowerCase();
+                const assigneeLabel = item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "Unassigned";
+                const isAssigned = Boolean(String(item.assignee_id || item.assignee_name || item.assignee_email || "").trim());
+                const evidenceFields = [
+                  item.message,
+                  item.steps_to_reproduce,
+                  item.expected_result,
+                  item.actual_result
+                ];
+                const completedEvidenceFields = evidenceFields.filter((value) => richTextToPlainText(value || "").trim()).length;
+                const evidencePercent = Math.round((completedEvidenceFields / evidenceFields.length) * 100);
+                const triageFields = [item.severity, item.priority, isAssigned ? assigneeLabel : ""];
+                const completedTriageFields = triageFields.filter((value) => String(value || "").trim()).length;
+                const triagePercent = Math.round((completedTriageFields / triageFields.length) * 100);
+                const linkedCaseCount = (item.linked_test_case_ids || []).length;
+                const impactScope = Number(Boolean(item.linked_test_run_id))
+                  + linkedCaseCount
+                  + (item.linked_test_suite_ids || []).length
+                  + (item.linked_module_ids || []).length
+                  + (item.linked_requirement_ids || []).length;
+                const severityTone = ["critical", "high"].includes(severity)
+                  ? "danger"
+                  : ["medium", "major"].includes(severity)
+                    ? "warning"
+                    : severity
+                      ? "info"
+                      : "neutral";
+                const priorityTone = ["highest", "high", "p1"].includes(priority)
+                  ? "danger"
+                  : ["medium", "p2"].includes(priority)
+                    ? "warning"
+                    : priority
+                      ? "info"
+                      : "neutral";
                 return (
                   <article
                     aria-label={`Open Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
                     key={item.id}
                     className={[
-                      "record-card tile-card",
+                      "record-card tile-card issue-catalog-card",
                       selectedIssueId === item.id ? "is-active" : "",
                       selectedActionIssueIdSet.has(item.id) ? "is-selected" : ""
                     ].filter(Boolean).join(" ")}
-                    onClick={() => openIssueWorkspace(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) {
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea")) {
                         return;
                       }
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openIssueWorkspace(item.id);
-                      }
+                      openIssueWorkspace(item.id);
                     }}
-                    role="button"
-                    tabIndex={0}
                   >
                     <div className="tile-card-main">
                       <div className="tile-card-select-row issue-tile-top-row">
@@ -2300,7 +2449,12 @@ export function IssuesPage() {
                         </span>
                       </div>
                       <div className="tile-card-header">
-                        <div className="tile-card-title-group">
+                        <button
+                          aria-current={selectedIssueId === item.id ? "page" : undefined}
+                          className="tile-card-title-group tile-card-open-button"
+                          onClick={() => openIssueWorkspace(item.id)}
+                          type="button"
+                        >
                           <strong>{item.title}</strong>
                           <span className="tile-card-kicker">
                             {[
@@ -2309,15 +2463,57 @@ export function IssuesPage() {
                               item.priority ? `Priority ${formatTileCardLabel(item.priority, "Not set")}` : null
                             ].filter(Boolean).join(" · ") || item.user_name || item.user_email || item.user_id}
                           </span>
-                        </div>
+                        </button>
                         <TileCardStatusIndicator title={issueStatus} tone={issueTone} />
                       </div>
                       <RichTextContent className="tile-card-description" value={item.message} />
+                      <div className="tile-card-progress-stack issue-tile-progress-stack">
+                        <TileCardProgress
+                          displayValue={`${evidencePercent}%`}
+                          label="Evidence completeness"
+                          title={`${completedEvidenceFields} of ${evidenceFields.length} evidence fields completed`}
+                          tone={evidencePercent === 100 ? "success" : evidencePercent >= 50 ? "warning" : "danger"}
+                          value={evidencePercent}
+                        />
+                        <TileCardProgress
+                          displayValue={`${triagePercent}%`}
+                          label="Triage completeness"
+                          title={`${completedTriageFields} of ${triageFields.length} triage fields completed`}
+                          tone={triagePercent === 100 ? "success" : triagePercent >= 67 ? "warning" : "danger"}
+                          value={triagePercent}
+                        />
+                      </div>
+                      <div className="tile-card-metric-grid issue-tile-metrics" aria-label={`${item.title} metrics`}>
+                        <TileCardMetric
+                          label="Severity"
+                          title={`Severity: ${formatTileCardLabel(item.severity, "Not set")}`}
+                          tone={severityTone}
+                          value={formatTileCardLabel(item.severity, "Unset")}
+                        />
+                        <TileCardMetric
+                          label="Priority"
+                          title={`Priority: ${formatTileCardLabel(item.priority, "Not set")}`}
+                          tone={priorityTone}
+                          value={formatTileCardLabel(item.priority, "Unset")}
+                        />
+                        <TileCardMetric
+                          label="Linked scope"
+                          title={`${impactScope} linked run, case, suite, module, or story record${impactScope === 1 ? "" : "s"}; ${linkedCaseCount} linked case${linkedCaseCount === 1 ? "" : "s"}`}
+                          tone={impactScope ? "info" : "neutral"}
+                          value={impactScope}
+                        />
+                        <TileCardMetric
+                          label="Ownership"
+                          title={isAssigned ? `Assigned to ${assigneeLabel}` : "No assignee"}
+                          tone={isAssigned ? "success" : "warning"}
+                          value={isAssigned ? "Assigned" : "Unassigned"}
+                        />
+                      </div>
                       <div className="issue-card-footer">
                         <span className="count-pill">{issueStatus}</span>
                         {item.build ? <span className="count-pill">Build {item.build}</span> : null}
                         {item.linked_test_run_id ? <span className="count-pill">{runLabelById.get(item.linked_test_run_id) || item.linked_test_run_id}</span> : null}
-                        <span className="count-pill">{item.assignee_name || item.assignee_email || assigneeLabelById.get(item.assignee_id || "") || "Unassigned"}</span>
+                        <span className="count-pill">{assigneeLabel}</span>
                       </div>
                     </div>
                   </article>
@@ -2532,13 +2728,17 @@ export function IssuesPage() {
                     <FormField label="Sprint" required={jiraBugCoreRequired.sprint}>
                       <select required={jiraBugCoreRequired.sprint} value={draft.sprint} onChange={(event) => setDraft((current) => ({ ...current, sprint: event.target.value }))}>
                         <option value="">No sprint</option>
-                        {jiraSprints.map((sprint) => <option key={sprint.id} value={sprint.name}>{sprint.name}{sprint.state ? ` · ${sprint.state}` : ""}</option>)}
+                        {sprintOptions.map((option) => (
+                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </FormField>
                     <FormField label="Release / Fix version" required={jiraBugCoreRequired.release}>
                       <select required={jiraBugCoreRequired.release} value={draft.release} onChange={(event) => setDraft((current) => ({ ...current, release: event.target.value }))}>
                         <option value="">No release</option>
-                        {jiraVersions.map((version) => <option key={version.id} value={version.name}>{version.name}{version.released ? " · released" : ""}</option>)}
+                        {releaseOptions.map((option) => (
+                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </FormField>
                   </div>

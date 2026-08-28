@@ -80,16 +80,7 @@ const selectWorkspaceAdminUsers = db.prepare(`
   SELECT users.id
   FROM users
   WHERE users.id != ?
-    AND (
-      COALESCE(users.is_workspace_admin, FALSE) = TRUE
-      OR EXISTS (
-        SELECT 1
-        FROM project_members
-        JOIN roles ON roles.id = project_members.role_id
-        WHERE project_members.user_id = users.id
-          AND LOWER(roles.name) = 'admin'
-      )
-    )
+    AND COALESCE(users.is_workspace_admin, FALSE) = TRUE
   ORDER BY users.id ASC
   LIMIT 1
 `);

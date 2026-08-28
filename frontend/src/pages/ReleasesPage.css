@@ -91,12 +91,50 @@
 .release-tile-browser-grid > .release-iteration-header,
 .release-tile-browser-grid > .release-empty-state,
 .release-tile-browser-grid > .hierarchy-children-state { grid-column: 1 / -1; }
-.release-iteration-header {
-  grid-template-columns: auto auto minmax(16rem, 1fr) auto minmax(34rem, auto) !important;
+.test-case-module-header.requirement-iteration-header.release-iteration-header {
+  grid-template-columns: auto auto minmax(13rem, 1fr) auto minmax(28rem, max-content) !important;
+  align-items: center;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin;
   width: 100%;
 }
 .release-selection-checkbox { align-self: center; margin: 0; }
 .release-iteration-header .release-module-icon { color: #5e4db2; }
+.release-hierarchy-identity,
+.release-hierarchy-identity .requirement-sprint-copy { min-width: 0; max-width: 100%; overflow: hidden; }
+.release-hierarchy-identity .requirement-sprint-copy { display: grid; flex: 1 1 auto; gap: .16rem; }
+.data-table-shell .table-wrap.catalog-table-wrap table.catalog-data-table .test-case-module-header.requirement-iteration-header.release-iteration-header.requirement-iteration-list-header .release-ribbon-copy {
+  display: grid !important;
+  align-items: initial !important;
+  flex-wrap: initial !important;
+  gap: .16rem !important;
+}
+.release-ribbon-title-line { flex-wrap: nowrap; justify-content: flex-start; column-gap: .22rem; }
+.release-ribbon-name-version {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: .14rem;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.release-ribbon-name { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-ribbon-version-separator { flex: 0 0 auto; overflow: visible; color: var(--text-muted); font-size: .76rem; line-height: 1; text-overflow: clip; }
+.release-ribbon-version { flex: 0 0 auto; overflow: visible; color: #5e4db2; font-size: .7rem; font-weight: 750; line-height: 1; text-overflow: clip; }
+.release-ribbon-title-line .requirement-sprint-status { flex: 0 0 auto; margin-inline-start: 0; }
+.release-ribbon-schedule { flex-wrap: nowrap; }
+.release-ribbon-description { display: block; width: fit-content; max-inline-size: min(32ch, 100%); overflow: hidden; font-size: .68rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.release-date-range { font-variant-numeric: tabular-nums; }
+.release-iteration-header > .release-hierarchy-actions { grid-column: 4 !important; }
+.release-iteration-header > .hierarchy-quick-insights { min-width: 0; grid-column: 5 !important; justify-self: stretch; }
+.release-iteration-header .hierarchy-quick-insights-grid { flex-wrap: nowrap; justify-content: flex-start; }
+.release-iteration-header .hierarchy-quick-insight { flex: 0 1 auto; }
 .release-iteration-header .requirement-sprint-status { text-transform: capitalize; }
 .release-iteration-header .requirement-sprint-status.is-overdue {
   border-color: color-mix(in srgb, #c9372c 34%, transparent);
@@ -107,11 +145,19 @@
 .release-hierarchy-actions .ghost-button:not(.release-ribbon-action),
 .release-hierarchy-actions .release-external-action { display: inline-grid; width: 1.72rem; min-width: 1.72rem; height: 1.72rem; min-height: 1.72rem; padding: 0; place-items: center; }
 .release-hierarchy-actions .release-external-action { text-decoration: none; }
-.release-hierarchy-actions .release-ribbon-action { display: inline-grid; width: 2.1rem; min-width: 2.1rem; height: 2.1rem; min-height: 2.1rem; place-items: center; padding: .2rem; overflow: visible; border-radius: 9px; }
-.release-hierarchy-actions .release-readiness-button { color: var(--brand-blue-600); background: color-mix(in srgb, var(--brand-blue-500) 8%, transparent); }
+.release-hierarchy-actions .release-ribbon-action { display: inline-grid; width: 2.25rem; min-width: 2.25rem; height: 2.25rem; min-height: 2.25rem; place-items: center; padding: .2rem; overflow: visible; border-radius: 9px; }
+.release-hierarchy-actions .release-readiness-button { width: 2.3rem; min-width: 2.3rem; height: 2.3rem; min-height: 2.3rem; color: var(--brand-blue-600); background: color-mix(in srgb, var(--brand-blue-500) 8%, transparent); }
 .release-hierarchy-actions .release-notes-button { color: #5e4db2; background: color-mix(in srgb, #6e5dc6 9%, transparent); }
 .release-hierarchy-actions .release-notes-icon { display: block; width: 1.45rem; height: 1.45rem; object-fit: contain; }
-.release-hierarchy-actions .release-readiness-icon { display: block; width: 1.45rem; height: 1.45rem; transform: none; }
+.release-hierarchy-actions .release-readiness-icon { transform: none; }
+.data-table-shell .table-wrap.catalog-table-wrap table.catalog-data-table .release-iteration-header.requirement-iteration-list-header > .release-hierarchy-actions > .release-readiness-button {
+  width: 2.3rem !important;
+  min-width: 2.3rem !important;
+  height: 2.3rem !important;
+  min-height: 2.3rem !important;
+  background: color-mix(in srgb, var(--brand-blue-500) 8%, transparent) !important;
+  color: var(--brand-blue-600) !important;
+}
 .release-story-tile { cursor: pointer; }
 .release-story-tile-top-row { grid-template-columns: minmax(0, 1fr) auto auto !important; }
 .release-story-scope,
@@ -131,8 +177,7 @@
 .release-plan-panel > .data-table-shell { min-width: 0; }
 
 @media (max-width: 1450px) {
-  .release-iteration-header { grid-template-columns: auto auto minmax(14rem, 1fr) auto !important; }
-  .release-iteration-header > .hierarchy-quick-insights { grid-column: 1 / -1; justify-self: stretch; }
+  .test-case-module-header.requirement-iteration-header.release-iteration-header { grid-template-columns: auto auto minmax(11rem, 1fr) auto minmax(27rem, max-content) !important; }
 }
 
 .release-notes-backdrop { backdrop-filter: blur(6px); }
@@ -184,6 +229,8 @@
 .release-create-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem; padding: 0 1.25rem; }
 .release-create-dialog .release-create-grid { padding: 0; }
 .release-create-grid label { display: grid; gap: .35rem; color: var(--text-muted); font-size: .8rem; }
+.release-create-grid .form-field-label { display: inline-flex; width: fit-content; align-items: center; gap: 0; }
+.release-create-grid .form-field-required-marker { display: inline; margin-left: 2px; color: #c9372c; }
 .release-create-grid label.is-wide { grid-column: 1 / -1; }
 .release-create-grid .form-field.is-wide { grid-column: 1 / -1; }
 .release-description-field .rich-text-editor-surface { min-height: 9rem; }

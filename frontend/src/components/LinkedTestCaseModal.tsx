@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useDialogFocus } from "../hooks/useDialogFocus";
@@ -10,7 +10,17 @@ import {
   canViewAutomationCode as resolveCanViewAutomationCode
 } from "../lib/automationAccess";
 import { buildCaseAutomationCode } from "../lib/stepAutomation";
-import { collectStepParameters, combineStepParameterValues, filterStepParameterValues, normalizeStepParameterValues } from "../lib/stepParameters";
+import {
+  buildDataSetParameterDefinitions,
+  buildDataSetParameterValues,
+  collectStepParameters,
+  combineStepParameterValues,
+  filterStepParameterValues,
+  mergeStepParameterDefinitions,
+  normalizeStepParameterValues,
+  resolveStepParameterText
+} from "../lib/stepParameters";
+import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate } from "../lib/testDataGenerators";
 import type { Requirement, TestCase, TestSuite } from "../types";
 import { Panel } from "./Panel";
 import { StatusBadge } from "./StatusBadge";
@@ -21,6 +31,7 @@ import { RichTextContent } from "./RichTextEditor";
 import { DialogCloseButton } from "./DialogCloseButton";
 import { LoadingState } from "./LoadingState";
 import { CollapseExpandIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
+import { GherkinEditor } from "./GherkinEditor";
 
 const linkedCaseHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -34,6 +45,8 @@ const normalizeCaseParameterPreviewValues = (values?: TestCase["parameter_values
 
 const normalizeSuiteParameterPreviewValues = (values?: TestSuite["parameter_values"]) =>
   normalizeStepParameterValues((values || {}) as Record<string, string>, "s");
+
+const ignoreReadOnlyGherkinChange = () => undefined;
 
 const formatLinkedHistoryDate = (value?: string | null) => {
   if (!value) {
@@ -73,6 +86,8 @@ export function LinkedTestCaseModal({
   });
   const [isParameterDialogOpen, setIsParameterDialogOpen] = useState(false);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
+  const [parameterPreviewRevision, setParameterPreviewRevision] = useState(0);
+  const parameterPreviewCacheRef = useRef<Map<string, string>>(new Map());
   const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string } | null>(null);
 
   const testCaseDetailQuery = useQuery({
@@ -117,19 +132,78 @@ export function LinkedTestCaseModal({
   );
   const steps = asArray(stepsQuery.data);
   const history = asArray(historyQuery.data);
-  const detectedParameters = useMemo(
-    () =>
-      collectStepParameters(
-        steps.map((step) => ({
-          id: step.id,
-          action: step.action,
-          expected_result: step.expected_result,
-          automation_code: canViewAutomationCode ? step.automation_code : null,
-          api_request: canViewAutomationCode ? step.api_request : null
-        }))
-      ),
-    [canViewAutomationCode, steps]
+  const linkedDataSetId = resolvedTestCase.test_data_set_ids?.[0] || "";
+  const linkedDataSet = resolvedTestCase.test_data_sets?.find((dataSet) => dataSet.id === linkedDataSetId)
+    || resolvedTestCase.test_data_sets?.[0]
+    || null;
+  const linkedDataSetDefaultParameterValues = useMemo(
+    () => buildDataSetParameterValues(linkedDataSet),
+    [linkedDataSet]
   );
+  const linkedDataSetParameterDefinitions = useMemo(
+    () => buildDataSetParameterDefinitions(linkedDataSet, linkedDataSet?.name),
+    [linkedDataSet]
+  );
+  const caseParameterOverrides = useMemo(
+    () => normalizeCaseParameterPreviewValues(resolvedTestCase.parameter_values),
+    [resolvedTestCase.parameter_values]
+  );
+  const hasGherkinDocument = resolvedTestCase.authoring_mode === "gherkin" && Boolean(resolvedTestCase.gherkin_document?.trim());
+  const detectedParameters = useMemo(
+    () => mergeStepParameterDefinitions(
+      collectStepParameters(
+        [
+          ...steps.map((step) => ({
+            id: step.id,
+            action: step.action,
+            expected_result: step.expected_result,
+            automation_code: canViewAutomationCode ? step.automation_code : null,
+            api_request: canViewAutomationCode ? step.api_request : null
+          })),
+          ...(hasGherkinDocument ? [{
+            id: `${resolvedTestCase.id}:gherkin`,
+            action: resolvedTestCase.gherkin_document || "",
+            expected_result: "",
+            automation_code: null,
+            api_request: null
+          }] : [])
+        ]
+      ).map((parameter) => ({ ...parameter, source: "authoring" as const })),
+      linkedDataSetParameterDefinitions
+    ),
+    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
+  );
+  const resolvedParameterValues = useMemo(() => {
+    const cache = parameterPreviewCacheRef.current;
+    const scopeKey = `${resolvedTestCase.id}\u0000${linkedDataSetId || "no-data-set"}`;
+    const activeCacheKeys = new Set<string>();
+    const resolved = Object.entries(parameterValues).reduce<Record<string, string>>((next, [name, value]) => {
+      if (!hasTestDataGeneratorTemplate(value)) {
+        next[name] = value;
+        return next;
+      }
+
+      const cacheKey = `${scopeKey}\u0000${name}\u0000${value}`;
+      activeCacheKeys.add(cacheKey);
+      if (!cache.has(cacheKey)) {
+        cache.set(cacheKey, evaluateTestDataTemplate(value));
+      }
+      next[name] = cache.get(cacheKey) || "";
+      return next;
+    }, {});
+
+    Array.from(cache.keys()).forEach((cacheKey) => {
+      if (!activeCacheKeys.has(cacheKey)) cache.delete(cacheKey);
+    });
+
+    return resolved;
+  }, [linkedDataSetId, parameterPreviewRevision, parameterValues, resolvedTestCase.id]);
+  const refreshParameterPreviews = () => {
+    parameterPreviewCacheRef.current.clear();
+    setParameterPreviewRevision((current) => current + 1);
+  };
+  const resolvedTestCaseTitle = resolveStepParameterText(resolvedTestCase.title, resolvedParameterValues);
+  const resolvedTestCaseDescription = resolveStepParameterText(resolvedTestCase.description, resolvedParameterValues);
   const stepSummary = steps.length
     ? `Starts with: ${steps[0]?.action || steps[0]?.expected_result || "No step preview yet."}`
     : "No steps added yet for this reusable test case.";
@@ -140,8 +214,14 @@ export function LinkedTestCaseModal({
     <div className="step-parameter-dialog-context">
       <div className="step-parameter-dialog-context-card">
         <strong>Scope guide</strong>
-        <span>`@t` previews test-case data and `@s` previews the values saved on the active suite context for this workspace.</span>
+        <span>`@t` shows Test Params and `@s` shows the values saved on the active suite context for this workspace.</span>
       </div>
+      {linkedDataSet ? (
+        <div className="step-parameter-dialog-context-card">
+          <strong>Inherited Data Set</strong>
+          <span>{linkedDataSet.name} · values come from its first row and remain read-only in this linked view.</span>
+        </div>
+      ) : null}
       {selectedSuite ? (
         <div className="step-parameter-dialog-context-card">
           <strong>Suite context</strong>
@@ -159,6 +239,7 @@ export function LinkedTestCaseModal({
     });
     setIsParameterDialogOpen(false);
     setCodePreviewState(null);
+    parameterPreviewCacheRef.current.clear();
   }, [selectedSuite?.id, testCase.id]);
 
   useEffect(() => {
@@ -174,6 +255,11 @@ export function LinkedTestCaseModal({
 
     setParameterValues(
       combineStepParameterValues(
+        buildDataSetParameterValues(
+          canonicalTestCase.test_data_sets?.find((dataSet) => dataSet.id === canonicalTestCase.test_data_set_ids?.[0])
+            || canonicalTestCase.test_data_sets?.[0]
+            || null
+        ),
         normalizeCaseParameterPreviewValues(canonicalTestCase.parameter_values),
         normalizeSuiteParameterPreviewValues(selectedSuite?.parameter_values)
       )
@@ -182,6 +268,8 @@ export function LinkedTestCaseModal({
     canonicalTestCase?.id,
     canonicalTestCase?.parameter_values,
     canonicalTestCase?.revision,
+    canonicalTestCase?.test_data_set_ids,
+    canonicalTestCase?.test_data_sets,
     canonicalTestCase?.updated_at,
     selectedSuite?.id,
     selectedSuite?.parameter_values,
@@ -207,7 +295,7 @@ export function LinkedTestCaseModal({
     <>
       <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
         <div
-          aria-label={`Test case workspace for ${resolvedTestCase.title}`}
+          aria-label={`Test case workspace for ${resolvedTestCaseTitle}`}
           aria-modal="true"
           className="modal-card suite-test-case-editor-modal linked-test-case-modal linked-test-case-workspace-modal"
           onClick={(event) => event.stopPropagation()}
@@ -225,16 +313,16 @@ export function LinkedTestCaseModal({
                         className="ghost-button"
                         disabled={!canonicalTestCase}
                         onClick={() => canonicalTestCase && setIsParameterDialogOpen(true)}
-                        title={isTestCaseDetailLoading ? "Loading complete test data" : isTestCaseDetailUnavailable ? "Complete test data could not be loaded" : "Preview test data"}
+                        title={isTestCaseDetailLoading ? "Loading complete Test Params" : isTestCaseDetailUnavailable ? "Complete Test Params could not be loaded" : "Preview Test Params"}
                         type="button"
                       >
                         <TestDataIcon size={16} />
                         <span>
                           {isTestCaseDetailLoading
-                            ? "Loading test data…"
+                            ? "Loading Test Params…"
                             : isTestCaseDetailUnavailable
-                              ? "Test data unavailable"
-                              : detectedParameters.length ? `Test data · ${detectedParameters.length}` : "Test data"}
+                              ? "Test Params unavailable"
+                              : detectedParameters.length ? `Test Params · ${detectedParameters.length}` : "Test Params"}
                         </span>
                       </button>
                       <DialogCloseButton label="Close test case workspace" onClick={onClose} />
@@ -247,13 +335,13 @@ export function LinkedTestCaseModal({
                     <div className="detail-summary linked-test-case-identity">
                       <TestCaseIcon size={16} strokeWidth={1.8} />
                       <div>
-                        <strong>{resolvedTestCase.title || "Untitled test case"}</strong>
+                        <strong>{resolvedTestCaseTitle || "Untitled test case"}</strong>
                         <span>{projectName || "No project"} · {appTypeName || "No app type"}</span>
                       </div>
                     </div>
                     {isTestCaseDetailLoading ? (
                       <LoadingState
-                        description="Retrieving canonical metadata before test data preview is enabled."
+                        description="Retrieving canonical metadata before the Test Params preview is enabled."
                         label="Loading complete test case details"
                       />
                     ) : null}
@@ -268,7 +356,7 @@ export function LinkedTestCaseModal({
                         countLabel={resolvedTestCase.status || "draft"}
                         isExpanded={expandedSections.details}
                         onToggle={() => setExpandedSections((current) => ({ ...current, details: !current.details }))}
-                        summary={resolvedTestCase.title || "Untitled test case"}
+                        summary={resolvedTestCaseTitle || "Untitled test case"}
                         title="Selected test case"
                       >
                         <div className="stack-list">
@@ -288,7 +376,7 @@ export function LinkedTestCaseModal({
                           <div className="stack-item">
                             <div>
                               <strong>Description</strong>
-                              <RichTextContent value={resolvedTestCase.description} fallback="No description available for this reusable test case." />
+                              <RichTextContent value={resolvedTestCaseDescription} fallback="No description available for this reusable test case." />
                             </div>
                           </div>
                           <div className="stack-item">
@@ -315,7 +403,7 @@ export function LinkedTestCaseModal({
                       <LinkedTestCaseSection
                         actions={canPreviewAutomationCode ? (
                           <button className="ghost-button" disabled={!steps.length} onClick={() => setCodePreviewState({
-                            title: `${resolvedTestCase.title || "Test case"} automation`,
+                            title: `${resolvedTestCaseTitle || "Test case"} automation`,
                             subtitle: "This consolidated view is read-only. Edit automation from the original test case workspace.",
                             code: buildCaseAutomationCode(resolvedTestCase.title || "Test case", steps)
                           })} type="button">
@@ -323,13 +411,22 @@ export function LinkedTestCaseModal({
                             <span>Automation code</span>
                           </button>
                         ) : undefined}
-                        countLabel={`${steps.length} step${steps.length === 1 ? "" : "s"}`}
+                        countLabel={hasGherkinDocument ? "Gherkin" : `${steps.length} step${steps.length === 1 ? "" : "s"}`}
                         isExpanded={expandedSections.steps}
                         onToggle={() => setExpandedSections((current) => ({ ...current, steps: !current.steps }))}
-                        summary={stepSummary}
-                        title="Test steps"
+                        summary={hasGherkinDocument ? "Read the saved Background, Scenarios, and Examples with resolved Test Params." : stepSummary}
+                        title={hasGherkinDocument ? "Gherkin specification" : "Test steps"}
                       >
-                        <div className="stack-list">
+                        {hasGherkinDocument ? (
+                          <GherkinEditor
+                            compact
+                            featureTitle={resolvedTestCaseTitle}
+                            onChange={ignoreReadOnlyGherkinChange}
+                            parameterValues={resolvedParameterValues}
+                            readOnly
+                            value={resolvedTestCase.gherkin_document || ""}
+                          />
+                        ) : <div className="stack-list">
                           {stepsQuery.isLoading ? <LoadingState label="Loading steps" /> : null}
                           {!stepsQuery.isLoading && steps.map((step) => (
                             <div className="stack-item" key={step.id}>
@@ -338,18 +435,18 @@ export function LinkedTestCaseModal({
                                 <StepParameterizedText
                                   fallback="No action"
                                   text={step.action}
-                                  values={parameterValues}
+                                  values={resolvedParameterValues}
                                 />
                                 <StepParameterizedText
                                   fallback="No expected result"
                                   text={step.expected_result}
-                                  values={parameterValues}
+                                  values={resolvedParameterValues}
                                 />
                               </div>
                             </div>
                           ))}
                           {!stepsQuery.isLoading && !steps.length ? <div className="empty-state compact">No steps are attached to this test case yet.</div> : null}
-                        </div>
+                        </div>}
                       </LinkedTestCaseSection>
 
                       <LinkedTestCaseSection
@@ -394,17 +491,17 @@ export function LinkedTestCaseModal({
 
       {isParameterDialogOpen && canonicalTestCase ? (
         <StepParameterDialog
+          defaultValues={linkedDataSetDefaultParameterValues}
+          getInputState={() => ({ disabled: true })}
           headerContent={parameterDialogHeaderContent}
-          onChange={(name, value) =>
-            setParameterValues((current) => ({
-              ...current,
-              [name]: value
-            }))
-          }
+          onChange={ignoreReadOnlyGherkinChange}
           onClose={() => setIsParameterDialogOpen(false)}
+          onRefreshPreviews={refreshParameterPreviews}
+          overrideValues={caseParameterOverrides}
           parameters={detectedParameters}
-          subtitle="Preview local case and suite-scoped values referenced by this reusable test case."
-          title="Test data"
+          previewValues={resolvedParameterValues}
+          subtitle="Review materialized Test Params inherited from the linked Data Set and saved Test Case overrides."
+          title="Test Params"
           values={parameterValues}
         />
       ) : null}

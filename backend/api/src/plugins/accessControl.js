@@ -41,19 +41,9 @@ const getCurrentUser = async (id) => {
 
   const { is_workspace_admin, ...rest } = user;
 
-  const roleRow = await db.prepare(`
-    SELECT EXISTS (
-      SELECT 1
-      FROM project_members
-      JOIN roles ON roles.id = project_members.role_id
-      WHERE project_members.user_id = ?
-        AND LOWER(roles.name) = 'admin'
-    ) AS has_admin_membership
-  `).get(id);
-
   return {
     ...rest,
-    role: is_workspace_admin || roleRow?.has_admin_membership ? "admin" : "member"
+    role: is_workspace_admin ? "admin" : "member"
   };
 };
 
@@ -94,6 +84,13 @@ const enforceApiKeyScope = (req) => {
 
   if (!apiKeyService.isScopeAllowed(req.apiKey.scope, permissionCode, req.method)) {
     throw createError("API key scope does not allow this endpoint.", 403);
+  }
+};
+
+const enforceApiKeyPermissionScope = (req, permissionCode) => {
+  if (!req.apiKey) return;
+  if (!apiKeyService.isScopeAllowed(req.apiKey.scope, permissionCode, req.method)) {
+    throw createError(`API key scope does not allow permission: ${permissionCode}`, 403);
   }
 };
 
@@ -186,16 +183,31 @@ async function accessControlPlugin(fastify) {
 
   fastify.decorate("requirePermission", (permissionCode, options = {}) => async (req) => {
     await fastify.authenticate(req);
+    enforceApiKeyPermissionScope(req, permissionCode);
 
-    const projectId = typeof options.projectId === "function"
+    let projectId = typeof options.projectId === "function"
       ? options.projectId(req)
       : options.projectId || req.params?.project_id || req.params?.projectId || req.body?.project_id || req.query?.project_id || null;
+
+    if (!projectId) {
+      const appTypeId = req.params?.app_type_id
+        || req.params?.appTypeId
+        || req.body?.app_type_id
+        || req.query?.app_type_id
+        || null;
+      if (appTypeId) {
+        const appType = await db.prepare("SELECT project_id FROM app_types WHERE id = ?").get(appTypeId);
+        projectId = appType?.project_id || null;
+      }
+    }
 
     const allowed = await permissionService.hasPermission(req.user, permissionCode, projectId);
 
     if (!allowed) {
       throw createError(`Permission required: ${permissionCode}`, 403);
     }
+
+    await enforceFeatureFlagAccess(req, permissionCode);
   });
 
   fastify.addHook("onRoute", (routeOptions) => {
@@ -225,7 +237,6 @@ async function accessControlPlugin(fastify) {
         }
 
         await fastify.requirePermission(permissionCode)(req);
-        await enforceFeatureFlagAccess(req, permissionCode);
       };
 
       routeOptions.preHandler = [

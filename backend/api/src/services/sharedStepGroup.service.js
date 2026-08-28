@@ -2,6 +2,7 @@ const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const displayIdService = require("./displayId.service");
+const mobileFeatureService = require("./mobileFeature.service");
 const {
   normalizeApiRequest,
   normalizeRichText,
@@ -147,7 +148,7 @@ const ensureAppTypeExists = async (appTypeId) => {
   return appType;
 };
 
-exports.listSharedStepGroups = async ({ app_type_id } = {}) => {
+exports.listSharedStepGroups = async ({ app_type_id, project_id } = {}) => {
   const resolvedAppTypeId = normalizeText(app_type_id);
   let query = `
     SELECT *
@@ -159,6 +160,11 @@ exports.listSharedStepGroups = async ({ app_type_id } = {}) => {
   if (resolvedAppTypeId) {
     query += ` AND app_type_id = ?`;
     params.push(resolvedAppTypeId);
+  }
+
+  if (project_id) {
+    query += ` AND app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)`;
+    params.push(project_id);
   }
 
   query += ` ORDER BY updated_at DESC, name ASC`;
@@ -173,7 +179,7 @@ exports.getSharedStepGroup = async (id) => {
   const group = await selectSharedStepGroup.get(id);
 
   if (!group) {
-    throw new Error("Shared step group not found");
+    throw new Error("Shared Step Group not found");
   }
 
   const usageRows = await selectSharedStepGroupUsageRows.all();
@@ -183,10 +189,11 @@ exports.getSharedStepGroup = async (id) => {
 
 exports.createSharedStepGroup = async ({ app_type_id, name, description, steps = [], parameter_values = {}, created_by }) => {
   const appType = await ensureAppTypeExists(app_type_id);
+  await mobileFeatureService.assertAuthoringMobileFeatureEnabled({ app_type_id: appType.id, payload: steps });
   const resolvedName = normalizeText(name);
 
   if (!resolvedName) {
-    throw new Error("Shared step group name is required");
+    throw new Error("Shared Step Group name is required");
   }
 
   const id = uuid();
@@ -211,10 +218,14 @@ exports.createSharedStepGroup = async ({ app_type_id, name, description, steps =
 exports.updateSharedStepGroup = async (id, data = {}) => {
   const existing = await exports.getSharedStepGroup(id);
   const resolvedAppType = await ensureAppTypeExists(data.app_type_id || existing.app_type_id);
+  await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
+    app_type_id: resolvedAppType.id,
+    payload: data.steps !== undefined ? data.steps : existing.steps
+  });
   const resolvedName = normalizeText(data.name) || existing.name;
 
   if (!resolvedName) {
-    throw new Error("Shared step group name is required");
+    throw new Error("Shared Step Group name is required");
   }
 
   await updateSharedStepGroup.run(

@@ -51,6 +51,58 @@ INSERT INTO requirements (id, project_id, title, description, priority, status) 
 ('req7', 'p1', 'Sync & Conflict', 'Offline sync and conflict resolution', 1, 'active'),
 ('req8', 'p1', 'Backend Validation', 'Backend data validation and closure', 1, 'active');
 
+-- Native delivery scope keeps the Release/Sprint selectors useful in a fresh
+-- sample workspace and exercises the same persisted ids and labels used by
+-- Story, Bug, and Run creation.
+INSERT INTO requirement_iterations (
+  id, display_id, project_id, name, description, goal, state,
+  start_date, end_date, created_by, updated_by
+) VALUES (
+  'iter_seed_1',
+  'ITER-1',
+  'p1',
+  'Mobile Readiness Sprint',
+  'Validate the critical mobile maintenance journey for the next release.',
+  'Complete the mobile critical path and resolve release-blocking defects.',
+  'active',
+  CURRENT_TIMESTAMP - INTERVAL '7 days',
+  CURRENT_TIMESTAMP + INTERVAL '7 days',
+  'u1',
+  'u1'
+);
+
+UPDATE requirements
+SET
+  iteration_id = 'iter_seed_1',
+  sprint = 'Mobile Readiness Sprint',
+  release = 'Mobile Maintenance 2026.1',
+  fix_version = '2026.1'
+WHERE id IN ('req1', 'req2', 'req3', 'req4');
+
+INSERT INTO requirement_releases (
+  id, display_id, project_id, name, description, fix_version,
+  plan_date, target_date, state, sprint_ids, created_by, updated_by
+) VALUES (
+  'release_seed_1',
+  'REL-1',
+  'p1',
+  'Mobile Maintenance 2026.1',
+  'Seeded release scope for the SAP PM mobile critical path.',
+  '2026.1',
+  CURRENT_TIMESTAMP - INTERVAL '7 days',
+  CURRENT_TIMESTAMP + INTERVAL '14 days',
+  'in_progress',
+  '["iter_seed_1"]'::jsonb,
+  'u1',
+  'u1'
+);
+
+INSERT INTO requirement_release_items (release_id, requirement_id, source) VALUES
+('release_seed_1', 'req1', 'sprint'),
+('release_seed_1', 'req2', 'sprint'),
+('release_seed_1', 'req3', 'sprint'),
+('release_seed_1', 'req4', 'sprint');
+
 -- =========================
 -- TEST SUITES (8 suites × 5 app types = 40 suites total)
 -- =========================
@@ -493,6 +545,10 @@ INSERT INTO executions (id, project_id, app_type_id, name, trigger, status, crea
 ('exec_unified_1', 'p1', 'a5', 'Unified - Cross Platform', 'manual', 'completed', 'u1', CURRENT_TIMESTAMP - INTERVAL '3 days', CURRENT_TIMESTAMP - INTERVAL '3 days' + INTERVAL '5 hours'),
 ('exec_unified_2', 'p1', 'a5', 'Unified - End-to-End', 'manual', 'completed', 'u2', CURRENT_TIMESTAMP - INTERVAL '1 day', CURRENT_TIMESTAMP - INTERVAL '1 day' + INTERVAL '4 hours');
 
+UPDATE executions
+SET release = '2026.1', sprint = 'Mobile Readiness Sprint'
+WHERE id IN ('exec_web_3', 'exec_android_3');
+
 -- =========================
 -- EXECUTION SUITES (Link suites to executions)
 -- =========================
@@ -561,6 +617,13 @@ INSERT INTO feedback (id, project_id, user_id, title, message, status) VALUES
 ('fb1', 'p1', 'u1', 'Bulk import flow', 'Would love a CSV import for requirements and test cases.', 'open'),
 ('fb2', 'p1', 'u2', 'Execution notes', 'A dedicated notes area during execution would help triage faster.', 'reviewed'),
 ('fb3', 'p1', 'u1', 'Mobile sync optimization', 'Sync performance needs improvement for large datasets.', 'open');
+
+UPDATE feedback
+SET
+  sprint = 'Mobile Readiness Sprint',
+  fix_version = '2026.1',
+  release = '2026.1'
+WHERE id = 'fb3';
 
 -- =========================
 -- RUNTIME SEED ENHANCEMENTS
@@ -753,6 +816,7 @@ UPDATE test_cases
 SET
   display_id = 'TC_' || ordered_cases.seq,
   parameter_values = COALESCE(parameter_values, '{}'::jsonb),
+  author_id = COALESCE(author_id, created_by, 'u1'),
   created_by = COALESCE(created_by, 'u1'),
   updated_by = COALESCE(updated_by, 'u1'),
   updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
@@ -782,7 +846,7 @@ VALUES (
   'SG-1',
   'a1',
   'Reusable portal login',
-  'Starter shared group for the main web portal authentication path.',
+  'Starter Shared Step Group for the main web portal authentication path.',
   '[
     {"step_order":1,"action":"Open web portal","expected_result":"Login page displayed","step_type":"web","automation_code":null,"api_request":null},
     {"step_order":2,"action":"Enter credentials","expected_result":"Credentials accepted","step_type":"web","automation_code":null,"api_request":null},
@@ -809,7 +873,7 @@ VALUES (
   ]'::jsonb
 );
 
-INSERT INTO test_configurations (id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, variables)
+INSERT INTO test_configurations (id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, targets, variables)
 VALUES (
   'cfg_web_1',
   'p1',
@@ -819,6 +883,11 @@ VALUES (
   'Chrome',
   NULL,
   NULL,
+  '[
+    {"id":"cfg-web-windows-chrome","os":"Windows","browser":"Chrome","mobile_os":"","version":"latest"},
+    {"id":"cfg-web-macos-firefox","os":"macOS","browser":"Firefox","mobile_os":"","version":"latest"},
+    {"id":"cfg-mobile-android-14","os":"","browser":"","mobile_os":"Android","version":"14"}
+  ]'::jsonb,
   '[
     {"key":"viewport","value":"1440x900"},
     {"key":"locale","value":"en-US"}
@@ -839,6 +908,9 @@ VALUES (
     {"username":"planner.qa","password":"demo-pass","orderId":"PM-1002"}
   ]'::jsonb
 );
+
+INSERT INTO test_case_data_sets (test_case_id, test_data_set_id, sort_order)
+VALUES ('tc_web_1_1', 'tds_web_1', 1);
 
 UPDATE executions
 SET
@@ -866,6 +938,11 @@ SET
     "browser":"Chrome",
     "mobile_os":null,
     "platform_version":null,
+    "targets":[
+      {"id":"cfg-web-windows-chrome","os":"Windows","browser":"Chrome","mobile_os":"","version":"latest"},
+      {"id":"cfg-web-macos-firefox","os":"macOS","browser":"Firefox","mobile_os":"","version":"latest"},
+      {"id":"cfg-mobile-android-14","os":"","browser":"","mobile_os":"Android","version":"14"}
+    ],
     "variables":[
       {"key":"viewport","value":"1440x900"},
       {"key":"locale","value":"en-US"}
@@ -899,6 +976,8 @@ INSERT INTO execution_schedules (
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  release,
+  sprint,
   assigned_to,
   created_by,
   is_active
@@ -915,6 +994,8 @@ VALUES (
   'env_web_1',
   'cfg_web_1',
   'tds_web_1',
+  '2026.1',
+  'Mobile Readiness Sprint',
   'u2',
   'u1',
   TRUE

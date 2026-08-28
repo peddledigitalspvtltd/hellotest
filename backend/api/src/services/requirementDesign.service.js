@@ -586,7 +586,8 @@ exports.acceptGeneratedTestCases = async ({
   requirements,
   appType,
   status = "draft",
-  cases = []
+  cases = [],
+  created_by
 }) => {
   const scopedRequirements = uniqueById(requirements);
   const acceptedCases = normalizeAcceptedCases(cases, scopedRequirements);
@@ -608,7 +609,8 @@ exports.acceptGeneratedTestCases = async ({
       authoring_mode: candidate.authoring_mode,
       gherkin_document: candidate.gherkin_document,
       parameter_values: candidate.parameter_values,
-      steps: candidate.steps
+      steps: candidate.steps,
+      created_by
     });
 
     created.push({
@@ -629,12 +631,14 @@ exports.acceptRequirementTestCases = async ({
   requirement,
   appType,
   status = "draft",
-  cases = []
+  cases = [],
+  created_by
 }) => {
   return exports.acceptGeneratedTestCases({
     requirements: [requirement],
     appType,
     status,
+    created_by,
     cases: cases.map((candidate) => ({
       ...candidate,
       requirement_ids: [requirement.id]
@@ -670,6 +674,7 @@ exports.generateRequirementTestCases = async ({
     requirement,
     appType,
     status,
+    created_by: user_id,
     cases: preview.cases
   });
 

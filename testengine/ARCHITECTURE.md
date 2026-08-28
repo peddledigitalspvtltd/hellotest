@@ -192,7 +192,7 @@ Use canonical case JSON as the base context:
 
 Then attach only targeted extras:
 
-- shared step pack only for referenced shared groups
+- Shared Step Group pack only for referenced Shared Step Groups
 - locator memory only for the current case version
 - failing step plus one step before and after for repair
 - DOM digest instead of full HTML first

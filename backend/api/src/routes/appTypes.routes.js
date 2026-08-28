@@ -17,6 +17,7 @@ module.exports = async function (fastify) {
 
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("app_type.manage", { projectId: req.body.project_id })(req);
 
     return service.createAppType(req.body);
   });
@@ -30,6 +31,11 @@ module.exports = async function (fastify) {
     // If filtering by project, verify access
     if (project_id) {
       await projectService.getProject(project_id, req.user.id);
+      await fastify.requirePermission("app_type.view", { projectId: project_id })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id is required when listing application scopes");
+      error.statusCode = 400;
+      throw error;
     }
     
     return service.getAppTypes(project_id);
@@ -42,6 +48,7 @@ module.exports = async function (fastify) {
     const appType = await service.getAppType(req.params.id);
     // Verify user is member of the app type's project
     await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("app_type.view", { projectId: appType.project_id })(req);
     return appType;
   });
 
@@ -58,6 +65,7 @@ module.exports = async function (fastify) {
     const appType = await service.getAppType(req.params.id);
     // Verify user is member of the app type's project
     await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("app_type.manage", { projectId: appType.project_id })(req);
     
     return service.updateAppType(req.params.id, req.body);
   });
@@ -69,6 +77,7 @@ module.exports = async function (fastify) {
     const appType = await service.getAppType(req.params.id);
     // Verify user is member of the app type's project
     await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("app_type.manage", { projectId: appType.project_id })(req);
     return service.deleteAppType(req.params.id);
   });
 

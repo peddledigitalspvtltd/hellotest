@@ -1,1 +1,0 @@
-import{j as s}from"./index-B58ZrtSA.js";import{D as o}from"./DisplayIdBadge-BXfPfi9-.js";function m({icon:t,value:a,href:e,title:i,className:n=""}){return s.jsxs("span",{className:["entity-id-badge",n].filter(Boolean).join(" "),children:[t,s.jsx(o,{href:e,title:i,value:a})]})}export{m as E};

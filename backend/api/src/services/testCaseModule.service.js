@@ -17,7 +17,7 @@ const normalizeTextList = (values = []) => {
 };
 
 const selectAppType = db.prepare(`
-  SELECT id
+  SELECT id, project_id
   FROM app_types
   WHERE id = ?
 `);
@@ -34,6 +34,12 @@ const selectCase = db.prepare(`
   WHERE id = ?
 `);
 
+const selectRequirement = db.prepare(`
+  SELECT id, project_id
+  FROM requirements
+  WHERE id = ?
+`);
+
 const selectModuleCaseIds = db.prepare(`
   SELECT test_case_id
   FROM test_case_module_cases
@@ -41,8 +47,20 @@ const selectModuleCaseIds = db.prepare(`
   ORDER BY sort_order ASC, test_case_id ASC
 `);
 
+const selectModuleRequirementIds = db.prepare(`
+  SELECT requirement_id
+  FROM test_case_module_requirements
+  WHERE module_id = ?
+  ORDER BY sort_order ASC, requirement_id ASC
+`);
+
 const deleteModuleCases = db.prepare(`
   DELETE FROM test_case_module_cases
+  WHERE module_id = ?
+`);
+
+const deleteModuleRequirements = db.prepare(`
+  DELETE FROM test_case_module_requirements
   WHERE module_id = ?
 `);
 
@@ -59,18 +77,31 @@ const insertModuleCase = db.prepare(`
       sort_order = EXCLUDED.sort_order
 `);
 
+const insertModuleRequirement = db.prepare(`
+  INSERT INTO test_case_module_requirements (module_id, requirement_id, sort_order)
+  VALUES (?, ?, ?)
+  ON CONFLICT (module_id, requirement_id) DO UPDATE
+  SET sort_order = EXCLUDED.sort_order
+`);
+
 const hydrateModule = async (module) => {
   if (!module) {
     return module;
   }
 
+  const [caseRows, requirementRows] = await Promise.all([
+    selectModuleCaseIds.all(module.id),
+    selectModuleRequirementIds.all(module.id)
+  ]);
+
   return {
     ...module,
-    test_case_ids: (await selectModuleCaseIds.all(module.id)).map((row) => row.test_case_id)
+    test_case_ids: caseRows.map((row) => row.test_case_id),
+    requirement_ids: requirementRows.map((row) => row.requirement_id)
   };
 };
 
-const parseTestCaseIds = (value) => {
+const parseStoredIds = (value) => {
   if (Array.isArray(value)) {
     return value;
   }
@@ -89,7 +120,8 @@ const parseTestCaseIds = (value) => {
 
 const hydrateModuleListRow = (module) => ({
   ...module,
-  test_case_ids: parseTestCaseIds(module.test_case_ids)
+  test_case_ids: parseStoredIds(module.test_case_ids),
+  requirement_ids: parseStoredIds(module.requirement_ids)
 });
 
 const ensureAppTypeExists = async (appTypeId) => {
@@ -122,7 +154,21 @@ const ensureCasesMatchAppType = async (caseIds, appTypeId) => {
   }
 };
 
-exports.listModules = async ({ app_type_id } = {}) => {
+const ensureRequirementsMatchProject = async (requirementIds, projectId) => {
+  for (const requirementId of requirementIds) {
+    const requirement = await selectRequirement.get(requirementId);
+
+    if (!requirement) {
+      throw new Error(`Requirement not found: ${requirementId}`);
+    }
+
+    if (requirement.project_id !== projectId) {
+      throw new Error("Requirement must belong to the same project as the module");
+    }
+  }
+};
+
+exports.listModules = async ({ app_type_id, project_id } = {}) => {
   let query = `
     SELECT
       test_case_modules.*,
@@ -131,7 +177,18 @@ exports.listModules = async ({ app_type_id } = {}) => {
         jsonb_agg(test_case_module_cases.test_case_id ORDER BY test_case_module_cases.sort_order ASC)
           FILTER (WHERE test_case_module_cases.test_case_id IS NOT NULL),
         '[]'::jsonb
-      ) AS test_case_ids
+      ) AS test_case_ids,
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            test_case_module_requirements.requirement_id
+            ORDER BY test_case_module_requirements.sort_order ASC, test_case_module_requirements.requirement_id ASC
+          )
+          FROM test_case_module_requirements
+          WHERE test_case_module_requirements.module_id = test_case_modules.id
+        ),
+        '[]'::jsonb
+      ) AS requirement_ids
     FROM test_case_modules
     LEFT JOIN test_case_module_cases ON test_case_module_cases.module_id = test_case_modules.id
     WHERE 1 = 1
@@ -141,6 +198,11 @@ exports.listModules = async ({ app_type_id } = {}) => {
   if (app_type_id) {
     query += ` AND test_case_modules.app_type_id = ?`;
     params.push(app_type_id);
+  }
+
+  if (project_id) {
+    query += ` AND test_case_modules.app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)`;
+    params.push(project_id);
   }
 
   query += `
@@ -180,7 +242,7 @@ exports.getModuleCases = async (moduleId) => {
   }));
 };
 
-exports.createModule = async ({ app_type_id, name, description, test_case_ids = [], created_by } = {}) => {
+exports.createModule = async ({ app_type_id, name, description, test_case_ids = [], requirement_ids = [], created_by } = {}) => {
   const appType = await ensureAppTypeExists(app_type_id);
   const normalizedName = normalizeText(name);
 
@@ -189,7 +251,9 @@ exports.createModule = async ({ app_type_id, name, description, test_case_ids = 
   }
 
   const caseIds = normalizeTextList(test_case_ids);
+  const requirementIds = normalizeTextList(requirement_ids);
   await ensureCasesMatchAppType(caseIds, appType.id);
+  await ensureRequirementsMatchProject(requirementIds, appType.project_id);
 
   const id = uuid();
   const displayId = await displayIdService.createDisplayId("test_case_module");
@@ -204,6 +268,10 @@ exports.createModule = async ({ app_type_id, name, description, test_case_ids = 
     for (const [index, testCaseId] of caseIds.entries()) {
       await deleteCaseModuleMembership.run(testCaseId);
       await insertModuleCase.run(id, testCaseId, index + 1);
+    }
+
+    for (const [index, requirementId] of requirementIds.entries()) {
+      await insertModuleRequirement.run(id, requirementId, index + 1);
     }
   });
 
@@ -221,9 +289,15 @@ exports.updateModule = async (id, data = {}) => {
   }
 
   const caseIds = data.test_case_ids !== undefined ? normalizeTextList(data.test_case_ids) : null;
+  const requirementIds = data.requirement_ids !== undefined ? normalizeTextList(data.requirement_ids) : null;
 
   if (caseIds) {
     await ensureCasesMatchAppType(caseIds, existing.app_type_id);
+  }
+
+  if (requirementIds !== null) {
+    const appType = await ensureAppTypeExists(existing.app_type_id);
+    await ensureRequirementsMatchProject(requirementIds, appType.project_id);
   }
 
   const transaction = db.transaction(async () => {
@@ -244,6 +318,14 @@ exports.updateModule = async (id, data = {}) => {
       for (const [index, testCaseId] of caseIds.entries()) {
         await deleteCaseModuleMembership.run(testCaseId);
         await insertModuleCase.run(id, testCaseId, index + 1);
+      }
+    }
+
+    if (requirementIds !== null) {
+      await deleteModuleRequirements.run(id);
+
+      for (const [index, requirementId] of requirementIds.entries()) {
+        await insertModuleRequirement.run(id, requirementId, index + 1);
       }
     }
   });
@@ -294,6 +376,7 @@ exports.deleteModule = async (id) => {
 
   const transaction = db.transaction(async () => {
     await deleteModuleCases.run(id);
+    await deleteModuleRequirements.run(id);
     await db.prepare(`
       DELETE FROM test_case_modules
       WHERE id = ?

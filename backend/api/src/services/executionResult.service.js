@@ -153,27 +153,65 @@ exports.createExecutionResult = async (data) => {
 
 
 // Get Results (with filters)
-exports.getExecutionResults = async ({ execution_id, test_case_id, app_type_id }) => {
+exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, app_type_id, run_limit, limit }) => {
 
-  let query = `SELECT * FROM execution_results WHERE 1=1`;
+  let query = `
+    SELECT execution_results.*
+    FROM execution_results
+    ${project_id ? "JOIN executions ON executions.id = execution_results.execution_id" : ""}
+    WHERE 1=1
+  `;
   const params = [];
 
+  if (project_id) {
+    query += ` AND executions.project_id = ?`;
+    params.push(project_id);
+  }
+
   if (execution_id) {
-    query += ` AND execution_id = ?`;
+    query += ` AND execution_results.execution_id = ?`;
     params.push(execution_id);
   }
 
   if (test_case_id) {
-    query += ` AND test_case_id = ?`;
+    query += ` AND execution_results.test_case_id = ?`;
     params.push(test_case_id);
   }
 
   if (app_type_id) {
-    query += ` AND app_type_id = ?`;
+    query += ` AND execution_results.app_type_id = ?`;
     params.push(app_type_id);
   }
 
-  query += ` ORDER BY created_at DESC`;
+  if (run_limit && !execution_id) {
+    const recentRunConditions = [];
+    const recentRunParams = [];
+    if (project_id) {
+      recentRunConditions.push("recent_executions.project_id = ?");
+      recentRunParams.push(project_id);
+    }
+    if (app_type_id) {
+      recentRunConditions.push("recent_executions.app_type_id = ?");
+      recentRunParams.push(app_type_id);
+    }
+    query += `
+      AND execution_results.execution_id IN (
+        SELECT recent_executions.id
+        FROM executions recent_executions
+        ${recentRunConditions.length ? `WHERE ${recentRunConditions.join(" AND ")}` : ""}
+        ORDER BY COALESCE(recent_executions.ended_at, recent_executions.started_at, recent_executions.created_at) DESC
+        LIMIT ?
+      )
+    `;
+    params.push(...recentRunParams, run_limit);
+  }
+
+  query += ` ORDER BY execution_results.created_at DESC`;
+
+  if (limit) {
+    query += ` LIMIT ?`;
+    params.push(limit);
+  }
 
   const rows = await db.prepare(query).all(...params);
   return rows.map((row) => ({

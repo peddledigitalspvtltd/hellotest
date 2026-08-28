@@ -13,6 +13,7 @@ const {
 } = require("../utils/testStepAutomation");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { materializeTemplateValue } = require("../utils/testDataGenerators");
+const { configurationTargetsForRead } = require("../utils/configurationTargets");
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
@@ -56,7 +57,7 @@ const selectObjectRepositoryEntries = obsDb.prepare(`
 `);
 
 const selectExecutionCaseIds = db.prepare(`
-  SELECT test_case_id
+  SELECT test_case_id, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source
   FROM execution_case_snapshots
   WHERE execution_id = ?
 `);
@@ -89,10 +90,10 @@ const selectLatestResultsForExecution = db.prepare(`
 `);
 
 const selectLatestJobStatusesForExecution = obsDb.prepare(`
-  SELECT DISTINCT ON (test_case_id) test_case_id, status
+  SELECT test_case_id, status
   FROM test_engine_jobs
   WHERE execution_id = ?
-  ORDER BY test_case_id ASC, created_at DESC, id DESC
+  ORDER BY test_case_id ASC, created_at ASC, id ASC
 `);
 
 const selectLatestLogsForExecution = db.prepare(`
@@ -937,6 +938,26 @@ const toEngineDataSetRows = (rows) => {
     );
 };
 
+const resolveCaseDataSetContext = (execution, caseSnapshot) => {
+  const caseSnapshotData = normalizeJsonValue(caseSnapshot?.test_data_set_snapshot, null);
+
+  if (caseSnapshotData || caseSnapshot?.test_data_set_id) {
+    return {
+      id: caseSnapshot?.test_data_set_id || caseSnapshotData?.id || null,
+      name: caseSnapshot?.test_data_set_name || caseSnapshotData?.name || "Deleted data set",
+      snapshot: caseSnapshotData,
+      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+    };
+  }
+
+  return execution?.test_data_set
+    ? {
+        ...execution.test_data_set,
+        source: "run"
+      }
+    : null;
+};
+
 const resolveEngineStepType = (stepType, appTypeKind) => {
   const normalized = normalizeTestStepType(stepType, null);
 
@@ -1014,14 +1035,26 @@ const buildEngineEnvelope = async ({
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
     : {};
+  const configurationSnapshot = execution.test_configuration?.snapshot || {};
+  const configurationTargets = configurationTargetsForRead(configurationSnapshot.targets, configurationSnapshot);
+  const appTypeKind = normalizeText(appType?.type || execution.app_type_type)?.toLowerCase();
+  const isMobileTarget = appTypeKind === "android" || appTypeKind === "ios";
+  const selectedConfigurationTarget = isMobileTarget
+    ? configurationTargets.find((target) => normalizeText(target.mobile_os)?.toLowerCase() === appTypeKind)
+      || configurationTargets.find((target) => normalizeText(target.mobile_os))
+      || configurationTargets[0]
+    : configurationTargets.find((target) => normalizeText(target.browser))
+      || configurationTargets[0];
   const resolvedBrowser = normalizeEngineBrowser(
-    execution.test_configuration?.snapshot?.browser
+    selectedConfigurationTarget?.browser
+    || configurationSnapshot.browser
     || execution.test_environment?.snapshot?.browser
     || integrationConfig.browser
     || "chromium",
     "chromium"
   );
   const executionPolicy = await resolveExecutionPolicy(execution, caseSnapshot);
+  const caseDataSet = resolveCaseDataSetContext(execution, caseSnapshot);
 
   return {
     engine_run_id: engineRunId,
@@ -1079,11 +1112,12 @@ const buildEngineEnvelope = async ({
       appium_server_url: normalizeText(integrationConfig.appium_server_url) || null,
       cloud_provider: normalizeText(integrationConfig.mobile_cloud_provider) || null,
       device_name:
-        normalizeText(execution.test_configuration?.snapshot?.device_name)
+        normalizeText(configurationSnapshot.device_name)
         || normalizeText(integrationConfig.device_name)
         || null,
       platform_version:
-        normalizeText(execution.test_configuration?.snapshot?.platform_version)
+        normalizeText(selectedConfigurationTarget?.version)
+        || normalizeText(configurationSnapshot.platform_version)
         || normalizeText(integrationConfig.platform_version)
         || null,
       app: normalizeText(integrationConfig.android_app) || normalizeText(integrationConfig.app) || null
@@ -1121,23 +1155,26 @@ const buildEngineEnvelope = async ({
     configuration: execution.test_configuration
       ? {
           name: execution.test_configuration.name,
-          browser: execution.test_configuration.snapshot?.browser || null,
-          mobile_os: execution.test_configuration.snapshot?.mobile_os || null,
-          platform_version: execution.test_configuration.snapshot?.platform_version || null,
+          os: selectedConfigurationTarget?.os || null,
+          browser: selectedConfigurationTarget?.browser || configurationSnapshot.browser || null,
+          mobile_os: selectedConfigurationTarget?.mobile_os || configurationSnapshot.mobile_os || null,
+          platform_version: selectedConfigurationTarget?.version || configurationSnapshot.platform_version || null,
+          targets: configurationTargets,
           variables: toEngineKeyValueEntries(execution.test_configuration.snapshot?.variables)
         }
       : null,
-    data_set: execution.test_data_set
+    data_set: caseDataSet
       ? {
-          id: execution.test_data_set.id || null,
-          name: execution.test_data_set.name,
-          mode: execution.test_data_set.snapshot?.mode === "key_value" ? "key_value" : "table",
-          columns: Array.isArray(execution.test_data_set.snapshot?.columns)
-            ? execution.test_data_set.snapshot.columns.map((entry) => String(entry))
+          id: caseDataSet.id || null,
+          name: caseDataSet.name,
+          source: caseDataSet.source,
+          mode: caseDataSet.snapshot?.mode === "key_value" ? "key_value" : "table",
+          columns: Array.isArray(caseDataSet.snapshot?.columns)
+            ? caseDataSet.snapshot.columns.map((entry) => String(entry))
             : [],
           rows: dataSetIteration?.row
             ? [dataSetIteration.row]
-            : toEngineDataSetRows(execution.test_data_set.snapshot?.rows),
+            : toEngineDataSetRows(caseDataSet.snapshot?.rows),
           iteration: dataSetIteration ? {
             index: dataSetIteration.index,
             number: dataSetIteration.index + 1,
@@ -1304,6 +1341,18 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
     });
   }
 
+  if (envelope.data_set?.source === "test_case") {
+    Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
+      const normalizedKey = normalizeText(String(key || "").replace(/^@+/, ""))?.toLowerCase();
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
+    });
+  }
+
   return {
     ...values,
     ...normalizeCapturedValuesRecord(capturedValues)
@@ -1322,8 +1371,8 @@ const resultStatusToJobStatus = (status) => {
   return "failed";
 };
 
-const resolveExecutionDataSetIterations = (execution) => {
-  const dataSet = execution?.test_data_set;
+const resolveExecutionDataSetIterations = (execution, caseSnapshot) => {
+  const dataSet = resolveCaseDataSetContext(execution, caseSnapshot);
   const rows = toEngineDataSetRows(dataSet?.snapshot?.rows);
   if (!dataSet || dataSet.snapshot?.mode === "key_value" || !rows.length) {
     return [{ index: 0, key: dataSet ? `${dataSet.id || "data-set"}:1` : "default:1", total: 1, row: null }];
@@ -1377,9 +1426,8 @@ async function planExecutionDispatch(execution, options = {}) {
   const allowIncompleteAutomation = options.allowIncompleteAutomation === true;
   const allowApiCasesWithoutAutomation = options.allowApiCasesWithoutAutomation === true;
 
-  const dataSetIterations = resolveExecutionDataSetIterations(execution);
-
   for (const caseSnapshot of execution.case_snapshots || []) {
+    const dataSetIterations = resolveExecutionDataSetIterations(execution, caseSnapshot);
     const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
     const rawSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
     const appTypeKind = appType?.type || null;
@@ -1474,32 +1522,40 @@ async function planExecutionDispatch(execution, options = {}) {
 }
 
 async function settleExecutionIfComplete(executionId) {
-  const requiredCaseIds = new Set(
-    (await selectExecutionCaseIds.all(executionId))
-      .map((row) => normalizeText(row.test_case_id))
-      .filter(Boolean)
-  );
+  const requiredCases = (await selectExecutionCaseIds.all(executionId))
+    .filter((row) => normalizeText(row.test_case_id));
 
-  if (!requiredCaseIds.size) {
+  if (!requiredCases.length) {
     return;
   }
 
   const latestResults = await selectLatestResultsForExecution.all(executionId);
   const executionContext = await selectExecutionDataSetContext.get(executionId);
-  const dataSetSnapshot = normalizeJsonValue(executionContext?.test_data_set_snapshot, null);
-  const dataSetRows = dataSetSnapshot?.mode === "table" && Array.isArray(dataSetSnapshot?.rows)
-    ? dataSetSnapshot.rows
-    : [];
-  const iterationIndexes = executionContext?.test_data_set_id
-    ? dataSetRows.length ? dataSetRows.map((_row, index) => index) : [0]
-    : [-1];
+  const legacyDataSetSnapshot = normalizeJsonValue(executionContext?.test_data_set_snapshot, null);
+  const legacyExecution = executionContext?.test_data_set_id || legacyDataSetSnapshot
+    ? {
+        test_data_set: {
+          id: executionContext?.test_data_set_id || legacyDataSetSnapshot?.id || null,
+          name: legacyDataSetSnapshot?.name || "Deleted data set",
+          snapshot: legacyDataSetSnapshot
+        }
+      }
+    : null;
   const latestStatusByIteration = new Map(latestResults.map((result) => [
     `${normalizeText(result.test_case_id)}:${Number.isInteger(result.data_set_iteration_index) ? result.data_set_iteration_index : -1}`,
     normalizeText(result.status)
   ]));
-  const requiredIterationKeys = [...requiredCaseIds].flatMap((testCaseId) =>
-    iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`)
-  );
+  const requiredIterationKeys = requiredCases.flatMap((caseSnapshot) => {
+    const testCaseId = normalizeText(caseSnapshot.test_case_id);
+    const dataSet = resolveCaseDataSetContext(legacyExecution, caseSnapshot);
+    const rows = dataSet?.snapshot?.mode === "table" && Array.isArray(dataSet.snapshot.rows)
+      ? dataSet.snapshot.rows
+      : [];
+    const iterationIndexes = dataSet
+      ? rows.length ? rows.map((_row, index) => index) : [0]
+      : [-1];
+    return iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`);
+  });
 
   if (
     requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))
@@ -1784,7 +1840,8 @@ async function queueSingleStepDispatch({
   integration,
   initiatedBy,
   capturedValues = {},
-  existingLogs = null
+  existingLogs = null,
+  dataSetIteration = null
 } = {}) {
   if (!execution || !caseSnapshot || !stepSnapshot) {
     throw new Error("Execution, test case, and step snapshots are required for step handoff");
@@ -1826,7 +1883,7 @@ async function queueSingleStepDispatch({
   const objectRepository = await listObjectRepositoryForEnvelope({
     projectId: execution.project_id,
     appTypeId: execution.app_type_id,
-    testCaseId
+    testCaseId: caseSnapshot.test_case_id
   });
   const envelope = await buildEngineEnvelope({
     engineRunId,
@@ -1836,7 +1893,8 @@ async function queueSingleStepDispatch({
     caseSnapshot,
     steps: [step],
     integration,
-    objectRepository
+    objectRepository,
+    dataSetIteration
   });
   const activeWebEngine = envelope.web_engine?.active || "playwright";
   const orchestrationClass = resolveOrchestrationClass([step], appType?.type || "web");
@@ -2011,24 +2069,30 @@ const arePriorCasesComplete = async (executionId, testCaseId, suiteId, suiteScop
     return true;
   }
 
-  const latestStatuses = new Map(
-    toRowArray(await selectLatestResultsForExecution.all(executionId)).map((row) => [row.test_case_id, row.status])
-  );
-  const latestJobStatuses = new Map(
-    toRowArray(await selectLatestJobStatusesForExecution.all(executionId)).map((row) => [row.test_case_id, row.status])
-  );
+  const latestStatuses = new Map();
+  toRowArray(await selectLatestResultsForExecution.all(executionId)).forEach((row) => {
+    const statuses = latestStatuses.get(row.test_case_id) || [];
+    statuses.push(row.status);
+    latestStatuses.set(row.test_case_id, statuses);
+  });
+  const latestJobStatuses = new Map();
+  toRowArray(await selectLatestJobStatusesForExecution.all(executionId)).forEach((row) => {
+    const statuses = latestJobStatuses.get(row.test_case_id) || [];
+    statuses.push(row.status);
+    latestJobStatuses.set(row.test_case_id, statuses);
+  });
 
   return priorIds.every((priorId) => {
-    const resultStatus = latestStatuses.get(priorId);
+    const jobStatuses = latestJobStatuses.get(priorId) || [];
 
-    if (resultStatus) {
-      return isFinalResultStatus(resultStatus);
+    if (jobStatuses.length) {
+      return jobStatuses.every((status) => isFinalJobStatus(status));
     }
 
-    const jobStatus = latestJobStatuses.get(priorId);
+    const resultStatuses = latestStatuses.get(priorId) || [];
 
-    if (jobStatus) {
-      return isFinalJobStatus(jobStatus);
+    if (resultStatuses.length) {
+      return resultStatuses.every((status) => isFinalResultStatus(status));
     }
 
     return true;

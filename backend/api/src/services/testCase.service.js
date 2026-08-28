@@ -2,6 +2,7 @@ const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const testSuiteService = require("./testSuite.service");
 const sharedStepSyncService = require("./sharedStepSync.service");
+const mobileFeatureService = require("./mobileFeature.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const notificationService = require("./notification.service");
 const testCaseVersionService = require("./testCaseVersion.service");
@@ -56,6 +57,12 @@ const selectUser = db.prepare(`
   SELECT id, name, email
   FROM users
   WHERE id = ?
+`);
+
+const selectProjectMember = db.prepare(`
+  SELECT user_id
+  FROM project_members
+  WHERE project_id = ? AND user_id = ?
 `);
 
 const selectTestDataSet = db.prepare(`
@@ -116,16 +123,17 @@ const insertTestCaseRecord = db.prepare(`
     review_status,
     review_history,
     ai_quality_score,
+    author_id,
     created_by,
     updated_by,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, author_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -196,6 +204,12 @@ const deleteStepsForTestCase = db.prepare(`
   WHERE test_case_id = ?
 `);
 
+const selectStepsForTestCase = db.prepare(`
+  SELECT step_type
+  FROM test_steps
+  WHERE test_case_id = ?
+`);
+
 const deleteTestCaseRecord = db.prepare(`
   DELETE FROM test_cases
   WHERE id = ?
@@ -246,7 +260,7 @@ const hydrateTestCases = async (testCases) => {
       ORDER BY automation_test_case_id ASC, is_primary DESC, created_at ASC, manual_test_case_id ASC
     `).all(...ids),
     db.prepare(`
-      SELECT mapping.test_case_id, mapping.test_data_set_id, data_set.name, data_set.mode, data_set.columns, data_set.rows
+      SELECT mapping.test_case_id, mapping.test_data_set_id, data_set.app_type_id, data_set.name, data_set.description, data_set.mode, data_set.columns, data_set.rows
       FROM test_case_data_sets AS mapping
       JOIN test_data_sets AS data_set ON data_set.id = mapping.test_data_set_id
       WHERE mapping.test_case_id IN (${placeholders})
@@ -255,7 +269,7 @@ const hydrateTestCases = async (testCases) => {
     db.prepare(`
       SELECT test_cases.id AS test_case_id, users.id, users.name, users.email
       FROM test_cases
-      LEFT JOIN users ON users.id = test_cases.created_by
+      LEFT JOIN users ON users.id = COALESCE(test_cases.author_id, test_cases.created_by)
       WHERE test_cases.id IN (${placeholders})
     `).all(...ids)
   ]);
@@ -273,6 +287,7 @@ const hydrateTestCases = async (testCases) => {
     labels: normalizeStoredReferenceList(testCase.labels),
     parameter_values: normalizeParameterValues(testCase.parameter_values),
     review_history: normalizeReviewHistory(testCase.review_history),
+    author_id: testCase.author_id || testCase.created_by || null,
     suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
     requirement_ids: (requirementsByCase.get(testCase.id) || []).map((row) => row.requirement_id),
     module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
@@ -281,7 +296,9 @@ const hydrateTestCases = async (testCases) => {
     test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
     test_data_sets: (dataSetsByCase.get(testCase.id) || []).map((row) => ({
       id: row.test_data_set_id,
+      app_type_id: row.app_type_id,
       name: row.name,
+      description: row.description,
       mode: row.mode,
       columns: Array.isArray(row.columns) ? row.columns : [],
       rows: Array.isArray(row.rows) ? row.rows : []
@@ -447,7 +464,7 @@ const normalizeAiQualityScore = (value) => {
   return Math.round(numeric);
 };
 
-const ensureReviewerExists = async (reviewerId) => {
+const ensureReviewerExists = async (reviewerId, projectId = null) => {
   const normalizedReviewerId = normalizeText(reviewerId);
 
   if (!normalizedReviewerId) {
@@ -460,7 +477,38 @@ const ensureReviewerExists = async (reviewerId) => {
     throw new Error("Reviewer not found");
   }
 
+  if (projectId && !(await selectProjectMember.get(projectId, normalizedReviewerId))) {
+    const error = new Error("Reviewer must be a member of the test case project");
+    error.statusCode = 400;
+    throw error;
+  }
+
   return reviewer;
+};
+
+const ensureAuthorExists = async (authorId, projectId = null) => {
+  const normalizedAuthorId = normalizeText(authorId);
+  const rejectAuthor = (message) => {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  };
+
+  if (!normalizedAuthorId) {
+    rejectAuthor("Test case author is required");
+  }
+
+  const author = await selectUser.get(normalizedAuthorId);
+
+  if (!author) {
+    rejectAuthor("Author not found");
+  }
+
+  if (projectId && !(await selectProjectMember.get(projectId, normalizedAuthorId))) {
+    rejectAuthor("Author must be a member of the test case project");
+  }
+
+  return author;
 };
 
 const notifyReviewer = async ({ reviewer_id, test_case_id, display_id, title, project_id, actor_id }) => {
@@ -779,7 +827,7 @@ const normalizeImportedActionPrefixKind = (value) => {
     return null;
   }
 
-  if (normalized === "shared" || normalized === "sharedgroup" || normalized === "sharedsteps" || normalized === "reusable") {
+  if (normalized === "shared" || normalized === "sharedgroup" || normalized === "sharedstepgroup" || normalized === "sharedsteps" || normalized === "reusable") {
     return "reusable";
   }
 
@@ -790,7 +838,7 @@ const normalizeImportedActionPrefixKind = (value) => {
   return null;
 };
 
-const IMPORTED_ACTION_PREFIX_PATTERN = /^\[(shared|sharedgroup|shared steps|group|grouped|local)\s*:\s*([^\]]+)\]\s*(.*)$/i;
+const IMPORTED_ACTION_PREFIX_PATTERN = /^\[(shared step group|shared steps|sharedgroup|shared|group|grouped|local)\s*:\s*([^\]]+)\]\s*(.*)$/i;
 
 const parseImportedActionLine = (value) => {
   const normalized = normalizeText(value);
@@ -910,11 +958,11 @@ const buildStepsFromImportRow = (row, options = {}) => {
       const matches = sharedGroupLookup[normalizeComparableText(groupName)] || [];
 
       if (!matches.length) {
-        throw new Error(`Shared step group not found: ${groupName}`);
+        throw new Error(`Shared Step Group not found: ${groupName}`);
       }
 
       if (matches.length > 1) {
-        throw new Error(`Multiple shared step groups match "${groupName}". Rename duplicates before importing.`);
+        throw new Error(`Multiple Shared Step Groups match "${groupName}". Rename duplicates before importing.`);
       }
 
       reusableGroupId = matches[0].id;
@@ -1001,6 +1049,11 @@ const syncRequirementMappings = async (testCaseId, requirementIds = []) => {
 
 const ensureDataSetsExist = async (dataSetIds, projectId, appTypeId) => {
   const normalizedIds = normalizeTextList(dataSetIds);
+  if (normalizedIds.length > 1) {
+    const error = new Error("A test case can link to only one test data set");
+    error.statusCode = 400;
+    throw error;
+  }
   for (const dataSetId of normalizedIds) {
     const dataSet = await selectTestDataSet.get(dataSetId);
     if (!dataSet) throw new Error(`Test data set not found: ${dataSetId}`);
@@ -1051,6 +1104,7 @@ const createPersistablePayload = async ({
   review_status,
   review_history,
   ai_quality_score,
+  author_id,
   created_by,
   updated_by
 }) => {
@@ -1076,7 +1130,17 @@ const createPersistablePayload = async ({
   resolvedAppTypeId = await ensureSuitesMatchAppType(resolvedSuiteIds, resolvedAppTypeId);
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
   await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
-  await ensureReviewerExists(resolvedReviewerId);
+  const resolvedCreatorId = normalizeText(created_by);
+
+  if (!resolvedCreatorId) {
+    const error = new Error("Test case creator is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const resolvedAuthorId = normalizeText(author_id) || resolvedCreatorId;
+  await ensureAuthorExists(resolvedAuthorId, resolvedAppType?.project_id || null);
+  await ensureReviewerExists(resolvedReviewerId, resolvedAppType?.project_id || null);
   const resolvedDataSetIds = await ensureDataSetsExist(test_data_set_ids, resolvedAppType?.project_id || null, resolvedAppTypeId);
 
   const normalizedSteps = normalizeSteps(steps);
@@ -1130,8 +1194,9 @@ const createPersistablePayload = async ({
     review_status: resolvedReviewStatus,
     review_history: normalizeReviewHistory(review_history),
     ai_quality_score: normalizeAiQualityScore(ai_quality_score),
-    created_by: normalizeText(created_by),
-    updated_by: normalizeText(updated_by) || normalizeText(created_by)
+    author_id: resolvedAuthorId,
+    created_by: resolvedCreatorId,
+    updated_by: normalizeText(updated_by) || resolvedCreatorId
   };
 };
 
@@ -1165,6 +1230,7 @@ const createOne = db.transaction(async (payload) => {
     payload.review_status,
     payload.review_history,
     payload.ai_quality_score,
+    payload.author_id,
     payload.created_by,
     payload.updated_by
   );
@@ -1196,6 +1262,10 @@ const createOne = db.transaction(async (payload) => {
 
 exports.createTestCase = async (input) => {
   const payload = await createPersistablePayload(input);
+  await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
+    app_type_id: payload.app_type_id,
+    payload: payload.steps
+  });
   const response = await createOne(payload);
   const sharedGroupTargets = payload.steps
     .filter((step) => step.reusable_group_id && step.group_id)
@@ -1229,7 +1299,7 @@ exports.createTestCase = async (input) => {
       display_id: response.display_id,
       title: payload.title,
       project_id: payload.project_id,
-      actor_id: payload.created_by
+      actor_id: payload.updated_by
     });
   }
 
@@ -1251,6 +1321,10 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
   }
 
   const appType = await ensureAppTypeExists(resolvedAppTypeId);
+  await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
+    app_type_id: resolvedAppTypeId,
+    payload: { batches: normalizedBatches, rows }
+  });
   const totalRowCount = normalizedBatches.reduce((count, batch) => count + batch.rows.length, 0);
   const uniqueSources = [...new Set(normalizedBatches.map((batch) => batch.import_source))];
   const isSingleBatch = normalizedBatches.length === 1;
@@ -1504,7 +1578,7 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
   return response;
 };
 
-exports.getTestCases = async ({ suite_id, requirement_id, module_id, unassigned_module = false, status, app_type_id }) => {
+exports.getTestCases = async ({ project_id, suite_id, requirement_id, module_id, unassigned_module = false, status, app_type_id }) => {
   let query = `
     WITH ranked_test_cases AS (
       SELECT
@@ -1546,6 +1620,11 @@ exports.getTestCases = async ({ suite_id, requirement_id, module_id, unassigned_
     params.push(app_type_id);
   }
 
+  if (project_id) {
+    where.push(`test_cases.app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)`);
+    params.push(project_id);
+  }
+
   if (requirement_id) {
     where.push(`requirement_test_cases.requirement_id = ?`);
     params.push(requirement_id);
@@ -1584,6 +1663,35 @@ exports.getTestCases = async ({ suite_id, requirement_id, module_id, unassigned_
   );
 };
 
+exports.getTestCasesForRequirements = async ({ app_type_id, requirement_ids = [] } = {}) => {
+  const appTypeId = normalizeText(app_type_id);
+  const requirementIds = normalizeTextList(requirement_ids);
+
+  if (!appTypeId) {
+    throw new Error("app_type_id is required");
+  }
+
+  if (!requirementIds.length) {
+    return [];
+  }
+
+  const placeholders = placeholdersFor(requirementIds);
+  const rows = await db.prepare(`
+    SELECT test_cases.*
+    FROM test_cases
+    WHERE test_cases.app_type_id = ?
+      AND EXISTS (
+        SELECT 1
+        FROM requirement_test_cases
+        WHERE requirement_test_cases.test_case_id = test_cases.id
+          AND requirement_test_cases.requirement_id IN (${placeholders})
+      )
+    ORDER BY COALESCE(test_cases.updated_at, test_cases.created_at) DESC, test_cases.created_at DESC
+  `).all(appTypeId, ...requirementIds);
+
+  return hydrateTestCases(rows);
+};
+
 exports.getTestCase = async (id) => {
   const testCase = await db.prepare(`
     SELECT *
@@ -1613,7 +1721,7 @@ exports.updateTestCase = async (id, data) => {
       : existing.requirement_ids || [];
   const requestedDataSetIds = data.test_data_set_ids !== undefined
     ? normalizeTextList(data.test_data_set_ids)
-    : existing.test_data_set_ids || [];
+    : (existing.test_data_set_ids || []).slice(0, 1);
 
   let resolvedAppTypeId = normalizeText(data.app_type_id) || existing.app_type_id || null;
 
@@ -1622,8 +1730,19 @@ exports.updateTestCase = async (id, data) => {
   const finalAppType = resolvedAppTypeId !== resolvedAppType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : resolvedAppType;
   await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
   await ensureDataSetsExist(requestedDataSetIds, finalAppType?.project_id || null, resolvedAppTypeId);
+  const existingAuthorId = existing.author_id || existing.author?.id || existing.created_by || null;
+  const requestedAuthorId = data.author_id !== undefined
+    ? normalizeText(data.author_id)
+    : existingAuthorId;
+  await ensureAuthorExists(
+    requestedAuthorId,
+    (data.author_id !== undefined && requestedAuthorId !== existingAuthorId)
+      || (data.app_type_id !== undefined && resolvedAppTypeId !== existing.app_type_id)
+      ? finalAppType?.project_id || null
+      : null
+  );
   const requestedReviewerId = data.reviewer_id !== undefined ? normalizeText(data.reviewer_id) : existing.reviewer_id || null;
-  await ensureReviewerExists(requestedReviewerId);
+  await ensureReviewerExists(requestedReviewerId, finalAppType?.project_id || null);
   const existingReviewStatus = normalizeReviewStatus(existing.review_status, existing.reviewer_id || null, "not_requested");
   const nextReviewStatus = data.review_status !== undefined
     ? normalizeReviewStatus(data.review_status, requestedReviewerId, existingReviewStatus)
@@ -1665,8 +1784,13 @@ exports.updateTestCase = async (id, data) => {
       ? normalizeAiQualityScore(data.ai_quality_score)
       : normalizeAiQualityScore(existing.ai_quality_score),
     steps: data.steps !== undefined ? normalizeSteps(data.steps) : null,
+    author_id: requestedAuthorId,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
+  await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
+    app_type_id: payload.app_type_id,
+    payload: payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id)
+  });
   payload.manual_test_case_ids = payload.automated === "yes"
     ? await ensureManualTestCaseLinks({
         manualTestCaseIds: data.manual_test_case_ids !== undefined
@@ -1723,6 +1847,7 @@ exports.updateTestCase = async (id, data) => {
       payload.review_status,
       payload.review_history,
       payload.ai_quality_score,
+      payload.author_id,
       payload.updated_by,
       id
     );
@@ -1840,7 +1965,7 @@ exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}
   `).run(resolvedStatus, nextStatus, history, reviewedBy || existing.updated_by || existing.created_by || null, id);
 
   const appType = existing.app_type_id ? await selectAppType.get(existing.app_type_id) : null;
-  const recipientId = normalizeText(existing.created_by);
+  const recipientId = normalizeText(existing.author_id) || normalizeText(existing.created_by);
 
   if (recipientId && recipientId !== reviewedBy) {
     try {

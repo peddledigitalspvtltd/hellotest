@@ -8,6 +8,31 @@ export type PageAccessMap = Record<string, string[]>;
 // second, drift-prone role catalog in the browser.
 const MEMBER_DEFAULT_PERMISSIONS = new Set(["workspace.view"]);
 
+// Keep workspace-global capabilities out of per-project role evaluation. The
+// backend applies the same boundary, so a custom role in one project cannot
+// accidentally unlock global administration controls in the browser.
+const WORKSPACE_ONLY_PERMISSIONS = new Set([
+  "workspace.view",
+  "settings.view",
+  "settings.manage",
+  "workspace_preferences.manage",
+  "api_key.manage",
+  "localization.manage",
+  "ai_prompt.manage",
+  "feature_flag.manage",
+  "integration.view",
+  "integration.manage",
+  "integration.import_export",
+  "notification.view",
+  "notification.manage",
+  "user.view",
+  "user.manage",
+  "user.import",
+  "role.view",
+  "role.manage",
+  "project.create"
+]);
+
 const PATH_PERMISSIONS: PageAccessMap = {
   "/": ["dashboard.view"],
   "/projects": ["project.view"],
@@ -44,13 +69,23 @@ const PATH_PERMISSIONS: PageAccessMap = {
   "/notifications": ["notification.view"]
 };
 
-export function hasPermission(session: SessionPayload | null, permission: string) {
+export function hasPermission(session: SessionPayload | null, permission: string, projectId?: string | null) {
   if (!session?.user) {
     return false;
   }
 
   if (session.user.role === ADMIN_ROLE || session.user.role_id === "jira-admin") {
     return true;
+  }
+
+  const isWorkspaceOnly = WORKSPACE_ONLY_PERMISSIONS.has(permission);
+
+  if (projectId && session.user.project_permissions && !isWorkspaceOnly) {
+    return session.user.project_permissions[projectId]?.includes(permission) || false;
+  }
+
+  if (isWorkspaceOnly && Array.isArray(session.user.workspace_permissions)) {
+    return session.user.workspace_permissions.includes(permission);
   }
 
   if (Array.isArray(session.user.permissions)) {
@@ -60,14 +95,23 @@ export function hasPermission(session: SessionPayload | null, permission: string
   return MEMBER_DEFAULT_PERMISSIONS.has(permission);
 }
 
-export function hasAnyPermission(session: SessionPayload | null, permissions: readonly string[]) {
-  return permissions.some((permission) => hasPermission(session, permission));
+export function hasAnyPermission(
+  session: SessionPayload | null,
+  permissions: readonly string[],
+  projectId?: string | null
+) {
+  return permissions.some((permission) => hasPermission(session, permission, projectId));
 }
 
 export function requiredPermissionsForPath(pathname: string, pageAccess?: PageAccessMap | null) {
   return pageAccess?.[pathname] || PATH_PERMISSIONS[pathname] || ["workspace.view"];
 }
 
-export function canAccessPath(session: SessionPayload | null, pathname: string, pageAccess?: PageAccessMap | null) {
-  return hasAnyPermission(session, requiredPermissionsForPath(pathname, pageAccess));
+export function canAccessPath(
+  session: SessionPayload | null,
+  pathname: string,
+  pageAccess?: PageAccessMap | null,
+  projectId?: string | null
+) {
+  return hasAnyPermission(session, requiredPermissionsForPath(pathname, pageAccess), projectId);
 }

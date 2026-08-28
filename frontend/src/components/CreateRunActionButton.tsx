@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import { PlayIcon } from "./AppIcons";
@@ -11,6 +12,7 @@ export type CreateRunMode = "MANUAL" | "LOCAL" | "REMOTE";
 
 export interface CreateRunActionButtonProps {
   source: CreateRunSource;
+  projectId?: string | null;
   selectedTestCaseIds?: string[];
   selectedSuiteIds?: string[];
   selectedRunIds?: string[];
@@ -32,6 +34,7 @@ function RunActionChevronIcon() {
 
 export function CreateRunActionButton({
   source,
+  projectId,
   className = "",
   disabled = false,
   label = "Create Manual Run",
@@ -40,16 +43,18 @@ export function CreateRunActionButton({
   onCreateRemoteRun
 }: CreateRunActionButtonProps) {
   const { session } = useAuth();
+  const [activeProjectId] = useCurrentProject();
+  const permissionProjectId = projectId || activeProjectId;
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const canCreateManualRuns = hasPermission(session, "run.create")
+  const canCreateManualRuns = hasPermission(session, "run.create", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-  const canCreateLocalRuns = hasPermission(session, "automation.run.local")
+  const canCreateLocalRuns = hasPermission(session, "automation.run.local", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.local_execution"]);
-  const canCreateRemoteRuns = hasPermission(session, "automation.run.remote")
+  const canCreateRemoteRuns = hasPermission(session, "automation.run.remote", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
   const isManualDisabled = disabled || !canCreateManualRuns;
   const canOpenMenu = !disabled && (canCreateLocalRuns || canCreateRemoteRuns);

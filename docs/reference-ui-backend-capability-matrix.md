@@ -16,7 +16,7 @@ The attached Forge frontend is the visual and interaction baseline. HelloTest ke
 | Sprints | Native lifecycle and Story assignment plus health metrics | Atomic assignment, cursor paging, bounded completeness and methodology disclosure |
 | Test design | Native suites, modules, suite-case and module-case assignment | Atomic mapping, optimistic suite revisions, cross-app-type validation |
 | Test Cases | Existing mature CRUD, versions/restore, reviews, imports/exports, AI authoring/design | Revision conflicts, governed permissions, source/evidence limits |
-| Test steps and shared steps | Single and bulk create/delete, reorder, grouping, reusable shared-step synchronization | Transactional ordering, bounded batch sizes, entity-scoped permission checks |
+| Test steps and Shared Step Groups | Single and bulk create/delete, reorder, grouping, reusable Shared Step Group synchronization | Transactional ordering, bounded batch sizes, entity-scoped permission checks |
 | Test Runs | Create, plan, assign, start, execute, complete, rerun, history, reports, and share | Immutable snapshots, run revisions, project membership, mode-specific permissions, audit records |
 | Result evidence | Results, logs, step evidence, attachments, comments, defect linkage | Row locking and optimistic result revisions, scoped Bug validation, automatic/manual link provenance, stale automatic-link reconciliation |
 | Automation | Existing case automation, repository learning, recorder, local/remote execution, generator jobs | Feature flags, explicit build/AI/recorder permissions, bounded jobs and auditability |

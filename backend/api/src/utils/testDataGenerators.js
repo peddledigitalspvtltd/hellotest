@@ -1,6 +1,6 @@
 const { randomBytes } = require("crypto");
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATOR_ALIAS_TEMPLATES = {
   random: "{{randomString:3}}",
@@ -92,6 +92,17 @@ const generateAiData = (option, now) => {
   return `ai-${suffix}`;
 };
 
+const decodeGeneratedValuePool = (rawValue) => {
+  try {
+    const values = JSON.parse(Buffer.from(String(rawValue || ""), "base64url").toString("utf8"));
+    return Array.isArray(values)
+      ? values.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 20)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 const hasGeneratorTemplate = (value) => {
   GENERATOR_TOKEN_PATTERN.lastIndex = 0;
   GENERATOR_ALIAS_PATTERN.lastIndex = 0;
@@ -104,6 +115,10 @@ const materializeTemplateToken = (_, kind, rawOption, now) => {
     if (kind.toLowerCase() === "randomnumber") return generateRandomNumber(option);
     if (kind.toLowerCase() === "randomstring") return generateRandomString(option);
     if (kind.toLowerCase() === "aidata") return generateAiData(option, now);
+    if (kind.toLowerCase() === "oneof") {
+      const pool = decodeGeneratedValuePool(option);
+      return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
+    }
     if (kind.toLowerCase() === "yopmail") return generateYopmailAddress(option, now);
     return resolveDate(option, now);
 };
@@ -129,19 +144,21 @@ const materializeDataSetSnapshot = (snapshot, now = new Date()) => {
   const sourceRows = Array.isArray(snapshot.template_rows)
     ? snapshot.template_rows
     : Array.isArray(snapshot.rows) ? snapshot.rows : [];
+  const templateRows = sourceRows.map((row) => ({ ...(row || {}) }));
   let generatedFieldCount = 0;
-  const hasGenerators = sourceRows.some((row) =>
+  const hasGenerators = templateRows.some((row) =>
     Object.values(row || {}).some((value) => hasGeneratorTemplate(value))
   );
 
   if (!hasGenerators) {
     return {
       ...snapshot,
-      rows: sourceRows
+      columns: Array.isArray(snapshot.columns) ? [...snapshot.columns] : [],
+      rows: templateRows
     };
   }
 
-  const rows = sourceRows.map((row) =>
+  const rows = templateRows.map((row) =>
     Object.entries(row || {}).reduce((next, [key, value]) => {
       if (hasGeneratorTemplate(value)) {
         generatedFieldCount += 1;
@@ -153,7 +170,8 @@ const materializeDataSetSnapshot = (snapshot, now = new Date()) => {
 
   return {
     ...snapshot,
-    template_rows: sourceRows,
+    columns: Array.isArray(snapshot.columns) ? [...snapshot.columns] : [],
+    template_rows: templateRows,
     rows,
     generated_at: now.toISOString(),
     generated_field_count: generatedFieldCount

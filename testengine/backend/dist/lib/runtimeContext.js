@@ -1,5 +1,5 @@
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATED_CONTEXT_ALIASES = {
     "t.random": "{{randomString:3}}",
@@ -46,6 +46,17 @@ export const stringifyValue = (value) => {
     }
 };
 const randomCharacters = (length, alphabet) => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+const decodeGeneratedValuePool = (rawValue) => {
+    try {
+        const values = JSON.parse(Buffer.from(String(rawValue || ""), "base64url").toString("utf8"));
+        return Array.isArray(values)
+            ? values.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 20)
+            : [];
+    }
+    catch {
+        return [];
+    }
+};
 const resolveDate = (rawOption, now) => {
     const [rawFormat, rawOffset] = String(rawOption || "YYYY-MM-DD").split("|").map((entry) => entry.trim());
     const format = rawFormat || "YYYY-MM-DD";
@@ -86,6 +97,10 @@ export const materializeTemplateValue = (value, now = new Date()) => {
             return randomCharacters(Math.max(1, Math.min(12, Number.parseInt(option, 10) || 6)), "0123456789");
         if (kind === "randomstring")
             return randomCharacters(Math.max(1, Math.min(32, Number.parseInt(option, 10) || 8)), "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+        if (kind === "oneof") {
+            const pool = decodeGeneratedValuePool(option);
+            return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
+        }
         if (kind === "yopmail")
             return `hellotest-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
         if (kind === "aidata")
@@ -167,6 +182,19 @@ export const buildInitialContext = (envelope, capturedValues = {}) => {
     }
     else if (Array.isArray(dataSetRows) && dataSetRows.length) {
         Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
+            const normalizedKey = normalizeKey(key);
+            if (!normalizedKey) {
+                return;
+            }
+            context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
+        });
+    }
+    // A Test Case-linked Data Set supplies inherited row defaults. Explicit values
+    // saved on that Test Case are isolated instance overrides and therefore win.
+    // An explicitly attached run Data Set retains the historical run-level
+    // precedence and is intentionally not overwritten here.
+    if (envelope.data_set?.source === "test_case") {
+        Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
             const normalizedKey = normalizeKey(key);
             if (!normalizedKey) {
                 return;

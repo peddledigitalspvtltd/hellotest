@@ -80,6 +80,7 @@ import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { SuiteScopePicker } from "../components/SuiteCasePicker";
+import { TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { VirtualList } from "../components/VirtualList";
@@ -97,9 +98,11 @@ import {
 } from "../lib/automationAccess";
 import { assessRunEvidenceReadiness } from "../lib/aiAssurance";
 import { asArray } from "../lib/collectionGuards";
+import { buildDeliveryScopeOptions, resolveDeliveryScopePrefill } from "../lib/deliveryScopeOptions";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
+import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
 import { buildBrowserUrl } from "../lib/integrationUrls";
 import { buildBugReportPath } from "../lib/bugReportNavigation";
 import { hasPermission } from "../lib/permissions";
@@ -133,6 +136,8 @@ import type {
   Issue,
   KeyValueEntry,
   Project,
+  RequirementIteration,
+  RequirementRelease,
   SmartExecutionImpactCase,
   SmartExecutionPreviewResponse,
   TestCase,
@@ -169,9 +174,22 @@ type ExecutionCaseView = {
   assigned_to_ids: string[];
   assignment_source: "run" | "suite" | "module" | "case" | null;
   assigned_user: Execution["assigned_user"];
+  data_set_instances: ExecutionCaseInstanceView[];
+};
+
+type ExecutionCaseInstanceView = {
+  instance_key: string;
+  test_case_id: string;
+  test_data_set_id: string | null;
+  test_data_set_name: string | null;
+  data_set_source: string | null;
+  data_set_iteration_index: number | null;
+  data_set_iteration_key: string | null;
+  data_set_row_snapshot: Record<string, string> | null;
 };
 
 type ExecutionRunSummary = {
+  caseCount: number;
   passed: number;
   failed: number;
   blocked: number;
@@ -310,6 +328,7 @@ const BATCH_PROCESS_CATEGORIES = new Set([
 ]);
 
 const EMPTY_EXECUTION_RUN_SUMMARY: ExecutionRunSummary = {
+  caseCount: 0,
   passed: 0,
   failed: 0,
   blocked: 0,
@@ -335,6 +354,137 @@ function executionScopeCaseCount(execution: Execution) {
     execution.case_snapshots?.length || 0,
     execution.test_case_ids?.length || 0
   );
+}
+
+function executionDataIterationCount(execution: Execution) {
+  const snapshot = execution.test_data_set?.snapshot;
+  const rowCount = Math.max(snapshot?.rows?.length || 0, snapshot?.template_rows?.length || 0);
+  return Math.max(rowCount, 1);
+}
+
+function executionCaseInstanceKey(
+  testCaseId: string,
+  iterationIndex?: number | null,
+  iterationKey?: string | null
+) {
+  const resolvedIteration = String(iterationKey || "").trim()
+    || (iterationIndex === null || iterationIndex === undefined ? "default" : `row-${iterationIndex + 1}`);
+  return `${testCaseId}:${resolvedIteration}`;
+}
+
+function executionResultMatchesCaseInstance(
+  result: ExecutionResult,
+  instance: ExecutionCaseInstanceView
+) {
+  if (result.test_case_id !== instance.test_case_id) {
+    return false;
+  }
+
+  if (
+    Number.isInteger(result.data_set_iteration_index)
+    || Number.isInteger(instance.data_set_iteration_index)
+  ) {
+    return result.data_set_iteration_index === instance.data_set_iteration_index;
+  }
+
+  const resultIterationKey = String(result.data_set_iteration_key || "").trim();
+  const instanceIterationKey = String(instance.data_set_iteration_key || "").trim();
+  return resultIterationKey === instanceIterationKey;
+}
+
+function resolveExecutionCaseDataSet(
+  snapshot: ExecutionCaseSnapshot,
+  execution?: Execution | null
+) {
+  const caseSnapshot = snapshot.test_data_set_snapshot || null;
+
+  if (caseSnapshot || snapshot.test_data_set_id) {
+    return {
+      id: snapshot.test_data_set_id || caseSnapshot?.id || null,
+      name: snapshot.test_data_set_name || caseSnapshot?.name || "Deleted Data Set",
+      snapshot: caseSnapshot,
+      source: snapshot.data_set_source || "test_case"
+    };
+  }
+
+  return execution?.test_data_set
+    ? {
+        id: execution.test_data_set.id || execution.test_data_set.snapshot?.id || null,
+        name: execution.test_data_set.name || execution.test_data_set.snapshot?.name || "Deleted Data Set",
+        snapshot: execution.test_data_set.snapshot,
+        source: "run"
+      }
+    : null;
+}
+
+function buildExecutionCaseInstances(
+  snapshot: ExecutionCaseSnapshot,
+  execution?: Execution | null
+): ExecutionCaseInstanceView[] {
+  const dataSet = resolveExecutionCaseDataSet(snapshot, execution);
+
+  if (!dataSet) {
+    return [{
+      instance_key: executionCaseInstanceKey(snapshot.test_case_id),
+      test_case_id: snapshot.test_case_id,
+      test_data_set_id: null,
+      test_data_set_name: null,
+      data_set_source: null,
+      data_set_iteration_index: null,
+      data_set_iteration_key: null,
+      data_set_row_snapshot: null
+    }];
+  }
+
+  const dataSetId = dataSet.id || "data-set";
+  const resolvedRows = dataSet.snapshot?.rows?.length
+    ? dataSet.snapshot.rows
+    : dataSet.snapshot?.template_rows || [];
+
+  if (dataSet.snapshot?.mode === "key_value") {
+    const rowSnapshot = Object.fromEntries(
+      resolvedRows
+        .map((row) => [String(row.key || "").trim(), String(row.value ?? "")])
+        .filter(([key]) => Boolean(key))
+    );
+    const iterationKey = `${dataSetId}:1`;
+    return [{
+      instance_key: executionCaseInstanceKey(snapshot.test_case_id, 0, iterationKey),
+      test_case_id: snapshot.test_case_id,
+      test_data_set_id: dataSet.id,
+      test_data_set_name: dataSet.name,
+      data_set_source: dataSet.source,
+      data_set_iteration_index: 0,
+      data_set_iteration_key: iterationKey,
+      data_set_row_snapshot: rowSnapshot
+    }];
+  }
+
+  const tableRows = resolvedRows.length ? resolvedRows : [null];
+  return tableRows.map((row, index) => {
+    const iterationKey = `${dataSetId}:${index + 1}`;
+    return {
+      instance_key: executionCaseInstanceKey(snapshot.test_case_id, index, iterationKey),
+      test_case_id: snapshot.test_case_id,
+      test_data_set_id: dataSet.id,
+      test_data_set_name: dataSet.name,
+      data_set_source: dataSet.source,
+      data_set_iteration_index: index,
+      data_set_iteration_key: iterationKey,
+      data_set_row_snapshot: row ? { ...row } : null
+    };
+  });
+}
+
+function executionExpectedOutcomeCount(execution: Execution) {
+  if (execution.case_snapshots?.length) {
+    return execution.case_snapshots.reduce(
+      (count, snapshot) => count + buildExecutionCaseInstances(snapshot, execution).length,
+      0
+    );
+  }
+
+  return executionScopeCaseCount(execution) * executionDataIterationCount(execution);
 }
 
 function getExecutionRiskTone(summary: ExecutionRunSummary, impactSummary: ExecutionRunImpactSummary): "success" | "info" | "warning" | "danger" {
@@ -533,7 +683,7 @@ function suiteBoardStatus(metric: {
   return "queued";
 }
 
-function toCaseView(snapshot: ExecutionCaseSnapshot): ExecutionCaseView {
+function toCaseView(snapshot: ExecutionCaseSnapshot, execution?: Execution | null): ExecutionCaseView {
   return {
     id: snapshot.test_case_id,
     title: snapshot.test_case_title,
@@ -551,7 +701,8 @@ function toCaseView(snapshot: ExecutionCaseSnapshot): ExecutionCaseView {
     assigned_to: snapshot.assigned_to || null,
     assigned_to_ids: snapshot.assigned_to_ids || (snapshot.assigned_to ? [snapshot.assigned_to] : []),
     assignment_source: snapshot.assignment_source || null,
-    assigned_user: snapshot.assigned_user || null
+    assigned_user: snapshot.assigned_user || null,
+    data_set_instances: buildExecutionCaseInstances(snapshot, execution)
   };
 }
 
@@ -586,7 +737,7 @@ function isStepGroupStart(steps: TestStep[], index: number) {
 
 function getExecutionStepKindMeta(kind?: TestStep["group_kind"] | null) {
   if (kind === "reusable") {
-    return { label: "Shared Steps", detail: "Shared group snapshot", tone: "shared" as const };
+    return { label: "Shared Step Group step", detail: "Shared Step Group snapshot", tone: "shared" as const };
   }
 
   if (kind === "local") {
@@ -741,6 +892,23 @@ function buildProgressSegments(
   ];
 
   return segments.filter((segment) => segment.value > 0);
+}
+
+function buildFinalizedProgressSegments(
+  passedCount: number,
+  failedCount: number,
+  blockedCount: number,
+  totalCount: number
+) {
+  if (!totalCount) {
+    return [];
+  }
+
+  return [
+    { value: (passedCount / totalCount) * 100, tone: "success" as const },
+    { value: (failedCount / totalCount) * 100, tone: "danger" as const },
+    { value: (blockedCount / totalCount) * 100, tone: "warning" as const }
+  ].filter((segment) => segment.value > 0);
 }
 
 const executionDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -1169,14 +1337,32 @@ function buildExecutionRunScopedValues(entries: KeyValueEntry[] = []) {
 
 function buildExecutionInputParameterValues(
   execution: Execution | null,
-  caseSnapshot: ExecutionCaseSnapshot | null
+  caseSnapshot: ExecutionCaseSnapshot | null,
+  caseInstance?: ExecutionCaseInstanceView | null
 ) {
-  return combineStepParameterValues(
-    normalizeStepParameterValues(caseSnapshot?.parameter_values || {}, "t"),
-    normalizeStepParameterValues(caseSnapshot?.suite_parameter_values || {}, "s"),
+  const caseDataSet = caseSnapshot ? resolveExecutionCaseDataSet(caseSnapshot, execution) : null;
+  const dataSetSnapshot = caseDataSet?.snapshot
+    ? caseDataSet.snapshot.mode === "table" && caseInstance?.data_set_row_snapshot
+      ? { ...caseDataSet.snapshot, rows: [caseInstance.data_set_row_snapshot] }
+      : caseDataSet.snapshot
+    : null;
+  const dataSetValues = buildDataSetParameterValues(dataSetSnapshot);
+  const caseValues = normalizeStepParameterValues(caseSnapshot?.parameter_values || {}, "t");
+  const suiteValues = normalizeStepParameterValues(caseSnapshot?.suite_parameter_values || {}, "s");
+  const runValues = combineStepParameterValues(
     buildExecutionRunScopedValues(execution?.test_environment?.snapshot?.variables || []),
-    buildExecutionRunScopedValues(execution?.test_configuration?.snapshot?.variables || []),
-    execution?.test_data_set ? buildDataSetParameterValues(execution.test_data_set.snapshot || null) : {}
+    buildExecutionRunScopedValues(execution?.test_configuration?.snapshot?.variables || [])
+  );
+
+  if (caseDataSet?.source === "test_case") {
+    return combineStepParameterValues(dataSetValues, caseValues, suiteValues, runValues);
+  }
+
+  return combineStepParameterValues(
+    caseValues,
+    suiteValues,
+    runValues,
+    dataSetValues
   );
 }
 
@@ -1355,46 +1541,49 @@ export function ExecutionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const hasCreateExecutionDeepLink = searchParams.get("create") === "1";
   const { session } = useAuth();
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
+  const [projectId, setProjectId] = useCurrentProject();
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canCreateManualRuns = hasPermission(session, "run.create")
+  const canCreateManualRuns = hasPermission(session, "run.create", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-  const canExecuteRuns = hasPermission(session, "run.execute")
+  const canExecuteRuns = hasPermission(session, "run.execute", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-  const canUpdateRuns = hasPermission(session, "run.update");
-  const canViewSchedules = hasPermission(session, "schedule.view");
-  const canCreateSchedules = hasPermission(session, "schedule.create");
-  const canUpdateSchedules = hasPermission(session, "schedule.update");
-  const canDeleteSchedules = hasPermission(session, "schedule.delete");
-  const canRunSchedules = hasPermission(session, "schedule.run");
-  const canManageRunResults = hasPermission(session, "result.manage");
-  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+  const canUpdateRuns = hasPermission(session, "run.update", projectId);
+  const canViewSchedules = hasPermission(session, "schedule.view", projectId);
+  const canCreateSchedules = hasPermission(session, "schedule.create", projectId);
+  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
+  const canUpdateSchedules = hasPermission(session, "schedule.update", projectId);
+  const canDeleteSchedules = hasPermission(session, "schedule.delete", projectId);
+  const canRunSchedules = hasPermission(session, "schedule.run", projectId);
+  const canManageRunResults = hasPermission(session, "result.manage", projectId);
+  const canRunLocalAutomation = hasPermission(session, "automation.run.local", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.local_execution"]);
-  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
-  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel")
+  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.parallel_execution"]);
-  const canUseRunAi = hasPermission(session, "run.ai")
+  const canUseRunAi = hasPermission(session, "run.ai", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.execution_analysis"]);
-  const canReportBugs = hasPermission(session, "feedback.manage")
+  const canReportBugs = hasPermission(session, "feedback.manage", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.bugs"]);
   const canUseAiBugTriage = canReportBugs
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
-  const canViewRunAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
-  const canBuildRunAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
-  const canPreviewRunAutomation = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
-  const canExportRunReports = hasPermission(session, "run.report.export");
-  const canShareRunReports = hasPermission(session, "run.report.share");
-  const canViewRunEvidence = hasPermission(session, "result.view")
-    && hasPermission(session, "attachment.view");
-  const canCreateRunEvidence = hasPermission(session, "result.manage")
-    && hasPermission(session, "attachment.create");
-  const canDeleteRunEvidence = hasPermission(session, "result.manage")
-    && hasPermission(session, "attachment.delete");
+  const canViewRunAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canBuildRunAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canPreviewRunAutomation = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canExportRunReports = hasPermission(session, "run.report.export", projectId);
+  const canShareRunReports = hasPermission(session, "run.report.share", projectId);
+  const canViewRunEvidence = hasPermission(session, "result.view", projectId)
+    && hasPermission(session, "attachment.view", projectId);
+  const canCreateRunEvidence = hasPermission(session, "result.manage", projectId)
+    && hasPermission(session, "attachment.create", projectId);
+  const canDeleteRunEvidence = hasPermission(session, "result.manage", projectId)
+    && hasPermission(session, "attachment.delete", projectId);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const [projectId, setProjectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [executionCreateMode, setExecutionCreateMode] = useState<ExecutionCreateMode>("manual");
   const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
   const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
@@ -1408,6 +1597,7 @@ export function ExecutionsPage() {
   const [editingScheduleId, setEditingScheduleId] = useState("");
   const [selectedExecutionId, setSelectedExecutionId] = useState("");
   const [selectedScheduleId, setSelectedScheduleId] = useState("");
+  const processedCreateExecutionDeepLinkRef = useRef("");
 
   useEffect(() => {
     if (!canUseRunAi && executionCreateMode === "smart") {
@@ -1427,6 +1617,7 @@ export function ExecutionsPage() {
   const [expandedExecutionSuiteIds, setExpandedExecutionSuiteIds] = useState<string[]>([]);
   const [expandedExecutionModuleKeys, setExpandedExecutionModuleKeys] = useState<string[]>([]);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
+  const [selectedCaseInstanceKey, setSelectedCaseInstanceKey] = useState("");
   const [expandedExecutionStepGroupIds, setExpandedExecutionStepGroupIds] = useState<string[]>([]);
   const [expandedExecutionStepSections, setExpandedExecutionStepSections] = useState({ preconditions: true, testSteps: true });
   const [expandedExecutionStepIds, setExpandedExecutionStepIds] = useState<string[]>([]);
@@ -1533,11 +1724,6 @@ export function ExecutionsPage() {
     queryKey: ["projects"],
     queryFn: api.projects.list
   });
-  const usersQuery = useQuery({
-    queryKey: ["users", projectId],
-    queryFn: api.users.list,
-    enabled: Boolean(session)
-  });
   const projectMembersQuery = useQuery({
     queryKey: ["project-members", projectId],
     queryFn: () => api.projectMembers.list({ project_id: projectId }),
@@ -1582,11 +1768,27 @@ export function ExecutionsPage() {
     queryFn: () => api.requirements.list({ project_id: projectId }),
     enabled: Boolean(projectId)
   });
+  const shouldLoadExecutionDeliveryScope = Boolean(
+    projectId
+    && (isCreateExecutionModalOpen || isCreateScheduleModalOpen || hasCreateExecutionDeepLink)
+  );
   const executionDomainMetadataQuery = useQuery({
     queryKey: ["domain-metadata", "execution-builder", projectId],
     queryFn: api.metadata.domain,
-    enabled: Boolean(projectId && isCreateExecutionModalOpen),
+    enabled: shouldLoadExecutionDeliveryScope,
     staleTime: 10 * 60 * 1000
+  });
+  const executionReleasesQuery = useQuery({
+    queryKey: ["requirement-releases", projectId],
+    queryFn: () => api.requirementReleases.list({ project_id: projectId }),
+    enabled: shouldLoadExecutionDeliveryScope && canViewDeliveryScopes,
+    staleTime: 30_000
+  });
+  const executionIterationsQuery = useQuery({
+    queryKey: ["requirement-iterations", projectId],
+    queryFn: () => api.requirementIterations.list({ project_id: projectId }),
+    enabled: shouldLoadExecutionDeliveryScope && canViewDeliveryScopes,
+    staleTime: 30_000
   });
   const bugsQuery = useQuery({
     queryKey: ["execution-bugs", projectId],
@@ -1611,7 +1813,7 @@ export function ExecutionsPage() {
   });
   const allExecutionResultsQuery = useQuery({
     queryKey: ["execution-results", "all", projectId],
-    queryFn: () => api.executionResults.list(),
+    queryFn: () => api.executionResults.list({ project_id: projectId, limit: 5000 }),
     enabled: Boolean(projectId && isExecutionRunsView(testRunsView)),
     refetchInterval: (query) => (query.state.data as ExecutionResult[] | undefined)
       ?.some((result) => String(result.status).toLowerCase() === "running")
@@ -1693,8 +1895,8 @@ export function ExecutionsPage() {
     mutationFn: ({ id, status }: { id: string; status: "completed" | "failed" | "aborted" }) => api.executions.complete(id, { status })
   });
   const runExecutionApiStep = useMutation({
-    mutationFn: ({ executionId, testCaseId, stepId }: { executionId: string; testCaseId: string; stepId: string }) =>
-      api.executions.runApiStep(executionId, testCaseId, stepId)
+    mutationFn: ({ executionId, testCaseId, stepId, dataSetIterationIndex }: { executionId: string; testCaseId: string; stepId: string; dataSetIterationIndex?: number }) =>
+      api.executions.runApiStep(executionId, testCaseId, stepId, { data_set_iteration_index: dataSetIterationIndex })
   });
   const runExecutionAiAnalysis = useMutation({
     mutationFn: ({ executionId, testCaseId, instruction, interactionMode }: { executionId: string; testCaseId: string; instruction?: string; interactionMode?: "chat" | "agent" }) =>
@@ -1726,7 +1928,6 @@ export function ExecutionsPage() {
   });
 
   const projects = asArray(projectsQuery.data);
-  const users = asArray(usersQuery.data);
   const projectMembers = asArray(projectMembersQuery.data);
   const executions = useMemo(
     () =>
@@ -1753,6 +1954,8 @@ export function ExecutionsPage() {
   const executionSchedules = asArray(executionSchedulesQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const requirements = asArray(requirementsQuery.data);
+  const executionReleases = asArray<RequirementRelease>(executionReleasesQuery.data);
+  const executionIterations = asArray<RequirementIteration>(executionIterationsQuery.data);
   const bugs = asArray<Issue>(bugsQuery.data);
   const smartExecutionLibraryCases = asArray(smartExecutionCasesQuery.data);
   const scopeSuites = asArray(scopedSuitesQuery.data);
@@ -1765,24 +1968,31 @@ export function ExecutionsPage() {
   const testEngineIntegrations = asArray(testEngineIntegrationsQuery.data);
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
-  const smartExecutionReleaseOptions = useMemo(
-    () => asArray(executionDomainMetadataQuery.data?.jira?.versions)
-      .filter((version) => !version.archived)
-      .map((version) => ({ value: version.name, label: `${version.name}${version.released ? " · released" : ""}` })),
-    [executionDomainMetadataQuery.data?.jira?.versions]
-  );
-  const smartExecutionSprintOptions = useMemo(
-    () => asArray(executionDomainMetadataQuery.data?.jira?.sprints)
-      .map((sprint) => ({ value: sprint.name, label: `${sprint.name}${sprint.state ? ` · ${sprint.state}` : ""}` })),
-    [executionDomainMetadataQuery.data?.jira?.sprints]
+  const { releaseOptions: executionReleaseOptions, sprintOptions: executionSprintOptions } = useMemo(
+    () => buildDeliveryScopeOptions({
+      releases: executionReleases,
+      iterations: executionIterations,
+      jiraVersions: executionDomainMetadataQuery.data?.jira?.versions,
+      jiraSprints: executionDomainMetadataQuery.data?.jira?.sprints,
+      currentRelease: executionRelease,
+      currentSprint: executionSprint
+    }),
+    [
+      executionDomainMetadataQuery.data?.jira?.sprints,
+      executionDomainMetadataQuery.data?.jira?.versions,
+      executionIterations,
+      executionRelease,
+      executionReleases,
+      executionSprint
+    ]
   );
   const smartExecutionBuildOptions = useMemo(
     () => [...new Set(executions.map((execution) => execution.build).filter((value): value is string => Boolean(value)))],
     [executions]
   );
   const assigneeOptions = useMemo<ExecutionAssigneeOption[]>(
-    () => buildAssigneeOptions(projectMembers, users),
-    [projectMembers, users]
+    () => buildAssigneeOptions(projectMembers),
+    [projectMembers]
   );
   const projectNameById = useMemo(
     () =>
@@ -2164,6 +2374,107 @@ export function ExecutionsPage() {
     resetSmartExecutionPreview();
   };
 
+  useEffect(() => {
+    if (!hasCreateExecutionDeepLink) {
+      processedCreateExecutionDeepLinkRef.current = "";
+      return;
+    }
+
+    const requestedProjectId = String(searchParams.get("project") || "").trim();
+    const requestedReleaseId = String(searchParams.get("release_id") || "").trim();
+    const requestedReleaseToken = String(searchParams.get("release") || "").trim();
+    const requestedSprintId = String(searchParams.get("sprint_id") || "").trim();
+    const requestedSprintToken = String(searchParams.get("sprint") || "").trim();
+    const requestedModeToken = String(searchParams.get("mode") || "manual").trim().toLowerCase();
+    const requestedMode: ExecutionStartMode = requestedModeToken === "local" || requestedModeToken === "remote"
+      ? requestedModeToken
+      : "manual";
+    const deepLinkSignature = [
+      requestedProjectId,
+      requestedReleaseId,
+      requestedReleaseToken,
+      requestedSprintId,
+      requestedSprintToken,
+      requestedMode
+    ].join("\u0000");
+
+    if (processedCreateExecutionDeepLinkRef.current === deepLinkSignature) return;
+    if (projectsQuery.isPending || featureFlagsQuery.isPending) return;
+
+    if (requestedProjectId && requestedProjectId !== projectId) {
+      if (!projects.some((project) => String(project.id) === requestedProjectId)) {
+        processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
+        setMessageTone("error");
+        setMessage("The requested project is unavailable. Select an accessible project before creating this run.");
+        setSearchParams((previous) => {
+          const next = new URLSearchParams(previous);
+          ["create", "project", "release_id", "release", "sprint_id", "sprint", "mode"].forEach((key) => next.delete(key));
+          return next;
+        }, { replace: true });
+        return;
+      }
+
+      handleExecutionProjectChange(requestedProjectId);
+      return;
+    }
+
+    if (!projectId) {
+      const fallbackProjectId = requestedProjectId || String(projects[0]?.id || "");
+      if (!fallbackProjectId) return;
+      handleExecutionProjectChange(fallbackProjectId);
+      return;
+    }
+
+    const deliveryScopePrefill = resolveDeliveryScopePrefill({
+      releaseId: requestedReleaseId,
+      releaseToken: requestedReleaseToken,
+      sprintId: requestedSprintId,
+      sprintToken: requestedSprintToken
+    }, {
+      releases: executionReleases,
+      iterations: executionIterations,
+      jiraVersions: executionDomainMetadataQuery.data?.jira?.versions,
+      jiraSprints: executionDomainMetadataQuery.data?.jira?.sprints
+    });
+    const deliveryScopeCatalogsPending = (canViewDeliveryScopes && (
+      executionReleasesQuery.isPending
+      || executionIterationsQuery.isPending
+    ))
+      || executionDomainMetadataQuery.isPending;
+    if (
+      deliveryScopeCatalogsPending
+      && (deliveryScopePrefill.unresolvedReleaseId || deliveryScopePrefill.unresolvedSprintId)
+    ) return;
+
+    processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
+    setExecutionCreateMode("manual");
+    setExecutionRelease(deliveryScopePrefill.release);
+    setExecutionSprint(deliveryScopePrefill.sprint);
+    openExecutionBuilder(requestedMode);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      ["create", "project", "release_id", "release", "sprint_id", "sprint", "mode"].forEach((key) => next.delete(key));
+      return next;
+    }, { replace: true });
+  }, [
+    executionDomainMetadataQuery.data?.jira?.sprints,
+    executionDomainMetadataQuery.data?.jira?.versions,
+    executionDomainMetadataQuery.isPending,
+    executionIterations,
+    executionIterationsQuery.isPending,
+    executionReleases,
+    executionReleasesQuery.isPending,
+    canViewDeliveryScopes,
+    featureFlagsQuery.isPending,
+    hasCreateExecutionDeepLink,
+    projectId,
+    projects,
+    projectsQuery.isPending,
+    searchParams,
+    setProjectId,
+    setSearchParams
+  ]);
+
   const handleToggleSmartExecutionRequirement = (requirementId: string) => {
     setSelectedSmartRequirementIds((current) =>
       current.includes(requirementId) ? current.filter((id) => id !== requirementId) : [...current, requirementId]
@@ -2181,12 +2492,22 @@ export function ExecutionsPage() {
     resetSmartExecutionPreview();
   };
 
-  const syncExecutionSearchParams = (executionId: string, testCaseId?: string | null) => {
+  const syncExecutionSearchParams = (
+    executionId: string,
+    testCaseId?: string | null,
+    caseInstanceKey?: string | null
+  ) => {
     const currentExecutionId = searchParams.get("execution") || "";
     const currentTestCaseId = searchParams.get("testCase") || "";
+    const currentCaseInstanceKey = searchParams.get("iteration") || "";
     const nextTestCaseId = testCaseId || "";
+    const nextCaseInstanceKey = caseInstanceKey || "";
 
-    if (currentExecutionId === executionId && currentTestCaseId === nextTestCaseId) {
+    if (
+      currentExecutionId === executionId
+      && currentTestCaseId === nextTestCaseId
+      && currentCaseInstanceKey === nextCaseInstanceKey
+    ) {
       return;
     }
 
@@ -2204,6 +2525,12 @@ export function ExecutionsPage() {
       nextParams.delete("testCase");
     }
 
+    if (testCaseId && caseInstanceKey) {
+      nextParams.set("iteration", caseInstanceKey);
+    } else {
+      nextParams.delete("iteration");
+    }
+
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -2211,6 +2538,7 @@ export function ExecutionsPage() {
     setSelectedExecutionId(executionId);
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
+    setSelectedCaseInstanceKey("");
     syncExecutionSearchParams(executionId, null);
   };
 
@@ -2225,6 +2553,7 @@ export function ExecutionsPage() {
     setSelectedExecutionId("");
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
+    setSelectedCaseInstanceKey("");
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -2276,7 +2605,7 @@ export function ExecutionsPage() {
   }, [integrations, smartExecutionIntegrationId]);
 
   useEffect(() => {
-    if (usersQuery.isPending || projectMembersQuery.isPending) {
+    if (projectMembersQuery.isPending) {
       return;
     }
 
@@ -2284,10 +2613,10 @@ export function ExecutionsPage() {
     if (selectedExecutionAssigneeIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
       setSelectedExecutionAssigneeIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
-  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds, usersQuery.isPending]);
+  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds]);
 
   useEffect(() => {
-    if (usersQuery.isPending || projectMembersQuery.isPending) {
+    if (projectMembersQuery.isPending) {
       return;
     }
 
@@ -2299,7 +2628,7 @@ export function ExecutionsPage() {
     if (caseAssignmentDraft && !assigneeOptions.some((option) => option.id === caseAssignmentDraft)) {
       setCaseAssignmentDraft("");
     }
-  }, [assigneeOptions, caseAssignmentDraft, executionAssignmentDraftIds, projectMembersQuery.isPending, usersQuery.isPending]);
+  }, [assigneeOptions, caseAssignmentDraft, executionAssignmentDraftIds, projectMembersQuery.isPending]);
 
   useEffect(() => {
     const requestedExecutionId = searchParams.get("execution");
@@ -2350,6 +2679,7 @@ export function ExecutionsPage() {
       setSelectedExecutionId("");
       setFocusedSuiteId("");
       setSelectedTestCaseId("");
+      setSelectedCaseInstanceKey("");
     }
 
     if (requestedView && requestedView !== "scheduled-runs" && selectedScheduleId) {
@@ -2398,6 +2728,7 @@ export function ExecutionsPage() {
       setSelectedExecutionId("");
       setFocusedSuiteId("");
       setSelectedTestCaseId("");
+      setSelectedCaseInstanceKey("");
       syncExecutionSearchParams("", null);
     }
   }, [searchParams, testRunsView]);
@@ -2439,9 +2770,22 @@ export function ExecutionsPage() {
     () => snapshotCases.find((snapshot) => snapshot.test_case_id === selectedTestCaseId) || null,
     [selectedTestCaseId, snapshotCases]
   );
-  const executionInputParameterValues = useMemo(
-    () => buildExecutionInputParameterValues(selectedExecution, selectedExecutionCaseSnapshot),
+  const selectedExecutionCaseInstances = useMemo(
+    () => selectedExecutionCaseSnapshot
+      ? buildExecutionCaseInstances(selectedExecutionCaseSnapshot, selectedExecution)
+      : [],
     [selectedExecution, selectedExecutionCaseSnapshot]
+  );
+  const selectedExecutionCaseInstance = useMemo(
+    () => selectedExecutionCaseInstances.find((instance) => instance.instance_key === selectedCaseInstanceKey)
+      || selectedExecutionCaseInstances[0]
+      || null,
+    [selectedCaseInstanceKey, selectedExecutionCaseInstances]
+  );
+  const hasSelectedCaseTestData = Boolean(selectedExecutionCaseInstance?.test_data_set_id);
+  const executionInputParameterValues = useMemo(
+    () => buildExecutionInputParameterValues(selectedExecution, selectedExecutionCaseSnapshot, selectedExecutionCaseInstance),
+    [selectedExecution, selectedExecutionCaseInstance, selectedExecutionCaseSnapshot]
   );
   const selectedExecutionInputParameterEntries = useMemo(
     () => buildExecutionParameterDisplayEntries(executionInputParameterValues, "input"),
@@ -2497,6 +2841,7 @@ export function ExecutionsPage() {
       setSelectedExecutionId("");
       setFocusedSuiteId("");
       setSelectedTestCaseId("");
+      setSelectedCaseInstanceKey("");
       syncExecutionSearchParams("", null);
       return;
     }
@@ -2531,14 +2876,14 @@ export function ExecutionsPage() {
     return snapshotCases.reduce<Record<string, ExecutionCaseView[]>>((groups, snapshot) => {
       const suiteId = snapshot.suite_id || "unsorted";
       groups[suiteId] = groups[suiteId] || [];
-      groups[suiteId].push(toCaseView(snapshot));
+      groups[suiteId].push(toCaseView(snapshot, selectedExecution));
       return groups;
     }, {});
-  }, [snapshotCases]);
+  }, [selectedExecution, snapshotCases]);
 
   const executionCaseOrder = useMemo(
-    () => snapshotCases.map(toCaseView),
-    [snapshotCases]
+    () => snapshotCases.map((snapshot) => toCaseView(snapshot, selectedExecution)),
+    [selectedExecution, snapshotCases]
   );
 
   const stepsByCaseId = useMemo(() => {
@@ -2594,9 +2939,11 @@ export function ExecutionsPage() {
 
   useEffect(() => {
     const requestedTestCaseId = searchParams.get("testCase");
+    const requestedCaseInstanceKey = searchParams.get("iteration") || "";
 
     if (requestedTestCaseId && executionCaseOrder.some((testCase) => testCase.id === requestedTestCaseId)) {
-      const requestedSuiteId = executionCaseOrder.find((testCase) => testCase.id === requestedTestCaseId)?.suite_id;
+      const requestedCase = executionCaseOrder.find((testCase) => testCase.id === requestedTestCaseId);
+      const requestedSuiteId = requestedCase?.suite_id;
 
       if (requestedSuiteId) {
         setFocusedSuiteId(requestedSuiteId);
@@ -2605,13 +2952,23 @@ export function ExecutionsPage() {
       if (selectedTestCaseId !== requestedTestCaseId) {
         setSelectedTestCaseId(requestedTestCaseId);
       }
+      const nextInstanceKey = requestedCase?.data_set_instances.some((instance) => instance.instance_key === requestedCaseInstanceKey)
+        ? requestedCaseInstanceKey
+        : requestedCase?.data_set_instances[0]?.instance_key || "";
+      if (selectedCaseInstanceKey !== nextInstanceKey) {
+        setSelectedCaseInstanceKey(nextInstanceKey);
+      }
       return;
     }
 
     if (selectedTestCaseId && executionCaseOrder.some((testCase) => testCase.id === selectedTestCaseId)) {
-      const selectedSuiteId = executionCaseOrder.find((testCase) => testCase.id === selectedTestCaseId)?.suite_id;
+      const selectedCase = executionCaseOrder.find((testCase) => testCase.id === selectedTestCaseId);
+      const selectedSuiteId = selectedCase?.suite_id;
       if (selectedSuiteId && focusedSuiteId !== selectedSuiteId) {
         setFocusedSuiteId(selectedSuiteId);
+      }
+      if (!selectedCase?.data_set_instances.some((instance) => instance.instance_key === selectedCaseInstanceKey)) {
+        setSelectedCaseInstanceKey(selectedCase?.data_set_instances[0]?.instance_key || "");
       }
       return;
     }
@@ -2619,7 +2976,10 @@ export function ExecutionsPage() {
     if (selectedTestCaseId) {
       setSelectedTestCaseId("");
     }
-  }, [executionCaseOrder, focusedSuiteId, searchParams, selectedTestCaseId]);
+    if (selectedCaseInstanceKey) {
+      setSelectedCaseInstanceKey("");
+    }
+  }, [executionCaseOrder, focusedSuiteId, searchParams, selectedCaseInstanceKey, selectedTestCaseId]);
 
   useEffect(() => {
     if (!executionSuites.length) {
@@ -2684,9 +3044,31 @@ export function ExecutionsPage() {
     setIsExecutionContextModalOpen(false);
   }, [selectedExecutionId]);
 
+  const latestExecutionResults = useMemo(
+    () => selectLatestExecutionResultInstances(executionResults),
+    [executionResults]
+  );
+  const resultByCaseInstanceKey = useMemo(() => {
+    const map: Record<string, ExecutionResult> = {};
+    latestExecutionResults.forEach((result) => {
+      const exactKey = executionCaseInstanceKey(
+        result.test_case_id,
+        result.data_set_iteration_index,
+        result.data_set_iteration_key
+      );
+      const indexKey = executionCaseInstanceKey(
+        result.test_case_id,
+        result.data_set_iteration_index,
+        null
+      );
+      map[exactKey] = result;
+      map[indexKey] = result;
+    });
+    return map;
+  }, [latestExecutionResults]);
   const resultByCaseId = useMemo(() => {
     const map: Record<string, ExecutionResult> = {};
-    executionResults.forEach((result) => {
+    latestExecutionResults.forEach((result) => {
       const current = map[result.test_case_id];
       if (
         !current
@@ -2696,11 +3078,25 @@ export function ExecutionsPage() {
       }
     });
     return map;
-  }, [executionResults]);
+  }, [latestExecutionResults]);
+
+  const resultForCaseInstance = (instance?: ExecutionCaseInstanceView | null) =>
+    instance
+      ? resultByCaseInstanceKey[instance.instance_key]
+        || resultByCaseInstanceKey[executionCaseInstanceKey(
+          instance.test_case_id,
+          instance.data_set_iteration_index,
+          null
+        )]
+        || null
+      : null;
+
+  const instanceDerivedStatus = (instance: ExecutionCaseInstanceView): ExecutionResult["status"] | "queued" =>
+    resultForCaseInstance(instance)?.status || "queued";
 
   const selectedCaseLogs = useMemo(
-    () => parseExecutionLogs(resultByCaseId[selectedTestCaseId]?.logs || null),
-    [resultByCaseId, selectedTestCaseId]
+    () => parseExecutionLogs(resultForCaseInstance(selectedExecutionCaseInstance)?.logs || null),
+    [resultByCaseInstanceKey, selectedExecutionCaseInstance]
   );
   const selectedCaseAiAnalysis = selectedCaseLogs.aiAnalysis || null;
 
@@ -2744,24 +3140,30 @@ export function ExecutionsPage() {
   );
 
   const caseDerivedStatus = (testCase: ExecutionCaseView): ExecutionResult["status"] | "queued" => {
-    const result = resultByCaseId[testCase.id];
-    return result?.status || "queued";
+    const statuses = testCase.data_set_instances.map(instanceDerivedStatus);
+    if (statuses.includes("failed")) return "failed";
+    if (statuses.includes("blocked")) return "blocked";
+    if (statuses.includes("running")) return "running";
+    if (statuses.length && statuses.every((status) => status === "passed")) return "passed";
+    if (statuses.includes("passed")) return "running";
+    return "queued";
   };
 
   const suiteMetrics = useMemo(() => {
     return executionSuites.map((suite) => {
       const scopedCases = displayCasesBySuiteId[suite.id] || [];
-      const passedCount = scopedCases.filter((testCase) => caseDerivedStatus(testCase) === "passed").length;
-      const failedCount = scopedCases.filter((testCase) => caseDerivedStatus(testCase) === "failed").length;
-      const blockedCount = scopedCases.filter((testCase) => caseDerivedStatus(testCase) === "blocked").length;
-      const runningCount = scopedCases.filter((testCase) => caseDerivedStatus(testCase) === "running").length;
-      const percent = scopedCases.length
-        ? Math.round(((passedCount + failedCount + blockedCount) / scopedCases.length) * 100)
+      const scopedInstances = scopedCases.flatMap((testCase) => testCase.data_set_instances);
+      const passedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "passed").length;
+      const failedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "failed").length;
+      const blockedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "blocked").length;
+      const runningCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "running").length;
+      const percent = scopedInstances.length
+        ? Math.round(((passedCount + failedCount + blockedCount) / scopedInstances.length) * 100)
         : 0;
 
       return {
         suiteId: suite.id,
-        count: scopedCases.length,
+        count: scopedInstances.length,
         passedCount,
         failedCount,
         blockedCount,
@@ -2770,14 +3172,15 @@ export function ExecutionsPage() {
         status: failedCount ? "failed" : runningCount ? "running" : percent === 100 ? "completed" : "queued"
       };
     });
-  }, [displayCasesBySuiteId, executionSuites, resultByCaseId]);
+  }, [displayCasesBySuiteId, executionSuites, resultByCaseInstanceKey]);
 
   const executionProgress = useMemo(() => {
-    const totalCases = executionCaseOrder.length;
-    const passedCount = executionCaseOrder.filter((testCase) => caseDerivedStatus(testCase) === "passed").length;
-    const failedCount = executionCaseOrder.filter((testCase) => caseDerivedStatus(testCase) === "failed").length;
-    const blockedCount = executionCaseOrder.filter((testCase) => caseDerivedStatus(testCase) === "blocked").length;
-    const runningCount = executionCaseOrder.filter((testCase) => caseDerivedStatus(testCase) === "running").length;
+    const executionCaseInstances = executionCaseOrder.flatMap((testCase) => testCase.data_set_instances);
+    const totalCases = executionCaseInstances.length;
+    const passedCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "passed").length;
+    const failedCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "failed").length;
+    const blockedCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "blocked").length;
+    const runningCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "running").length;
     const percent = totalCases ? Math.round(((passedCount + failedCount + blockedCount) / totalCases) * 100) : 0;
 
     return {
@@ -2790,18 +3193,18 @@ export function ExecutionsPage() {
       percent,
       derivedStatus: failedCount ? "failed" : runningCount ? "running" : percent === 100 ? "completed" : "queued"
     };
-  }, [executionCaseOrder, resultByCaseId]);
+  }, [executionCaseOrder, resultByCaseInstanceKey]);
 
   const executionStatusCounts = useMemo(() => {
-    return executionCaseOrder.reduce(
-      (summary, testCase) => {
-        const status = caseDerivedStatus(testCase);
+    return executionCaseOrder.flatMap((testCase) => testCase.data_set_instances).reduce(
+      (summary, instance) => {
+        const status = instanceDerivedStatus(instance);
         summary[status] = (summary[status] || 0) + 1;
         return summary;
       },
       { queued: 0, running: 0, passed: 0, failed: 0, blocked: 0 } as Record<string, number>
     );
-  }, [executionCaseOrder, resultByCaseId]);
+  }, [executionCaseOrder, resultByCaseInstanceKey]);
   const selectedRunFinalizedCount = executionStatusCounts.passed + executionStatusCounts.failed + executionStatusCounts.blocked;
   const selectedRunCompletionPercent = executionProgress.totalCases
     ? Math.round((selectedRunFinalizedCount / executionProgress.totalCases) * 100)
@@ -2822,9 +3225,11 @@ export function ExecutionsPage() {
 
   const executionSummaryById = useMemo(() => {
     const summary: Record<string, ExecutionRunSummary> = {};
-
-    allExecutionResults.forEach((result) => {
+    const caseIdsByExecutionId: Record<string, Set<string>> = {};
+    selectLatestExecutionResultInstances(allExecutionResults).forEach((result) => {
       summary[result.execution_id] = summary[result.execution_id] || { ...EMPTY_EXECUTION_RUN_SUMMARY };
+      caseIdsByExecutionId[result.execution_id] = caseIdsByExecutionId[result.execution_id] || new Set<string>();
+      caseIdsByExecutionId[result.execution_id].add(result.test_case_id);
       summary[result.execution_id].total += 1;
       if (result.status === "passed") {
         summary[result.execution_id].passed += 1;
@@ -2844,8 +3249,10 @@ export function ExecutionsPage() {
       }
     });
 
-    Object.values(summary).forEach((item) => {
-      item.passRate = item.total ? Math.round((item.passed / item.total) * 100) : 0;
+    Object.entries(summary).forEach(([executionId, item]) => {
+      const finalizedCount = item.passed + item.failed + item.blocked;
+      item.caseCount = caseIdsByExecutionId[executionId]?.size || 0;
+      item.passRate = finalizedCount ? Math.round((item.passed / finalizedCount) * 100) : 0;
       item.avgDurationMs = item.timedCount ? Math.round(item.totalDurationMs / item.timedCount) : null;
     });
 
@@ -2853,35 +3260,45 @@ export function ExecutionsPage() {
   }, [allExecutionResults]);
 
   const executionImpactSummaryById = useMemo(() => {
-    const resultByExecutionCaseId = new Map<string, ExecutionResult>();
+    const resultByExecutionCaseInstance = new Map<string, ExecutionResult>();
 
-    allExecutionResults.forEach((result) => {
-      const key = `${result.execution_id}:${result.test_case_id}`;
-      if (!resultByExecutionCaseId.has(key)) {
-        resultByExecutionCaseId.set(key, result);
-      }
+    selectLatestExecutionResultInstances(allExecutionResults).forEach((result) => {
+      const exactKey = `${result.execution_id}:${executionCaseInstanceKey(result.test_case_id, result.data_set_iteration_index, result.data_set_iteration_key)}`;
+      const indexKey = `${result.execution_id}:${executionCaseInstanceKey(result.test_case_id, result.data_set_iteration_index, null)}`;
+      resultByExecutionCaseInstance.set(exactKey, result);
+      resultByExecutionCaseInstance.set(indexKey, result);
     });
 
     return executions.reduce<Record<string, ExecutionRunImpactSummary>>((summary, execution) => {
       const requirementStats = new Map<string, { totalCases: Set<string>; failedCases: Set<string> }>();
       const failedCases: ExecutionRunImpactSummary["failedCases"] = [];
 
-      const scopeCaseIds = execution.case_snapshots?.length
-        ? execution.case_snapshots.map((snapshot) => snapshot.test_case_id)
-        : execution.test_case_ids || [];
+      const scopedInstances = execution.case_snapshots?.length
+        ? execution.case_snapshots.flatMap((snapshot) =>
+            buildExecutionCaseInstances(snapshot, execution).map((instance) => ({
+              snapshot,
+              instance,
+              testCaseId: snapshot.test_case_id
+            }))
+          )
+        : (execution.test_case_ids || []).map((testCaseId) => ({ snapshot: null, instance: null, testCaseId }));
 
-      scopeCaseIds.forEach((testCaseId) => {
-        const snapshot = execution.case_snapshots?.find((candidate) => candidate.test_case_id === testCaseId);
+      scopedInstances.forEach(({ snapshot, instance, testCaseId }) => {
         const linkedCase = smartExecutionLibraryCaseById.get(testCaseId);
         const requirementIds = [...new Set([...(linkedCase?.requirement_ids || []), linkedCase?.requirement_id].filter(Boolean))] as string[];
-        const result = resultByExecutionCaseId.get(`${execution.id}:${testCaseId}`);
+        const instanceKey = instance?.instance_key || executionCaseInstanceKey(testCaseId);
+        const result = resultByExecutionCaseInstance.get(`${execution.id}:${instanceKey}`)
+          || (instance
+            ? resultByExecutionCaseInstance.get(`${execution.id}:${executionCaseInstanceKey(testCaseId, instance.data_set_iteration_index, null)}`)
+            : null);
         const status = result?.status || "queued";
+        const resultIdentity = instanceKey;
 
         requirementIds.forEach((requirementId) => {
           const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
-          stats.totalCases.add(testCaseId);
+          stats.totalCases.add(resultIdentity);
           if (["failed", "blocked"].includes(status)) {
-            stats.failedCases.add(testCaseId);
+            stats.failedCases.add(resultIdentity);
           }
           requirementStats.set(requirementId, stats);
         });
@@ -2889,7 +3306,7 @@ export function ExecutionsPage() {
         if (["failed", "blocked"].includes(status)) {
           failedCases.push({
             id: testCaseId,
-            title: snapshot?.test_case_title || linkedCase?.title || testCaseId,
+            title: `${snapshot?.test_case_title || linkedCase?.title || testCaseId}${instance?.test_data_set_id ? ` · Row ${(instance.data_set_iteration_index ?? 0) + 1}` : ""}`,
             status,
             priority: snapshot?.priority ?? linkedCase?.priority ?? null,
             suiteId: snapshot?.suite_id || linkedCase?.suite_id || linkedCase?.suite_ids?.[0] || null,
@@ -2920,7 +3337,7 @@ export function ExecutionsPage() {
           return left.title.localeCompare(right.title);
         });
 
-      const totalCases = executionScopeCaseCount(execution);
+      const totalCases = scopedInstances.length || executionExpectedOutcomeCount(execution);
       summary[execution.id] = {
         failedCases,
         impactedRequirements,
@@ -2950,30 +3367,32 @@ export function ExecutionsPage() {
       suiteCases.forEach((testCase) => {
         const linkedCase = smartExecutionLibraryCaseById.get(testCase.id);
         const requirementIds = [...new Set([...(linkedCase?.requirement_ids || []), linkedCase?.requirement_id].filter(Boolean))] as string[];
-        const status = caseDerivedStatus(testCase);
+        testCase.data_set_instances.forEach((instance) => {
+          const status = instanceDerivedStatus(instance);
 
-        requirementIds.forEach((requirementId) => {
-          const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
-          stats.totalCases.add(testCase.id);
-          if (["failed", "blocked"].includes(status)) {
-            stats.failedCases.add(testCase.id);
-          }
-          requirementStats.set(requirementId, stats);
-        });
-
-        if (["failed", "blocked"].includes(status)) {
-          failedCases.push({
-            id: testCase.id,
-            title: testCase.title,
-            status,
-            priority: testCase.priority,
-            suiteId: suite.id,
-            suiteName: suite.name,
-            requirementIds,
-            requirementTitles: requirementIds.map((requirementId) => requirementById.get(requirementId)?.title || requirementId),
-            error: resultByCaseId[testCase.id]?.error || null
+          requirementIds.forEach((requirementId) => {
+            const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
+            stats.totalCases.add(instance.instance_key);
+            if (["failed", "blocked"].includes(status)) {
+              stats.failedCases.add(instance.instance_key);
+            }
+            requirementStats.set(requirementId, stats);
           });
-        }
+
+          if (["failed", "blocked"].includes(status)) {
+            failedCases.push({
+              id: testCase.id,
+              title: `${testCase.title}${instance.test_data_set_id ? ` · Row ${(instance.data_set_iteration_index ?? 0) + 1}` : ""}`,
+              status,
+              priority: testCase.priority,
+              suiteId: suite.id,
+              suiteName: suite.name,
+              requirementIds,
+              requirementTitles: requirementIds.map((requirementId) => requirementById.get(requirementId)?.title || requirementId),
+              error: resultForCaseInstance(instance)?.error || null
+            });
+          }
+        });
       });
 
       const impactedRequirements = Array.from(requirementStats.entries())
@@ -3000,12 +3419,14 @@ export function ExecutionsPage() {
         impactedRequirements,
         totalRequirements: impactedRequirements.length,
         failedRequirementCount: impactedRequirements.filter((requirement) => requirement.failedCases > 0).length,
-        failureRate: suiteCases.length ? Math.round((failedCases.length / suiteCases.length) * 100) : 0
+        failureRate: suiteCases.length
+          ? Math.round((failedCases.length / suiteCases.flatMap((testCase) => testCase.data_set_instances).length) * 100)
+          : 0
       };
 
       return summary;
     }, {});
-  }, [displayCasesBySuiteId, executionSuites, requirementById, resultByCaseId, selectedExecution, smartExecutionLibraryCaseById]);
+  }, [displayCasesBySuiteId, executionSuites, requirementById, resultByCaseInstanceKey, selectedExecution, smartExecutionLibraryCaseById]);
 
   const executionById = useMemo(
     () =>
@@ -3016,9 +3437,9 @@ export function ExecutionsPage() {
     [executions]
   );
 
-  const resolvePersistedCaseDurationMs = (testCaseId: string, existing?: ExecutionResult) => {
+  const resolvePersistedCaseDurationMs = (caseInstanceKey: string, existing?: ExecutionResult) => {
     const startedAt =
-      caseTimerStartedAtById[testCaseId] ||
+      caseTimerStartedAtById[caseInstanceKey] ||
       toTimestamp(existing?.created_at) ||
       toTimestamp(selectedExecution?.started_at);
 
@@ -3157,7 +3578,7 @@ export function ExecutionsPage() {
   };
 
   const handleSaveCaseReferences = async () => {
-    if (!selectedExecution || !selectedExecutionCase || !selectedExecution.app_type_id) {
+    if (!selectedExecution || !selectedExecutionCase || !selectedExecutionCaseInstance || !selectedExecution.app_type_id) {
       return;
     }
     if (!canManageRunResults) {
@@ -3194,6 +3615,11 @@ export function ExecutionsPage() {
           status: safeStatus,
           duration_ms: selectedCaseDurationMs ?? undefined,
           logs: stringifyExecutionLogs(selectedCaseLogs),
+          test_data_set_id: selectedExecutionCaseInstance.test_data_set_id || undefined,
+          test_data_set_name: selectedExecutionCaseInstance.test_data_set_name || undefined,
+          data_set_iteration_index: selectedExecutionCaseInstance.data_set_iteration_index ?? undefined,
+          data_set_iteration_key: selectedExecutionCaseInstance.data_set_iteration_key || undefined,
+          data_set_row_snapshot: selectedExecutionCaseInstance.data_set_row_snapshot || undefined,
           external_references: externalReferences,
           defects,
           executed_by: session!.user.id
@@ -3212,6 +3638,11 @@ export function ExecutionsPage() {
             duration_ms: selectedCaseDurationMs,
             error: null,
             logs: stringifyExecutionLogs(selectedCaseLogs),
+            test_data_set_id: selectedExecutionCaseInstance.test_data_set_id,
+            test_data_set_name: selectedExecutionCaseInstance.test_data_set_name,
+            data_set_iteration_index: selectedExecutionCaseInstance.data_set_iteration_index,
+            data_set_iteration_key: selectedExecutionCaseInstance.data_set_iteration_key,
+            data_set_row_snapshot: selectedExecutionCaseInstance.data_set_row_snapshot,
             external_references: externalReferences,
             case_defects: defects,
             defects,
@@ -3819,7 +4250,7 @@ export function ExecutionsPage() {
       moduleName ? `Module: ${moduleName}` : "",
       selectedExecution.test_environment?.name ? `Environment: ${selectedExecution.test_environment.name}` : "",
       selectedExecution.build ? `Build: ${selectedExecution.build}` : "",
-      `Run totals: ${executionProgress.totalCases} cases, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked`,
+      `Run totals: ${executionProgress.totalCases} case instances, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked`,
       mode === "ai" && !scopedCase
         ? failedCasesForAiContext.length
           ? `AI context: ${selectedAiFailureCases.length} of ${failedCasesForAiContext.length} failed or blocked cases selected from this ${scope}.`
@@ -3851,6 +4282,9 @@ export function ExecutionsPage() {
       moduleIds: scope === "module" && moduleId ? [moduleId] : [],
       moduleName,
       requirementIds: contextualRequirementIds,
+      sprint: selectedExecution.sprint,
+      release: selectedExecution.release,
+      fixVersion: selectedExecution.release,
       environment: selectedExecution.test_environment?.name,
       build: selectedExecution.build,
       title,
@@ -3926,6 +4360,7 @@ export function ExecutionsPage() {
       setSelectedExecutionId(response.id);
       setFocusedSuiteId("");
       setSelectedTestCaseId("");
+      setSelectedCaseInstanceKey("");
       setSearchParams(nextParams, { replace: true });
       await Promise.all([refreshExecutionScope(response.id), refreshExecutionSchedules()]);
       showSuccess("Scheduled run was launched as a fresh run.");
@@ -3963,19 +4398,25 @@ export function ExecutionsPage() {
       stepNotesPatch?: Record<string, string>;
       stepEvidencePatch?: Record<string, ExecutionStepEvidence | null>;
     },
-    options: { refresh?: boolean } = {}
+    options: { refresh?: boolean; instance?: ExecutionCaseInstanceView | null } = {}
   ) => {
     const shouldRefresh = options.refresh !== false;
     const scopedAppTypeId = selectedExecution?.app_type_id;
     const currentCaseSnapshot = snapshotCases.find((snapshot) => snapshot.test_case_id === testCaseId);
+    const currentCase = executionCaseOrder.find((testCase) => testCase.id === testCaseId);
+    const targetInstance = options.instance
+      || (selectedTestCaseId === testCaseId ? selectedExecutionCaseInstance : null)
+      || currentCase?.data_set_instances[0]
+      || null;
 
-    if (!selectedExecution || !testCaseId || !scopedAppTypeId || !currentCaseSnapshot) {
+    if (!selectedExecution || !testCaseId || !scopedAppTypeId || !currentCaseSnapshot || !targetInstance) {
       return;
     }
 
     const fresh =
       queryClient.getQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id]) || executionResults;
-    const existing = fresh.find((item) => item.test_case_id === testCaseId);
+    const existing = selectLatestExecutionResultInstances(fresh)
+      .find((item) => executionResultMatchesCaseInstance(item, targetInstance));
     const prev = parseExecutionLogs(existing?.logs || null);
     const mergedStatuses = { ...(prev.stepStatuses || {}), ...(patches.stepStatusesPatch || {}) };
     const mergedNotes = { ...(prev.stepNotes || {}), ...(patches.stepNotesPatch || {}) };
@@ -3995,7 +4436,7 @@ export function ExecutionsPage() {
       stepWebDetails: prev.stepWebDetails || {},
       stepCaptures: prev.stepCaptures || {}
     });
-    const durationMs = resolvePersistedCaseDurationMs(testCaseId, existing);
+    const durationMs = resolvePersistedCaseDurationMs(targetInstance.instance_key, existing);
 
     if (existing) {
       const updateResponse = await updateResult.mutateAsync({
@@ -4046,6 +4487,11 @@ export function ExecutionsPage() {
       duration_ms: durationMs ?? undefined,
       logs,
       error: aggregateStatus === "failed" ? "Step failed during run" : undefined,
+      test_data_set_id: targetInstance.test_data_set_id || undefined,
+      test_data_set_name: targetInstance.test_data_set_name || undefined,
+      data_set_iteration_index: targetInstance.data_set_iteration_index ?? undefined,
+      data_set_iteration_key: targetInstance.data_set_iteration_key || undefined,
+      data_set_row_snapshot: targetInstance.data_set_row_snapshot || undefined,
       external_references: currentCaseSnapshot.external_references || [],
       defects: [],
       executed_by: session!.user.id
@@ -4064,6 +4510,11 @@ export function ExecutionsPage() {
         duration_ms: durationMs,
         error: aggregateStatus === "failed" ? "Step failed during run" : null,
         logs,
+        test_data_set_id: targetInstance.test_data_set_id,
+        test_data_set_name: targetInstance.test_data_set_name,
+        data_set_iteration_index: targetInstance.data_set_iteration_index,
+        data_set_iteration_key: targetInstance.data_set_iteration_key,
+        data_set_row_snapshot: targetInstance.data_set_row_snapshot,
         external_references: currentCaseSnapshot.external_references || [],
         case_defects: [],
         defects: [],
@@ -4089,7 +4540,7 @@ export function ExecutionsPage() {
 
     setLinkingDefectStepId(step.id);
     try {
-      const existingResultId = resultByCaseId[selectedTestCaseId]?.id;
+      const existingResultId = selectedExecutionResult?.id;
       const createdResultId = existingResultId
         ? undefined
         : await persistCaseResult(
@@ -4143,14 +4594,23 @@ export function ExecutionsPage() {
       showSuccess(`Step marked ${status}.`);
 
       if (allResolved) {
-        const currentCaseIndex = executionCaseOrder.findIndex((testCase) => testCase.id === selectedTestCaseId);
-        const nextCase = executionCaseOrder[currentCaseIndex + 1];
+        const instanceOrder = executionCaseOrder.flatMap((testCase) =>
+          testCase.data_set_instances.map((instance) => ({ testCase, instance }))
+        );
+        const currentInstanceIndex = instanceOrder.findIndex(
+          ({ instance }) => instance.instance_key === selectedExecutionCaseInstance?.instance_key
+        );
+        const nextCaseInstance = instanceOrder[currentInstanceIndex + 1];
 
-        if (nextCase) {
-          if (nextCase.suite_id) {
-            setFocusedSuiteId(nextCase.suite_id);
+        if (nextCaseInstance) {
+          if (nextCaseInstance.testCase.suite_id) {
+            setFocusedSuiteId(nextCaseInstance.testCase.suite_id);
           }
-          focusExecutionCase(nextCase.id);
+          focusExecutionCase(
+            nextCaseInstance.testCase.id,
+            selectedExecutionId,
+            nextCaseInstance.instance.instance_key
+          );
         }
       }
     } catch (error) {
@@ -4355,7 +4815,9 @@ export function ExecutionsPage() {
   };
 
   const selectedExecutionCase = executionCaseOrder.find((testCase) => testCase.id === selectedTestCaseId) || null;
-  const selectedExecutionResult = selectedExecutionCase ? resultByCaseId[selectedExecutionCase.id] : null;
+  const selectedExecutionResult = selectedExecutionCase
+    ? resultForCaseInstance(selectedExecutionCaseInstance)
+    : null;
   const selectedExecutionCaseEffectiveUser = selectedExecutionCase?.assigned_user || selectedExecution?.assigned_user || null;
   const selectedExecutionCaseExplicitAssigneeId = selectedExecutionCase?.assigned_to || "";
   const selectedExecutionCaseReadableTitle = selectedExecutionCase
@@ -4394,7 +4856,7 @@ export function ExecutionsPage() {
   useEffect(() => {
     setCaseReferenceDraft(selectedExecutionCaseReferenceText);
     setCaseDefectDraft(selectedExecutionCaseDefectText);
-  }, [selectedExecutionCaseDefectText, selectedExecutionCaseReferenceText, selectedExecution?.id, selectedExecutionCase?.id]);
+  }, [selectedExecutionCaseDefectText, selectedExecutionCaseReferenceText, selectedExecution?.id, selectedExecutionCase?.id, selectedExecutionCaseInstance?.instance_key]);
 
   const openExecutionGroupAutomationPreview = (groupName: string, steps: TestStep[]) => {
     if (!canPreviewRunAutomation) return;
@@ -4429,7 +4891,8 @@ export function ExecutionsPage() {
       const response = await runExecutionApiStep.mutateAsync({
         executionId: selectedExecution.id,
         testCaseId: selectedTestCaseId,
-        stepId: step.id
+        stepId: step.id,
+        dataSetIterationIndex: selectedExecutionCaseInstance?.data_set_iteration_index ?? undefined
       });
 
       await refreshExecutionScope(selectedExecution.id);
@@ -4531,8 +4994,15 @@ export function ExecutionsPage() {
     }
   }, [canViewRunAutomationCode]);
 
-  const focusExecutionCase = (testCaseId: string, executionId = selectedExecutionId) => {
+  const focusExecutionCase = (
+    testCaseId: string,
+    executionId = selectedExecutionId,
+    caseInstanceKey?: string | null
+  ) => {
     const scopedCase = executionCaseOrder.find((testCase) => testCase.id === testCaseId);
+    const nextInstanceKey = caseInstanceKey
+      || scopedCase?.data_set_instances[0]?.instance_key
+      || "";
 
     if (scopedCase?.suite_id) {
       setFocusedSuiteId(scopedCase.suite_id);
@@ -4543,28 +5013,31 @@ export function ExecutionsPage() {
     }
 
     setSelectedTestCaseId(testCaseId);
+    setSelectedCaseInstanceKey(nextInstanceKey);
 
     if (executionId) {
-      syncExecutionSearchParams(executionId, testCaseId);
+      syncExecutionSearchParams(executionId, testCaseId, nextInstanceKey);
     }
   };
 
   useEffect(() => {
-    if (!isExecutionStarted || isExecutionLocked || !selectedTestCaseId) {
+    if (!isExecutionStarted || isExecutionLocked || !selectedExecutionCaseInstance) {
       return;
     }
 
     setCaseTimerStartedAtById((current) =>
-      current[selectedTestCaseId] ? current : { ...current, [selectedTestCaseId]: Date.now() }
+      current[selectedExecutionCaseInstance.instance_key]
+        ? current
+        : { ...current, [selectedExecutionCaseInstance.instance_key]: Date.now() }
     );
-  }, [isExecutionLocked, isExecutionStarted, selectedTestCaseId]);
+  }, [isExecutionLocked, isExecutionStarted, selectedExecutionCaseInstance]);
 
-  const resolveCaseDurationMs = (testCaseId: string, result?: ExecutionResult | null) => {
+  const resolveCaseDurationMs = (caseInstanceKey: string, result?: ExecutionResult | null) => {
     if (typeof result?.duration_ms === "number") {
       return result.duration_ms;
     }
 
-    const startedAt = caseTimerStartedAtById[testCaseId];
+    const startedAt = caseTimerStartedAtById[caseInstanceKey];
     if (startedAt && isExecutionStarted && !isExecutionLocked) {
       return Math.max(liveNow - startedAt, 0);
     }
@@ -4592,26 +5065,35 @@ export function ExecutionsPage() {
   );
 
   const selectedCaseDurationMs = useMemo(
-    () => (selectedExecutionCase ? resolveCaseDurationMs(selectedExecutionCase.id, selectedExecutionResult) : null),
-    [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, selectedExecutionCase, selectedExecutionResult]
+    () => (selectedExecutionCaseInstance
+      ? resolveCaseDurationMs(selectedExecutionCaseInstance.instance_key, selectedExecutionResult)
+      : null),
+    [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, selectedExecutionCaseInstance, selectedExecutionResult]
   );
 
   const averageCaseDurationMs = useMemo(
-    () => averageDuration(executionResults.map((result) => result.duration_ms)),
-    [executionResults]
+    () => averageDuration(latestExecutionResults.map((result) => result.duration_ms)),
+    [latestExecutionResults]
   );
+
+  const resolveExecutionCaseDurationMs = (testCase: ExecutionCaseView) => {
+    const durations = testCase.data_set_instances
+      .map((instance) => resolveCaseDurationMs(instance.instance_key, resultForCaseInstance(instance)))
+      .filter((duration): duration is number => typeof duration === "number");
+    return durations.length ? durations.reduce((total, duration) => total + duration, 0) : null;
+  };
 
   const suiteDurationById = useMemo(() => {
     return executionSuites.reduce<Record<string, number | null>>((accumulator, suite) => {
       const suiteCases = displayCasesBySuiteId[suite.id] || [];
       const total = suiteCases.reduce((sum, testCase) => {
-        const duration = resolveCaseDurationMs(testCase.id, resultByCaseId[testCase.id]);
+        const duration = resolveExecutionCaseDurationMs(testCase);
         return sum + (duration || 0);
       }, 0);
       accumulator[suite.id] = total > 0 ? total : null;
       return accumulator;
     }, {});
-  }, [displayCasesBySuiteId, executionSuites, resultByCaseId, caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow]);
+  }, [displayCasesBySuiteId, executionSuites, resultByCaseInstanceKey, caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow]);
 
   const filteredExecutionSuites = useMemo(() => {
     const query = executionSuiteSearch.trim().toLowerCase();
@@ -4700,8 +5182,8 @@ export function ExecutionsPage() {
   }, [displayCasesBySuiteId, executionCaseSearch, resultByCaseId, selectedExecution?.assigned_user, stepsByCaseId]);
 
   const executionResultsWithTiming = useMemo(
-    () => executionResults.filter((result) => typeof result.duration_ms === "number").length,
-    [executionResults]
+    () => latestExecutionResults.filter((result) => typeof result.duration_ms === "number").length,
+    [latestExecutionResults]
   );
 
   const queuedCases = useMemo(
@@ -4821,7 +5303,7 @@ export function ExecutionsPage() {
     const suiteLines = executionSuites.length
       ? executionSuites.map((suite) => {
           const suiteMetric = suiteMetrics.find((item) => item.suiteId === suite.id);
-          return `- ${suite.name}: ${suiteMetric?.count || 0} cases, ${suiteMetric?.passedCount || 0} passed, ${suiteMetric?.failedCount || 0} failed, ${suiteMetric?.blockedCount || 0} blocked.`;
+          return `- ${suite.name}: ${suiteMetric?.count || 0} case instances, ${suiteMetric?.passedCount || 0} passed, ${suiteMetric?.failedCount || 0} failed, ${suiteMetric?.blockedCount || 0} blocked.`;
         })
       : ["- Direct test case run with no suite grouping."];
     const riskRows = runReferenceRows.filter((row) => ["failed", "blocked"].includes(row.status));
@@ -4842,7 +5324,7 @@ export function ExecutionsPage() {
         "Run-level analysis consolidated from the current run snapshot, suites, cases, result evidence, references, bugs, and recorded case analysis.",
         "",
         `Run: ${selectedExecution.name || selectedExecution.id}`,
-        `Status: ${currentExecutionStatus}. Scope: ${executionProgress.totalCases} cases, ${executionSuites.length} suites, ${executionStatusCounts.passed} passed, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, ${Math.max(executionProgress.totalCases - executionProgress.completedCases, 0)} remaining.`,
+        `Status: ${currentExecutionStatus}. Scope: ${executionProgress.totalCases} case instances, ${executionSuites.length} suites, ${executionStatusCounts.passed} passed, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, ${Math.max(executionProgress.totalCases - executionProgress.completedCases, 0)} remaining.`,
         "",
         "Suite coverage:",
         ...suiteLines,
@@ -4920,19 +5402,22 @@ export function ExecutionsPage() {
   const remainingCaseCount = Math.max(executionProgress.totalCases - executionProgress.completedCases, 0);
   const isSelectedExecutionTestCaseRun = Boolean(selectedExecution && !selectedExecutionSuiteIds.length);
   const selectedCaseStatusLabel = selectedExecutionCase ? caseDerivedStatus(selectedExecutionCase) : executionProgress.derivedStatus;
-  const selectedExecutionCaseIndex = selectedExecutionCase
-    ? executionCaseOrder.findIndex((testCase) => testCase.id === selectedExecutionCase.id)
+  const executionCaseInstanceOrder = executionCaseOrder.flatMap((testCase) =>
+    testCase.data_set_instances.map((instance) => ({ testCase, instance }))
+  );
+  const selectedExecutionCaseInstanceIndex = selectedExecutionCaseInstance
+    ? executionCaseInstanceOrder.findIndex(({ instance }) => instance.instance_key === selectedExecutionCaseInstance.instance_key)
     : -1;
-  const previousExecutionCase = selectedExecutionCaseIndex > 0
-    ? executionCaseOrder[selectedExecutionCaseIndex - 1]
+  const previousExecutionCaseInstance = selectedExecutionCaseInstanceIndex > 0
+    ? executionCaseInstanceOrder[selectedExecutionCaseInstanceIndex - 1]
     : null;
-  const nextExecutionCase = selectedExecutionCaseIndex >= 0 && selectedExecutionCaseIndex < executionCaseOrder.length - 1
-    ? executionCaseOrder[selectedExecutionCaseIndex + 1]
+  const nextExecutionCaseInstance = selectedExecutionCaseInstanceIndex >= 0 && selectedExecutionCaseInstanceIndex < executionCaseInstanceOrder.length - 1
+    ? executionCaseInstanceOrder[selectedExecutionCaseInstanceIndex + 1]
     : null;
-  const focusNeighborExecutionCase = (testCase: ExecutionCaseView | null) => {
-    if (!testCase) return;
-    if (testCase.suite_id) setFocusedSuiteId(testCase.suite_id);
-    focusExecutionCase(testCase.id);
+  const focusNeighborExecutionCase = (entry: typeof executionCaseInstanceOrder[number] | null) => {
+    if (!entry) return;
+    if (entry.testCase.suite_id) setFocusedSuiteId(entry.testCase.suite_id);
+    focusExecutionCase(entry.testCase.id, selectedExecutionId, entry.instance.instance_key);
   };
   const activeExecutionStage = selectedExecutionCase ? "case" : selectedExecution ? (isSelectedExecutionTestCaseRun ? "cases" : "suites") : "executions";
   const showExecutionListHeader =
@@ -5019,11 +5504,13 @@ export function ExecutionsPage() {
     setSelectedExecutionId("");
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
+    setSelectedCaseInstanceKey("");
     syncExecutionSearchParams("", null);
   };
 
   const closeCaseDrilldown = () => {
     setSelectedTestCaseId("");
+    setSelectedCaseInstanceKey("");
     syncExecutionSearchParams(selectedExecutionId, null);
   };
 
@@ -5562,7 +6049,7 @@ export function ExecutionsPage() {
     {
       key: "duration",
       label: "Duration",
-      render: (testCase) => formatDuration(resolveCaseDurationMs(testCase.id, resultByCaseId[testCase.id]), DEFAULT_DURATION_LABEL)
+      render: (testCase) => formatDuration(resolveExecutionCaseDurationMs(testCase), DEFAULT_DURATION_LABEL)
     },
     {
       key: "assignee",
@@ -5578,7 +6065,7 @@ export function ExecutionsPage() {
       defaultVisible: false,
       render: (testCase) => testCase.external_references.length
     }
-  ], [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, resultByCaseId, selectedExecution?.assigned_user, selectedExecutionId, stepsByCaseId]);
+  ], [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, resultByCaseInstanceKey, selectedExecution?.assigned_user, selectedExecutionId, stepsByCaseId]);
 
   const executionListColumns = useMemo<Array<DataTableColumn<Execution>>>(() => [
     {
@@ -5874,7 +6361,11 @@ export function ExecutionsPage() {
       : Boolean(projectId && appTypeId && selectedSuiteIds.length)
   );
 
-  const persistCaseOutcomeOnly = async (testCaseId: string, status: "passed" | "failed") => {
+  const persistCaseOutcomeOnly = async (
+    testCaseId: string,
+    status: "passed" | "failed",
+    targetInstance: ExecutionCaseInstanceView
+  ) => {
     const scopedAppTypeId = selectedExecution?.app_type_id;
     const currentCaseSnapshot = snapshotCases.find((snapshot) => snapshot.test_case_id === testCaseId);
     if (!selectedExecution || !scopedAppTypeId || !currentCaseSnapshot) {
@@ -5883,7 +6374,8 @@ export function ExecutionsPage() {
 
     const fresh =
       queryClient.getQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id]) || executionResults;
-    const existing = fresh.find((item) => item.test_case_id === testCaseId);
+    const existing = selectLatestExecutionResultInstances(fresh)
+      .find((item) => executionResultMatchesCaseInstance(item, targetInstance));
     const prev = parseExecutionLogs(existing?.logs || null);
     const logs = stringifyExecutionLogs({
       stepStatuses: prev.stepStatuses || {},
@@ -5894,7 +6386,7 @@ export function ExecutionsPage() {
       stepWebDetails: prev.stepWebDetails || {},
       stepCaptures: prev.stepCaptures || {}
     });
-    const durationMs = resolvePersistedCaseDurationMs(testCaseId, existing);
+    const durationMs = resolvePersistedCaseDurationMs(targetInstance.instance_key, existing);
 
     if (existing) {
       const updateResponse = await updateResult.mutateAsync({
@@ -5925,6 +6417,11 @@ export function ExecutionsPage() {
       duration_ms: durationMs ?? undefined,
       logs,
       error: status === "failed" ? "Marked at suite level" : undefined,
+      test_data_set_id: targetInstance.test_data_set_id || undefined,
+      test_data_set_name: targetInstance.test_data_set_name || undefined,
+      data_set_iteration_index: targetInstance.data_set_iteration_index ?? undefined,
+      data_set_iteration_key: targetInstance.data_set_iteration_key || undefined,
+      data_set_row_snapshot: targetInstance.data_set_row_snapshot || undefined,
       external_references: currentCaseSnapshot.external_references || [],
       defects: [],
       executed_by: session!.user.id
@@ -5943,6 +6440,11 @@ export function ExecutionsPage() {
         duration_ms: durationMs,
         error: status === "failed" ? "Marked at suite level" : null,
         logs,
+        test_data_set_id: targetInstance.test_data_set_id,
+        test_data_set_name: targetInstance.test_data_set_name,
+        data_set_iteration_index: targetInstance.data_set_iteration_index,
+        data_set_iteration_key: targetInstance.data_set_iteration_key,
+        data_set_row_snapshot: targetInstance.data_set_row_snapshot,
         external_references: currentCaseSnapshot.external_references || [],
         case_defects: [],
         defects: [],
@@ -5966,14 +6468,16 @@ export function ExecutionsPage() {
     try {
       for (const testCase of suiteCases) {
         const steps = stepsByCaseId[testCase.id] || [];
-        if (steps.length) {
-          const patch = steps.reduce<Record<string, ExecutionStepStatus>>((acc, step) => {
-            acc[step.id] = status;
-            return acc;
-          }, {});
-          await persistCaseResult(testCase.id, { stepStatusesPatch: patch }, { refresh: false });
-        } else {
-          await persistCaseOutcomeOnly(testCase.id, status);
+        for (const instance of testCase.data_set_instances) {
+          if (steps.length) {
+            const patch = steps.reduce<Record<string, ExecutionStepStatus>>((acc, step) => {
+              acc[step.id] = status;
+              return acc;
+            }, {});
+            await persistCaseResult(testCase.id, { stepStatusesPatch: patch }, { refresh: false, instance });
+          } else {
+            await persistCaseOutcomeOnly(testCase.id, status, instance);
+          }
         }
       }
 
@@ -6008,11 +6512,14 @@ export function ExecutionsPage() {
       <ExecutionSuiteCaseCard
         assignedUser={testCase.assigned_user || selectedExecution?.assigned_user || null}
         caseStatus={caseDerivedStatus(testCase)}
-        durationLabel={formatDuration(resolveCaseDurationMs(testCase.id, resultByCaseId[testCase.id]), DEFAULT_DURATION_LABEL)}
+        durationLabel={formatDuration(resolveExecutionCaseDurationMs(testCase), DEFAULT_DURATION_LABEL)}
+        getInstanceStatus={instanceDerivedStatus}
         isActive={selectedTestCaseId === testCase.id}
         isNext={nextFocusCase?.id === testCase.id}
         key={`${testCase.suite_id || "direct"}-${testCase.module_id || "unassigned"}-${testCase.id}`}
         onSelect={() => focusExecutionCase(testCase.id)}
+        onSelectInstance={(instanceKey) => focusExecutionCase(testCase.id, selectedExecutionId, instanceKey)}
+        selectedInstanceKey={selectedTestCaseId === testCase.id ? selectedCaseInstanceKey : ""}
         stepCount={(stepsByCaseId[testCase.id] || []).length}
         suiteName={suiteName}
         testCase={testCase}
@@ -6020,11 +6527,12 @@ export function ExecutionsPage() {
     ));
     const getModuleExpansionKey = (moduleId: string) => `${selectedExecution?.id || "run"}:${suiteId || "direct"}:${moduleId}`;
     const renderExecutionModuleHeader = (module: typeof moduleGroups[number]) => {
-      const passed = module.cases.filter((testCase) => caseDerivedStatus(testCase) === "passed").length;
-      const failed = module.cases.filter((testCase) => caseDerivedStatus(testCase) === "failed").length;
-      const blocked = module.cases.filter((testCase) => caseDerivedStatus(testCase) === "blocked").length;
+      const moduleInstances = module.cases.flatMap((testCase) => testCase.data_set_instances);
+      const passed = moduleInstances.filter((instance) => instanceDerivedStatus(instance) === "passed").length;
+      const failed = moduleInstances.filter((instance) => instanceDerivedStatus(instance) === "failed").length;
+      const blocked = moduleInstances.filter((instance) => instanceDerivedStatus(instance) === "blocked").length;
       const resolved = passed + failed + blocked;
-      const completion = module.cases.length ? Math.round((resolved / module.cases.length) * 100) : 0;
+      const completion = moduleInstances.length ? Math.round((resolved / moduleInstances.length) * 100) : 0;
       const passRate = resolved ? Math.round((passed / resolved) * 100) : 0;
       const moduleAssignees = selectedExecution?.module_assignments?.[module.id] || [];
       const expansionKey = getModuleExpansionKey(module.id);
@@ -6045,12 +6553,12 @@ export function ExecutionsPage() {
             <LayersIcon />
             <div>
               <strong>{module.name}</strong>
-              <span>{module.cases.length} cases · {resolved} resolved</span>
+              <span>{module.cases.length} cases · {moduleInstances.length} instances · {resolved} resolved</span>
             </div>
           </button>
           <HierarchyMetricStrip
-            count={module.cases.length}
-            noun="case"
+            count={moduleInstances.length}
+            noun="instance"
             metrics={[
               { label: "Complete", value: `${completion}%`, tone: completion === 100 ? "success" : completion ? "warning" : "neutral" },
               { label: "Pass rate", value: resolved ? `${passRate}%` : "—", tone: !resolved ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger" },
@@ -6378,6 +6886,7 @@ export function ExecutionsPage() {
               type="button"
             >
               <IconArrowLeft aria-hidden="true" size={20} stroke={1.9} />
+              <span>Back</span>
             </button>
             <span className="execution-command-mark" aria-hidden="true">
               <IconFlag size={22} stroke={2} />
@@ -6609,7 +7118,7 @@ export function ExecutionsPage() {
                 <IconListDetails aria-hidden="true" size={18} stroke={1.9} />
                 <strong>Test hierarchy</strong>
               </div>
-              <span>{executionProgress.totalCases} cases</span>
+              <span>{executionProgress.totalCases} case instances</span>
             </div>
             <label className="execution-command-search">
               <IconSearch aria-hidden="true" size={17} stroke={1.8} />
@@ -6879,7 +7388,7 @@ export function ExecutionsPage() {
                       <div className="execution-command-case-facts">
                         <span>P{testCase.priority || 3}</span>
                         <span>{(stepsByCaseId[testCase.id] || []).length} steps</span>
-                        <span>{formatDuration(resolveCaseDurationMs(testCase.id, result), DEFAULT_DURATION_LABEL)}</span>
+                        <span>{formatDuration(resolveExecutionCaseDurationMs(testCase), DEFAULT_DURATION_LABEL)}</span>
                       </div>
                     </button>
                     <button
@@ -6915,7 +7424,7 @@ export function ExecutionsPage() {
               agentName="Failure Analyst"
               compact
               stageEvidence={{
-                context: `${executionProgress.totalCases} run cases, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, and ${runReferenceStats.defectCount + runReferenceStats.referenceCount} references are bounded to this run.`,
+                context: `${executionProgress.totalCases} run case instances, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, and ${runReferenceStats.defectCount + runReferenceStats.referenceCount} references are bounded to this run.`,
                 outcome: runAiAnalysis ? "An editable run-level review summary is ready below." : "The generated summary will remain reviewable before it is accepted in this workspace.",
                 review: isRunAnalysisReviewAccepted ? "The edited summary is accepted for this review session." : "Edit the summary and explicitly accept it before treating it as the review outcome."
               }}
@@ -6925,11 +7434,11 @@ export function ExecutionsPage() {
             <AiFeatureComposer
               agentName="Failure Analyst"
               briefItems={[
-                { id: "context", kind: "context", label: "Run evidence", state: "ready", value: `${executionProgress.totalCases} cases · ${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked` },
+                { id: "context", kind: "context", label: "Run evidence", state: "ready", value: `${executionProgress.totalCases} instances · ${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked` },
                 { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable verdict, clusters, risks, and next review sequence" },
                 { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept the reviewed summary for this session" }
               ]}
-              contextLabel={`${executionProgress.totalCases} cases · ${executionStatusCounts.failed + executionStatusCounts.blocked} risks`}
+              contextLabel={`${executionProgress.totalCases} instances · ${executionStatusCounts.failed + executionStatusCounts.blocked} risks`}
               disabled={!canUseRunAi || !["completed", "failed"].includes(currentExecutionStatus)}
               mode={runAnalysisInteractionMode}
               onModeChange={setRunAnalysisInteractionMode}
@@ -7078,7 +7587,7 @@ export function ExecutionsPage() {
             <i aria-hidden="true" />
             {currentExecutionStatus === "running" ? "Execution polling active" : "Run snapshot preserved"}
           </span>
-          <span>{executionResultsWithTiming} timed result{executionResultsWithTiming === 1 ? "" : "s"} · {executionProgress.totalCases} cases · {selectedExecutionSuiteIds.length} suites</span>
+          <span>{executionResultsWithTiming} timed result{executionResultsWithTiming === 1 ? "" : "s"} · {executionProgress.totalCases} case instances · {selectedExecutionSuiteIds.length} suites</span>
         </footer>
       </section>
     );
@@ -7120,6 +7629,7 @@ export function ExecutionsPage() {
               type="button"
             >
               <IconArrowLeft aria-hidden="true" size={20} stroke={1.9} />
+              <span>Back</span>
             </button>
             <span className="execution-command-mark is-schedule" aria-hidden="true">
               <CalendarIcon />
@@ -7600,6 +8110,7 @@ export function ExecutionsPage() {
                     Schedule Run
                   </button>
                   <CreateRunActionButton
+                    projectId={projectId}
                     source="TEST_RUNS"
                     onCreateManualRun={() => openExecutionBuilder("manual")}
                     onCreateLocalRun={() => openExecutionBuilder("local")}
@@ -7660,6 +8171,13 @@ export function ExecutionsPage() {
                               : [...current, schedule.id]
                           )
                         }
+                        liveNow={liveNow}
+                        resolvedCaseCount={new Set([
+                          ...(schedule.test_case_ids || []),
+                          ...scopeSuites
+                            .filter((suite) => schedule.suite_ids.includes(suite.id))
+                            .flatMap((suite) => suite.test_case_ids || [])
+                        ]).size}
                         schedule={schedule}
                       />
                     ))
@@ -7988,6 +8506,7 @@ export function ExecutionsPage() {
                         type="button"
                       >
                         <IconArrowLeft aria-hidden="true" size={20} stroke={1.9} />
+                        <span>Back</span>
                       </button>
                       <DisplayIdBadge value={selectedExecutionCase.id} />
                       <div className="execution-case-run-title-copy">
@@ -8000,6 +8519,9 @@ export function ExecutionsPage() {
                           {selectedExecution.name || "Selected run"}
                           {selectedExecutionCase.suite_name ? ` · ${selectedExecutionCase.suite_name}` : ""}
                           {selectedExecutionCase.module_name ? ` · ${selectedExecutionCase.module_name}` : ""}
+                          {hasSelectedCaseTestData
+                            ? ` · ${selectedExecutionCaseInstance?.test_data_set_name || "Data Set"} row ${(selectedExecutionCaseInstance?.data_set_iteration_index ?? 0) + 1} of ${selectedExecutionCase.data_set_instances.length}`
+                            : ""}
                         </span>
                       </div>
                     </div>
@@ -8294,7 +8816,7 @@ export function ExecutionsPage() {
                                       </span>
                                       <span>
                                         <strong>Test steps</strong>
-                                        <small>Ungrouped steps, local groups, and shared group snapshots in execution order.</small>
+                                        <small>Ungrouped steps, local groups, and Shared Step Group snapshots in execution order.</small>
                                       </span>
                                       <span className="execution-step-section-count">{executionMainSteps.length}</span>
                                     </button>
@@ -8486,6 +9008,53 @@ export function ExecutionsPage() {
                         </div>
                       </section>
 
+                      {hasSelectedCaseTestData ? (
+                        <section className="execution-case-run-inspector-panel execution-case-data-instances">
+                          <header className="execution-case-run-inspector-header">
+                            <div>
+                              <IconDatabase aria-hidden="true" size={20} stroke={1.9} />
+                              <h2>Data Set instances</h2>
+                            </div>
+                            <span className="count-pill">{selectedExecutionCase.data_set_instances.length}</span>
+                          </header>
+                          <div className="execution-case-run-inspector-content">
+                            <p className="execution-case-run-panel-help">
+                              Each frozen row is an independent case outcome. Selecting a row changes the resolved step values without editing the source Data Set.
+                            </p>
+                            <div className="execution-case-detail-instance-list" role="list" aria-label="Data Set execution instances">
+                              {selectedExecutionCase.data_set_instances.map((instance) => {
+                                const instanceStatus = instanceDerivedStatus(instance);
+                                const rowNumber = (instance.data_set_iteration_index ?? 0) + 1;
+                                return (
+                                  <button
+                                    aria-current={selectedExecutionCaseInstance?.instance_key === instance.instance_key ? "true" : undefined}
+                                    className={selectedExecutionCaseInstance?.instance_key === instance.instance_key ? "execution-case-detail-instance is-active" : "execution-case-detail-instance"}
+                                    key={instance.instance_key}
+                                    onClick={() => focusExecutionCase(selectedExecutionCase.id, selectedExecution.id, instance.instance_key)}
+                                    role="listitem"
+                                    type="button"
+                                  >
+                                    <span className="execution-case-detail-instance-heading">
+                                      <strong>Row {rowNumber}</strong>
+                                      <StatusBadge value={instanceStatus} />
+                                    </span>
+                                    <span className="execution-case-detail-instance-values">
+                                      {Object.entries(instance.data_set_row_snapshot || {}).map(([key, value]) => (
+                                        <span key={`${instance.instance_key}-${key}`}>
+                                          <small>{key}</small>
+                                          <b>{value || "—"}</b>
+                                        </span>
+                                      ))}
+                                      {!Object.keys(instance.data_set_row_snapshot || {}).length ? <small>No row values were captured.</small> : null}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </section>
+                      ) : null}
+
                       <section className="execution-case-run-inspector-panel execution-case-run-assignee-panel">
                         <header className="execution-case-run-inspector-header">
                           <div>
@@ -8575,8 +9144,8 @@ export function ExecutionsPage() {
                         <div className="execution-case-run-inspector-content execution-parameter-stack">
                           <ExecutionParameterPanel
                             description={
-                              hasExecutionLevelTestData
-                                ? "Snapped from saved values, run context, and Test Data."
+                              hasExecutionLevelTestData || hasSelectedCaseTestData
+                                ? "Resolved from saved values, this immutable Data Set row, and run context."
                                 : "Snapped from saved values and the selected run context."
                             }
                             emptyMessage="No snapped input params are available for this case yet."
@@ -8674,26 +9243,26 @@ export function ExecutionsPage() {
                     <div className="execution-case-run-navigation" aria-label="Case navigation">
                       <button
                         className="execution-case-run-button is-icon-only"
-                        disabled={!previousExecutionCase}
-                        onClick={() => focusNeighborExecutionCase(previousExecutionCase)}
-                        title="Previous case"
+                        disabled={!previousExecutionCaseInstance}
+                        onClick={() => focusNeighborExecutionCase(previousExecutionCaseInstance)}
+                        title="Previous case instance"
                         type="button"
                       >
                         <IconArrowLeft aria-hidden="true" size={18} stroke={2} />
-                        <span className="sr-only">Previous case</span>
+                        <span className="sr-only">Previous case instance</span>
                       </button>
                       <span>
-                        Case {selectedExecutionCaseIndex >= 0 ? selectedExecutionCaseIndex + 1 : "—"} of {executionCaseOrder.length}
+                        Instance {selectedExecutionCaseInstanceIndex >= 0 ? selectedExecutionCaseInstanceIndex + 1 : "—"} of {executionCaseInstanceOrder.length}
                       </span>
                       <button
                         className="execution-case-run-button is-icon-only"
-                        disabled={!nextExecutionCase}
-                        onClick={() => focusNeighborExecutionCase(nextExecutionCase)}
-                        title="Next case"
+                        disabled={!nextExecutionCaseInstance}
+                        onClick={() => focusNeighborExecutionCase(nextExecutionCaseInstance)}
+                        title="Next case instance"
                         type="button"
                       >
                         <IconArrowRight aria-hidden="true" size={18} stroke={2} />
-                        <span className="sr-only">Next case</span>
+                        <span className="sr-only">Next case instance</span>
                       </button>
                     </div>
                     <div className="execution-case-run-footer-actions">
@@ -8768,8 +9337,8 @@ export function ExecutionsPage() {
                           <strong>{selectedExecution.name || "Unnamed run"}</strong>
                           <span>
                             {isSelectedExecutionTestCaseRun
-                              ? `${executionProgress.totalCases} direct test case${executionProgress.totalCases === 1 ? "" : "s"} preserved for run evidence.`
-                              : `${selectedExecutionSuiteIds.length} suites snapped into this run with ${executionProgress.totalCases} cases preserved for run evidence.`}
+                              ? `${executionProgress.totalCases} direct test case instance${executionProgress.totalCases === 1 ? "" : "s"} preserved for run evidence.`
+                              : `${selectedExecutionSuiteIds.length} suites snapped into this run with ${executionProgress.totalCases} case instances preserved for run evidence.`}
                           </span>
                         </div>
 
@@ -9098,6 +9667,7 @@ export function ExecutionsPage() {
                           (suiteMetric?.blockedCount || 0);
                         const suiteImpactSummary = selectedSuiteImpactSummaryById[suite.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY;
                         const suiteSummaryForRisk: ExecutionRunSummary = {
+                          caseCount: suiteMetric?.count || suiteCases.length,
                           passed: suiteMetric?.passedCount || 0,
                           failed: suiteMetric?.failedCount || 0,
                           blocked: suiteMetric?.blockedCount || 0,
@@ -9110,7 +9680,7 @@ export function ExecutionsPage() {
                         };
                         const suiteRiskTone = getExecutionRiskTone(suiteSummaryForRisk, suiteImpactSummary);
                         const suiteRiskLabel = getExecutionRiskLabel(suiteSummaryForRisk, suiteImpactSummary);
-                        const suiteRiskInsight = getExecutionRiskInsight(suiteSummaryForRisk, suiteImpactSummary, suiteCases.length).replace("run evidence", "suite evidence");
+                        const suiteRiskInsight = getExecutionRiskInsight(suiteSummaryForRisk, suiteImpactSummary, suiteMetric?.count || suiteCases.length).replace("run evidence", "suite evidence");
                         const suiteReferenceCount = new Set(
                           suiteCases
                             .flatMap((testCase) => testCase.external_references || [])
@@ -9166,14 +9736,14 @@ export function ExecutionsPage() {
                                         <ExecutionScopeIcon />
                                       </ExecutionCardFact>
                                       <ExecutionCardFact
-                                        ariaLabel={`${suiteResolvedCount} of ${suiteMetric?.count || 0} cases resolved`}
+                                        ariaLabel={`${suiteResolvedCount} of ${suiteMetric?.count || 0} case instances resolved`}
                                         label={`${suiteResolvedCount}/${suiteMetric?.count || 0}`}
-                                        title={`${suiteResolvedCount}/${suiteMetric?.count || 0} cases resolved`}
+                                        title={`${suiteResolvedCount}/${suiteMetric?.count || 0} case instances resolved`}
                                       >
                                         <ExecutionProgressFactsIcon />
                                       </ExecutionCardFact>
                                       <ExecutionCardFact
-                                        ariaLabel={`${(suiteMetric?.failedCount || 0) + (suiteMetric?.blockedCount || 0)} failing or blocked cases`}
+                                        ariaLabel={`${(suiteMetric?.failedCount || 0) + (suiteMetric?.blockedCount || 0)} failing or blocked case instances`}
                                         label={String((suiteMetric?.failedCount || 0) + (suiteMetric?.blockedCount || 0))}
                                         title={`${suiteMetric?.failedCount || 0} failed · ${suiteMetric?.blockedCount || 0} blocked`}
                                         tone={suiteMetric?.failedCount ? "danger" : suiteMetric?.blockedCount ? "warning" : "success"}
@@ -9526,8 +10096,8 @@ export function ExecutionsPage() {
           executionRelease={executionRelease}
           executionSprint={executionSprint}
           executionBuild={executionBuild}
-          releaseOptions={smartExecutionReleaseOptions}
-          sprintOptions={smartExecutionSprintOptions}
+          releaseOptions={executionReleaseOptions}
+          sprintOptions={executionSprintOptions}
           buildOptions={smartExecutionBuildOptions}
           scopeSuites={scopeSuites}
           selectedAppType={selectedAppType?.name || ""}
@@ -9559,6 +10129,8 @@ export function ExecutionsPage() {
           isSubmitting={createExecutionSchedule.isPending || updateExecutionSchedule.isPending}
           mode={scheduleModalMode}
           nextRunAt={scheduleNextRunAt}
+          releaseOptions={executionReleaseOptions}
+          sprintOptions={executionSprintOptions}
           onAssigneeChange={setSelectedExecutionAssigneeIds}
           onCadenceChange={setScheduleCadence}
           onExecutionBuildChange={setExecutionBuild}
@@ -10104,8 +10676,13 @@ function ExecutionListCard({
   onSelect: () => void;
   onToggleSelected: () => void;
 }) {
-  const totalScopedCases = executionScopeCaseCount(execution) || summary.total || 0;
-  const resolvedTotal = Math.max(totalScopedCases, summary.total, 0);
+  const totalScopedCases = executionScopeCaseCount(execution) || summary.caseCount || 0;
+  const dataIterationCount = executionDataIterationCount(execution);
+  const expectedOutcomeCount = execution.case_snapshots?.length
+    ? executionExpectedOutcomeCount(execution)
+    : totalScopedCases ? totalScopedCases * dataIterationCount : summary.total;
+  const resolvedOutcomeCount = Math.max(expectedOutcomeCount, summary.total, 0);
+  const finalizedTotal = summary.passed + summary.failed + summary.blocked;
   const executionStatus = normalizeExecutionStatus(execution.status);
   const isTestCaseRun = execution.suite_ids.length === 0;
   const issueCount = summary.failed + summary.blocked;
@@ -10119,7 +10696,7 @@ function ExecutionListCard({
   ).size;
   const riskTone = getExecutionRiskTone(summary, impactSummary);
   const riskLabel = getExecutionRiskLabel(summary, impactSummary);
-  const riskInsight = getExecutionRiskInsight(summary, impactSummary, resolvedTotal);
+  const riskInsight = getExecutionRiskInsight(summary, impactSummary, totalScopedCases);
   const createdLabel = formatExecutionTimestamp(execution.created_at, "Not recorded");
   const durationLabel = formatDuration(
     computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow),
@@ -10132,28 +10709,22 @@ function ExecutionListCard({
   const latestEvidenceLabel = summary.latestActivityAt
     ? formatExecutionTimestamp(summary.latestActivityAt)
     : "No evidence yet";
-  const progressDetail = resolvedTotal
-    ? `${summary.total}/${resolvedTotal} touched · ${summary.failed} failed · ${summary.blocked} blocked`
+  const progressDetail = resolvedOutcomeCount
+    ? `${finalizedTotal}/${resolvedOutcomeCount} outcomes finalized · ${summary.failed} failed · ${summary.blocked} blocked`
     : "No evidence recorded yet";
-  const completionPercent = resolvedTotal ? Math.round((summary.total / resolvedTotal) * 100) : 0;
+  const completionPercent = resolvedOutcomeCount ? Math.round((finalizedTotal / resolvedOutcomeCount) * 100) : 0;
+  const passRate = finalizedTotal ? Math.round((summary.passed / finalizedTotal) * 100) : 0;
 
   return (
-    <div
-      aria-pressed={isActive}
-      className={isActive ? "record-card tile-card execution-card virtual-card is-active" : "record-card tile-card execution-card virtual-card"}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) {
+    <article
+      aria-label={`Open Test Run ${execution.display_id || execution.id}: ${execution.name || "Unnamed run"}`}
+      className={isActive ? "record-card tile-card execution-card execution-run-tile-card virtual-card is-active" : "record-card tile-card execution-card execution-run-tile-card virtual-card"}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea")) {
           return;
         }
-
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
+        onSelect();
       }}
-      role="button"
-      tabIndex={0}
     >
       <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
         <label className="checkbox-field">
@@ -10176,55 +10747,94 @@ function ExecutionListCard({
           >
             <ExecutionRunIcon />
           </div>
-          <div className="tile-card-title-group">
+          <button
+            aria-current={isActive ? "page" : undefined}
+            className="tile-card-title-group tile-card-open-button"
+            onClick={onSelect}
+            type="button"
+          >
             <strong>{execution.name || "Unnamed run"}</strong>
             <ExecutionAssigneeChip
               labelOverride={resolveExecutionAssigneeSummary(execution)}
               user={execution.assigned_users?.[0] || execution.assigned_user}
             />
             <span className="tile-card-kicker">Created {createdLabel}</span>
-          </div>
+          </button>
           <ExecutionStatusIndicator status={executionStatus} />
+        </div>
+
+        <div className="tile-card-progress-stack execution-run-progress-stack">
+          <TileCardProgress
+            displayValue={resolvedOutcomeCount ? `${completionPercent}%` : "No cases"}
+            label="Run completion"
+            segments={resolvedOutcomeCount ? buildFinalizedProgressSegments(
+              summary.passed,
+              summary.failed,
+              summary.blocked,
+              resolvedOutcomeCount
+            ) : undefined}
+            title={progressDetail}
+            tone={!resolvedOutcomeCount ? "neutral" : completionPercent === 100 ? "success" : completionPercent >= 50 ? "info" : "warning"}
+            value={resolvedOutcomeCount ? completionPercent : null}
+          />
+          <TileCardProgress
+            displayValue={finalizedTotal ? `${passRate}%` : "No results"}
+            label="Pass rate"
+            title={finalizedTotal ? `${summary.passed} of ${finalizedTotal} finalized results passed` : "No finalized results yet"}
+            tone={!finalizedTotal ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger"}
+            value={finalizedTotal ? passRate : null}
+          />
+        </div>
+
+        <div className="tile-card-metric-grid execution-tile-metrics" aria-label="Run metrics">
+          <TileCardMetric
+            label="Cases"
+            title={`${totalScopedCases} distinct test case${totalScopedCases === 1 ? "" : "s"} in scope${dataIterationCount > 1 ? ` across ${dataIterationCount} Data Set rows` : ""}`}
+            tone={totalScopedCases ? "info" : "neutral"}
+            value={totalScopedCases}
+          />
+          <TileCardMetric
+            label="Duration"
+            title={`Started: ${startedLabel}${summary.latestActivityAt ? ` • Latest evidence: ${latestEvidenceLabel}` : executionStatus === "aborted" ? " • Run stopped before completion" : ""}`}
+            tone={executionStatus === "aborted" ? "warning" : "neutral"}
+            value={durationLabel}
+          />
+          <TileCardMetric
+            label="Blocking"
+            title={issueCount ? `${issueCount} failed or blocked execution outcomes` : executionStatus === "aborted" ? "Run aborted before blocking evidence was finalized" : "No failed or blocked execution outcomes"}
+            tone={issueCount ? "danger" : executionStatus === "aborted" ? "warning" : finalizedTotal ? "success" : "neutral"}
+            value={issueCount}
+          />
+          <TileCardMetric
+            label="Story impact"
+            title={topImpactedRequirement ? `${topImpactedRequirement.title} · ${topImpactedRequirement.failureRate}% failure rate` : "No story impact detected"}
+            tone={impactSummary.failedRequirementCount ? "warning" : impactSummary.totalRequirements ? "success" : "neutral"}
+            value={impactSummary.totalRequirements ? `${impactSummary.failedRequirementCount}/${impactSummary.totalRequirements}` : "0"}
+          />
         </div>
 
         <div className="execution-card-facts" aria-label="Run facts">
           <ExecutionCardFact
             ariaLabel={
               isTestCaseRun
-                ? `${resolvedTotal} direct test case${resolvedTotal === 1 ? "" : "s"} in scope`
+                ? `${totalScopedCases} direct test case${totalScopedCases === 1 ? "" : "s"} in scope`
                 : `${execution.suite_ids.length} suites in scope`
             }
-            label={isTestCaseRun ? String(resolvedTotal) : String(execution.suite_ids.length)}
+            label={isTestCaseRun ? "Test cases" : `${execution.suite_ids.length} suites`}
             title={
               isTestCaseRun
-                ? `${resolvedTotal} direct test case${resolvedTotal === 1 ? "" : "s"} in scope`
+                ? `${totalScopedCases} direct test case${totalScopedCases === 1 ? "" : "s"} in scope`
                 : `${execution.suite_ids.length} suites in scope`
             }
           >
             {isTestCaseRun ? <ExecutionScopeIcon /> : <ExecutionSuiteIcon />}
           </ExecutionCardFact>
           <ExecutionCardFact
-            ariaLabel={resolvedTotal ? `${summary.total} of ${resolvedTotal} cases touched` : `${summary.total} cases touched`}
-            label={resolvedTotal ? `${summary.total}/${resolvedTotal}` : `${summary.total}`}
-            title={resolvedTotal ? `${summary.total}/${resolvedTotal} cases touched` : `${summary.total} cases touched`}
+            ariaLabel={resolvedOutcomeCount ? `${summary.total} of ${resolvedOutcomeCount} execution outcomes touched` : `${summary.total} execution outcomes touched`}
+            label={resolvedOutcomeCount ? `${summary.total}/${resolvedOutcomeCount}` : `${summary.total}`}
+            title={resolvedOutcomeCount ? `${summary.total}/${resolvedOutcomeCount} execution outcomes touched` : `${summary.total} execution outcomes touched`}
           >
             <ExecutionScopeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={issueCount ? `${issueCount} failed or blocked cases` : executionStatus === "aborted" ? "Run aborted before failures were recorded" : "No failed or blocked cases"}
-            label={String(issueCount)}
-            title={issueCount ? `${issueCount} failed or blocked cases` : executionStatus === "aborted" ? "Run aborted before failures were recorded" : "No failed or blocked cases"}
-            tone={issueCount ? "danger" : executionStatus === "aborted" ? "warning" : "success"}
-          >
-            <ExecutionRiskIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={`${impactSummary.failedRequirementCount} impacted stories with failed or blocked cases`}
-            label={impactSummary.totalRequirements ? `${impactSummary.failedRequirementCount}/${impactSummary.totalRequirements}` : "0"}
-            title={topImpactedRequirement ? `${topImpactedRequirement.title} · ${topImpactedRequirement.failureRate}% failure rate` : "No story impact detected"}
-            tone={impactSummary.failedRequirementCount ? "warning" : "neutral"}
-          >
-            <ExecutionRequirementImpactIcon />
           </ExecutionCardFact>
           <ExecutionCardFact
             ariaLabel={`${referenceCount} external references in scoped cases`}
@@ -10233,14 +10843,6 @@ function ExecutionListCard({
             tone={referenceCount ? "info" : "neutral"}
           >
             <ExecutionReferenceIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={`Run duration ${durationLabel}`}
-            label={durationLabel}
-            title={`Started: ${startedLabel}${summary.latestActivityAt ? ` • Latest evidence: ${latestEvidenceLabel}` : executionStatus === "aborted" ? " • Run stopped before completion" : ""}`}
-            tone={executionStatus === "aborted" ? "warning" : "neutral"}
-          >
-            <ExecutionTimeIcon />
           </ExecutionCardFact>
           <ExecutionCardFact
             ariaLabel={`Release ${execution.release || "not set"}`}
@@ -10285,20 +10887,8 @@ function ExecutionListCard({
           </div>
         ) : null}
 
-        <ProgressMeter
-          detail={progressDetail}
-          hideCopy
-          label="Run completion"
-          segments={buildProgressSegments(
-            summary.passed,
-            summary.failed,
-            summary.blocked,
-            resolvedTotal || summary.total
-          )}
-          value={completionPercent}
-        />
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -10309,11 +10899,13 @@ function ExecutionScheduleCard({
   canRun,
   isActive,
   isSelected,
+  liveNow,
   onSelect,
   onToggleSelected,
   onEdit,
   onRun,
-  onDelete
+  onDelete,
+  resolvedCaseCount
 }: {
   schedule: ExecutionSchedule;
   canDelete: boolean;
@@ -10321,20 +10913,54 @@ function ExecutionScheduleCard({
   canRun: boolean;
   isActive: boolean;
   isSelected: boolean;
+  liveNow: number;
   onSelect: () => void;
   onToggleSelected: () => void;
   onEdit: () => void;
   onRun: () => void;
   onDelete: () => void;
+  resolvedCaseCount: number;
 }) {
   const nextRunLabel = formatExecutionTimestamp(schedule.next_run_at, "Not scheduled");
+  const lastRunLabel = formatExecutionTimestamp(schedule.last_run_at, "No runs yet");
   const assigneeLabel = resolveExecutionAssigneeSummary(schedule);
   const releaseLabel = schedule.release || "Release not set";
-  const buildLabel = schedule.build || schedule.sprint || "Build not set";
+  const sprintLabel = schedule.sprint || "Sprint not set";
+  const buildLabel = schedule.build || "Build not set";
+  const cadenceLabel = formatScheduleCadence(schedule.cadence);
+  const assigneeCount = new Set([
+    ...(schedule.assigned_to_ids || []),
+    ...(schedule.assigned_to ? [schedule.assigned_to] : [])
+  ].filter(Boolean)).size;
+  const contextAttachedCount = [
+    schedule.test_environment_id,
+    schedule.test_configuration_id,
+    schedule.test_data_set_id
+  ].filter(Boolean).length;
+  const nextRunTimestamp = toTimestamp(schedule.next_run_at);
+  const launchSignals = [
+    { label: "active schedule", ready: schedule.is_active },
+    { label: "test scope", ready: resolvedCaseCount > 0 },
+    { label: "upcoming run time", ready: nextRunTimestamp !== null && nextRunTimestamp >= liveNow }
+  ];
+  const completedLaunchCount = launchSignals.filter((signal) => signal.ready).length;
+  const launchPercent = Math.round((completedLaunchCount / launchSignals.length) * 100);
+  const contextPercent = Math.round((contextAttachedCount / 3) * 100);
+  const missingLaunchLabels = launchSignals.filter((signal) => !signal.ready).map((signal) => signal.label);
+  const launchTitle = missingLaunchLabels.length
+    ? `Still needed: ${missingLaunchLabels.join(", ")}`
+    : "The schedule is active with resolved scope and an upcoming run time.";
 
   return (
-    <div className={isActive ? "record-card tile-card execution-card virtual-card is-active" : "record-card tile-card execution-card virtual-card"}>
-      <div className="tile-card-select-row">
+    <article
+      aria-label={`Open Scheduled Run ${schedule.id}: ${schedule.name}`}
+      className={isActive ? "record-card tile-card execution-card execution-schedule-tile-card virtual-card is-active" : "record-card tile-card execution-card execution-schedule-tile-card virtual-card"}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea")) return;
+        onSelect();
+      }}
+    >
+      <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
         <label className="checkbox-field">
           <input
             aria-label={`Select ${schedule.name}`}
@@ -10344,17 +10970,62 @@ function ExecutionScheduleCard({
           />
           <span className="sr-only">Select schedule</span>
         </label>
+        <EntityIdBadge icon={<ExecutionScheduleIcon />} value={schedule.id} />
       </div>
-      <button className="tile-card-main execution-schedule-card-button" onClick={onSelect} type="button">
+      <div className="tile-card-main execution-schedule-card-main">
         <div className="tile-card-header">
           <div aria-hidden="true" className={`record-card-icon execution status-${schedule.is_active ? "queued" : "aborted"}`}>
             <ExecutionScheduleIcon />
           </div>
-          <div className="tile-card-title-group">
+          <button aria-current={isActive ? "page" : undefined} className="tile-card-title-group tile-card-open-button" onClick={onSelect} type="button">
             <strong>{schedule.name}</strong>
-            <span className="execution-card-assignee">{schedule.is_active ? `${formatScheduleCadence(schedule.cadence)} cadence` : "Inactive schedule"}</span>
-          </div>
+            <span className="execution-card-assignee">{schedule.is_active ? `${cadenceLabel} cadence` : `Inactive · ${cadenceLabel} cadence`}</span>
+          </button>
           <ExecutionStatusIndicator status={schedule.is_active ? "queued" : "aborted"} />
+        </div>
+
+        <div className="tile-card-progress-stack execution-schedule-progress-stack">
+          <TileCardProgress
+            displayValue={`${completedLaunchCount}/${launchSignals.length} ready`}
+            label="Launch readiness"
+            title={launchTitle}
+            tone={launchPercent === 100 ? "success" : launchPercent >= 67 ? "info" : "warning"}
+            value={launchPercent}
+          />
+          <TileCardProgress
+            displayValue={`${contextAttachedCount}/3 attached`}
+            label="Run context"
+            title={`${contextAttachedCount} of 3 run context resources attached: environment, configuration, and test data`}
+            tone={contextPercent === 100 ? "success" : contextAttachedCount ? "info" : "warning"}
+            value={contextPercent}
+          />
+        </div>
+
+        <div className="tile-card-metric-grid execution-schedule-tile-metrics" aria-label={`${schedule.name} schedule metrics`}>
+          <TileCardMetric
+            label="Suites"
+            title={`${schedule.suite_ids.length} suite${schedule.suite_ids.length === 1 ? "" : "s"} in schedule scope`}
+            tone={schedule.suite_ids.length ? "info" : "neutral"}
+            value={schedule.suite_ids.length}
+          />
+          <TileCardMetric
+            label="Cases"
+            title={`${resolvedCaseCount} unique test case${resolvedCaseCount === 1 ? "" : "s"} resolved across direct and Suite scope`}
+            tone={resolvedCaseCount ? "info" : "warning"}
+            value={resolvedCaseCount}
+          />
+          <TileCardMetric
+            label="Assignees"
+            title={`Assigned to ${assigneeLabel}`}
+            tone={assigneeCount ? "success" : "warning"}
+            value={assigneeCount}
+          />
+          <TileCardMetric
+            label="Context"
+            title={`${contextAttachedCount} of 3 run context resources attached`}
+            tone={contextPercent === 100 ? "success" : contextAttachedCount ? "info" : "warning"}
+            value={`${contextAttachedCount}/3`}
+          />
         </div>
 
         <div className="execution-card-facts" aria-label="Schedule facts">
@@ -10370,14 +11041,20 @@ function ExecutionScheduleCard({
           <ExecutionCardFact ariaLabel={releaseLabel} label={releaseLabel} title={releaseLabel}>
             <ExecutionReleaseIcon />
           </ExecutionCardFact>
+          <ExecutionCardFact ariaLabel={sprintLabel} label={sprintLabel} title={sprintLabel}>
+            <ExecutionScopeIcon />
+          </ExecutionCardFact>
           <ExecutionCardFact ariaLabel={buildLabel} label={buildLabel} title={buildLabel}>
             <ExecutionBuildIcon />
           </ExecutionCardFact>
           <ExecutionCardFact ariaLabel={`Next run ${nextRunLabel}`} label={nextRunLabel} title={`Next run ${nextRunLabel}`}>
             <ExecutionTimeIcon />
           </ExecutionCardFact>
+          <ExecutionCardFact ariaLabel={`Last run ${lastRunLabel}`} label={lastRunLabel} title={`Last run ${lastRunLabel}`}>
+            <ExecutionTimeIcon />
+          </ExecutionCardFact>
         </div>
-      </button>
+      </div>
 
       <div className="action-row execution-schedule-actions">
         <button className="ghost-button" disabled={!canEdit} onClick={onEdit} type="button">
@@ -10393,7 +11070,7 @@ function ExecutionScheduleCard({
           <span>Delete</span>
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -10914,7 +11591,10 @@ function ExecutionSuiteCaseCard({
   assignedUser,
   isActive,
   isNext,
-  onSelect
+  onSelect,
+  getInstanceStatus,
+  onSelectInstance,
+  selectedInstanceKey
 }: {
   testCase: ExecutionCaseView;
   suiteName: string;
@@ -10925,7 +11605,12 @@ function ExecutionSuiteCaseCard({
   isActive: boolean;
   isNext: boolean;
   onSelect: () => void;
+  getInstanceStatus: (instance: ExecutionCaseInstanceView) => ExecutionResult["status"] | "queued";
+  onSelectInstance: (instanceKey: string) => void;
+  selectedInstanceKey: string;
 }) {
+  const dataSetInstances = testCase.data_set_instances.filter((instance) => Boolean(instance.test_data_set_id));
+
   return (
     <div
       aria-pressed={isActive}
@@ -10978,6 +11663,50 @@ function ExecutionSuiteCaseCard({
           </div>
           <ExecutionStatusIndicator status={caseStatus} />
         </div>
+        {dataSetInstances.length ? (
+          <div className="execution-case-instance-list" aria-label={`${testCase.title} Data Set row instances`} role="list">
+            <div className="execution-case-instance-list-header">
+              <span>
+                <strong>{dataSetInstances[0].test_data_set_name || "Data Set"}</strong>
+                <small>{dataSetInstances[0].data_set_source === "test_case" ? "Linked to test case" : "Run Data Set"}</small>
+              </span>
+              <span>{dataSetInstances.length} instance{dataSetInstances.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="execution-case-instance-scroll">
+              {dataSetInstances.map((instance) => {
+                const instanceStatus = getInstanceStatus(instance);
+                const rowValues = Object.entries(instance.data_set_row_snapshot || {});
+                const rowNumber = (instance.data_set_iteration_index ?? 0) + 1;
+                return (
+                  <button
+                    aria-current={selectedInstanceKey === instance.instance_key ? "true" : undefined}
+                    className={selectedInstanceKey === instance.instance_key ? "execution-case-instance-row is-active" : "execution-case-instance-row"}
+                    key={instance.instance_key}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectInstance(instance.instance_key);
+                    }}
+                    role="listitem"
+                    type="button"
+                  >
+                    <span className="execution-case-instance-identity">
+                      <strong>Row {rowNumber}</strong>
+                      <StatusBadge value={instanceStatus} />
+                    </span>
+                    <span className="execution-case-instance-values">
+                      {rowValues.length ? rowValues.map(([key, value]) => (
+                        <span className="execution-case-instance-value" key={`${instance.instance_key}-${key}`}>
+                          <small>{key}</small>
+                          <b>{value || "—"}</b>
+                        </span>
+                      )) : <small>No row values were captured.</small>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <div className="execution-card-facts" aria-label={`${testCase.title} facts`}>
           <ExecutionCardFact
             ariaLabel={`Priority P${testCase.priority || 3}`}
@@ -11204,7 +11933,7 @@ function ExecutionStepCard({
                 <strong>Step {step.step_order}</strong>
                 {resolvedKind ? (
                   <span className={resolvedKind === "reusable" ? "execution-step-group-chip is-shared" : "execution-step-group-chip is-local"}>
-                    {resolvedKind === "reusable" ? "Shared group" : "Local group"}
+                    {resolvedKind === "reusable" ? "Shared Step Group" : "Local group"}
                   </span>
                 ) : null}
                 <StatusBadge value={status} />
@@ -11818,7 +12547,7 @@ function ExecutionStructuredLogView({
                 <SharedGroupLevelIcon kind={step.group_kind} />
               </span>
               <span className="execution-structured-note">
-                {step.group_kind === "reusable" ? "Shared group snapshot" : "Local group snapshot"}
+                {step.group_kind === "reusable" ? "Shared Step Group snapshot" : "Local group snapshot"}
               </span>
             </div>
           ) : null}
@@ -13166,6 +13895,8 @@ function CreateExecutionScheduleModal({
   executionRelease,
   executionSprint,
   executionBuild,
+  releaseOptions,
+  sprintOptions,
   assigneeOptions,
   cadence,
   intervalMinutes,
@@ -13201,6 +13932,8 @@ function CreateExecutionScheduleModal({
   executionRelease: string;
   executionSprint: string;
   executionBuild: string;
+  releaseOptions: Array<{ value: string; label: string }>;
+  sprintOptions: Array<{ value: string; label: string }>;
   assigneeOptions: ExecutionAssigneeOption[];
   cadence: ExecutionScheduleCadence;
   intervalMinutes: number;
@@ -13267,10 +14000,22 @@ function CreateExecutionScheduleModal({
 
             <div className="execution-create-grid execution-create-grid--metadata">
               <FormField label="Release">
-                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+                <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
+                  <option value="">No release</option>
+                  {executionRelease && !releaseOptions.some((option) => option.value === executionRelease) ? (
+                    <option value={executionRelease}>{executionRelease}</option>
+                  ) : null}
+                  {releaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
               </FormField>
               <FormField label="Sprint">
-                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+                <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
+                  <option value="">No Sprint</option>
+                  {executionSprint && !sprintOptions.some((option) => option.value === executionSprint) ? (
+                    <option value={executionSprint}>{executionSprint}</option>
+                  ) : null}
+                  {sprintOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
               </FormField>
               <FormField label="Build">
                 <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />

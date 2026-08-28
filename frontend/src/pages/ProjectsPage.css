@@ -4,6 +4,117 @@
  * catalog and modal systems used by other workspaces retain their own layout.
  */
 
+.projects-page .project-detail-tabs.subnav-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(8.5rem, 1fr));
+  gap: 0.4rem !important;
+  padding: 0.45rem !important;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--primary, #2563eb) 14%, var(--line, #d8deea)) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--surface, #fff) 96%, var(--primary, #2563eb)) !important;
+  box-shadow: 0 6px 20px rgba(15, 31, 57, 0.05) !important;
+}
+
+.projects-page .project-detail-tabs > .subnav-tab {
+  min-width: 0;
+  min-height: 3rem !important;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  padding: 0.48rem 0.58rem !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  color: var(--text-secondary, #626f86) !important;
+  background: transparent !important;
+}
+
+.projects-page .project-detail-tabs > .subnav-tab:hover {
+  border-color: color-mix(in srgb, var(--primary, #2563eb) 15%, var(--line, #d8deea)) !important;
+  background: color-mix(in srgb, var(--primary, #2563eb) 6%, var(--surface, #fff)) !important;
+}
+
+.projects-page .project-detail-tabs > .subnav-tab.is-active {
+  border-color: color-mix(in srgb, var(--primary, #2563eb) 32%, var(--line, #d8deea)) !important;
+  background: color-mix(in srgb, var(--primary, #2563eb) 10%, var(--surface, #fff)) !important;
+  color: var(--primary-strong, #1d4ed8) !important;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--primary, #2563eb) 12%, transparent) !important;
+}
+
+.projects-page .project-detail-tabs .subnav-tab-icon {
+  display: inline-grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 1.8rem;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 7px;
+  color: var(--primary-strong, #1d4ed8) !important;
+  background: color-mix(in srgb, var(--primary, #2563eb) 8%, var(--surface, #fff));
+}
+
+.projects-page .project-detail-tabs > .subnav-tab.is-active .subnav-tab-icon {
+  border-color: var(--primary, #2563eb);
+  background: var(--primary, #2563eb);
+  color: #fff !important;
+}
+
+.projects-page .project-detail-tabs .subnav-tab-copy {
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.projects-page .project-detail-tabs .subnav-tab-copy > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .projects-page .project-detail-tabs.subnav-tabs {
+    display: flex !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scroll-snap-type: x proximity;
+  }
+
+  .projects-page .project-detail-tabs > .subnav-tab {
+    min-width: 9.5rem;
+    flex: 0 0 9.5rem;
+    scroll-snap-align: start;
+  }
+}
+
+:root[data-theme="dark"] .projects-page .project-detail-tabs.subnav-tabs {
+  border-color: var(--ds-border, #3d444d) !important;
+  background: color-mix(in srgb, var(--ds-surface-raised, #161a1d) 94%, #579dff) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] .projects-page .project-detail-tabs > .subnav-tab:hover {
+  background: color-mix(in srgb, #579dff 10%, var(--ds-surface-raised, #161a1d)) !important;
+}
+
+:root[data-theme="dark"] .projects-page .project-detail-tabs > .subnav-tab.is-active {
+  border-color: color-mix(in srgb, #579dff 52%, var(--ds-border, #3d444d)) !important;
+  background: color-mix(in srgb, #579dff 16%, var(--ds-surface-raised, #161a1d)) !important;
+  color: #85b8ff !important;
+}
+
+@media (forced-colors: active) {
+  .projects-page .project-detail-tabs.subnav-tabs,
+  .projects-page .project-detail-tabs > .subnav-tab,
+  .projects-page .project-detail-tabs .subnav-tab-icon {
+    border-color: CanvasText !important;
+  }
+
+  .projects-page .project-detail-tabs > .subnav-tab.is-active,
+  .projects-page .project-detail-tabs > .subnav-tab.is-active .subnav-tab-icon {
+    color: HighlightText !important;
+    background: Highlight !important;
+  }
+}
+
 .projects-page .projects-command-card {
   grid-template-columns: minmax(0, 1fr) minmax(22rem, 29rem);
   align-items: stretch;

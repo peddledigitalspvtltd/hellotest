@@ -12,6 +12,7 @@ import {
 } from "../lib/automationAccess";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import { parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
@@ -28,6 +29,8 @@ import {
 } from "../lib/stepAutomation";
 import type { ApiRequestPreview, AutomationLearningCacheEntry, StepApiRequest, StepApiValidation, TestStepType } from "../types";
 import { DialogCloseButton } from "./DialogCloseButton";
+
+const AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS.filter((option) => option.value !== "ios");
 
 type StepAutomationInput = {
   id?: string;
@@ -928,8 +931,9 @@ export function StepTypePickerButton({
   disabled?: boolean;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+  const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -981,7 +985,7 @@ export function StepTypePickerButton({
       </button>
       {isOpen ? (
         <div className="step-type-menu" ref={menuRef} role="menu">
-          {STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !["android", "ios"].includes(option.value)).map((option) => (
+          {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || option.value !== "android").map((option) => (
             <button
               className={option.value === stepType ? "step-type-menu-item is-active" : "step-type-menu-item"}
               key={option.value}
@@ -1229,8 +1233,9 @@ export function ApiRequestInfoDetails({
   title?: string;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
   const displayRequest = request || resolvedRequest;
   const method = displayRequest?.method || "GET";
   const url = displayRequest?.url || "";
@@ -1884,16 +1889,17 @@ export function CodePreviewDialog({
   onClose: () => void;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const keywordMappings = buildAutomationKeywordMappings(code, objectRepository);
 
   useEffect(() => {
-    if (!canPreviewAutomationCode) onClose();
-  }, [canPreviewAutomationCode, onClose]);
+    if (!canViewAutomationCode) onClose();
+  }, [canViewAutomationCode, onClose]);
 
-  if (!canPreviewAutomationCode) return null;
+  if (!canViewAutomationCode) return null;
 
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
@@ -1984,9 +1990,11 @@ export function StepAutomationDialog({
   onSave: (input: { step_type: TestStepType; automation_code: string; api_request: StepApiRequest | null }) => void;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
-  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const stepRevisionKey = JSON.stringify({
@@ -2201,6 +2209,13 @@ export function StepAutomationDialog({
   }, [availableParameters, getParameterScopeState, responseParameterDraft]);
 
   const handleRunApiRequest = async () => {
+    if (!canPreviewAutomationCode) {
+      setApiPreview(null);
+      setApiPreviewError("API request preview permission and feature access are required.");
+      setApiPreviewMessage("");
+      return;
+    }
+
     if (!resolvedApiRequest?.url) {
       setApiPreview(null);
       setApiPreviewError("Enter a valid absolute request URL before validating this API step.");
@@ -2530,7 +2545,7 @@ export function StepAutomationDialog({
         <div className="resource-form">
           <div className="resource-form-body automation-editor-body">
             <div className="automation-step-type-row">
-              {STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !["android", "ios"].includes(option.value)).map((option) => (
+              {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || option.value !== "android").map((option) => (
                 <button
                   className={option.value === stepType ? "automation-type-pill is-active" : "automation-type-pill"}
                   key={option.value}
@@ -2743,8 +2758,9 @@ export function StepAutomationDialog({
                     <div className="automation-response-actions">
                       <button
                         className="primary-button automation-run-button"
-                        disabled={isRunningApiRequest || !resolvedApiRequest?.url}
+                        disabled={!canPreviewAutomationCode || isRunningApiRequest || !resolvedApiRequest?.url}
                         onClick={() => void handleRunApiRequest()}
+                        title={canPreviewAutomationCode ? "Validate API request" : "API request preview access is required"}
                         type="button"
                       >
                         <PlayIcon />

@@ -144,6 +144,72 @@ test("new automation capabilities are disabled by default and run routes use spe
   assert.equal(ROUTE_PERMISSIONS.get("PUT /executions/:id/:level/:scopeId/assignment"), "run.update");
 });
 
+test("feature availability exposes only enforceable API and mobile capability switches", () => {
+  const byKey = new Map(featureFlags.FEATURE_DEFINITIONS.map((feature) => [feature.key, feature]));
+
+  for (const removedKey of [
+    "hellotest.api.testing",
+    "hellotest.api.preview",
+    "hellotest.mobile.android",
+    "hellotest.mobile.ios",
+    "hellotest.mobile.recorder"
+  ]) {
+    assert.equal(byKey.has(removedKey), false, `${removedKey} must not appear as an inert Admin switch`);
+  }
+
+  const preview = byKey.get("hellotest.automation.preview");
+  const appium = byKey.get("hellotest.mobile.appium");
+  const workspaceSettings = byKey.get("hellotest.ops.settings");
+  assert.equal(preview.label, "API request validation previews");
+  assert.deepEqual(preview.routes, ["/test-cases", "/shared-steps", "/automation"]);
+  assert.equal(appium.label, "Android and Appium");
+  assert.match(appium.description, /Android Appium authoring/);
+  assert.match(workspaceSettings.description, /Provide personal workspace preferences/);
+  assert.deepEqual(featureFlags.getFeatureKeysForPermission("automation.preview"), ["hellotest.automation.preview"]);
+  assert.deepEqual(featureFlags.getFeatureKeysForPermission("mobile.manage"), ["hellotest.mobile.appium"]);
+});
+
+test("delivery-aware creation stays within existing feature boundaries", () => {
+  const byKey = new Map(featureFlags.FEATURE_DEFINITIONS.map((feature) => [feature.key, feature]));
+  const deliveryPlanning = byKey.get("hellotest.manual.requirements");
+  const testCases = byKey.get("hellotest.manual.test_cases");
+  const runs = byKey.get("hellotest.manual.runs");
+  const bugs = byKey.get("hellotest.manual.bugs");
+  const testData = byKey.get("hellotest.manual.test_data");
+  const sharedStepGroups = byKey.get("hellotest.manual.suites");
+
+  assert.equal(deliveryPlanning.label, "Product Management — Stories, Sprints, and Releases");
+  assert.deepEqual(deliveryPlanning.routes, ["/requirements", "/stories", "/backlog", "/sprints", "/releases"]);
+  assert.match(deliveryPlanning.description, /Release and Sprint choices/);
+  assert.match(testCases.description, /selectable ownership/);
+  assert.match(testCases.description, /requirement-linked modules/);
+  assert.match(runs.description, /scheduled runs/);
+  assert.match(runs.description, /linked rows into case instances/);
+  assert.match(bugs.description, /Release\/Sprint context/);
+  assert.equal(sharedStepGroups.label, "Suites and Shared Step Groups");
+  assert.match(testData.description, /one or many rows/);
+
+  for (const permission of ["schedule.view", "schedule.create", "schedule.update", "schedule.run", "schedule.delete"]) {
+    assert.deepEqual(featureFlags.getFeatureKeysForPermission(permission), ["hellotest.manual.runs"]);
+  }
+  assert.deepEqual(featureFlags.getFeatureKeysForPermission("run.view"), ["hellotest.manual.runs"]);
+  assert.deepEqual(featureFlags.getFeatureKeysForPermission("settings.view"), ["hellotest.ops.settings"]);
+  assert.deepEqual(
+    featureFlags.getFeatureKeysForPermission("settings.manage"),
+    ["hellotest.ops.settings", "hellotest.ops.admin"]
+  );
+  assert.deepEqual(
+    featureFlags.getFeatureKeysForPermission("workspace_preferences.manage"),
+    ["hellotest.ops.settings", "hellotest.ops.admin"]
+  );
+  assert.deepEqual(
+    featureFlags.getFeatureKeysForPermission("localization.manage"),
+    ["hellotest.ops.settings", "hellotest.ops.admin"]
+  );
+
+  assert.equal(byKey.has("hellotest.manual.delivery_context"), false);
+});
+
 test("step-aligned automation moves require governed step management permission", () => {
   assert.equal(ROUTE_PERMISSIONS.get("POST /test-steps/move-automation"), "step.manage");
 });

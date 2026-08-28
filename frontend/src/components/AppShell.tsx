@@ -706,7 +706,7 @@ function ReadyAppShell() {
   const nextSection = WORKSPACE_PAGE_LABELS[routeNavigation.location?.pathname || ""] || "page";
   const isRouteTransitioning = routeNavigation.state === "loading";
   const pageAccess = domainMetadataQuery.data?.access?.pages;
-  const canAccessCurrentRoute = canAccessPath(session, location.pathname, pageAccess);
+  const canAccessCurrentRoute = canAccessPath(session, location.pathname, pageAccess, sidebarProjectId);
   const currentFeatureKeys = requiredFeatureFlagsForPath(location.pathname);
   const canAccessCurrentFeature = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
@@ -888,7 +888,7 @@ function ReadyAppShell() {
               ) : null}
               <div className="nav-group-items">
                 {group.items.map((item) => {
-                  if (!hasAnyPermission(session, getNavigationItemPermissions(item, pageAccess))) {
+                  if (!hasAnyPermission(session, getNavigationItemPermissions(item, pageAccess), sidebarProjectId)) {
                     return null;
                   }
 

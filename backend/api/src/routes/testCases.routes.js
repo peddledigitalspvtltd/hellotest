@@ -10,11 +10,38 @@ const automationGeneratorService = require("../services/automationGenerator.serv
 const batchProcessService = require("../services/batchProcess.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const testCaseVersionService = require("../services/testCaseVersion.service");
+const testDataSetService = require("../services/testDataSet.service");
+const mobileFeatureService = require("../services/mobileFeature.service");
+const db = require("../db");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const { paginate, shouldPaginate } = require("../utils/pagination");
+const {
+  containsMobileStepPayload,
+  isMobileAppType,
+  isMobileRecorderTarget
+} = require("../utils/mobileFeature");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
+
+const resolveTestCaseListProjectId = async ({ project_id, app_type_id, suite_id, requirement_id, module_id } = {}) => {
+  if (project_id) return project_id;
+  if (app_type_id) return (await db.prepare("SELECT project_id FROM app_types WHERE id = ?").get(app_type_id))?.project_id || null;
+  if (suite_id) return (await db.prepare(`
+    SELECT app_types.project_id
+    FROM test_suites
+    JOIN app_types ON app_types.id = test_suites.app_type_id
+    WHERE test_suites.id = ?
+  `).get(suite_id))?.project_id || null;
+  if (requirement_id) return (await db.prepare("SELECT project_id FROM requirements WHERE id = ?").get(requirement_id))?.project_id || null;
+  if (module_id) return (await db.prepare(`
+    SELECT app_types.project_id
+    FROM test_case_modules
+    JOIN app_types ON app_types.id = test_case_modules.app_type_id
+    WHERE test_case_modules.id = ?
+  `).get(module_id))?.project_id || null;
+  return null;
+};
 
 const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   const ids = [...new Set((Array.isArray(requirementIds) ? requirementIds : []).filter(Boolean))];
@@ -36,6 +63,103 @@ const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   }
 
   return requirements;
+};
+
+const ensureTestCasePermission = async (fastify, req, permissionCode, testCase = null) => {
+  const target = testCase || await service.getTestCase(req.params.id);
+  let projectIds = [];
+  if (target.app_type_id) {
+    projectIds = [(await appTypeService.getAppType(target.app_type_id)).project_id];
+  } else {
+    projectIds = (await db.prepare(`
+      SELECT DISTINCT project_id
+      FROM (
+        SELECT requirements.project_id
+        FROM requirement_test_cases
+        JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
+        WHERE requirement_test_cases.test_case_id = ?
+        UNION
+        SELECT requirements.project_id
+        FROM test_cases
+        JOIN requirements ON requirements.id = test_cases.requirement_id
+        WHERE test_cases.id = ?
+        UNION
+        SELECT app_types.project_id
+        FROM suite_test_cases
+        JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
+        JOIN app_types ON app_types.id = test_suites.app_type_id
+        WHERE suite_test_cases.test_case_id = ?
+        UNION
+        SELECT app_types.project_id
+        FROM test_cases
+        JOIN test_suites ON test_suites.id = test_cases.suite_id
+        JOIN app_types ON app_types.id = test_suites.app_type_id
+        WHERE test_cases.id = ?
+      ) AS test_case_scopes
+      WHERE project_id IS NOT NULL
+    `).all(target.id, target.id, target.id, target.id)).map((row) => row.project_id);
+  }
+  if (projectIds.length > 1) {
+    const error = new Error("The Test Case has conflicting project relationships");
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!projectIds.length) {
+    if (req.user.role !== "admin") {
+      const error = new Error("The Test Case does not have a project-scoped application");
+      error.statusCode = 403;
+      throw error;
+    }
+    return { testCase: target, projectId: null };
+  }
+  const projectId = projectIds[0];
+  await projectService.getProject(projectId, req.user.id);
+  await fastify.requirePermission(permissionCode, { projectId })(req);
+  return { testCase: target, projectId };
+};
+
+const ensureTestCaseDataSetAccess = async (fastify, req, projectId, dataSetId) => {
+  if (!dataSetId) return;
+  const dataSet = await testDataSetService.getTestDataSet(dataSetId);
+  if (projectId && dataSet.project_id !== projectId) {
+    const error = new Error("Test Data Set must belong to the Test Case project");
+    error.statusCode = 403;
+    throw error;
+  }
+  await fastify.requirePermission("data.view", { projectId: dataSet.project_id })(req);
+};
+
+const ensureSuiteAssignmentAccess = async (fastify, req, projectId, suiteIds = []) => {
+  const ids = [...new Set((Array.isArray(suiteIds) ? suiteIds : []).filter(Boolean))];
+  for (const suiteId of ids) {
+    const suite = await db.prepare(`
+      SELECT test_suites.id, app_types.project_id
+      FROM test_suites
+      JOIN app_types ON app_types.id = test_suites.app_type_id
+      WHERE test_suites.id = ?
+    `).get(suiteId);
+    if (!suite) {
+      const error = new Error(`Test Suite not found: ${suiteId}`);
+      error.statusCode = 404;
+      throw error;
+    }
+    if (projectId && suite.project_id !== projectId) {
+      const error = new Error("Test Suite must belong to the Test Case project");
+      error.statusCode = 403;
+      throw error;
+    }
+    await fastify.requirePermission("suite.update", { projectId: suite.project_id })(req);
+  }
+};
+
+const requireMobileAuthoringPermission = async (fastify, req, projectId, { appType = null, payload = null, testCaseId = null } = {}) => {
+  const usesMobile = isMobileAppType(appType?.type)
+    || containsMobileStepPayload(payload)
+    || (testCaseId ? await mobileFeatureService.testCaseUsesMobile(testCaseId) : false);
+
+  if (usesMobile) {
+    await fastify.requirePermission("mobile.manage", { projectId })(req);
+  }
 };
 
 const chunkItems = (items, size) => {
@@ -70,7 +194,8 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
-      test_data_set_ids: { required: false, type: "array", items: "string" },
+      test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
+      author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
       review_history: { required: false, type: "array" },
@@ -79,13 +204,66 @@ module.exports = async function (fastify) {
     }, req.body);
 
     // Verify access if app_type_id provided
+    let scopedProjectId = null;
+    let scopedAppType = null;
     if (req.body.app_type_id) {
       const appType = await appTypeService.getAppType(req.body.app_type_id);
+      scopedAppType = appType;
+      scopedProjectId = appType.project_id;
       await projectService.getProject(appType.project_id, req.user.id);
+    }
+    if (!scopedProjectId && (req.body.suite_id || req.body.suite_ids?.[0])) {
+      const suiteScope = await db.prepare(`
+        SELECT app_types.id AS app_type_id, app_types.project_id
+        FROM test_suites
+        JOIN app_types ON app_types.id = test_suites.app_type_id
+        WHERE test_suites.id = ?
+      `).get(req.body.suite_id || req.body.suite_ids[0]);
+      scopedProjectId = suiteScope?.project_id || null;
+      scopedAppType = suiteScope?.app_type_id ? await appTypeService.getAppType(suiteScope.app_type_id) : null;
+    }
+    if (!scopedProjectId && (req.body.requirement_id || req.body.requirement_ids?.[0])) {
+      scopedProjectId = (await db.prepare("SELECT project_id FROM requirements WHERE id = ?").get(req.body.requirement_id || req.body.requirement_ids[0]))?.project_id || null;
+    }
+    if (!scopedProjectId && req.user.role !== "admin") {
+      const error = new Error("A project-scoped app type, suite, or Story is required to create a Test Case");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (scopedProjectId) {
+      await projectService.getProject(scopedProjectId, req.user.id);
+      await fastify.requirePermission("testcase.create", { projectId: scopedProjectId })(req);
+      await requireMobileAuthoringPermission(fastify, req, scopedProjectId, {
+        appType: scopedAppType,
+        payload: req.body.steps
+      });
+    }
+    const requirementIds = req.body.requirement_ids || (req.body.requirement_id ? [req.body.requirement_id] : []);
+    if (requirementIds.length && scopedProjectId) {
+      await fastify.requirePermission("requirement.view", { projectId: scopedProjectId })(req);
+      await resolveScopedRequirements(requirementIds, scopedProjectId);
+    }
+    await ensureSuiteAssignmentAccess(
+      fastify,
+      req,
+      scopedProjectId,
+      req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
+    );
+    if (req.body.test_data_set_ids?.length) {
+      const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
+      const dataProjectId = dataSet.project_id;
+      if (scopedProjectId && dataProjectId !== scopedProjectId) {
+        const error = new Error("Test Data Set must belong to the Test Case project");
+        error.statusCode = 403;
+        throw error;
+      }
+      await projectService.getProject(dataProjectId, req.user.id);
+      await fastify.requirePermission("data.view", { projectId: dataProjectId })(req);
     }
 
     return service.createTestCase({
       ...req.body,
+      author_id: req.body.author_id || req.user.id,
       created_by: req.user.id
     });
   });
@@ -125,6 +303,10 @@ module.exports = async function (fastify) {
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
+    await requireMobileAuthoringPermission(fastify, req, appType.project_id, {
+      appType,
+      payload: req.body
+    });
 
     return batchProcessService.queueTestCaseImport({
       ...req.body,
@@ -676,15 +858,20 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-cases", async (req) => {
     await fastify.authenticate(req);
-    const { suite_id, requirement_id, module_id, unassigned_module, status, app_type_id } = req.query;
-    
-    // If filtering by app_type, verify access
-    if (app_type_id) {
-      const appType = await appTypeService.getAppType(app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
+    const { project_id, suite_id, requirement_id, module_id, unassigned_module, status, app_type_id } = req.query;
+    const scopedProjectId = await resolveTestCaseListProjectId(req.query);
+
+    if (scopedProjectId) {
+      await projectService.getProject(scopedProjectId, req.user.id);
+      await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id, app_type_id, suite_id, requirement_id, or module_id is required when listing Test Cases");
+      error.statusCode = 400;
+      throw error;
     }
-    
+
     const items = await service.getTestCases({
+      project_id: scopedProjectId || project_id,
       suite_id,
       requirement_id,
       module_id,
@@ -695,23 +882,35 @@ module.exports = async function (fastify) {
     return shouldPaginate(req.query) ? paginate(items, req.query) : items;
   });
 
+  fastify.post("/test-cases/resolve-requirements", async (req) => {
+    await fastify.authenticate(req);
+
+    fastify.validate({
+      app_type_id: { required: true, type: "string" },
+      requirement_ids: { required: true, type: "array", items: "string", minItems: 1, maxItems: 100 }
+    }, req.body || {});
+
+    const appType = await appTypeService.getAppType(req.body.app_type_id);
+    await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("testcase.view", { projectId: appType.project_id })(req);
+    await fastify.requirePermission("requirement.view", { projectId: appType.project_id })(req);
+    const scopedRequirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id);
+
+    return service.getTestCasesForRequirements({
+      app_type_id: appType.id,
+      requirement_ids: scopedRequirements.map((requirement) => requirement.id)
+    });
+  });
+
   fastify.get("/test-cases/:id/versions", async (req) => {
     await fastify.authenticate(req);
-    const testCase = await service.getTestCase(req.params.id);
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.view");
     return testCaseVersionService.list(req.params.id);
   });
 
   fastify.get("/test-cases/:id/versions/:revision", async (req) => {
     await fastify.authenticate(req);
-    const testCase = await service.getTestCase(req.params.id);
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.view");
     return testCaseVersionService.get(req.params.id, Number(req.params.revision));
   });
 
@@ -720,11 +919,7 @@ module.exports = async function (fastify) {
     fastify.validate({
       expected_revision: { required: false, type: "number" }
     }, req.body || {});
-    const testCase = await service.getTestCase(req.params.id);
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.update");
     return testCaseVersionService.restore({
       testCaseId: req.params.id,
       revision: Number(req.params.revision),
@@ -735,12 +930,7 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-cases/:id", async (req) => {
     await fastify.authenticate(req);
-    const testCase = await service.getTestCase(req.params.id);
-    // Verify access if app_type exists
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.view");
     return testCase;
   });
 
@@ -758,12 +948,8 @@ module.exports = async function (fastify) {
       captured_network: { required: false, type: "array" }
     }, req.body || {});
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
+    await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: req.params.id,
@@ -791,12 +977,8 @@ module.exports = async function (fastify) {
       test_data_set_id: { required: false, type: "string" }
     }, req.body || {});
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
+    await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return automationGeneratorService.queueGeneratorJob({
       test_case_id: req.params.id,
@@ -826,12 +1008,12 @@ module.exports = async function (fastify) {
       target_step_id: { required: false, type: "string" }
     }, req.body || {});
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
+    const { testCase, projectId } = await ensureTestCasePermission(fastify, req, "automation.recorder");
+    const appType = testCase.app_type_id ? await appTypeService.getAppType(testCase.app_type_id) : null;
+    if (isMobileRecorderTarget(req.body?.recorder_target) || isMobileAppType(appType?.type)) {
+      await fastify.requirePermission("mobile.manage", { projectId })(req);
     }
+    await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return aiAutomationBuilderService.startRecorderSession({
       test_case_id: req.params.id,
@@ -866,12 +1048,16 @@ module.exports = async function (fastify) {
       included_action_indices: { required: false, type: "array", items: "number" }
     }, req.body || {});
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
+    const { testCase, projectId } = await ensureTestCasePermission(fastify, req, "automation.recorder");
+    const appType = testCase.app_type_id ? await appTypeService.getAppType(testCase.app_type_id) : null;
+    const recorderTransaction = req.body?.transaction_id
+      ? await workspaceTransactionService.getTransaction(req.body.transaction_id).catch(() => null)
+      : null;
+    const recorderTarget = req.body?.recorder_target || recorderTransaction?.metadata?.recorder_target;
+    if (isMobileRecorderTarget(recorderTarget) || isMobileAppType(appType?.type)) {
+      await fastify.requirePermission("mobile.manage", { projectId })(req);
     }
+    await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return aiAutomationBuilderService.finishRecorderSession({
       test_case_id: req.params.id,
@@ -908,6 +1094,10 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
     const requirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id);
+    await requireMobileAuthoringPermission(fastify, req, appType.project_id, {
+      appType,
+      payload: req.body.cases
+    });
 
     return requirementDesignService.previewRequirementsTestCases({
       requirements,
@@ -1008,7 +1198,8 @@ module.exports = async function (fastify) {
       requirements,
       appType,
       status: req.body.status,
-      cases: req.body.cases
+      cases: req.body.cases,
+      created_by: req.user.id
     });
   });
 
@@ -1077,7 +1268,8 @@ module.exports = async function (fastify) {
       requirement_ids: { required: false, type: "array", items: "string" },
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
-      test_data_set_ids: { required: false, type: "array", items: "string" },
+      test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
+      author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
       review_history: { required: false, type: "array" },
@@ -1086,14 +1278,54 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const testCase = await service.getTestCase(req.params.id);
+    let scopedProjectId = null;
+    const updateProjectIds = new Set();
     if (testCase.app_type_id) {
       const appType = await appTypeService.getAppType(testCase.app_type_id);
+      scopedProjectId = appType.project_id;
+      updateProjectIds.add(appType.project_id);
       await projectService.getProject(appType.project_id, req.user.id);
+      await requireMobileAuthoringPermission(fastify, req, appType.project_id, {
+        appType,
+        payload: req.body.steps,
+        testCaseId: testCase.id
+      });
     }
 
     if (req.body.app_type_id && req.body.app_type_id !== testCase.app_type_id) {
       const targetAppType = await appTypeService.getAppType(req.body.app_type_id);
+      scopedProjectId = targetAppType.project_id;
+      updateProjectIds.add(targetAppType.project_id);
       await projectService.getProject(targetAppType.project_id, req.user.id);
+      await requireMobileAuthoringPermission(fastify, req, targetAppType.project_id, {
+        appType: targetAppType,
+        payload: req.body.steps
+      });
+    }
+    await Promise.all(Array.from(updateProjectIds, (projectId) =>
+      fastify.requirePermission("testcase.update", { projectId })(req)
+    ));
+    const requirementIds = req.body.requirement_ids || (req.body.requirement_id ? [req.body.requirement_id] : []);
+    if (requirementIds.length && scopedProjectId) {
+      await fastify.requirePermission("requirement.view", { projectId: scopedProjectId })(req);
+      await resolveScopedRequirements(requirementIds, scopedProjectId);
+    }
+    await ensureSuiteAssignmentAccess(
+      fastify,
+      req,
+      scopedProjectId,
+      req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
+    );
+    if (req.body.test_data_set_ids?.length) {
+      const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
+      const dataProjectId = dataSet.project_id;
+      if (scopedProjectId && dataProjectId !== scopedProjectId) {
+        const error = new Error("Test Data Set must belong to the Test Case project");
+        error.statusCode = 403;
+        throw error;
+      }
+      await projectService.getProject(dataProjectId, req.user.id);
+      await fastify.requirePermission("data.view", { projectId: dataProjectId })(req);
     }
 
     return service.updateTestCase(req.params.id, {
@@ -1110,11 +1342,7 @@ module.exports = async function (fastify) {
       comment: { required: false, type: "string" }
     }, req.body || {});
 
-    const testCase = await service.getTestCase(req.params.id);
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.update");
 
     return service.reviewTestCase(req.params.id, {
       ...req.body,
@@ -1125,12 +1353,7 @@ module.exports = async function (fastify) {
   fastify.post("/test-cases/:id/accept-generated", async (req) => {
     await fastify.authenticate(req);
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.update");
 
     return service.acceptGeneratedTestCase(req.params.id);
   });
@@ -1138,23 +1361,14 @@ module.exports = async function (fastify) {
   fastify.delete("/test-cases/:id/reject-generated", async (req) => {
     await fastify.authenticate(req);
 
-    const testCase = await service.getTestCase(req.params.id);
-
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.delete");
 
     return service.rejectGeneratedTestCase(req.params.id);
   });
 
   fastify.delete("/test-cases/:id", async (req) => {
     await fastify.authenticate(req);
-    const testCase = await service.getTestCase(req.params.id);
-    if (testCase.app_type_id) {
-      const appType = await appTypeService.getAppType(testCase.app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    await ensureTestCasePermission(fastify, req, "testcase.delete");
     return service.deleteTestCase(req.params.id);
   });
 };

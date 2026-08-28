@@ -7,13 +7,15 @@ const executionResultService = require("./executionResult.service");
 const apiRequestExecutionService = require("./apiRequestExecution.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const opsTelemetryService = require("./opsTelemetry.service");
+const mobileFeatureService = require("./mobileFeature.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { materializeDataSetSnapshot, materializeParameterValues, materializeTemplateValue } = require("../utils/testDataGenerators");
+const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const { assertExpectedRevision } = require("../utils/revision");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
 
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, sort_order, assigned_to, assigned_to_ids, assignment_source
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
@@ -62,12 +64,16 @@ const insertExecutionCaseSnapshot = db.prepare(`
     parameter_template_values,
     suite_parameter_values,
     suite_parameter_template_values,
+    test_data_set_id,
+    test_data_set_name,
+    test_data_set_snapshot,
+    data_set_source,
     sort_order,
     assigned_to,
     assigned_to_ids,
     assignment_source
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertExecutionStepSnapshot = db.prepare(`
@@ -154,7 +160,7 @@ const selectTestEnvironment = db.prepare(`
 `);
 
 const selectTestConfiguration = db.prepare(`
-  SELECT id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, variables
+  SELECT id, project_id, app_type_id, name, description, browser, mobile_os, platform_version, targets, variables
   FROM test_configurations
   WHERE id = ?
 `);
@@ -406,16 +412,111 @@ function normalizeParameterValues(values = {}) {
   }, {});
 }
 
-function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}) {
+function resolveExecutionCaseDataSet(execution, caseSnapshot) {
+  const caseSnapshotDataSet = parseJsonValue(caseSnapshot?.test_data_set_snapshot, null);
+
+  if (caseSnapshotDataSet || caseSnapshot?.test_data_set_id) {
+    return {
+      id: caseSnapshot?.test_data_set_id || caseSnapshotDataSet?.id || null,
+      name: caseSnapshot?.test_data_set_name || caseSnapshotDataSet?.name || null,
+      snapshot: caseSnapshotDataSet,
+      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+    };
+  }
+
+  return execution?.test_data_set
+    ? {
+        ...execution.test_data_set,
+        source: "run"
+      }
+    : null;
+}
+
+function resolveExecutionCaseDataSetIteration(execution, caseSnapshot, requestedIndex = null) {
+  const dataSet = resolveExecutionCaseDataSet(execution, caseSnapshot);
+  const hasRequestedIndex = requestedIndex !== null && requestedIndex !== undefined;
+
+  if (!dataSet) {
+    if (hasRequestedIndex) {
+      throw Object.assign(new Error("This Test Case does not have a Data Set iteration"), { statusCode: 400 });
+    }
+
+    return {
+      data_set: null,
+      engine_iteration: null,
+      result_metadata: {
+        test_data_set_id: null,
+        test_data_set_name: null,
+        data_set_iteration_index: null,
+        data_set_iteration_key: null,
+        data_set_row_snapshot: null
+      }
+    };
+  }
+
+  const index = hasRequestedIndex ? requestedIndex : 0;
+  if (!Number.isInteger(index) || index < 0) {
+    throw Object.assign(new Error("Data Set iteration index must be a non-negative integer"), { statusCode: 400 });
+  }
+
+  const snapshot = dataSet.snapshot || {};
+  const rows = Array.isArray(snapshot.rows)
+    ? snapshot.rows
+    : Array.isArray(snapshot.template_rows) ? snapshot.template_rows : [];
+  const isKeyValue = snapshot.mode === "key_value";
+  const total = isKeyValue ? 1 : Math.max(1, rows.length);
+
+  if (index >= total) {
+    throw Object.assign(new Error(`Data Set iteration ${index + 1} is outside the frozen ${total}-row snapshot`), { statusCode: 400 });
+  }
+
+  const dataSetId = dataSet.id || snapshot.id || null;
+  const dataSetName = dataSet.name || snapshot.name || null;
+  const key = `${dataSetId || "data-set"}:${index + 1}`;
+  const tableRow = !isKeyValue && rows[index] && typeof rows[index] === "object" && !Array.isArray(rows[index])
+    ? { ...rows[index] }
+    : null;
+  const rowSnapshot = isKeyValue
+    ? Object.fromEntries(
+        rows
+          .map((row) => [String(row?.key || "").trim(), row?.value])
+          .filter(([rowKey]) => Boolean(rowKey))
+      )
+    : tableRow;
+
+  return {
+    data_set: dataSet,
+    engine_iteration: {
+      index,
+      key,
+      total,
+      row: tableRow
+    },
+    result_metadata: {
+      test_data_set_id: dataSetId,
+      test_data_set_name: dataSetName,
+      data_set_iteration_index: index,
+      data_set_iteration_key: key,
+      data_set_row_snapshot: rowSnapshot
+    }
+  };
+}
+
+function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}, dataSetIterationIndex = null) {
   const values = {};
+  const caseParameterValues = normalizeParameterValues(caseSnapshot?.parameter_values);
+  const caseDataSet = resolveExecutionCaseDataSet(execution, caseSnapshot);
+  const caseParametersOverrideDataSet = caseDataSet?.source === "test_case";
 
   Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
     values[`s.${key.replace(/^s\./, "")}`] = materializeTemplateValue(value);
   });
 
-  Object.entries(normalizeParameterValues(caseSnapshot?.parameter_values)).forEach(([key, value]) => {
-    values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-  });
+  if (!caseParametersOverrideDataSet) {
+    Object.entries(caseParameterValues).forEach(([key, value]) => {
+      values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
+    });
+  }
 
   (execution?.test_environment?.snapshot?.variables || []).forEach((entry) => {
     const normalizedKey = String(entry?.key || "").trim().replace(/^@+/, "").toLowerCase();
@@ -437,7 +538,7 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
     values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry?.value);
   });
 
-  const dataSetSnapshot = execution?.test_data_set?.snapshot || null;
+  const dataSetSnapshot = caseDataSet?.snapshot || null;
   const dataSetRows = Array.isArray(dataSetSnapshot?.rows)
     ? dataSetSnapshot.rows
     : dataSetSnapshot?.template_rows || [];
@@ -451,7 +552,8 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
       values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row?.value);
     });
   } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
-    Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
+    const rowIndex = Number.isInteger(dataSetIterationIndex) ? dataSetIterationIndex : 0;
+    Object.entries(dataSetRows[rowIndex] || {}).forEach(([key, value]) => {
       const normalizedKey = String(key || "").trim().toLowerCase();
 
       if (!normalizedKey) {
@@ -459,6 +561,12 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
       }
 
       values[`t.${normalizedKey}`] = materializeTemplateValue(value);
+    });
+  }
+
+  if (caseParametersOverrideDataSet) {
+    Object.entries(caseParameterValues).forEach(([key, value]) => {
+      values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
     });
   }
 
@@ -670,6 +778,12 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
       parameter_template_values: normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values),
       suite_parameter_values: normalizeParameterValues(snapshot.suite_parameter_values),
       suite_parameter_template_values: normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values),
+      test_data_set_id: normalizeText(snapshot.test_data_set_id),
+      test_data_set_name: normalizeText(snapshot.test_data_set_name),
+      test_data_set_snapshot: parseJsonValue(snapshot.test_data_set_snapshot, null),
+      data_set_source: snapshot.data_set_source === "run" || snapshot.data_set_source === "test_case"
+        ? snapshot.data_set_source
+        : null,
       assigned_to: resolvedIds[0] || null,
       assigned_to_ids: resolvedIds,
       assignment_source: snapshot.assignment_source || (resolvedIds.length ? "run" : null),
@@ -859,6 +973,94 @@ async function resolveExecutionContextResource({ id, label, projectId, appTypeId
   };
 }
 
+function buildExecutionDataSetSnapshot(resource) {
+  if (!resource) {
+    return null;
+  }
+
+  return materializeDataSetSnapshot({
+    id: resource.id,
+    name: resource.name,
+    description: resource.description || null,
+    mode: resource.mode,
+    columns: parseJsonValue(resource.columns, []),
+    rows: parseJsonValue(resource.rows, [])
+  });
+}
+
+async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null) {
+  if (!Array.isArray(caseSnapshots) || !caseSnapshots.length) {
+    return [];
+  }
+
+  if (executionDataSet?.snapshot) {
+    return caseSnapshots.map((snapshot) => ({
+      ...snapshot,
+      test_data_set_id: executionDataSet.id || executionDataSet.snapshot.id || null,
+      test_data_set_name: executionDataSet.name || executionDataSet.snapshot.name || null,
+      test_data_set_snapshot: executionDataSet.snapshot,
+      data_set_source: "run"
+    }));
+  }
+
+  const testCaseIds = [...new Set(caseSnapshots.map((snapshot) => normalizeText(snapshot.test_case_id)).filter(Boolean))];
+  if (!testCaseIds.length) {
+    return caseSnapshots;
+  }
+
+  const linkedDataSets = await db.prepare(`
+    SELECT
+      mapping.test_case_id,
+      data_set.id,
+      data_set.name,
+      data_set.description,
+      data_set.mode,
+      data_set.columns,
+      data_set.rows
+    FROM test_case_data_sets AS mapping
+    JOIN test_data_sets AS data_set ON data_set.id = mapping.test_data_set_id
+    WHERE mapping.test_case_id IN (${placeholdersFor(testCaseIds)})
+    ORDER BY mapping.test_case_id ASC, mapping.sort_order ASC, mapping.test_data_set_id ASC
+  `).all(...testCaseIds);
+  const linkByCaseId = new Map();
+  const materializedByDataSetId = new Map();
+
+  linkedDataSets.forEach((dataSet) => {
+    if (linkByCaseId.has(dataSet.test_case_id)) {
+      return;
+    }
+
+    if (!materializedByDataSetId.has(dataSet.id)) {
+      materializedByDataSetId.set(dataSet.id, buildExecutionDataSetSnapshot(dataSet));
+    }
+
+    linkByCaseId.set(dataSet.test_case_id, {
+      id: dataSet.id,
+      name: dataSet.name,
+      snapshot: materializedByDataSetId.get(dataSet.id)
+    });
+  });
+
+  return caseSnapshots.map((snapshot) => {
+    const linkedDataSet = linkByCaseId.get(snapshot.test_case_id);
+    return linkedDataSet
+      ? {
+          ...snapshot,
+          test_data_set_id: linkedDataSet.id,
+          test_data_set_name: linkedDataSet.name,
+          test_data_set_snapshot: linkedDataSet.snapshot,
+          data_set_source: "test_case"
+        }
+      : {
+          ...snapshot,
+          test_data_set_id: null,
+          test_data_set_name: null,
+          test_data_set_snapshot: null,
+          data_set_source: null
+        };
+  });
+}
+
 async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const seenCaseIds = new Set();
   const caseSnapshots = [];
@@ -990,7 +1192,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   }
 
   return {
-    caseSnapshots,
+    caseSnapshots: await attachCaseDataSetSnapshots(caseSnapshots, options.executionDataSet || null),
     stepSnapshots
   };
 }
@@ -1066,7 +1268,8 @@ async function attachDetailedScope(execution) {
     })),
     {
       assignedTo: hydrated.assigned_to || null,
-      assignedToIds: hydrated.assigned_to_ids || []
+      assignedToIds: hydrated.assigned_to_ids || [],
+      executionDataSet: hydrated.test_data_set || null
     }
   );
 
@@ -1163,6 +1366,7 @@ exports.createExecution = async ({
       browser: resource.browser,
       mobile_os: resource.mobile_os,
       platform_version: resource.platform_version,
+      targets: configurationTargetsForRead(resource.targets, resource),
       variables: parseJsonValue(resource.variables, [])
     })
   });
@@ -1172,14 +1376,7 @@ exports.createExecution = async ({
     projectId: project_id,
     appTypeId: app_type_id || null,
     lookup: selectTestDataSet,
-    snapshotBuilder: (resource) => materializeDataSetSnapshot({
-      id: resource.id,
-      name: resource.name,
-      description: resource.description,
-      mode: resource.mode,
-      columns: parseJsonValue(resource.columns, []),
-      rows: parseJsonValue(resource.rows, [])
-    })
+    snapshotBuilder: buildExecutionDataSetSnapshot
   });
 
   const uniqueSuiteIds = [...new Set(suite_ids)];
@@ -1229,6 +1426,15 @@ exports.createExecution = async ({
       suite_parameter_values: primarySuite?.suite_parameter_values || {}
     });
   }
+
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled({
+    project_id,
+    app_type_id,
+    suite_ids: uniqueSuiteIds,
+    test_case_ids: uniqueTestCaseIds,
+    test_configuration_id,
+    test_configuration: selectedConfiguration
+  });
 
   const id = uuid();
   const normalizedExecutionMode = normalizeText(execution_mode) === "local"
@@ -1309,7 +1515,8 @@ exports.createExecution = async ({
       persisted: true,
       directCases: directCaseRows,
       assignedTo: resolvedAssignedTo,
-      assignedToIds: resolvedAssignedToIds
+      assignedToIds: resolvedAssignedToIds,
+      executionDataSet: selectedDataSet
     });
 
     for (const caseSnapshot of snapshotPayload.caseSnapshots) {
@@ -1329,6 +1536,10 @@ exports.createExecution = async ({
         caseSnapshot.parameter_template_values || caseSnapshot.parameter_values || {},
         caseSnapshot.suite_parameter_values || {},
         caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values || {},
+        caseSnapshot.test_data_set_id || null,
+        caseSnapshot.test_data_set_name || null,
+        caseSnapshot.test_data_set_snapshot || null,
+        caseSnapshot.data_set_source || null,
         caseSnapshot.sort_order,
         caseSnapshot.assigned_to || null,
         caseSnapshot.assigned_to_ids || (caseSnapshot.assigned_to ? [caseSnapshot.assigned_to] : []),
@@ -1470,6 +1681,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
   }
 
   const sourceExecution = await exports.getExecution(id);
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled(sourceExecution);
   const sourceCaseSnapshots = sourceExecution.case_snapshots || [];
   const sourceStepSnapshots = sourceExecution.step_snapshots || [];
   const sourceSuiteSnapshots = sourceExecution.suite_snapshots || [];
@@ -1481,19 +1693,11 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
   let filteredCaseSnapshots = sourceCaseSnapshots;
 
   if (failed_only) {
-    const latestStatusByCaseId = new Map();
     const executionResults = await getResultsForExecution.all(id);
-
-    executionResults.forEach((result) => {
-      if (!latestStatusByCaseId.has(result.test_case_id)) {
-        latestStatusByCaseId.set(result.test_case_id, result.status);
-      }
-    });
-
     const failedCaseIds = new Set(
-      [...latestStatusByCaseId.entries()]
-        .filter(([, status]) => status === "failed")
-        .map(([test_case_id]) => test_case_id)
+      executionResults
+        .filter((result) => result.status === "failed")
+        .map((result) => result.test_case_id)
     );
 
     filteredCaseSnapshots = sourceCaseSnapshots.filter((snapshot) => failedCaseIds.has(snapshot.test_case_id));
@@ -1514,6 +1718,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     `${sourceExecution.name || "Execution Run"}${failed_only ? " Failed Rerun" : " Rerun"}`;
   const rerunAssignedTo = resolveExecutionAssignee(created_by, sourceExecution.assigned_to);
   const rerunDataSetSnapshot = materializeDataSetSnapshot(sourceExecution.test_data_set?.snapshot || null);
+  const rerunLinkedDataSetSnapshots = new Map();
   const rerunSuiteParameters = new Map();
 
   await validateExecutionAssignee(sourceExecution.project_id, rerunAssignedTo);
@@ -1584,6 +1789,21 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       const suiteParameterValues = rerunSuiteParameters.get(suiteKey)
         || materializeParameterValues(suiteParameterTemplateValues);
       rerunSuiteParameters.set(suiteKey, suiteParameterValues);
+      const sourceCaseDataSetSnapshot = parseJsonValue(snapshot.test_data_set_snapshot, null);
+      const rerunDataSetSource = snapshot.data_set_source === "test_case"
+        ? "test_case"
+        : (rerunDataSetSnapshot || sourceCaseDataSetSnapshot) ? "run" : null;
+      let rerunCaseDataSetSnapshot = rerunDataSetSource === "run"
+        ? rerunDataSetSnapshot || materializeDataSetSnapshot(sourceCaseDataSetSnapshot)
+        : null;
+
+      if (rerunDataSetSource === "test_case" && sourceCaseDataSetSnapshot) {
+        const dataSetKey = snapshot.test_data_set_id || sourceCaseDataSetSnapshot.id || `case:${snapshot.test_case_id}`;
+        rerunCaseDataSetSnapshot = rerunLinkedDataSetSnapshots.get(dataSetKey)
+          || materializeDataSetSnapshot(sourceCaseDataSetSnapshot);
+        rerunLinkedDataSetSnapshots.set(dataSetKey, rerunCaseDataSetSnapshot);
+      }
+
       await insertExecutionCaseSnapshot.run(
         nextExecutionId,
         snapshot.test_case_id,
@@ -1600,6 +1820,10 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         parameterTemplateValues,
         suiteParameterValues,
         suiteParameterTemplateValues,
+        snapshot.test_data_set_id || rerunCaseDataSetSnapshot?.id || sourceExecution.test_data_set?.id || null,
+        snapshot.test_data_set_name || rerunCaseDataSetSnapshot?.name || sourceExecution.test_data_set?.name || null,
+        rerunCaseDataSetSnapshot,
+        rerunDataSetSource,
         index + 1,
         snapshot.assigned_to || rerunAssignedTo,
         normalizeTextList(snapshot.assigned_to_ids || snapshot.assigned_to || sourceExecution.assigned_to_ids || [rerunAssignedTo]),
@@ -1633,6 +1857,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
 exports.startExecution = async (id, options = {}) => {
   const execution = await exports.getExecution(id);
+  await mobileFeatureService.assertExecutionMobileFeatureEnabled(execution);
   const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
   const skipTestEngineDispatch = Boolean(options.skip_testengine_dispatch)
     || (execution.trigger === "manual" && options.execution_mode !== "local" && options.execution_mode !== "remote");
@@ -1882,7 +2107,12 @@ exports.completeExecution = async (id, status, options = {}) => {
   return { completed: true, status, revision: currentRevision + 1 };
 };
 
-exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed_by } = {}) => {
+exports.runExecutionApiStep = async (
+  executionId,
+  testCaseId,
+  stepId,
+  { executed_by, data_set_iteration_index = null } = {}
+) => {
   const execution = await exports.getExecution(executionId);
 
   if (execution.status !== "running") {
@@ -1894,6 +2124,12 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
   if (!caseSnapshot) {
     throw new Error("Execution test case not found");
   }
+
+  const dataSetIteration = resolveExecutionCaseDataSetIteration(
+    execution,
+    caseSnapshot,
+    data_set_iteration_index
+  );
 
   const stepSnapshot = (execution.step_snapshots || []).find((snapshot) =>
     snapshot.test_case_id === testCaseId && snapshot.snapshot_step_id === stepId
@@ -1908,7 +2144,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
 
   const existingResult = await executionResultService.findLatestExecutionResult({
     execution_id: executionId,
-    test_case_id: testCaseId
+    test_case_id: testCaseId,
+    data_set_iteration_index: dataSetIteration.result_metadata.data_set_iteration_index
   });
   const existingLogs = executionStepRuntimeService.parseStructuredLogs(existingResult?.logs || null);
   const currentCaseCapturedValues = executionStepRuntimeService.extractCapturedValuesFromLogs(existingLogs);
@@ -1926,7 +2163,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
       integration: testEngineIntegration,
       initiatedBy: executed_by || null,
       capturedValues,
-      existingLogs
+      existingLogs,
+      dataSetIteration: dataSetIteration.engine_iteration
     });
     const queuedNote = `Queued web step ${stepSnapshot.step_order} for Test Engine execution with ${queued.active_web_engine || "the configured web engine"}. Open the provider live viewer while the engine reports step progress.`;
     const mergedLogs = {
@@ -1944,7 +2182,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
       duration_ms: resolveExecutionCaseDurationMs(execution, existingResult),
       error: null,
       logs: JSON.stringify(mergedLogs),
-      executed_by: normalizeText(executed_by) || execution.assigned_to || null
+      executed_by: normalizeText(executed_by) || execution.assigned_to || null,
+      ...dataSetIteration.result_metadata
     });
 
     try {
@@ -1978,7 +2217,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
       engine_run_id: queued.engine_run_id,
       transaction_id: queued.transaction_id,
       active_web_engine: queued.active_web_engine,
-      live_view_url: queued.live_view_url
+      live_view_url: queued.live_view_url,
+      ...dataSetIteration.result_metadata
     };
   }
 
@@ -1986,7 +2226,12 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
     throw new Error("Only API and web execution steps can be run through the execution console");
   }
 
-  const parameterValues = buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues);
+  const parameterValues = buildExecutionRuntimeParameterValues(
+    execution,
+    caseSnapshot,
+    capturedValues,
+    dataSetIteration.result_metadata.data_set_iteration_index
+  );
   const stepResult = await apiRequestExecutionService.executeApiRequestStep({
     api_request: apiRequest,
     parameter_values: parameterValues
@@ -2043,7 +2288,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
     duration_ms: resolveExecutionCaseDurationMs(execution, existingResult),
     error: caseStatus === "failed" ? stepResult.note : null,
     logs: JSON.stringify(mergedLogs),
-    executed_by: normalizeText(executed_by) || execution.assigned_to || null
+    executed_by: normalizeText(executed_by) || execution.assigned_to || null,
+    ...dataSetIteration.result_metadata
   });
 
   await testEngineDispatchService.settleExecutionIfComplete(executionId);
@@ -2078,7 +2324,8 @@ exports.runExecutionApiStep = async (executionId, testCaseId, stepId, { executed
     note: formattedStepNote,
     detail: stepResult.detail,
     captures: normalizedStepCaptures,
-    execution_result_id: result.id
+    execution_result_id: result.id,
+    ...dataSetIteration.result_metadata
   };
 };
 

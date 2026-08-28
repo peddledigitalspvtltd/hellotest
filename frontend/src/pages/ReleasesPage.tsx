@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { IconBug, IconCheck, IconChecklist, IconChevronDown, IconChevronRight, IconCopy, IconExternalLink, IconFlagCheck, IconPlayerPlay, IconSparkles, IconTargetArrow, IconTrash } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, ReleaseIcon, ReleaseNotesIcon, ReleaseReadinessIcon, SearchIcon, SprintIcon, StoryIcon } from "../components/AppIcons";
+import { AddIcon, PencilIcon, ReleaseIcon, ReleaseNotesIcon, ReleaseReadinessIcon, SearchIcon, SprintIcon, StoryIcon } from "../components/AppIcons";
 import { AppErrorState } from "../components/AppErrorBoundary";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -22,14 +22,15 @@ import { Panel } from "../components/Panel";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { TileBrowserPane } from "../components/TileBrowserPane";
-import { TileCardFact } from "../components/TileCardPrimitives";
+import { TileCardFact, TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { ToastMessage } from "../components/ToastMessage";
-import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { isDeliveryStatusComplete, summarizeDeliveryCompletion } from "../lib/deliveryStatus";
 import { hasPermission } from "../lib/permissions";
-import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes, RequirementReleaseReadiness } from "../types";
+import type { ExecutionResult, Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes, RequirementReleaseReadiness, TestCase } from "../types";
 import "./ReleasesPage.css";
 
 type ReleaseDraft = {
@@ -51,6 +52,27 @@ const emptyDraft = (): ReleaseDraft => ({
 const formatDate = (value?: string | null) => value
   ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value))
   : "No target date";
+
+const formatReleaseShortDate = (value?: string | null) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[2]}/${match[3]}` : "—";
+};
+
+const releaseDateRangeLabel = (start?: string | null, end?: string | null) => {
+  if (!start && !end) return "Dates not set";
+  return `${formatReleaseShortDate(start)} – ${formatReleaseShortDate(end)}`;
+};
+
+const releaseVersionLabel = (value?: string | null) => {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^version\b[\s:._-]*/i, "")
+    .replace(/^v(?=[\s:._-]*\d)[\s:._-]*/i, "");
+  return `v${normalized || "—"}`;
+};
+
+const releaseDateInputValue = (value?: string | null) =>
+  String(value || "").match(/^\d{4}-\d{2}-\d{2}/)?.[0] || "";
 
 const dateOnlyToMidnightIso = (value: string) => {
   const date = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
@@ -83,11 +105,13 @@ function ReleaseHierarchyToggle({ isExpanded }: { isExpanded: boolean }) {
 export function ReleasesPage() {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
+  const [appTypeId] = useCurrentAppType(projectId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedReleaseId = searchParams.get("release") || "";
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingRelease, setEditingRelease] = useState<RequirementRelease | null>(null);
   const [draft, setDraft] = useState<ReleaseDraft>(emptyDraft);
   const [storySearch, setStorySearch] = useState("");
   const [releaseSearch, setReleaseSearch] = useState("");
@@ -100,9 +124,9 @@ export function ReleasesPage() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const canCreate = hasPermission(session, "requirement_iteration.create");
-  const canUpdate = hasPermission(session, "requirement_iteration.update");
-  const canDelete = hasPermission(session, "requirement_iteration.delete");
+  const canCreate = hasPermission(session, "requirement_iteration.create", projectId);
+  const canUpdate = hasPermission(session, "requirement_iteration.update", projectId);
+  const canDelete = hasPermission(session, "requirement_iteration.delete", projectId);
 
   const releasesQuery = useQuery({
     queryKey: ["requirement-releases", projectId],
@@ -126,8 +150,22 @@ export function ReleasesPage() {
     queryFn: () => api.requirements.list({ project_id: projectId, limit: 5000, projection: "summary" }),
     enabled: Boolean(projectId)
   });
+  const releaseStoryTestCasesQuery = useQuery({
+    queryKey: ["release-story-test-cases", projectId, appTypeId],
+    queryFn: async () => asArray(await api.testCases.list({ app_type_id: appTypeId, projection: "summary" })),
+    enabled: Boolean(projectId && appTypeId)
+  });
+  const releaseStoryExecutionResultsQuery = useQuery({
+    queryKey: ["release-story-execution-results", projectId, appTypeId],
+    queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 })),
+    enabled: Boolean(projectId && appTypeId)
+  });
   const createRelease = useMutation({ mutationFn: api.requirementReleases.create });
   const updateRelease = useMutation({ mutationFn: ({ id, state }: { id: string; state: "in_progress" | "released" }) => api.requirementReleases.update(id, { state }) });
+  const editRelease = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.requirementReleases.update>[1] }) =>
+      api.requirementReleases.update(id, input)
+  });
   const deleteRelease = useMutation({ mutationFn: api.requirementReleases.delete });
   const generateReleaseNotes = useMutation({
     mutationFn: (releaseId: string) => api.requirementReleases.generateNotes(releaseId),
@@ -136,6 +174,38 @@ export function ReleasesPage() {
 
   const sprints = asArray(sprintsQuery.data);
   const stories = asArray(storiesQuery.data);
+  const releaseStoryTestCases = asArray(releaseStoryTestCasesQuery.data);
+  const releaseStoryExecutionResults = asArray(releaseStoryExecutionResultsQuery.data);
+  const storyEvidenceById = useMemo(
+    () => new Map(stories.map((story) => [story.id, story])),
+    [stories]
+  );
+  const releaseStoryCaseIdsByStoryId = useMemo(() => {
+    const linkedCaseIds = new Map<string, string[]>();
+    stories.forEach((story) => linkedCaseIds.set(story.id, [...new Set(asArray(story.test_case_ids).map(String))]));
+    releaseStoryTestCases.forEach((testCase) => {
+      const requirementIds = [...asArray(testCase.requirement_ids), testCase.requirement_id].filter(Boolean) as string[];
+      requirementIds.forEach((requirementId) => {
+        if (!storyEvidenceById.has(requirementId)) return;
+        linkedCaseIds.set(requirementId, [...new Set([...(linkedCaseIds.get(requirementId) || []), testCase.id])]);
+      });
+    });
+    return linkedCaseIds;
+  }, [releaseStoryTestCases, stories, storyEvidenceById]);
+  const latestReleaseStoryResultByCaseId = useMemo(() => {
+    const latest = new Map<string, ExecutionResult>();
+    releaseStoryExecutionResults.forEach((result) => {
+      const current = latest.get(result.test_case_id);
+      const currentTime = current?.created_at ? new Date(current.created_at).getTime() || 0 : 0;
+      const nextTime = result.created_at ? new Date(result.created_at).getTime() || 0 : 0;
+      if (!current || nextTime >= currentTime) latest.set(result.test_case_id, result);
+    });
+    return latest;
+  }, [releaseStoryExecutionResults]);
+  const releaseStoryTestCaseById = useMemo(
+    () => new Map<string, TestCase>(releaseStoryTestCases.map((testCase) => [testCase.id, testCase])),
+    [releaseStoryTestCases]
+  );
   const readinessByReleaseId = useMemo(() => new Map<string, RequirementReleaseReadiness>(
     asArray(releaseReadinessQuery.data).map((readiness) => [readiness.release_id, readiness])
   ), [releaseReadinessQuery.data]);
@@ -236,10 +306,67 @@ export function ReleasesPage() {
       queryClient.invalidateQueries({ queryKey: ["requirements", projectId] })
     ]);
   };
+  const openCreateRelease = () => {
+    setEditingRelease(null);
+    setDraft(emptyDraft());
+    setStorySearch("");
+    setIsCreateOpen(true);
+  };
+  const openEditRelease = (release: RequirementRelease) => {
+    setEditingRelease(release);
+    setDraft({
+      name: release.name,
+      description: release.description || "",
+      fixVersion: release.fix_version,
+      planDate: releaseDateInputValue(release.plan_date),
+      targetDate: releaseDateInputValue(release.target_date),
+      externalLink: release.external_link || "",
+      sprintIds: release.sprint_ids,
+      requirementIds: asArray(release.requirements)
+        .filter((story) => story.release_membership_source !== "sprint")
+        .map((story) => story.id)
+    });
+    setStorySearch("");
+    setIsCreateOpen(true);
+  };
+  const closeReleaseDialog = () => {
+    if (createRelease.isPending || editRelease.isPending) return;
+    setIsCreateOpen(false);
+    setEditingRelease(null);
+    setDraft(emptyDraft());
+    setStorySearch("");
+  };
+  const releaseDialogRef = useDialogFocus<HTMLFormElement>({
+    active: isCreateOpen,
+    closeDisabled: createRelease.isPending || editRelease.isPending,
+    onClose: closeReleaseDialog
+  });
   const saveRelease = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!projectId || !draft.name.trim() || !draft.fixVersion.trim()) return;
     try {
+      if (editingRelease) {
+        await editRelease.mutateAsync({
+          id: editingRelease.id,
+          input: {
+            name: draft.name.trim(),
+            description: draft.description,
+            fix_version: draft.fixVersion.trim(),
+            plan_date: draft.planDate ? dateOnlyToMidnightIso(draft.planDate) : "",
+            target_date: draft.targetDate ? dateOnlyToMidnightIso(draft.targetDate) : "",
+            external_link: draft.externalLink.trim(),
+            sprint_ids: draft.sprintIds,
+            requirement_ids: draft.requirementIds
+          }
+        });
+        setMessageTone("success");
+        setMessage("Release updated in HelloTest.");
+        setIsCreateOpen(false);
+        setEditingRelease(null);
+        setDraft(emptyDraft());
+        await refresh();
+        return;
+      }
       const response = await createRelease.mutateAsync({
         project_id: projectId,
         name: draft.name.trim(),
@@ -260,7 +387,7 @@ export function ReleasesPage() {
       setSearchParams({ release: response.id });
     } catch (error) {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to create release");
+      setMessage(error instanceof Error ? error.message : `Unable to ${editingRelease ? "update" : "create"} release`);
     }
   };
   const changeState = async (release: RequirementRelease, state: "in_progress" | "released") => {
@@ -377,18 +504,20 @@ export function ReleasesPage() {
     return (
       <div className="requirement-sprint-identity release-hierarchy-identity">
         <span className="module-folder-icon release-module-icon"><ReleaseIcon size={20} /></span>
-        <div className="requirement-sprint-copy">
-          <div className="requirement-sprint-heading">
-            <strong>{release.name}</strong>
+        <div className="requirement-sprint-copy release-ribbon-copy">
+          <div className="requirement-sprint-heading release-ribbon-title-line">
+            <span className="release-ribbon-name-version">
+              <strong className="release-ribbon-name" title={release.name}>{release.name}</strong>
+              <span aria-hidden="true" className="release-ribbon-version-separator">–</span>
+              <span className="release-ribbon-version" title={`Version ${releaseVersionLabel(release.fix_version)}`}>{releaseVersionLabel(release.fix_version)}</span>
+            </span>
             <span className={`requirement-sprint-status is-${releaseStateClass(release)}`}>{release.state.replace("_", " ")}</span>
           </div>
-          <div className="requirement-sprint-meta">
-            <span className="requirement-sprint-dates">{release.fix_version}</span>
-            <span>Plan: {formatDate(release.plan_date)}</span>
-            <span>Target: {formatDate(release.target_date)}</span>
-            <span>{release.sprint_ids.length} {release.sprint_ids.length === 1 ? "Sprint" : "Sprints"}</span>
+          <div className="requirement-sprint-meta release-ribbon-schedule">
+            <span className="requirement-sprint-dates release-date-range" title={`${formatDate(release.plan_date)} – ${formatDate(release.target_date)}`}>{releaseDateRangeLabel(release.plan_date, release.target_date)}</span>
+            {release.sprint_ids.length ? <span>{release.sprint_ids.length} {release.sprint_ids.length === 1 ? "Sprint" : "Sprints"}</span> : null}
           </div>
-          {description ? <span className="requirement-sprint-goal" title={description}>{description}</span> : null}
+          {description ? <span className="requirement-sprint-goal release-ribbon-description" title={description}>{description}</span> : null}
         </div>
       </div>
     );
@@ -441,7 +570,17 @@ export function ReleasesPage() {
       {release.persisted_state === "in_progress" ? (
         <button aria-label={`Complete release ${release.name}`} className="ghost-button compact release-complete-button" disabled={!canUpdate || updateRelease.isPending} onClick={() => void changeState(release, "released")} title="Complete Release" type="button"><IconFlagCheck size={16} /></button>
       ) : null}
-      <button aria-label={`Open readiness board for ${release.name}`} className="ghost-button compact release-readiness-button release-ribbon-action" onClick={() => openReleaseReadiness(release)} title="Open release readiness board" type="button"><ReleaseReadinessIcon size={23} /></button>
+      <button
+        aria-label={`Edit ${release.name}`}
+        className="ghost-button compact release-edit-button"
+        disabled={!canUpdate || release.persisted_state === "released" || editRelease.isPending}
+        onClick={() => openEditRelease(release)}
+        title={release.persisted_state === "released" ? "Completed Releases are read-only" : "Edit Release"}
+        type="button"
+      >
+        <PencilIcon size={16} />
+      </button>
+      <button aria-label={`Open readiness board for ${release.name}`} className="ghost-button compact release-readiness-button release-ribbon-action" onClick={() => openReleaseReadiness(release)} title="Open release readiness board" type="button"><ReleaseReadinessIcon size={26} /></button>
       <button aria-label={`${generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id ? "Generating" : "Generate"} release notes for ${release.name}`} className="ghost-button compact release-notes-button release-ribbon-action" disabled={generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id} onClick={() => openReleaseNotes(release)} title="Evaluate scoped Stories and compose Release notes" type="button"><ReleaseNotesIcon size={23} /></button>
       {release.external_link ? <a aria-label={`Open external reference for ${release.name}`} className="ghost-button compact release-external-action" href={release.external_link} rel="noreferrer" target="_blank" title="Open external Release reference"><IconExternalLink size={16} /></a> : null}
       <button aria-label={`Delete release ${release.name}`} className="ghost-button compact danger release-delete-button" disabled={!canDelete || deleteRelease.isPending} onClick={() => void removeRelease(release)} title="Delete Release" type="button"><IconTrash size={16} /></button>
@@ -475,36 +614,84 @@ export function ReleasesPage() {
       </div>
     );
   };
-  const renderReleaseStoryTile = (story: Requirement) => (
-    <article
-      className="record-card tile-card requirement-catalog-card release-story-tile"
-      key={story.id}
-      onClick={() => openReleaseStory(story)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openReleaseStory(story);
-        }
-      }}
-      role="button"
-      tabIndex={0}
-    >
-      <div className="tile-card-main">
-        <div className="tile-card-select-row requirement-tile-top-row release-story-tile-top-row">
-          <span className="requirement-story-identity"><StoryIcon size={16} /><DisplayIdBadge value={story.display_id || story.id} /></span>
-          <span className="release-story-scope">{story.release_membership_source === "sprint" ? "Sprint scope" : "Direct scope"}</span>
-          <StatusBadge value={story.status || "open"} />
+  const renderReleaseStoryTile = (story: Requirement) => {
+    const evidenceStory = storyEvidenceById.get(story.id) || story;
+    const linkedCaseIds = releaseStoryCaseIdsByStoryId.get(story.id) || asArray(evidenceStory.test_case_ids).map(String);
+    const linkedCaseCount = linkedCaseIds.length;
+    const linkedBugCount = new Set([
+      ...asArray(evidenceStory.defect_ids).map(String),
+      ...asArray(evidenceStory.defects).map((defect) => defect.id)
+    ]).size;
+    const passedCaseCount = linkedCaseIds.filter((testCaseId) => latestReleaseStoryResultByCaseId.get(testCaseId)?.status === "passed").length;
+    const passPercent = linkedCaseCount ? Math.round((passedCaseCount / linkedCaseCount) * 100) : 0;
+    const knownTestCases = linkedCaseIds.map((testCaseId) => releaseStoryTestCaseById.get(testCaseId)).filter(Boolean) as TestCase[];
+    const automatedCaseCount = knownTestCases.filter((testCase) => testCase.automated === "yes").length;
+    const hasCompleteAutomationCoverage = knownTestCases.length === linkedCaseCount;
+    const automationPercent = knownTestCases.length ? Math.round((automatedCaseCount / knownTestCases.length) * 100) : 0;
+    const testCoveragePercent = linkedCaseCount ? 100 : 0;
+    const bugHealthPercent = Math.max(0, 100 - linkedBugCount * 25);
+    const readinessScore = Math.round((testCoveragePercent * 0.3) + (passPercent * 0.5) + (bugHealthPercent * 0.2));
+    const passCoverageTitle = linkedCaseCount
+      ? `${passedCaseCount}/${linkedCaseCount} linked test cases passed`
+      : "No linked test cases to measure pass coverage";
+    const automationCoverageTitle = !hasCompleteAutomationCoverage
+      ? `${knownTestCases.length}/${linkedCaseCount} linked test case summaries loaded; open the Story for complete automation details`
+      : linkedCaseCount
+        ? `${automatedCaseCount}/${linkedCaseCount} linked test cases automated`
+        : "No linked test cases to measure automation coverage";
+
+    return (
+      <article
+        className="record-card tile-card requirement-catalog-card release-story-tile"
+        key={story.id}
+        onClick={() => openReleaseStory(story)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openReleaseStory(story);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="tile-card-main">
+          <div className="tile-card-select-row requirement-tile-top-row release-story-tile-top-row">
+            <span className="requirement-story-identity"><StoryIcon size={16} /><DisplayIdBadge value={story.display_id || story.id} /></span>
+            <span className="release-story-scope">{story.release_membership_source === "sprint" ? "Sprint scope" : "Direct scope"}</span>
+            <StatusBadge value={evidenceStory.status || "open"} />
+          </div>
+          <div className="tile-card-header requirement-tile-header"><div className="tile-card-title-group"><strong>{evidenceStory.title}</strong></div></div>
+          <CatalogCardDescription fallback="No Story description captured yet." profile="story" value={evidenceStory.description} />
+          <div className="requirement-progress-stack release-story-progress-stack">
+            <TileCardProgress
+              displayValue={`${passPercent}%`}
+              label="Pass rate"
+              title={passCoverageTitle}
+              tone={!linkedCaseCount ? "neutral" : passedCaseCount >= linkedCaseCount ? "success" : passedCaseCount ? "info" : "danger"}
+              value={passPercent}
+            />
+            <TileCardProgress
+              displayValue={hasCompleteAutomationCoverage ? `${automationPercent}%` : "—"}
+              label="Automation coverage"
+              title={automationCoverageTitle}
+              tone={!hasCompleteAutomationCoverage || !linkedCaseCount ? "neutral" : automatedCaseCount >= linkedCaseCount ? "success" : automatedCaseCount ? "info" : "danger"}
+              value={hasCompleteAutomationCoverage ? automationPercent : null}
+            />
+          </div>
+          <div className="tile-card-facts story-tile-metrics" aria-label={`${evidenceStory.title} health metrics`}>
+            <TileCardMetric className="story-tile-metric" label="Priority" tone={(evidenceStory.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${evidenceStory.priority ?? 3}`} />
+            <TileCardMetric className="story-tile-metric" label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={String(linkedCaseCount)} />
+            <TileCardMetric className="story-tile-metric" label="Defect density" tone={linkedBugCount ? "danger" : "success"} value={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"} />
+            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={`${readinessScore}%`} />
+          </div>
+          <div className="tile-card-facts release-story-context-facts" aria-label={`${evidenceStory.title} delivery context`}>
+            <TileCardFact label={evidenceStory.sprint || "No Sprint"} title={evidenceStory.sprint ? `Included through Sprint ${evidenceStory.sprint}` : "Direct Release scope without a Sprint"} tone={evidenceStory.sprint ? "info" : "neutral"}><SprintIcon size={14} /></TileCardFact>
+            <TileCardFact label={evidenceStory.fix_version || "Version pending"} title={evidenceStory.fix_version ? `Fix Version ${evidenceStory.fix_version}` : "No Fix Version stamped"} tone={evidenceStory.fix_version ? "success" : "warning"}><ReleaseIcon size={14} /></TileCardFact>
+          </div>
         </div>
-        <div className="tile-card-header requirement-tile-header"><div className="tile-card-title-group"><strong>{story.title}</strong></div></div>
-        <CatalogCardDescription fallback="No Story description captured yet." profile="story" value={story.description} />
-        <div className="tile-card-facts" aria-label={`${story.title} facts`}>
-          <TileCardFact label={`P${story.priority ?? 3}`} title={`Priority P${story.priority ?? 3}`} tone={(story.priority ?? 3) <= 2 ? "danger" : "info"}><IconTargetArrow size={15} /></TileCardFact>
-          <TileCardFact label={story.sprint || "No Sprint"} title={story.sprint ? `Included through Sprint ${story.sprint}` : "Direct Release scope without a Sprint"} tone={story.sprint ? "info" : "neutral"}><SprintIcon size={14} /></TileCardFact>
-          <TileCardFact label={story.fix_version || "Version pending"} title={story.fix_version ? `Fix Version ${story.fix_version}` : "No Fix Version stamped"} tone={story.fix_version ? "success" : "warning"}><ReleaseIcon size={14} /></TileCardFact>
-        </div>
-      </div>
-    </article>
-  );
+      </article>
+    );
+  };
   const releaseRowGroups: Array<DataTableRowGroup<Requirement>> = visibleReleases.map((release) => {
     const isExpanded = release.id === selectedReleaseId;
     return {
@@ -587,7 +774,7 @@ export function ReleasesPage() {
               </div>
               <div className="catalog-toolbar-actions release-toolbar-actions">
                 <button className="ghost-button danger catalog-selection-button" disabled={!selectedReleaseIds.length || !canDelete || deleteRelease.isPending} onClick={() => void removeSelectedReleases()} type="button"><IconTrash size={17} /><span>{deleteRelease.isPending ? "Deleting…" : selectedReleaseIds.length ? `Delete selected (${selectedReleaseIds.length})` : "Delete selected"}</span></button>
-                <button className="primary-button catalog-selection-button" disabled={!canCreate} onClick={() => setIsCreateOpen(true)} type="button"><ReleaseIcon size={18} /><span>Create release</span></button>
+                <button className="primary-button catalog-selection-button" disabled={!canCreate} onClick={openCreateRelease} type="button"><ReleaseIcon size={18} /><span>Create release</span></button>
               </div>
             </div>
 
@@ -625,11 +812,11 @@ export function ReleasesPage() {
       )}
 
       {isCreateOpen ? (
-        <div className="modal-backdrop sprint-create-backdrop release-create-backdrop" onClick={() => setIsCreateOpen(false)} role="presentation">
-          <form aria-labelledby="create-release-title" aria-modal="true" className="modal-card requirement-create-modal-card sprint-create-dialog sprint-new-dialog release-create-dialog" onClick={(event) => event.stopPropagation()} onSubmit={saveRelease} role="dialog">
+        <div className={`modal-backdrop sprint-create-backdrop release-create-backdrop${editingRelease ? " release-edit-backdrop" : ""}`} onClick={closeReleaseDialog} role="presentation">
+          <form aria-labelledby="release-dialog-title" aria-modal="true" className={`modal-card requirement-create-modal-card sprint-create-dialog sprint-new-dialog release-create-dialog${editingRelease ? " sprint-edit-dialog release-edit-dialog" : ""}`} onClick={(event) => event.stopPropagation()} onSubmit={saveRelease} ref={releaseDialogRef} role="dialog" tabIndex={-1}>
             <div className="requirement-create-modal-header sprint-create-dialog-header">
-              <div className="requirement-create-modal-title"><span className="eyebrow">Release planning</span><h2 className="dialog-title" id="create-release-title">Create release</h2><p>Select Sprints to carry their complete Story scope, then add any direct Stories needed for this version.</p></div>
-              <DialogCloseButton label="Close create release" onClick={() => setIsCreateOpen(false)} />
+              <div className="requirement-create-modal-title"><span className="eyebrow">Release planning</span><h2 className="dialog-title" id="release-dialog-title">{editingRelease ? `Edit release: ${editingRelease.name}` : "Create release"}</h2><p>{editingRelease ? "Update the version identity, delivery window, release intent, and scoped Sprints or Stories." : "Select Sprints to carry their complete Story scope, then add any direct Stories needed for this version."}</p></div>
+              <DialogCloseButton disabled={createRelease.isPending || editRelease.isPending} label={`Close ${editingRelease ? "edit" : "create"} release`} onClick={closeReleaseDialog} />
             </div>
             <div className="requirement-create-modal-body requirement-create-modal-body--stacked sprint-create-dialog-body">
               <div className="iteration-create-layout release-create-layout">
@@ -666,7 +853,7 @@ export function ReleasesPage() {
                 </section>
               </div>
             </div>
-            <div className="action-row requirement-create-modal-actions sprint-create-dialog-footer"><button className="ghost-button sprint-create-cancel-button" disabled={createRelease.isPending} onClick={() => setIsCreateOpen(false)} type="button">Cancel</button><button className="primary-button sprint-create-submit-button" disabled={createRelease.isPending || !draft.name.trim() || !draft.fixVersion.trim()} type="submit">{createRelease.isPending ? "Creating Release…" : <><AddIcon size={16} strokeWidth={2} /><span>Create release · {selectedStoryCount} Stories</span></>}</button></div>
+            <div className="action-row requirement-create-modal-actions sprint-create-dialog-footer"><button className="ghost-button sprint-create-cancel-button" disabled={createRelease.isPending || editRelease.isPending} onClick={closeReleaseDialog} type="button">Cancel</button><button className="primary-button sprint-create-submit-button" disabled={createRelease.isPending || editRelease.isPending || !draft.name.trim() || !draft.fixVersion.trim()} type="submit">{createRelease.isPending || editRelease.isPending ? `${editingRelease ? "Updating" : "Creating"} Release…` : editingRelease ? "Update Release" : <><AddIcon size={16} strokeWidth={2} /><span>Create release · {selectedStoryCount} Stories</span></>}</button></div>
           </form>
         </div>
       ) : null}

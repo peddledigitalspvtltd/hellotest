@@ -255,6 +255,16 @@ const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
     });
   }
 
+  if (envelope.data_set?.source === "test_case") {
+    Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
+      const normalizedKey = normalizeKey(key);
+      if (!normalizedKey) {
+        return;
+      }
+      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
+    });
+  }
+
   return context;
 };
 

@@ -40,6 +40,8 @@ const trimBlankLines = (lines: string[]) => {
   return lines.slice(start, end);
 };
 
+const normalizeGherkinBlock = (value: string) => trimBlankLines(String(value || "").replace(/\r\n/g, "\n").split("\n")).join("\n");
+
 const splitBlocksAtHeadings = (value: string, pattern: RegExp) => {
   const lines = value.split("\n");
   const starts = lines.reduce<number[]>((indices, line, index) => {
@@ -54,10 +56,15 @@ const splitBlocksAtHeadings = (value: string, pattern: RegExp) => {
  * Scenario-to-Examples relationship needed when the document is recomposed. */
 export function splitGherkinDocument(value: string): GherkinDocumentSections {
   const lines = String(value || "").replace(/\r\n/g, "\n").split("\n");
-  const scenarioStarts = lines.reduce<number[]>((indices, line, index) => {
+  const scenarioHeadings = lines.reduce<number[]>((indices, line, index) => {
     if (GHERKIN_SCENARIO_HEADING.test(line)) indices.push(index);
     return indices;
   }, []);
+  const scenarioStarts = scenarioHeadings.map((headingIndex) => {
+    let start = headingIndex;
+    while (start > 0 && /^\s*@\S+/.test(lines[start - 1])) start -= 1;
+    return start;
+  });
   const firstScenario = scenarioStarts[0] ?? lines.length;
   const backgroundStart = lines.slice(0, firstScenario).findIndex((line) => /^\s*Background\s*:/i.test(line));
   const preambleEnd = backgroundStart >= 0 ? backgroundStart : firstScenario;
@@ -79,14 +86,14 @@ export function splitGherkinDocument(value: string): GherkinDocumentSections {
 
 export function composeGherkinDocument(sections: GherkinDocumentSections) {
   return [
-    sections.preamble.trim(),
-    sections.background.trim(),
-    ...sections.scenarios.flatMap((item) => [item.scenario.trim(), item.examples.trim()])
-  ].filter(Boolean).join("\n\n");
+    normalizeGherkinBlock(sections.preamble),
+    normalizeGherkinBlock(sections.background),
+    ...sections.scenarios.flatMap((item) => [normalizeGherkinBlock(item.scenario), normalizeGherkinBlock(item.examples)])
+  ].filter((block) => block.trim()).join("\n\n");
 }
 
 export function replaceGherkinBackground(sections: GherkinDocumentSections, background: string): GherkinDocumentSections {
-  return { ...sections, background: background.trim() };
+  return { ...sections, background: normalizeGherkinBlock(background) };
 }
 
 export function replaceGherkinScenarios(sections: GherkinDocumentSections, value: string): GherkinDocumentSections {

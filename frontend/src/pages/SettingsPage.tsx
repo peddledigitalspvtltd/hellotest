@@ -141,16 +141,19 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const isAdmin = session?.user.role === "admin";
-  const canViewAdminSettings = isAdmin;
-  const canManageApiKeys = isAdmin && hasPermission(session, "api_key.manage");
-  const canManageAiPrompts = isAdmin
-    && hasPermission(session, "settings.manage")
-    && hasPermission(session, "prompt_template.manage");
-  const canManageLocalization = isAdmin && hasPermission(session, "localization.manage");
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const canManageApiKeys = hasPermission(session, "api_key.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.api.keys"]);
+  const canManageAiPrompts = hasPermission(session, "ai_prompt.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.prompt_mapping"]);
+  const canManageMetricFormulas = hasPermission(session, "workspace_preferences.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ops.settings", "hellotest.ops.admin"]);
+  const canManageLocalization = hasPermission(session, "localization.manage")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ops.settings", "hellotest.ops.admin"]);
+  const canViewIntegrations = hasPermission(session, "integration.view")
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.api.integrations"]);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewAdminSettings) });
+  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewIntegrations && canManageAiPrompts) });
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
     queryFn: api.settings.getWorkspacePreferences,
@@ -227,7 +230,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
-    if (promptWithLengthError) {
+    if (canManageAiPrompts && promptWithLengthError) {
       setMessageTone("error");
       setMessage(`${promptWithLengthError.label} guidance must be ${promptWithLengthError.maxLength?.toLocaleString()} characters or fewer.`);
       return;
@@ -236,7 +239,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     const portfolioWeightTotal = Number(portfolioWeights.story_weight || 0)
       + Number(portfolioWeights.automation_weight || 0)
       + Number(portfolioWeights.pass_weight || 0);
-    if (portfolioWeightTotal !== 100) {
+    if (canManageMetricFormulas && portfolioWeightTotal !== 100) {
       setMessageTone("error");
       setMessage(`Project portfolio readiness weights must total 100%. They currently total ${portfolioWeightTotal}%.`);
       return;
@@ -254,9 +257,17 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       }));
       writeDefaultCatalogViewMode(defaultCatalogViewMode);
       writeNotificationPreferences(notificationPreferences);
-      const preferencesToSave = canManageAiPrompts
-        ? {
-          ...(workspacePreferencesQuery.data?.preferences || {}),
+      const governedPreferenceKeys = new Set([
+        AI_PROMPT_OVERRIDES_KEY,
+        AI_PROMPT_LLM_OVERRIDES_KEY,
+        AI_METRIC_CRITERIA_OVERRIDES_KEY,
+        AI_METRIC_FORMULA_VALUES_KEY
+      ]);
+      const preferencesToSave: Record<string, unknown> = Object.fromEntries(
+        Object.entries(workspacePreferencesQuery.data?.preferences || {}).filter(([key]) => !governedPreferenceKeys.has(key))
+      );
+      if (canManageAiPrompts) {
+        Object.assign(preferencesToSave, {
           [AI_PROMPT_OVERRIDES_KEY]: Object.fromEntries(
             AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, promptDrafts[prompt.key] ?? prompt.value])
           ),
@@ -267,15 +278,14 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           ),
           [AI_METRIC_CRITERIA_OVERRIDES_KEY]: Object.fromEntries(
             AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaDrafts[metric.key] || metric.criteria])
-          ),
+          )
+        });
+      }
+      if (canManageMetricFormulas) {
+        Object.assign(preferencesToSave, {
           [AI_METRIC_FORMULA_VALUES_KEY]: normalizeAiMetricFormulaValues(metricFormulaDrafts)
-        }
-        : Object.fromEntries(Object.entries(workspacePreferencesQuery.data?.preferences || {}).filter(([key]) => ![
-          AI_PROMPT_OVERRIDES_KEY,
-          AI_PROMPT_LLM_OVERRIDES_KEY,
-          AI_METRIC_CRITERIA_OVERRIDES_KEY,
-          AI_METRIC_FORMULA_VALUES_KEY
-        ].includes(key)));
+        });
+      }
 
       await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
       await workspacePreferencesQuery.refetch();
@@ -486,7 +496,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const settingsActions = (
     <button
       className="primary-button"
-      disabled={isSavingSettings || isSavingLocalization || Boolean(promptWithLengthError)}
+      disabled={isSavingSettings || isSavingLocalization || Boolean(canManageAiPrompts && promptWithLengthError)}
       onClick={() => void saveSettings()}
       type="button"
     >
@@ -500,9 +510,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     eyebrow: string,
     title: string,
     children: ReactNode,
-    options: { actions?: ReactNode; adminOnly?: boolean } = {}
+    options: { actions?: ReactNode; visible?: boolean } = {}
   ) => {
-    if (options.adminOnly && !canViewAdminSettings) {
+    if (options.visible === false) {
       return null;
     }
 
@@ -693,7 +703,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-        ), { adminOnly: true })}
+        ), { visible: canManageApiKeys })}
 
         {canUseAutomationWorkspace ? renderSettingsSection("automationDefaults", "Project settings", "Automation defaults", (
           <Panel title="Project automation settings" subtitle="Default behavior for generated automation, local runs, remote grid runs, and evidence capture.">
@@ -786,13 +796,13 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               prompt="Help me review this project's HelloTest automation defaults, healing boundaries, evidence capture, and retry policy. This is a Rovo conversation, not a direct automation model invocation. Do not change work items."
             />
           </Panel>
-	        ), { adminOnly: true }) : null}
+	        )) : null}
 
         {renderSettingsSection("aiPromptMapping", "AI", "Prompt key mapping", (
           <Panel
             title="AI prompt registry"
-            subtitle={!canManageAiPrompts
-              ? "Read-only. Editing requires settings.manage and prompt_template.manage."
+            subtitle={!canManageAiPrompts && !canManageMetricFormulas
+              ? "Read-only. Prompt governance requires ai_prompt.manage; formula governance requires workspace_preferences.manage."
               : canUseAutomationWorkspace
                 ? "Central keys for AI prompt surfaces used by story, test design, automation, execution, and test data flows."
                 : "Central keys for enabled AI story, test design, execution, and test data surfaces."}
@@ -878,7 +888,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                           <div className="settings-metric-number-input">
                             <input
                               aria-label={`${metric.label} ${parameter.label}`}
-                              disabled={!canManageAiPrompts}
+                              disabled={!canManageMetricFormulas}
                               max={parameter.max}
                               min={parameter.min}
                               onChange={(event) => setMetricFormulaDrafts((current) => ({
@@ -912,16 +922,23 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                   </label>
                   <button
                     className="ghost-button compact"
-                    disabled={!canManageAiPrompts || (
-                      (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria
-                      && (metric.parameters || []).every((parameter) => metricFormulaDrafts[metric.key]?.[parameter.key] === parameter.defaultValue)
-                    )}
+                    disabled={
+                      (!canManageAiPrompts && !canManageMetricFormulas)
+                      || (
+                        (!canManageAiPrompts || (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria)
+                        && (!canManageMetricFormulas || (metric.parameters || []).every((parameter) => metricFormulaDrafts[metric.key]?.[parameter.key] === parameter.defaultValue))
+                      )
+                    }
                     onClick={() => {
-                      setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }));
-                      setMetricFormulaDrafts((current) => ({
-                        ...current,
-                        [metric.key]: Object.fromEntries((metric.parameters || []).map((parameter) => [parameter.key, parameter.defaultValue]))
-                      }));
+                      if (canManageAiPrompts) {
+                        setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }));
+                      }
+                      if (canManageMetricFormulas) {
+                        setMetricFormulaDrafts((current) => ({
+                          ...current,
+                          [metric.key]: Object.fromEntries((metric.parameters || []).map((parameter) => [parameter.key, parameter.defaultValue]))
+                        }));
+                      }
                     }}
                     type="button"
                   >
@@ -931,7 +948,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               ))}
             </div>
           </Panel>
-	        ), { adminOnly: true })}
+	        ), { visible: canManageAiPrompts || canManageMetricFormulas })}
 
         {renderSettingsSection("exportRetention", "Evidence", "Export and retention", (
           <div className="two-column-grid">
@@ -948,7 +965,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               </div>
             </Panel>
           </div>
-	        ), { adminOnly: true })}
+	        ))}
 
         {renderSettingsSection("notifications", "Notifications", "Notification preferences", (
           <Panel title="Notification routing" subtitle="Configure which workspace events should create in-app notifications or digest entries.">
@@ -962,7 +979,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ["aiAutomation", "AI automation build and recorder events"],
                 ["importExport", "Import, export, backup, and sync jobs"],
                 ["requirementChanges", "Story creation, completion, and coverage changes"],
-                ["testCaseChanges", "Test case, suite, and shared step changes"],
+                ["testCaseChanges", "Test case, suite, and Shared Step Group changes"],
                 ["integrationChanges", "Integration activation, import, and credential changes"],
                 ["userRoleChanges", "User, role, and permission changes"],
                 ["projectMembership", "Project membership and app type changes"],
@@ -996,7 +1013,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             <div className="detail-stack">
               <div className="detail-summary">
                 <strong>{Object.keys(strings).length} strings ready</strong>
-                <span>{t("settings.localization.helper", "Only admins can publish updated localization strings for the workspace.")}</span>
+                <span>{t("settings.localization.helper", "Publishing workspace strings requires localization.manage.")}</span>
               </div>
 
               <div className="action-row">
@@ -1030,7 +1047,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               />
             </div>
           </Panel>
-        ), { adminOnly: true })}
+        ), { visible: canManageLocalization })}
       </div>
     </div>
   );

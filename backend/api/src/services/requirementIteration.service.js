@@ -1,6 +1,7 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
+const requirementReleaseService = require("./requirementRelease.service");
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -187,6 +188,12 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
 
   const requirementIds = normalizeTextList(requirement_ids);
   await ensureRequirementsMatchProject(requirementIds, project.id);
+  const previousSprintRows = requirementIds.length ? await db.prepare(`
+    SELECT DISTINCT iteration_id
+    FROM requirements
+    WHERE id IN (${requirementIds.map(() => "?").join(",")})
+      AND iteration_id IS NOT NULL
+  `).all(...requirementIds) : [];
 
   const id = uuid();
   const displayId = await displayIdService.createDisplayId("requirement_iteration");
@@ -222,9 +229,12 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
     for (const requirementId of requirementIds) {
       await db.prepare(`
         UPDATE requirements
-        SET iteration_id = ?, updated_at = CURRENT_TIMESTAMP
+        SET iteration_id = ?, sprint = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id, requirementId);
+      `).run(id, normalizedName, requirementId);
+    }
+    for (const sprintId of previousSprintRows.map((row) => row.iteration_id)) {
+      await requirementReleaseService.syncSprintMembership(sprintId, { updated_by: created_by });
     }
   });
 
@@ -273,6 +283,13 @@ exports.updateIteration = async (id, data = {}) => {
   if (requirementIds) {
     await ensureRequirementsMatchProject(requirementIds, existing.project_id);
   }
+  const previousSprintRows = requirementIds?.length ? await db.prepare(`
+    SELECT DISTINCT iteration_id
+    FROM requirements
+    WHERE id IN (${requirementIds.map(() => "?").join(",")})
+      AND iteration_id IS NOT NULL
+      AND iteration_id != ?
+  `).all(...requirementIds, id) : [];
 
   if (nextState === "closed" && (normalizeState(existing.state) !== "closed" || requirementIds !== null)) {
     await ensureSprintStoriesComplete(existing, requirementIds);
@@ -303,17 +320,28 @@ exports.updateIteration = async (id, data = {}) => {
     if (requirementIds) {
       await db.prepare(`
         UPDATE requirements
-        SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
+        SET iteration_id = NULL,
+            sprint = CASE WHEN sprint IN (?, ?) THEN NULL ELSE sprint END,
+            updated_at = CURRENT_TIMESTAMP
         WHERE iteration_id = ?
-      `).run(id);
+      `).run(existing.name, nextName, id);
 
       for (const requirementId of requirementIds) {
         await db.prepare(`
           UPDATE requirements
-          SET iteration_id = ?, updated_at = CURRENT_TIMESTAMP
+          SET iteration_id = ?, sprint = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(id, requirementId);
+        `).run(id, nextName, requirementId);
       }
+      for (const sprintId of [id, ...previousSprintRows.map((row) => row.iteration_id)]) {
+        await requirementReleaseService.syncSprintMembership(sprintId, { updated_by: data.updated_by });
+      }
+    } else if (nextName !== existing.name) {
+      await db.prepare(`
+        UPDATE requirements
+        SET sprint = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE iteration_id = ?
+      `).run(nextName, id);
     }
   });
 
@@ -326,24 +354,36 @@ exports.assignRequirements = async (id, requirementIds = [], { append = true } =
   const iteration = await exports.getIteration(id);
   const normalizedRequirementIds = normalizeTextList(requirementIds);
   await ensureRequirementsMatchProject(normalizedRequirementIds, iteration.project_id);
+  const previousSprintRows = normalizedRequirementIds.length ? await db.prepare(`
+    SELECT DISTINCT iteration_id
+    FROM requirements
+    WHERE id IN (${normalizedRequirementIds.map(() => "?").join(",")})
+      AND iteration_id IS NOT NULL
+      AND iteration_id != ?
+  `).all(...normalizedRequirementIds, id) : [];
 
   let assigned = 0;
   const transaction = db.transaction(async () => {
     if (!append) {
       await db.prepare(`
         UPDATE requirements
-        SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
+        SET iteration_id = NULL,
+            sprint = CASE WHEN sprint = ? THEN NULL ELSE sprint END,
+            updated_at = CURRENT_TIMESTAMP
         WHERE iteration_id = ?
-      `).run(id);
+      `).run(iteration.name, id);
     }
 
     for (const requirementId of normalizedRequirementIds) {
       const result = await db.prepare(`
         UPDATE requirements
-        SET iteration_id = ?, updated_at = CURRENT_TIMESTAMP
+        SET iteration_id = ?, sprint = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id, requirementId);
+      `).run(id, iteration.name, requirementId);
       assigned += result.changes || 0;
+    }
+    for (const sprintId of [id, ...previousSprintRows.map((row) => row.iteration_id)]) {
+      await requirementReleaseService.syncSprintMembership(sprintId);
     }
   });
 
@@ -366,33 +406,45 @@ exports.assignRequirements = async (id, requirementIds = [], { append = true } =
 };
 
 exports.removeRequirements = async (id, requirementIds = []) => {
-  await exports.getIteration(id);
+  const iteration = await exports.getIteration(id);
   const normalizedRequirementIds = normalizeTextList(requirementIds);
 
   if (!normalizedRequirementIds.length) {
     return { updated: true, removed: 0 };
   }
 
-  const result = await db.prepare(`
-    UPDATE requirements
-    SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
-    WHERE iteration_id = ? AND id IN (${normalizedRequirementIds.map(() => "?").join(",")})
-  `).run(id, ...normalizedRequirementIds);
+  let removed = 0;
+  const transaction = db.transaction(async () => {
+    const result = await db.prepare(`
+      UPDATE requirements
+      SET iteration_id = NULL,
+          sprint = CASE WHEN sprint = ? THEN NULL ELSE sprint END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE iteration_id = ? AND id IN (${normalizedRequirementIds.map(() => "?").join(",")})
+    `).run(iteration.name, id, ...normalizedRequirementIds);
+    removed = result.changes || 0;
+    await requirementReleaseService.syncSprintMembership(id);
+  });
+  await transaction();
 
-  return { updated: true, removed: result.changes || 0 };
+  return { updated: true, removed };
 };
 
 exports.deleteIteration = async (id) => {
-  await exports.getIteration(id);
+  const iteration = await exports.getIteration(id);
 
   let unassigned = 0;
   const transaction = db.transaction(async () => {
     const result = await db.prepare(`
       UPDATE requirements
-      SET iteration_id = NULL, updated_at = CURRENT_TIMESTAMP
+      SET iteration_id = NULL,
+          sprint = CASE WHEN sprint = ? THEN NULL ELSE sprint END,
+          updated_at = CURRENT_TIMESTAMP
       WHERE iteration_id = ?
-    `).run(id);
+    `).run(iteration.name, id);
     unassigned = result.changes || 0;
+
+    await requirementReleaseService.syncSprintMembership(id, { remove: true });
 
     await db.prepare(`
       DELETE FROM requirement_iterations

@@ -978,31 +978,31 @@ function escapeAutomationPdfHtml(value: unknown) {
 
 export function AutomationPage({ initialView = "cases" }: { initialView?: AutomationView } = {}) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const isAutomationWorkspaceEnabled = areFeatureFlagsEnabled(
     featureFlagsQuery.data,
     ["hellotest.automation.workspace"]
   );
-  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
-  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data);
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseAutomationBuilder = canEditAutomationCode;
-  const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data);
-  const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data);
-  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+  const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && isAutomationWorkspaceEnabled
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
-  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+  const canRunLocalAutomation = hasPermission(session, "automation.run.local", projectId)
     && isAutomationWorkspaceEnabled
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
-  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote", projectId)
     && isAutomationWorkspaceEnabled
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [projectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [view, setView] = useState<AutomationView>(initialView);
   const [selectedAutomatedCaseId, setSelectedAutomatedCaseId] = useState("");
   const [selectedManualCaseId, setSelectedManualCaseId] = useState("");
@@ -1268,7 +1268,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
   const executionResultsQuery = useQuery({
     queryKey: ["execution-results", "automation-workspace", appTypeId],
-    queryFn: () => api.executionResults.list({ app_type_id: appTypeId }),
+    queryFn: () => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000 }),
     enabled: Boolean(appTypeId && session)
   });
   const suitesQuery = useQuery({
@@ -1531,7 +1531,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     const gaps = [
       !automatedSteps.length ? "Add or generate the first executable step" : "",
       automatedSteps.length > automatedCount ? `Complete ${automatedSteps.length - automatedCount} step binding${automatedSteps.length - automatedCount === 1 ? "" : "s"}` : "",
-      !groupedCount && automatedSteps.length ? "Organize related steps into a local or shared group" : "",
+      !groupedCount && automatedSteps.length ? "Organize related steps into a local group or Shared Step Group" : "",
       !repositoryBoundCount && automatedSteps.length ? "Bind UI steps to learned repository objects" : "",
       !activeCaseHistory.length ? "Run once to establish execution evidence" : ""
     ].filter(Boolean);
@@ -2606,7 +2606,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         manual_test_case_id: source?.id || null,
         manual_test_case_ids: automationCreateManualCaseIds,
         test_case_type: source?.test_case_type || "functional",
-        test_data_set_ids: source?.test_data_set_ids || [],
+        test_data_set_ids: (source?.test_data_set_ids || []).slice(0, 1),
         priority: source?.priority || 3,
         status: "active",
         requirement_id: source?.requirement_id || undefined,
@@ -2681,7 +2681,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const selectedSteps = automatedSteps.filter((step) => selectedAutomationStepIds.includes(step.id));
       let reusableGroupId: string | undefined;
       if (saveAutomationGroupAsShared) {
-        if (!appTypeId) throw new Error("Select an application before creating a shared group.");
+        if (!appTypeId) throw new Error("Select an application before creating a Shared Step Group.");
         const created = await api.sharedStepGroups.create({
           app_type_id: appTypeId,
           name,
@@ -2738,10 +2738,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     },
     onSuccess: () => {
       setIsSharedGroupLibraryOpen(false);
-      showSuccess("Shared automation group inserted.");
+      showSuccess("Shared Step Group inserted.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
-    onError: (error) => showError(error, "Unable to insert the shared group.")
+    onError: (error) => showError(error, "Unable to insert the Shared Step Group.")
   });
 
 	  const optimizeAutomationCase = useMutation({
@@ -4799,7 +4799,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 <AutomationAccordionSection
                   actions={(
                     <div className="testops-action-row">
-                      <button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} type="button"><LayersIcon /><span>Insert shared group</span></button>
+                      <button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} type="button"><LayersIcon /><span>Insert Shared Step Group</span></button>
                       <div className="automation-step-view-toggle" role="group" aria-label="Automation step view">
                         <button className={automationStepView === "keyword" ? "is-active" : ""} onClick={() => setAutomationStepView("keyword")} type="button">Keyword</button>
 	                        <button className={automationStepView === "code" ? "is-active" : ""} disabled={!canViewAutomationCode} onClick={() => setAutomationStepView("code")} type="button">Code</button>
@@ -4817,12 +4817,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                    {selectedAutomationStepIds.length ? (
 	                      <div className="automation-create-card">
 	                        <div className="automation-section-heading">
-	                          <div><strong>Group selected steps</strong><span>{selectedAutomationStepIds.length} selected · create a local flow or reusable shared group.</span></div>
+	                          <div><strong>Group selected steps</strong><span>{selectedAutomationStepIds.length} selected · create a local flow or reusable Shared Step Group.</span></div>
 	                          <button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button">Clear</button>
 	                        </div>
 	                        <div className="record-grid automation-builder-form">
 	                          <label className="form-field"><span>Group name</span><input onChange={(event) => setAutomationGroupName(event.target.value)} placeholder="Checkout flow" value={automationGroupName} /></label>
-	                          <label className="checkbox-field"><input checked={saveAutomationGroupAsShared} onChange={(event) => setSaveAutomationGroupAsShared(event.target.checked)} type="checkbox" /><span>Save as reusable shared group</span></label>
+	                          <label className="checkbox-field"><input checked={saveAutomationGroupAsShared} onChange={(event) => setSaveAutomationGroupAsShared(event.target.checked)} type="checkbox" /><span>Save as reusable Shared Step Group</span></label>
 	                        </div>
 	                        <button className="primary-button" disabled={selectedAutomationStepIds.length < 2 || groupAutomationSteps.isPending} onClick={() => groupAutomationSteps.mutate()} type="button"><LayersIcon /><span>{groupAutomationSteps.isPending ? "Grouping..." : "Group selected"}</span></button>
 	                      </div>
@@ -4885,7 +4885,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                              <strong>{formatAutomationKeywordReadable(draft, variables)}</strong>
 	                              {step.group_kind ? (
 	                                <span className={step.group_kind === "reusable" ? "automation-step-group-chip is-shared" : "automation-step-group-chip"}>
-	                                  {step.group_kind === "reusable" ? "Shared group" : step.group_name || "Group"}
+	                                  {step.group_kind === "reusable" ? "Shared Step Group" : step.group_name || "Group"}
 	                                </span>
 	                              ) : null}
                               <StatusBadge value={step.automation_code ? "keyword-ready" : "manual-only"} />
@@ -5066,7 +5066,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <strong>{step.action || codeDraft || "Code step"}</strong>
                               {step.group_kind ? (
                                 <span className={step.group_kind === "reusable" ? "automation-step-group-chip is-shared" : "automation-step-group-chip"}>
-                                  {step.group_kind === "reusable" ? "Shared group" : step.group_name || "Group"}
+                                  {step.group_kind === "reusable" ? "Shared Step Group" : step.group_name || "Group"}
                                 </span>
                               ) : null}
                               <StatusBadge value={codeDraft ? "code-ready" : "empty"} />
@@ -6295,11 +6295,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       {isSharedGroupLibraryOpen ? (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={() => setIsSharedGroupLibraryOpen(false)} role="presentation">
-          <div aria-modal="true" className="modal-card resource-modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Shared automation groups">
-            <div className="resource-modal-header"><div className="resource-modal-title"><h2 className="dialog-title">Insert shared automation group</h2><p>Reusable groups retain their keyword code and stay traceable to the shared library.</p></div><button className="ghost-button compact" onClick={() => setIsSharedGroupLibraryOpen(false)} type="button">Close</button></div>
+          <div aria-modal="true" className="modal-card resource-modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Shared Step Groups">
+            <div className="resource-modal-header"><div className="resource-modal-title"><h2 className="dialog-title">Insert Shared Step Group</h2><p>Shared Step Groups retain their keyword code and stay traceable to the Shared Step Group library.</p></div><button className="ghost-button compact" onClick={() => setIsSharedGroupLibraryOpen(false)} type="button">Close</button></div>
             <div className="resource-form"><div className="resource-form-body stack-list">
-              {sharedStepGroupsQuery.isLoading ? <LoadingState label="Loading shared groups" /> : null}
-              {!sharedStepGroupsQuery.isLoading && !sharedStepGroups.length ? <div className="empty-state compact">No shared step groups exist for this application yet. Select steps and save a group as reusable to create one.</div> : null}
+              {sharedStepGroupsQuery.isLoading ? <LoadingState label="Loading Shared Step Groups" /> : null}
+              {!sharedStepGroupsQuery.isLoading && !sharedStepGroups.length ? <div className="empty-state compact">No Shared Step Groups exist for this application yet. Select steps and save the selection as a Shared Step Group to create one.</div> : null}
               {sharedStepGroups.map((group) => (
                 <button className="stack-item" disabled={insertAutomationSharedGroup.isPending} key={group.id} onClick={() => insertAutomationSharedGroup.mutate(group.id)} type="button">
                   <div><strong>{group.name}</strong><span>{group.steps?.length || 0} reusable step{group.steps?.length === 1 ? "" : "s"}</span></div><AddIcon />

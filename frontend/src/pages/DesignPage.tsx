@@ -26,6 +26,8 @@ import { SharedGroupLevelIcon } from "../components/StepAutomationEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   TileCardLinkIcon,
+  TileCardMetric,
+  TileCardProgress,
   TileCardSuiteIcon,
   formatTileCardLabel
 } from "../components/TileCardPrimitives";
@@ -44,6 +46,7 @@ import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
+import { buildDeliveryScopeOptions, type DeliveryScopeOption } from "../lib/deliveryScopeOptions";
 import { canViewAutomationCode as resolveCanViewAutomationCode } from "../lib/automationAccess";
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
@@ -59,10 +62,12 @@ import {
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
+import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, TestCase, TestCaseModule, TestStep, TestSuite, User } from "../types";
+import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, RequirementIteration, RequirementRelease, TestCase, TestCaseModule, TestStep, TestSuite } from "../types";
 
 const SUITE_ACTION_USAGE_STORAGE_KEY = "hellotest:suite-toolbar-action-usage:v1";
+const normalizeDeliveryScopeValue = (value: unknown) => String(value || "").trim().toLocaleLowerCase();
 
 type SuiteToolbarActionKey = "create-suite" | "manual-run" | "local-run" | "remote-run" | "select-visible" | "clear-selection" | "delete-selected";
 type SuiteToolbarActionUsage = Record<string, { count: number; lastUsedAt: number }>;
@@ -142,7 +147,18 @@ const aggregateExecutionResultStatus = (
     return "blocked";
   }
 
+  if (current === "running" || next === "running") {
+    return "running";
+  }
+
   return "passed";
+};
+
+type SuiteExecutionHistoryItem = {
+  execution_id: string;
+  status: ExecutionResult["status"];
+  isFinalized: boolean;
+  created_at?: string;
 };
 
 const createDefaultSuiteCaseSections = (): Record<SuiteCaseEditorSectionKey, boolean> => ({
@@ -169,7 +185,7 @@ const normalizeDraftSteps = (steps: DraftTestStep[]) =>
 
 const getSuiteStepKindMeta = (kind?: TestStep["group_kind"] | null) => {
   if (kind === "reusable") {
-    return { label: "Shared Steps", tone: "shared" as const };
+    return { label: "Shared Step Group step", tone: "shared" as const };
   }
 
   if (kind === "local") {
@@ -220,9 +236,9 @@ function StepKindIconBadge({
 
   return (
     <span
-      aria-label={kind === "reusable" ? "Shared Steps" : label}
+      aria-label={kind === "reusable" ? "Shared Step Group step" : label}
       className={["step-kind-badge", tone === "default" ? "" : `is-${tone}`].filter(Boolean).join(" ")}
-      title={kind === "reusable" ? "Shared Steps" : label}
+      title={kind === "reusable" ? "Shared Step Group step" : label}
     >
       {icon}
     </span>
@@ -234,28 +250,30 @@ export function DesignPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
+  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canUseManualSuites = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
-  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
-  const canCreateSuites = hasPermission(session, "suite.create") && canUseManualSuites;
-  const canUpdateSuites = hasPermission(session, "suite.update") && canUseManualSuites;
-  const canDeleteSuites = hasPermission(session, "suite.delete") && canUseManualSuites;
-  const canCreateManualRuns = hasPermission(session, "run.create")
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canCreateSuites = hasPermission(session, "suite.create", projectId) && canUseManualSuites;
+  const canUpdateSuites = hasPermission(session, "suite.update", projectId) && canUseManualSuites;
+  const canDeleteSuites = hasPermission(session, "suite.delete", projectId) && canUseManualSuites;
+  const canCreateManualRuns = hasPermission(session, "run.create", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
+  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const canRunLocalAutomation = hasPermission(session, "automation.run.local")
+  const canRunLocalAutomation = hasPermission(session, "automation.run.local", projectId)
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
-  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote")
+  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote", projectId)
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
-  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel")
+  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel", projectId)
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
-  const [projectId] = useCurrentProject();
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
   const [selectedSuiteActionIds, setSelectedSuiteActionIds] = useState<string[]>([]);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
@@ -317,11 +335,6 @@ export function DesignPage() {
     queryKey: ["projects"],
     queryFn: api.projects.list
   });
-  const usersQuery = useQuery({
-    queryKey: ["users"],
-    queryFn: api.users.list,
-    enabled: Boolean(session)
-  });
   const projectMembersQuery = useQuery({
     queryKey: ["project-members", projectId],
     queryFn: () => api.projectMembers.list({ project_id: projectId }),
@@ -336,6 +349,18 @@ export function DesignPage() {
     queryKey: ["requirements", projectId],
     queryFn: () => api.requirements.list({ project_id: projectId }),
     enabled: Boolean(projectId)
+  });
+  const deliveryReleasesQuery = useQuery({
+    queryKey: ["requirement-releases", projectId],
+    queryFn: () => api.requirementReleases.list({ project_id: projectId }),
+    enabled: Boolean(projectId && canViewDeliveryScopes),
+    staleTime: 30_000
+  });
+  const deliveryIterationsQuery = useQuery({
+    queryKey: ["requirement-iterations", projectId],
+    queryFn: () => api.requirementIterations.list({ project_id: projectId }),
+    enabled: Boolean(projectId && canViewDeliveryScopes),
+    staleTime: 30_000
   });
   const suitesQuery = useQuery({
     queryKey: ["design-suites", appTypeId],
@@ -361,7 +386,7 @@ export function DesignPage() {
   });
   const executionResultsQuery = useQuery({
     queryKey: ["design-case-results", appTypeId],
-    queryFn: () => api.executionResults.list({ app_type_id: appTypeId, run_limit: 10, limit: 100 }),
+    queryFn: () => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 }),
     enabled: Boolean(appTypeId)
   });
   const selectedSuiteStepsQuery = useQuery({
@@ -418,10 +443,50 @@ export function DesignPage() {
   const createExecutionMutation = useMutation({ mutationFn: api.executions.create });
 
   const projects = asArray(projectsQuery.data);
-  const users = asArray<User>(usersQuery.data);
   const projectMembers = asArray<ProjectMember>(projectMembersQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const requirements = asArray(requirementsQuery.data);
+  const deliveryReleases = asArray<RequirementRelease>(deliveryReleasesQuery.data);
+  const deliveryIterations = asArray<RequirementIteration>(deliveryIterationsQuery.data);
+  const { releaseOptions: deliveryReleaseOptions, sprintOptions: deliverySprintOptions } = useMemo(
+    () => buildDeliveryScopeOptions({
+      releases: deliveryReleases,
+      iterations: deliveryIterations,
+      jiraVersions: domainMetadataQuery.data?.jira?.versions || [],
+      jiraSprints: domainMetadataQuery.data?.jira?.sprints || [],
+      currentRelease: executionRelease,
+      currentSprint: executionSprint
+    }),
+    [
+      deliveryIterations,
+      deliveryReleases,
+      domainMetadataQuery.data?.jira?.sprints,
+      domainMetadataQuery.data?.jira?.versions,
+      executionRelease,
+      executionSprint
+    ]
+  );
+  const deliveryScopeByRequirementId = useMemo(() => {
+    const result = new Map<string, { release: string; sprint: string }>();
+    const iterationByReference = new Map<string, RequirementIteration>();
+    deliveryIterations.forEach((iteration) => {
+      [iteration.id, iteration.jira_sprint_id, iteration.jira_sprint_name, iteration.name]
+        .filter(Boolean)
+        .forEach((value) => iterationByReference.set(normalizeDeliveryScopeValue(value), iteration));
+    });
+    requirements.forEach((requirement: Requirement) => {
+      const iteration = [requirement.iteration_id, requirement.sprint_id, requirement.sprint]
+        .map((value) => iterationByReference.get(normalizeDeliveryScopeValue(value)))
+        .find(Boolean)
+        || deliveryIterations.find((item) => item.requirement_ids?.includes(requirement.id));
+      const release = deliveryReleases.find((item) => item.requirement_ids?.includes(requirement.id));
+      result.set(requirement.id, {
+        release: String(requirement.fix_version || release?.fix_version || release?.name || requirement.release || "").trim(),
+        sprint: String(iteration?.jira_sprint_name || iteration?.name || requirement.sprint || "").trim()
+      });
+    });
+    return result;
+  }, [deliveryIterations, deliveryReleases, requirements]);
   const suites = asArray(suitesQuery.data);
   const allTestCases = asArray(testCasesQuery.data);
   const testCaseModules = asArray(testCaseModulesQuery.data);
@@ -430,8 +495,8 @@ export function DesignPage() {
   const suiteMappings = asArray(suiteMappingsQuery.data);
   const steps = asArray(stepsQuery.data);
   const assigneeOptions = useMemo<SuiteExecutionAssigneeOption[]>(
-    () => buildAssigneeOptions(projectMembers, users),
-    [projectMembers, users]
+    () => buildAssigneeOptions(projectMembers),
+    [projectMembers]
   );
 
   const showSuccess = (text: string) => {
@@ -500,7 +565,7 @@ export function DesignPage() {
   }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 
   useEffect(() => {
-    if (usersQuery.isPending || projectMembersQuery.isPending) {
+    if (projectMembersQuery.isPending) {
       return;
     }
 
@@ -508,7 +573,7 @@ export function DesignPage() {
     if (selectedExecutionAssigneeIds.some((assigneeId) => !validAssigneeIds.has(assigneeId))) {
       setSelectedExecutionAssigneeIds((current) => current.filter((assigneeId) => validAssigneeIds.has(assigneeId)));
     }
-  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds, usersQuery.isPending]);
+  }, [assigneeOptions, projectMembersQuery.isPending, selectedExecutionAssigneeIds]);
 
   const appTypeCases = useMemo(() => allTestCases, [allTestCases]);
 
@@ -557,7 +622,7 @@ export function DesignPage() {
 
     return suites.filter((suite) => {
       const mappedCaseCount = suiteCounts[suite.id] || 0;
-      const haystack = `${suite.display_id || ""} ${suite.id} ${suite.name} ${(suite.labels || []).join(" ")}`.toLowerCase();
+      const haystack = `${suite.display_id || ""} ${suite.id} ${suite.name} ${richTextToPlainText(suite.description || "")} ${(suite.labels || []).join(" ")}`.toLowerCase();
       const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
 
       if (!matchesSearch) {
@@ -697,7 +762,7 @@ export function DesignPage() {
   const historyByCaseId = useMemo(() => {
     const map: Record<string, ExecutionResult[]> = {};
 
-    executionResults.forEach((result) => {
+    selectLatestExecutionResultInstances(executionResults).forEach((result) => {
       map[result.test_case_id] = map[result.test_case_id] || [];
       map[result.test_case_id].push(result);
     });
@@ -709,9 +774,9 @@ export function DesignPage() {
     return map;
   }, [executionResults]);
   const historyBySuiteId = useMemo(() => {
-    const map: Record<string, Record<string, { execution_id: string; status: ExecutionResult["status"]; created_at?: string }>> = {};
+    const map: Record<string, Record<string, SuiteExecutionHistoryItem>> = {};
 
-    executionResults.forEach((result) => {
+    selectLatestExecutionResultInstances(executionResults).forEach((result) => {
       if (!result.suite_id) {
         return;
       }
@@ -722,6 +787,7 @@ export function DesignPage() {
       map[result.suite_id][result.execution_id] = {
         execution_id: result.execution_id,
         status: aggregateExecutionResultStatus(current?.status, result.status),
+        isFinalized: (current?.isFinalized ?? true) && result.status !== "running",
         created_at:
           String(result.created_at || "") > String(current?.created_at || "")
             ? result.created_at
@@ -734,7 +800,7 @@ export function DesignPage() {
         suiteId,
         Object.values(resultsByExecution).sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
       ])
-    ) as Record<string, Array<{ execution_id: string; status: ExecutionResult["status"]; created_at?: string }>>;
+    ) as Record<string, SuiteExecutionHistoryItem[]>;
   }, [executionResults]);
   const stepCountByCaseId = useMemo(() => {
     return Object.fromEntries(appTypeCases.map((testCase) => [testCase.id, Number(testCase.step_count || 0)]));
@@ -849,6 +915,24 @@ export function DesignPage() {
     () => selectedSuiteActionIds,
     [selectedSuiteActionIds]
   );
+  const openSuiteRunBuilder = (mode: ExecutionStartMode) => {
+    const selectedSuiteSet = new Set(selectedSuiteActionIds);
+    const scopes = appTypeCases
+      .filter((testCase) => (testCase.suite_ids || []).some((suiteId) => selectedSuiteSet.has(suiteId)))
+      .flatMap((testCase) => [...new Set([
+        ...(testCase.requirement_ids || []),
+        ...(testCase.requirement_id ? [testCase.requirement_id] : [])
+      ].filter(Boolean))])
+      .map((requirementId) => deliveryScopeByRequirementId.get(requirementId))
+      .filter((scope): scope is { release: string; sprint: string } => Boolean(scope));
+    const releases = [...new Set(scopes.map((scope) => scope.release).filter(Boolean))];
+    const sprints = [...new Set(scopes.map((scope) => scope.sprint).filter(Boolean))];
+
+    setExecutionRelease(releases.length === 1 ? releases[0] : "");
+    setExecutionSprint(sprints.length === 1 ? sprints[0] : "");
+    setExecutionStartMode(mode);
+    setIsCreateExecutionModalOpen(true);
+  };
   const areAllFilteredSuitesSelected = Boolean(filteredSuites.length) && filteredSuites.every((suite) => selectedSuiteActionIds.includes(suite.id));
   const activeSuiteFilterCount = Number(suiteMappedCasesFilter !== "all");
   const activeCaseFilterCount =
@@ -1795,18 +1879,9 @@ export function DesignPage() {
             onClearSuiteSelection={() => setSelectedSuiteActionIds([])}
             onCreateSuite={openCreateSuiteModal}
             onDeleteSelectedSuites={() => void handleDeleteSelectedSuites()}
-            onCreateManualRun={() => {
-              setExecutionStartMode("manual");
-              setIsCreateExecutionModalOpen(true);
-            }}
-            onCreateLocalRun={() => {
-              setExecutionStartMode("local");
-              setIsCreateExecutionModalOpen(true);
-            }}
-            onCreateRemoteRun={() => {
-              setExecutionStartMode("remote");
-              setIsCreateExecutionModalOpen(true);
-            }}
+            onCreateManualRun={() => openSuiteRunBuilder("manual")}
+            onCreateLocalRun={() => openSuiteRunBuilder("local")}
+            onCreateRemoteRun={() => openSuiteRunBuilder("remote")}
             isLoading={suitesQuery.isLoading && Boolean(appTypeId)}
             selectedAppType={selectedAppType}
             canCreateSuite={Boolean(appTypeId && canCreateSuites)}
@@ -1936,7 +2011,9 @@ export function DesignPage() {
           executionHookDraft={executionHookDraft}
           executionName={executionName}
           executionRelease={executionRelease}
+          releaseOptions={deliveryReleaseOptions}
           executionSprint={executionSprint}
+          sprintOptions={deliverySprintOptions}
           executionBuild={executionBuild}
           executionParallelCount={executionParallelCount}
           executionParallelEnabled={executionParallelEnabled}
@@ -2030,7 +2107,7 @@ function SuiteSidebar({
   activeSuiteId: string;
   counts: Record<string, number>;
   cases: TestCase[];
-  historyBySuiteId: Record<string, Array<{ execution_id: string; status: ExecutionResult["status"]; created_at?: string }>>;
+  historyBySuiteId: Record<string, SuiteExecutionHistoryItem[]>;
   stepCountByCaseId: Record<string, number>;
   suiteSearchTerm: string;
   suiteMappedCasesFilter: SuiteMappedCasesFilter;
@@ -2276,33 +2353,36 @@ function SuiteSidebar({
               {suites.map((suite) => {
                 const mappedCaseCount = counts[suite.id] || 0;
                 const suiteCases = cases.filter((testCase) => (testCase.suite_ids || []).includes(suite.id));
-                const history = (historyBySuiteId[suite.id] || []).slice(0, 10);
-                const runCount = (historyBySuiteId[suite.id] || []).length;
+                const suiteHistory = historyBySuiteId[suite.id] || [];
+                const history = suiteHistory.slice(0, 10);
+                const finalizedHistory = history.filter((result) => result.isFinalized);
+                const runCount = suiteHistory.length;
                 const latestRun = history[0];
-                const suiteDataCount = Object.keys(suite.parameter_values || {}).length;
                 const latestRunLabel = latestRun ? formatTileCardLabel(latestRun.status, "Run") : "No run";
-                const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
-                const passedRuns = history.filter((result) => result.status === "passed").length;
-                const stabilityScore = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
+                const failedRunCount = finalizedHistory.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
+                const passedRuns = finalizedHistory.filter((result) => result.status === "passed").length;
+                const stabilityScore = finalizedHistory.length ? Math.round((passedRuns / finalizedHistory.length) * 100) : 0;
                 const suiteStepCount = suiteCases.reduce((total, testCase) => total + (stepCountByCaseId[testCase.id] || 0), 0);
                 const automatedCount = suiteCases.filter((testCase) => testCase.automated === "yes").length;
                 const linkedRequirementCount = suiteCases.filter((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).some(Boolean)).length;
                 const coverageScore = mappedCaseCount ? Math.round((linkedRequirementCount / mappedCaseCount) * 100) : 0;
                 const automationScore = mappedCaseCount ? Math.round((automatedCount / mappedCaseCount) * 100) : 0;
-                const suiteTone = failedRunCount ? "is-risk" : !mappedCaseCount || coverageScore < 70 ? "is-warning" : "is-healthy";
-                const suiteInsightTone = failedRunCount ? "danger" : !mappedCaseCount || coverageScore < 70 ? "warning" : "success";
+                const suiteTone = failedRunCount ? "is-risk" : !mappedCaseCount || coverageScore < 70 || !finalizedHistory.length ? "is-warning" : "is-healthy";
+                const suiteInsightTone = failedRunCount ? "danger" : !mappedCaseCount || coverageScore < 70 || !finalizedHistory.length ? "warning" : "success";
                 const suiteInsight = failedRunCount
                   ? "Signal: Recent suite runs show failed or blocked evidence. Review the unstable cases before release gating."
                   : !mappedCaseCount
                     ? "Signal: This suite is empty. Add reusable cases so the suite can become executable release coverage."
                     : coverageScore < 70
                       ? "Signal: Story coverage is thin. Link more mapped cases to stories to improve traceability."
+                      : !finalizedHistory.length
+                        ? "Signal: Run this suite to establish a stability baseline before using it as release evidence."
                       : automationScore >= 70
                         ? "Signal: Strong suite candidate for scheduled regression because most mapped cases are automated."
                         : "Signal: Traceability is healthy. Automate the highest-repeat cases next to reduce manual run effort.";
 
                 return (
-                  <button
+                  <article
                     key={suite.id}
                     className={[
                       "record-card tile-card test-suite-card test-case-catalog-card",
@@ -2310,13 +2390,18 @@ function SuiteSidebar({
                       activeSuiteId === suite.id ? "is-active" : "",
                       selectedSuiteActionIds.includes(suite.id) ? "is-marked-for-delete" : ""
                     ].filter(Boolean).join(" ")}
-                    onClick={() => onSelectSuite(suite.id)}
-                    type="button"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea")) {
+                        return;
+                      }
+                      onSelectSuite(suite.id);
+                    }}
                   >
                     <div className="tile-card-main">
                       <div className="tile-card-select-row test-case-card-header">
                         <label className="checkbox-field suite-card-action-checkbox" onClick={(event) => event.stopPropagation()}>
                           <input
+                            aria-label={`Select Test Suite ${suite.name}`}
                             checked={selectedSuiteActionIds.includes(suite.id)}
 		                            onChange={() => onToggleSuiteSelection(suite.id)}
 		                            type="checkbox"
@@ -2330,55 +2415,69 @@ function SuiteSidebar({
 	                          <StatusBadge value={latestRunLabel} />
 	                        </div>
 	                      </div>
-		                      <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
+		                      <button
+                            aria-current={activeSuiteId === suite.id ? "page" : undefined}
+                            className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity tile-card-open-button"
+                            onClick={() => onSelectSuite(suite.id)}
+                            type="button"
+                          >
 		                        <strong>{suite.name}</strong>
-		                      </div>
-                      <div className="test-case-card-stats suite-card-stats" aria-label={`${suite.name} facts`}>
-                        <span title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}>
-                          <strong>{mappedCaseCount}</strong>
-                          <small>Cases</small>
-                        </span>
-                        <span title={`${suiteStepCount} cumulative step${suiteStepCount === 1 ? "" : "s"}`}>
-                          <strong>{suiteStepCount}</strong>
-                          <small>Steps</small>
-                        </span>
-                        <span title={`${automatedCount} automated case${automatedCount === 1 ? "" : "s"}`}>
-                          <strong>{automationScore}%</strong>
-                          <small>Auto</small>
-                        </span>
-                        <span title={`${failedRunCount} failed or blocked recent suite run${failedRunCount === 1 ? "" : "s"}`}>
-                          <strong>{failedRunCount ? `${failedRunCount}x` : "0x"}</strong>
-                          <small>Failed</small>
-                        </span>
+		                      </button>
+                      <CatalogCardDescription
+                        fallback="No description yet for this test suite."
+                        profile="project"
+                        value={suite.description}
+                      />
+                      <div className="tile-card-progress-stack suite-tile-progress-stack">
+                        <TileCardProgress
+                          displayValue={mappedCaseCount ? `${coverageScore}%` : "No cases"}
+                          label="Story coverage"
+                          title={mappedCaseCount ? `${coverageScore}% of suite cases link to stories` : "No cases are mapped to this suite"}
+                          tone={!mappedCaseCount ? "neutral" : coverageScore >= 70 ? "success" : coverageScore >= 40 ? "warning" : "danger"}
+                          value={mappedCaseCount ? coverageScore : null}
+                        />
+                        <TileCardProgress
+                          displayValue={finalizedHistory.length ? `${stabilityScore}%` : "No runs"}
+                          label="Suite stability"
+                          title={finalizedHistory.length ? `${stabilityScore}% of the last ${finalizedHistory.length} finalized suite runs passed` : "No finalized suite stability data"}
+                          tone={!finalizedHistory.length ? "neutral" : stabilityScore >= 80 ? "success" : stabilityScore >= 60 ? "warning" : "danger"}
+                          value={finalizedHistory.length ? stabilityScore : null}
+                        />
+                      </div>
+                      <div className="tile-card-metric-grid suite-tile-metrics" aria-label={`${suite.name} metrics`}>
+                        <TileCardMetric
+                          label="Cases"
+                          title={`${mappedCaseCount} mapped case${mappedCaseCount === 1 ? "" : "s"}`}
+                          tone={mappedCaseCount ? "info" : "neutral"}
+                          value={mappedCaseCount}
+                        />
+                        <TileCardMetric
+                          label="Steps"
+                          title={`${suiteStepCount} cumulative step${suiteStepCount === 1 ? "" : "s"}`}
+                          tone={suiteStepCount ? "info" : "neutral"}
+                          value={suiteStepCount}
+                        />
+                        <TileCardMetric
+                          label="Automation"
+                          title={`${automatedCount} automated case${automatedCount === 1 ? "" : "s"}`}
+                          tone={!mappedCaseCount ? "neutral" : automationScore >= 70 ? "success" : automationScore >= 40 ? "warning" : "danger"}
+                          value={mappedCaseCount ? `${automationScore}%` : "—"}
+                        />
+                        <TileCardMetric
+                          label="Failed"
+                          title={`${failedRunCount} failed or blocked recent suite run${failedRunCount === 1 ? "" : "s"}`}
+                          tone={failedRunCount ? "danger" : finalizedHistory.length ? "success" : "neutral"}
+                          value={failedRunCount}
+                        />
                       </div>
                       <div className="tile-card-footer">
-                        <div className="test-case-readiness-grid">
-                          <div className="test-case-card-progress-row" aria-label={`${coverageScore}% story coverage`}>
-                            <div>
-                              <span>Story coverage</span>
-                              <strong>{mappedCaseCount ? `${coverageScore}%` : "No cases"}</strong>
-                            </div>
-                            <div className={["test-case-card-progress-track", coverageScore < 70 ? "danger" : ""].filter(Boolean).join(" ")}>
-                              <span style={{ width: `${mappedCaseCount ? coverageScore : 8}%` }} />
-                            </div>
-                          </div>
-                          <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent suite stability` : "No recent suite stability"}>
-                            <div>
-                              <span>Suite stability</span>
-                              <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
-                            </div>
-                            <div className={["test-case-card-progress-track", stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}>
-                              <span style={{ width: `${history.length ? stabilityScore : 8}%` }} />
-                            </div>
-                          </div>
-                        </div>
                         <div className={`test-case-ai-note ${suiteInsightTone}`}>
                           <span aria-hidden="true">{failedRunCount ? "!" : "S"}</span>
                           <p>{suiteInsight}</p>
                         </div>
                       </div>
                     </div>
-                  </button>
+                  </article>
                 );
               })}
             </div>
@@ -3292,7 +3391,7 @@ function SuiteCaseEditorModal({
                 {groupedStepCount ? (
                   <div className="detail-summary">
                     <strong>{groupedStepCount} grouped step{groupedStepCount === 1 ? "" : "s"} in this case</strong>
-                    <span>{sharedGroupCount ? `${sharedGroupCount} linked shared group${sharedGroupCount === 1 ? "" : "s"} appear in this suite editor.` : "Local step group metadata is preserved in this suite editor."}</span>
+                    <span>{sharedGroupCount ? `${sharedGroupCount} linked Shared Step Group${sharedGroupCount === 1 ? "" : "s"} appear in this suite editor.` : "Local step group metadata is preserved in this suite editor."}</span>
                   </div>
                 ) : null}
 
@@ -3638,7 +3737,9 @@ function SuiteExecutionModal({
   selectedSuiteIds,
   executionName,
   executionRelease,
+  releaseOptions,
   executionSprint,
+  sprintOptions,
   executionBuild,
   selectedAssigneeIds,
   assigneeOptions,
@@ -3679,7 +3780,9 @@ function SuiteExecutionModal({
   selectedSuiteIds: string[];
   executionName: string;
   executionRelease: string;
+  releaseOptions: DeliveryScopeOption[];
   executionSprint: string;
+  sprintOptions: DeliveryScopeOption[];
   executionBuild: string;
   selectedAssigneeIds: string[];
   assigneeOptions: SuiteExecutionAssigneeOption[];
@@ -3761,10 +3864,24 @@ function SuiteExecutionModal({
 
             <div className="execution-create-grid execution-create-grid--metadata">
               <FormField label="Release">
-                <input placeholder="Release 5.8" value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)} />
+                <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
+                  <option value="">No release</option>
+                  {releaseOptions.map((option) => (
+                    <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </FormField>
               <FormField label="Sprint">
-                <input placeholder="Sprint 24" value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)} />
+                <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
+                  <option value="">No sprint</option>
+                  {sprintOptions.map((option) => (
+                    <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </FormField>
               <FormField label="Build">
                 <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />

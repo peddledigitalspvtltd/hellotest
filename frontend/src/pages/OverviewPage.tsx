@@ -210,10 +210,6 @@ function QualityAnalyticsDashboard() {
   const [selectedMetricEvidence, setSelectedMetricEvidence] = useState<MetricEvidence | null>(null);
   const [isLayoutDialogOpen, setIsLayoutDialogOpen] = useState(false);
   const [analyticsLayout, setAnalyticsLayout] = useState<AnalyticsLayout>(DEFAULT_ANALYTICS_LAYOUT);
-  const canViewAutomationAnalytics = hasPermission(session, "automation.analytics.view")
-    && hasPermission(session, "dashboard.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"]);
-  const canCreateTestCases = hasPermission(session, "testcase.create");
   const {
     projects,
     requirements,
@@ -238,6 +234,10 @@ function QualityAnalyticsDashboard() {
   const executionsListRaw = asArray(executions.data);
   const executionResultsListRaw = asArray(executionResults.data);
   const activeProjectId = projectId || projectsList[0]?.id || "";
+  const canViewAutomationAnalytics = hasPermission(session, "automation.analytics.view", activeProjectId)
+    && hasPermission(session, "dashboard.view", activeProjectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"]);
+  const canCreateTestCases = hasPermission(session, "testcase.create", activeProjectId);
   const qualityInsightPreview = useMutation({
     mutationFn: (activeProject: string) => api.ai.qualityInsights({ project_id: activeProject })
   });
@@ -511,8 +511,8 @@ function QualityAnalyticsDashboard() {
     ];
   }, [automationCoverage, canViewAutomationAnalytics, casesMissingStepsCount, coverageGapCount, executionStatusCounts.failed, executionStatusCounts.running, manualCasesCount, suitesList.length]);
   const visibleQuickActions = useMemo(
-    () => quickActions.filter((action) => canAccessPath(session, action.to)),
-    [quickActions, session]
+    () => quickActions.filter((action) => canAccessPath(session, action.to, undefined, activeProjectId)),
+    [activeProjectId, quickActions, session]
   );
 
   const attentionQueue = useMemo(() => {
@@ -774,7 +774,7 @@ function QualityAnalyticsDashboard() {
     : releaseReadinessScore >= 65
       ? "Production readiness needs hardening"
       : "Not ready for production";
-  const canViewQualityInsights = hasPermission(session, "quality_insight.view")
+  const canViewQualityInsights = hasPermission(session, "quality_insight.view", activeProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
   const qualityInsightItems = asArray(qualityInsightPreview.data?.insights);
   const qualityInsightEvidence = asArray(qualityInsightPreview.data?.provenance?.evidence);
@@ -1053,9 +1053,9 @@ export function OverviewPage() {
       <div className="page-content page-content--overview overview-layout">
         {projectId ? (
           <CustomQualityDashboard
-            canManage={hasPermission(session, "dashboard.manage")}
-            canUseAutomation={hasPermission(session, "automation.analytics.view") && hasPermission(session, "dashboard.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"])}
-            canUseAi={hasPermission(session, "quality_insight.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"])}
+            canManage={hasPermission(session, "dashboard.manage", projectId)}
+            canUseAutomation={hasPermission(session, "automation.analytics.view", projectId) && hasPermission(session, "dashboard.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.analytics"])}
+            canUseAi={hasPermission(session, "quality_insight.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"])}
             projectId={String(projectId)}
           />
         ) : (

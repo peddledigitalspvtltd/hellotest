@@ -4,7 +4,10 @@ const apiKeyService = require("../services/apiKey.service");
 const AI_PROMPT_PREFERENCE_KEYS = new Set([
   "ai_prompt_registry_overrides",
   "ai_prompt_registry_llm_overrides",
-  "ai_metric_criteria_overrides",
+  "ai_metric_criteria_overrides"
+]);
+
+const WORKSPACE_PREFERENCE_ADMIN_KEYS = new Set([
   "ai_metric_formula_values"
 ]);
 
@@ -45,6 +48,9 @@ module.exports = async function (fastify) {
 
     if (preferenceKeys.some((key) => AI_PROMPT_PREFERENCE_KEYS.has(key))) {
       await fastify.requirePermission("ai_prompt.manage")(req);
+    }
+    if (preferenceKeys.some((key) => WORKSPACE_PREFERENCE_ADMIN_KEYS.has(key))) {
+      await fastify.requirePermission("workspace_preferences.manage")(req);
     }
 
     return settingsService.updateWorkspacePreferences(req.user.id, req.body.preferences);

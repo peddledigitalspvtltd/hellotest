@@ -15,7 +15,7 @@ test("Smart Run route accepts and forwards the exact delivery contract", async (
   const smartRoute = routeSource.slice(start, end);
 
   assert.ok(start >= 0 && end > start);
-  assert.match(smartRoute, /await requireFeaturePermission\(fastify, req, "run\.ai"\)/);
+  assert.match(smartRoute, /await requireFeaturePermission\(fastify, req, "run\.ai", req\.body\.project_id\)/);
   for (const field of ["release", "sprint", "build"]) {
     assert.match(smartRoute, new RegExp(`${field}: \\{ required: false, type: "string", maxLength: 255 \\}`));
     assert.match(smartRoute, new RegExp(`${field}: req\\.body\\.${field}`));
@@ -180,7 +180,7 @@ test("Smart Run creation enforces AI permission and persists the signed human ac
 
   assert.match(createRoute, /scope_source: \{ required: false, type: "string", enum: \["smart-run"\] \}/);
   assert.match(createRoute, /smart_plan: \{ required: false, type: "object" \}/);
-  assert.match(createRoute, /await requireFeaturePermission\(fastify, req, "run\.ai"\)/);
+  assert.match(createRoute, /await requireFeaturePermission\(fastify, req, "run\.ai", req\.body\.project_id\)/);
   assert.match(createRoute, /verifySmartExecutionAcceptance\(\{/);
   assert.match(createRoute, /selected Test Cases must match the accepted preview selection/i);
   assert.match(createRoute, /action: "smart_run_acceptance"/);

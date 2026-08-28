@@ -16,7 +16,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "Start blank",
     "Build studio",
     "Retrieve automation code",
-    "Insert shared group",
+    "Insert Shared Step Group",
     "Edit automation"
   ]) {
     assert.match(page, new RegExp(capability));
@@ -52,9 +52,12 @@ test("test cases distinguish authored parameters from row-level execution data",
   assert.match(page, /label="Test case type"/);
   assert.match(page, /label="Author"/);
   assert.match(page, /title="Data Sets"/);
-  assert.match(page, /Every table row becomes a separate execution instance/);
-  assert.match(page, /Create and link/);
-  assert.match(page, /test_data_set_ids: linkedDataSetDraftIds/);
+  assert.match(page, /Every table row becomes an independent execution iteration/);
+  assert.match(page, /No Data Sets Defined/);
+  assert.match(page, /Create Data Set/);
+  assert.match(page, /Link Existing Data Set/);
+  assert.match(page, /test_data_set_ids: linkedDataSetDraftIds\.slice\(0, 1\)/);
+  assert.match(page, /setLinkedDataSetDraftIds\(\[dataSetLinkDraftId\]\)/);
   assert.match(types, /data_set_iteration_index\?: number \| null/);
   assert.match(api, /test_data_set_ids\?: string\[\]/);
 });

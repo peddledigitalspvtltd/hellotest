@@ -19,6 +19,48 @@ test("release notes ribbon uses the supplied document-and-rocket artwork exactly
   assert.equal(createHash("sha256").update(artwork).digest("hex"), "d5f3213473172d94b41d25c8683d1802fec2754b98db45e5284cd137d53d4199");
 });
 
+test("release ribbons keep identity, actions, metrics, and readiness artwork on one compact row", async () => {
+  const [releases, releaseStyles, icons, catalogStyles] = await Promise.all([
+    readSource("../src/pages/ReleasesPage.tsx"),
+    readSource("../src/pages/ReleasesPage.css"),
+    readSource("../src/components/AppIcons.tsx"),
+    readSource("../src/catalog-list.css")
+  ]);
+
+  const identity = releases.slice(releases.indexOf("const renderReleaseIdentity"), releases.indexOf("const renderReleaseMetrics"));
+  const header = releases.slice(releases.indexOf("const renderReleaseHeader"), releases.indexOf("const renderReleaseStoryTile"));
+  const readinessIcon = icons.slice(icons.indexOf("export function ReleaseReadinessIcon"), icons.indexOf("export function UsersIcon"));
+  const readinessIconStyles = catalogStyles.slice(catalogStyles.indexOf(".release-readiness-icon {"), catalogStyles.indexOf(".test-case-entity-icon__file"));
+
+  assert.match(releases, /const releaseVersionLabel[\s\S]*replace\(\/\^version[\s\S]*return `v\$\{normalized \|\| "—"\}`/);
+  assert.match(identity, /requirement-sprint-heading release-ribbon-title-line[\s\S]*release-ribbon-name-version[\s\S]*release-ribbon-name[\s\S]*\{release\.name\}[\s\S]*release-ribbon-version-separator[\s\S]*release-ribbon-version[\s\S]*releaseVersionLabel\(release\.fix_version\)/);
+  assert.ok(identity.indexOf("release-ribbon-title-line") < identity.indexOf("release-ribbon-schedule"));
+  assert.ok(identity.indexOf("release-ribbon-schedule") < identity.indexOf("release-ribbon-description"));
+  assert.ok(header.indexOf("renderReleaseIdentity(release)") < header.indexOf("renderReleaseActions(release)"));
+  assert.ok(header.indexOf("renderReleaseActions(release)") < header.indexOf("renderReleaseMetrics(release)"));
+  assert.match(releaseStyles, /\.test-case-module-header\.requirement-iteration-header\.release-iteration-header[\s\S]*grid-template-columns:\s*auto auto minmax\(13rem, 1fr\) auto minmax\(28rem, max-content\)/);
+  assert.match(releaseStyles, /\.release-iteration-header > \.release-hierarchy-actions\s*\{[^}]*grid-column:\s*4/);
+  assert.match(releaseStyles, /\.release-iteration-header > \.hierarchy-quick-insights\s*\{[^}]*grid-column:\s*5/);
+  assert.match(releaseStyles, /\.release-iteration-header \.hierarchy-quick-insights-grid\s*\{[^}]*flex-wrap:\s*nowrap/);
+  assert.doesNotMatch(releaseStyles, /\.release-iteration-header > \.hierarchy-quick-insights\s*\{[^}]*grid-column:\s*1 \/ -1/);
+  assert.match(releaseStyles, /\.release-ribbon-description\s*\{[^}]*max-inline-size:\s*min\(32ch, 100%\)[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(releaseStyles, /\.release-ribbon-name-version\s*\{[^}]*width:\s*fit-content[^}]*max-width:\s*100%[^}]*gap:\s*\.14rem/);
+  assert.match(releaseStyles, /\.release-ribbon-name\s*\{[^}]*flex:\s*0 1 auto[^}]*text-overflow:\s*ellipsis/);
+  assert.match(releaseStyles, /\.release-ribbon-version\s*\{[^}]*flex:\s*0 0 auto/);
+  assert.match(releaseStyles, /\.release-ribbon-version\s*\{[^}]*font-size:\s*\.7rem/);
+
+  assert.match(releases, /<ReleaseReadinessIcon size=\{26\}/);
+  assert.match(readinessIcon, /checkSize = Math\.max\(3, Math\.round\(size \* 0\.15\)\)/);
+  assert.match(readinessIcon, /rocketSize = Math\.max\(15, Math\.round\(size \* 0\.82\)\)/);
+  assert.match(readinessIcon, /IconRocket[\s\S]*release-readiness-icon__checks/);
+  assert.equal((readinessIcon.match(/<IconCheckbox/g) || []).length, 1);
+  assert.doesNotMatch(readinessIcon, /IconHierarchy3|release-readiness-icon__hierarchy/);
+  assert.match(readinessIconStyles, /display:\s*inline-grid[\s\S]*grid-template-rows:\s*minmax\(0, 1fr\) auto/);
+  assert.match(readinessIconStyles, /release-readiness-icon__checks[\s\S]*grid-row:\s*2/);
+  assert.match(readinessIconStyles, /release-readiness-icon__rocket[\s\S]*grid-row:\s*1[\s\S]*transform:\s*none/);
+  assert.doesNotMatch(readinessIconStyles, /position:\s*absolute/);
+});
+
 test("People management exposes user CRUD and role editors without Jira-specific UI", async () => {
   const page = await readSource("../src/pages/PeoplePage.tsx");
 
@@ -129,9 +171,10 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(releases, /Release notes/);
   assert.match(releases, /generateReleaseNotes/);
   assert.match(releases, /Open release readiness board/);
-  assert.match(releases, /<ReleaseReadinessIcon size=\{23\}/);
+  assert.match(releases, /<ReleaseReadinessIcon size=\{26\}/);
   assert.match(readiness, /<ReleaseReadinessIcon size=\{28\}/);
-  assert.match(icons, /export function ReleaseReadinessIcon[\s\S]*IconHierarchy3[\s\S]*IconRocket[\s\S]*IconCheckbox/);
+  assert.match(icons, /export function ReleaseReadinessIcon[\s\S]*IconRocket[\s\S]*release-readiness-icon__checks/);
+  assert.doesNotMatch(icons, /IconHierarchy3|release-readiness-icon__hierarchy/);
   assert.match(releases, /release_id=/);
   assert.match(releases, /Release portfolio health/i);
   for (const metric of ["Release ready", "At risk", "Story completion", "Test coverage", "Open Bugs"]) {
@@ -186,7 +229,8 @@ test("manual test-case details place mature automation cards beside Details", as
 test("Story-linked test-case creation enters the standard new-case workspace with coherent scope", async () => {
   const page = await readSource("../src/pages/TestCasesPage.tsx");
 
-  assert.match(page, /beginCreateCase\(requestedSuiteId, requestedRequirementId\)/);
+  assert.match(page, /beginCreateCase\(requestedSuiteId, requestedRequirementId, \{[\s\S]*release: deliveryPrefill\.release,[\s\S]*sprint: deliveryPrefill\.sprint/);
+  assert.match(page, /resolveDeliveryScopePrefill/);
   assert.match(page, /setProjectId\(requestedProjectId\)/);
   assert.match(page, /requirement_id: requirementId/);
 });
@@ -368,9 +412,10 @@ test("native checkboxes retain a white surface across application themes", async
 });
 
 test("planning dates, simplified Sprint creation, and rich-text links retain the refined authoring contract", async () => {
-  const [stories, releases, editor] = await Promise.all([
+  const [stories, releases, releaseStyles, editor] = await Promise.all([
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/pages/ReleasesPage.tsx"),
+    readSource("../src/pages/ReleasesPage.css"),
     readSource("../src/components/RichTextEditor.tsx")
   ]);
 
@@ -385,30 +430,55 @@ test("planning dates, simplified Sprint creation, and rich-text links retain the
   assert.match(stories, /<optgroup label="HelloTest releases">/);
   assert.match(stories, /createStorySprintOptions\.map/);
   assert.match(stories, /story-related-create-actions[\s\S]*Link related Stories/);
-  assert.match(stories, /story-specification-title-row[\s\S]*Gherkin[\s\S]*Spec Kit/);
+  assert.match(stories, /StorySpecificationFormatSwitch[\s\S]*role="tablist"/);
+  assert.match(stories, /label: "Gherkin"/);
+  assert.match(stories, /label: "Spec Kit"/);
+  assert.match(stories, /className=\{isSelected \? "story-specification-tab is-active"/);
+  assert.match(stories, /sprint-story-filter-trigger[\s\S]*IconFilter/);
+  assert.doesNotMatch(stories, /sprint-link-related-stories/);
   assert.match(releases, /dateOnlyToMidnightIso/);
+  assert.match(releases, /const openEditRelease/);
+  assert.match(releases, /sprint_ids: draft\.sprintIds/);
+  assert.match(releases, /requirement_ids: draft\.requirementIds/);
+  assert.match(releases, /releaseDateRangeLabel\(release\.plan_date, release\.target_date\)/);
+  assert.match(releases, /release\.sprint_ids\.length \? <span>/);
+  assert.match(releases, /release-ribbon-description/);
+  assert.match(releases, /useDialogFocus<HTMLFormElement>/);
+  assert.equal((releases.match(/target_date_label: "Release target date"/g) || []).length, 1);
+  assert.match(releaseStyles, /\.release-ribbon-description[\s\S]*text-overflow: ellipsis/);
+  assert.match(releaseStyles, /\.release-create-grid \.form-field-required-marker[\s\S]*color: #c9372c/);
   assert.match(editor, /document\.createElement\("a"\)/);
   assert.match(editor, /pendingRange\.insertNode\(anchor\)/);
   assert.doesNotMatch(editor, /execCommand\("createLink"/);
 });
 
 test("test data authoring uses an iteration grid and module health loads before expansion", async () => {
-  const [testCases, styles] = await Promise.all([
+  const [testCases, testData, styles, modalStyles] = await Promise.all([
     readSource("../src/pages/TestCasesPage.tsx"),
-    readSource("../src/styles.css")
+    readSource("../src/pages/TestEnvironmentPage.tsx"),
+    readSource("../src/styles.css"),
+    readSource("../src/modal-system.css")
   ]);
 
-  assert.match(testCases, /function DataSetCreationModal/);
-  assert.match(testCases, /Configure values for variables below/);
-  assert.match(testCases, /onAddRow[\s\S]*onAddColumn/);
-  assert.match(testCases, /Each row becomes a separate execution iteration/);
+  assert.doesNotMatch(testCases, /function DataSetCreationModal/);
+  assert.match(testCases, /<DataSetForm/);
+  assert.match(testCases, /function TestDataSetPickerDialog/);
+  assert.match(testCases, /No Data Sets Defined/);
+  assert.match(testCases, /type="radio"/);
+  assert.match(testCases, /setLinkedDataSetDraftIds\(\[created\.id\]\)/);
+  assert.match(testCases, /setLinkedDataSetDraftIds\(\[dataSetLinkDraftId\]\)/);
+  assert.match(testData, /Data file import/);
+  assert.match(testData, /Available data utilities/);
+  assert.match(testData, /function DataTableEditor/);
+  assert.match(testData, /function KeyValueEditor/);
   assert.match(testCases, /const moduleMetricHeaders = useMemo/);
   assert.match(testCases, /moduleMetricHeaders\.flatMap/);
   assert.doesNotMatch(testCases, /isCollapsed \|\| !modulePageState \|\| isInitialLoading/);
   assert.equal((testCases.match(/\{renderModuleMetrics\(moduleHealth\.unassigned\)\}/g) || []).length, 2);
   assert.doesNotMatch(testCases, /isUnassignedModuleExpanded[\s\S]{0,120}renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)/);
-  assert.match(styles, /\.modal-backdrop > \.data-set-create-modal/);
-  assert.match(styles, /\.data-set-entry-grid/);
+  assert.match(styles, /\.resource-sheet/);
+  assert.match(modalStyles, /\.test-data-set-picker-dialog/);
+  assert.match(modalStyles, /\.test-case-data-set-inline-empty/);
 });
 
 test("Object Repository separates manual screen creation from the inspection workspace", async () => {
@@ -430,7 +500,7 @@ test("Object Repository separates manual screen creation from the inspection wor
   assert.match(page, /className="object-repository-inspector-review-tabs"/);
   assert.match(page, /Selected locators/);
   assert.match(page, /Selector evidence/);
-  assert.match(page, /Highlight all/);
+  assert.match(page, /Preview all · 3s/);
   assert.match(page, /Remove all/);
   assert.match(page, /className="object-repository-selected-fields object-repository-review-panel"/);
   assert.match(page, /object-repository-inspector-preview object-repository-collapsible-section/);

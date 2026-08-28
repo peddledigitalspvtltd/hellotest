@@ -6,6 +6,8 @@ const workspaceTransactionService = require("../services/workspaceTransaction.se
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const featureFlagService = require("../services/featureFlag.service");
+const testDataSetService = require("../services/testDataSet.service");
+const mobileFeatureService = require("../services/mobileFeature.service");
 const { EXECUTION_FINAL_STATUS_VALUES } = require("../domain/catalog");
 const db = require("../db");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
@@ -28,12 +30,34 @@ const resolveExecutionModePermission = (mode, manualPermission) => {
   return manualPermission;
 };
 
-const requireFeaturePermission = async (fastify, req, permissionCode) => {
-  await fastify.requirePermission(permissionCode)(req);
+const requireFeaturePermission = async (fastify, req, permissionCode, projectId = null) => {
+  await fastify.requirePermission(permissionCode, projectId ? { projectId } : {})(req);
   const featureKeys = featureFlagService.getFeatureKeysForPermission(permissionCode);
 
   if (featureKeys.length && !await featureFlagService.areEnabled(featureKeys, { user: req.user })) {
     throw createAccessError("This feature is disabled for the workspace.");
+  }
+};
+
+const requireSelectedTestDataAccess = async (fastify, req, projectId, dataSetId) => {
+  if (!dataSetId) return;
+  const dataSet = await testDataSetService.getTestDataSet(dataSetId);
+  if (dataSet.project_id !== projectId) {
+    throw createAccessError("Test Data Set must belong to the Run project.");
+  }
+  await fastify.requirePermission("data.view", { projectId: dataSet.project_id })(req);
+};
+
+const ensureExecutionPermission = async (fastify, req, permissionCode, execution = null) => {
+  const target = execution || await service.getExecution(req.params.id);
+  await projectService.getProject(target.project_id, req.user.id);
+  await fastify.requirePermission(permissionCode, { projectId: target.project_id })(req);
+  return target;
+};
+
+const requireMobileExecutionPermission = async (fastify, req, executionInput, permissionCode = "mobile.manage") => {
+  if (await mobileFeatureService.executionUsesMobile(executionInput)) {
+    await fastify.requirePermission(permissionCode, { projectId: executionInput.project_id })(req);
   }
 };
 
@@ -86,8 +110,9 @@ module.exports = async function (fastify) {
       test_data_set_id: { required: false, type: "string", maxLength: 255 }
     }, req.body);
 
-    await requireFeaturePermission(fastify, req, "run.ai");
+    await requireFeaturePermission(fastify, req, "run.ai", req.body.project_id);
     await projectService.getProject(req.body.project_id, req.user.id);
+    await requireSelectedTestDataAccess(fastify, req, req.body.project_id, req.body.test_data_set_id);
     const appType = await appTypeService.getAppType(req.body.app_type_id);
 
     if (appType.project_id !== req.body.project_id) {
@@ -128,6 +153,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     await projectService.getProject(req.body.project_id, req.user.id);
+    await requireSelectedTestDataAccess(fastify, req, req.body.project_id, req.body.test_data_set_id);
     const appType = await appTypeService.getAppType(req.body.app_type_id);
 
     if (appType.project_id !== req.body.project_id) {
@@ -177,11 +203,12 @@ module.exports = async function (fastify) {
     await requireFeaturePermission(
       fastify,
       req,
-      resolveExecutionModePermission(req.body.execution_mode, "run.create")
+      resolveExecutionModePermission(req.body.execution_mode, "run.create"),
+      req.body.project_id
     );
 
     if (req.body.parallel_enabled || Number(req.body.parallel_count || 1) > 1) {
-      await requireFeaturePermission(fastify, req, "automation.run.parallel");
+      await requireFeaturePermission(fastify, req, "automation.run.parallel", req.body.project_id);
     }
 
     let verifiedSmartPlan = null;
@@ -195,7 +222,7 @@ module.exports = async function (fastify) {
       if (!req.body.app_type_id) {
         throw createAccessError("app_type_id is required for Smart Run creation.", 400);
       }
-      await requireFeaturePermission(fastify, req, "run.ai");
+      await requireFeaturePermission(fastify, req, "run.ai", req.body.project_id);
       fastify.validate({
         acceptance_token: { required: true, type: "string", maxLength: 10_000 },
         request_id: { required: true, type: "string", maxLength: 255 },
@@ -225,6 +252,8 @@ module.exports = async function (fastify) {
 
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
+    await requireMobileExecutionPermission(fastify, req, req.body);
+    await requireSelectedTestDataAccess(fastify, req, req.body.project_id, req.body.test_data_set_id);
 
     if (verifiedSmartPlan) {
       const startedAt = new Date().toISOString();
@@ -326,9 +355,11 @@ module.exports = async function (fastify) {
       engine_base_url: { required: false, type: "string" }
     }, req.body);
 
-    await requireFeaturePermission(fastify, req, "automation.run.local");
+    await requireFeaturePermission(fastify, req, "automation.run.local", req.body.project_id);
 
     await projectService.getProject(req.body.project_id, req.user.id);
+    await requireMobileExecutionPermission(fastify, req, req.body);
+    await requireSelectedTestDataAccess(fastify, req, req.body.project_id, req.body.test_data_set_id);
 
     return service.createLocalRun({
       ...req.body,
@@ -357,6 +388,14 @@ module.exports = async function (fastify) {
       await projectService.getProject(project_id, req.user.id);
     }
 
+    if (scopedProjectId) {
+      await fastify.requirePermission("run.view", { projectId: scopedProjectId })(req);
+    } else if (req.user.role !== "admin") {
+      const error = new Error("project_id or app_type_id is required when listing Runs");
+      error.statusCode = 400;
+      throw error;
+    }
+
     return service.getExecutions({ project_id: scopedProjectId, app_type_id, status });
   });
 
@@ -364,10 +403,7 @@ module.exports = async function (fastify) {
   // GET ONE EXECUTION
   fastify.get("/executions/:id", async (req) => {
     await fastify.authenticate(req);
-    const execution = await service.getExecution(req.params.id);
-    // Verify user is member of the execution's project
-    await projectService.getProject(execution.project_id, req.user.id);
-    return execution;
+    return ensureExecutionPermission(fastify, req, "run.view");
   });
 
   fastify.put("/executions/:id", async (req) => {
@@ -382,8 +418,7 @@ module.exports = async function (fastify) {
       expected_revision: { required: false, type: "number" }
     }, req.body);
 
-    const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.update");
 
     return service.updateExecution(req.params.id, req.body);
   });
@@ -397,8 +432,7 @@ module.exports = async function (fastify) {
       expected_revision: { required: false, type: "number" }
     }, req.body);
 
-    const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.update");
 
     return service.updateExecutionCaseAssignment(req.params.id, req.params.testCaseId, req.body);
   });
@@ -418,8 +452,7 @@ module.exports = async function (fastify) {
       throw error;
     }
 
-    const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.update");
     return service.updateExecutionScopeAssignment(req.params.id, req.params.level, req.params.scopeId, req.body);
   });
 
@@ -432,8 +465,8 @@ module.exports = async function (fastify) {
       name: { required: false, type: "string" }
     }, req.body);
 
-    const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    const execution = await ensureExecutionPermission(fastify, req, "run.execute");
+    await requireMobileExecutionPermission(fastify, req, execution);
 
     return service.rerunExecution(req.params.id, req.body);
   });
@@ -443,13 +476,14 @@ module.exports = async function (fastify) {
   fastify.post("/executions/:id/start", async (req) => {
     await fastify.authenticate(req);
     const execution = await service.getExecution(req.params.id);
+    await ensureExecutionPermission(fastify, req, "run.execute", execution);
+    await requireMobileExecutionPermission(fastify, req, execution);
     await requireFeaturePermission(
       fastify,
       req,
-      resolveExecutionModePermission(req.body?.execution_mode || execution.trigger, "run.execute")
+      resolveExecutionModePermission(req.body?.execution_mode || execution.trigger, "run.execute"),
+      execution.project_id
     );
-    // Verify user is member of the execution's project
-    await projectService.getProject(execution.project_id, req.user.id);
     return service.startExecution(req.params.id, {
       initiated_by: req.user.id,
       execution_mode: req.body?.execution_mode,
@@ -461,11 +495,15 @@ module.exports = async function (fastify) {
   fastify.post("/executions/:id/cases/:testCaseId/steps/:stepId/run", async (req) => {
     await fastify.authenticate(req);
 
-    const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    fastify.validate({
+      data_set_iteration_index: { required: false, type: "number" }
+    }, req.body || {});
+
+    await ensureExecutionPermission(fastify, req, "run.execute");
 
     return service.runExecutionApiStep(req.params.id, req.params.testCaseId, req.params.stepId, {
-      executed_by: req.user.id
+      executed_by: req.user.id,
+      data_set_iteration_index: req.body?.data_set_iteration_index
     });
   });
 
@@ -478,7 +516,7 @@ module.exports = async function (fastify) {
     }, req.body || {});
 
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.ai", execution);
 
     return executionAiAnalysisService.analyzeExecutionCase({
       execution,
@@ -493,7 +531,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.report.export", execution);
 
     const pdf = await executionReportService.renderReportPdf(req.params.id, { user_id: req.user.id });
     const safeName = String(execution.name || execution.id || "hellotest-run-report")
@@ -557,7 +595,7 @@ module.exports = async function (fastify) {
   fastify.get("/executions/:id/cases/:testCaseId/report.pdf", async (req, reply) => {
     await fastify.authenticate(req);
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.report.export", execution);
     const pdf = await executionReportService.renderCaseReportPdf(req.params.id, req.params.testCaseId);
     const safeName = `${String(execution.name || execution.id).replace(/[^A-Za-z0-9._-]+/g, "-")}-${String(req.params.testCaseId).replace(/[^A-Za-z0-9._-]+/g, "-")}`;
     reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${safeName}.pdf"`);
@@ -568,7 +606,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.report.export", execution);
 
     const html = await executionReportService.renderReportHtml(req.params.id, { user_id: req.user.id });
     reply.header("Content-Type", "text/html; charset=utf-8");
@@ -583,7 +621,7 @@ module.exports = async function (fastify) {
     }, req.body || {});
 
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.report.share", execution);
 
     return executionReportService.emailReport({
       execution_id: req.params.id,
@@ -596,7 +634,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
     const execution = await service.getExecution(req.params.id);
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.report.share", execution);
     return executionReportService.emailCaseReport({ execution_id: req.params.id, test_case_id: req.params.testCaseId, recipients: req.body.recipients, requested_by: req.user.id });
   });
 
@@ -610,9 +648,7 @@ module.exports = async function (fastify) {
       expected_revision: { required: false, type: "number" }
     }, req.body);
 
-    const execution = await service.getExecution(req.params.id);
-    // Verify user is member of the execution's project
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.execute");
 
     return service.completeExecution(req.params.id, req.body.status, {
       expected_revision: req.body.expected_revision
@@ -623,9 +659,7 @@ module.exports = async function (fastify) {
   // DELETE EXECUTION
   fastify.delete("/executions/:id", async (req) => {
     await fastify.authenticate(req);
-    const execution = await service.getExecution(req.params.id);
-    // Verify user is member of the execution's project
-    await projectService.getProject(execution.project_id, req.user.id);
+    await ensureExecutionPermission(fastify, req, "run.delete");
     return service.deleteExecution(req.params.id);
   });
 

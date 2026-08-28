@@ -223,7 +223,7 @@ exports.syncSharedGroupReferences = async (sharedGroupId) => {
   const sharedGroup = await selectSharedStepGroup.get(sharedGroupId);
 
   if (!sharedGroup) {
-    throw new Error("Shared step group not found");
+    throw new Error("Shared Step Group not found");
   }
 
   const canonicalSteps = normalizeSharedSteps(parseJsonValue(sharedGroup.steps, []));
@@ -239,7 +239,7 @@ exports.syncSharedGroupFromReference = async (sharedGroupId, testCaseId, groupId
   const sharedGroup = await selectSharedStepGroup.get(sharedGroupId);
 
   if (!sharedGroup) {
-    throw new Error("Shared step group not found");
+    throw new Error("Shared Step Group not found");
   }
 
   const sourceSteps = await selectSharedReferenceInstance.all(sharedGroup.id, testCaseId, groupId);

@@ -29,6 +29,7 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
@@ -998,8 +999,9 @@ function IntegrationReadOnlyDetails({
 export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canUseMobileAppium = hasPermission(session, "mobile.manage")
+  const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();

@@ -198,14 +198,10 @@ const ensureSampleWorkspace = async (actorId) => {
   const administrators = await db.prepare(`
     SELECT DISTINCT users.id
     FROM users
-    LEFT JOIN roles ON roles.id = users.default_role_id
     WHERE users.id = ?
        OR (
          COALESCE(users.status, 'active') <> 'suspended'
-         AND (
-           COALESCE(users.is_workspace_admin, FALSE) = TRUE
-           OR LOWER(COALESCE(roles.name, '')) = 'admin'
-         )
+         AND COALESCE(users.is_workspace_admin, FALSE) = TRUE
        )
     ORDER BY users.id
   `).all(actorId);

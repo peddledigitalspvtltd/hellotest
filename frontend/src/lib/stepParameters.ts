@@ -1,4 +1,4 @@
-import type { ExecutionDataSetSnapshot, TestStep } from "../types";
+import type { ExecutionDataSetSnapshot, TestDataSet, TestStep } from "../types";
 
 export type StepParameterScope = "t" | "s" | "r";
 
@@ -11,6 +11,8 @@ export type StepParameterDefinition = {
   scopeLabel: string;
   stepIds: string[];
   occurrenceCount: number;
+  source?: "authoring" | "data_set";
+  sourceLabel?: string;
 };
 
 export type StepParameterSegment =
@@ -28,6 +30,7 @@ export type StepParameterSegment =
 
 type StepParameterSource = Pick<TestStep, "id" | "action" | "expected_result" | "automation_code" | "api_request">;
 type StepApiLike = NonNullable<TestStep["api_request"]>;
+type StepParameterDataSet = Pick<ExecutionDataSetSnapshot | TestDataSet, "columns" | "mode" | "rows">;
 
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
 const STEP_PARAMETER_SCOPE_LABELS: Record<StepParameterScope, string> = {
@@ -249,15 +252,15 @@ export function filterStepParameterValues(
   }, {});
 }
 
-export function buildDataSetParameterValues(dataSet?: ExecutionDataSetSnapshot | null) {
+export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | null) {
   const values: Record<string, string> = {};
 
-  if (!dataSet?.rows?.length) {
+  if (!dataSet) {
     return values;
   }
 
   if (dataSet.mode === "key_value") {
-    dataSet.rows.forEach((row) => {
+    (dataSet.rows || []).forEach((row) => {
       const key = normalizeStepParameterName(String(row.key ?? ""), "t");
 
       if (!key) {
@@ -270,23 +273,80 @@ export function buildDataSetParameterValues(dataSet?: ExecutionDataSetSnapshot |
     return values;
   }
 
-  const firstRow = dataSet.rows.find((row) => row && typeof row === "object") || null;
+  const firstRow = (dataSet.rows || []).find((row) => row && typeof row === "object") || {};
+  const columns = Array.from(new Set([
+    ...(dataSet.columns || []),
+    ...Object.keys(firstRow)
+  ]));
 
-  if (!firstRow) {
-    return values;
-  }
-
-  Object.entries(firstRow).forEach(([column, value]) => {
+  columns.forEach((column) => {
     const key = normalizeStepParameterName(column, "t");
 
     if (!key) {
       return;
     }
 
-    values[key] = String(value ?? "");
+    values[key] = String(firstRow[column] ?? "");
   });
 
   return values;
+}
+
+export function buildDataSetParameterDefinitions(
+  dataSet?: StepParameterDataSet | null,
+  sourceLabel?: string
+): StepParameterDefinition[] {
+  return Object.keys(buildDataSetParameterValues(dataSet)).flatMap((name) => {
+    const parsed = parseStepParameterName(name, "t");
+
+    if (!parsed) {
+      return [];
+    }
+
+    return [{
+      name: parsed.name,
+      rawName: parsed.rawName,
+      label: parsed.rawName,
+      token: parsed.token,
+      scope: parsed.scope,
+      scopeLabel: parsed.scopeLabel,
+      stepIds: [],
+      occurrenceCount: 0,
+      source: "data_set" as const,
+      sourceLabel
+    }];
+  });
+}
+
+export function mergeStepParameterDefinitions(
+  ...definitionGroups: StepParameterDefinition[][]
+): StepParameterDefinition[] {
+  const merged = new Map<string, StepParameterDefinition>();
+
+  definitionGroups.flat().forEach((definition) => {
+    const current = merged.get(definition.name);
+
+    if (!current) {
+      merged.set(definition.name, {
+        ...definition,
+        stepIds: [...definition.stepIds]
+      });
+      return;
+    }
+
+    merged.set(definition.name, {
+      ...current,
+      label: current.occurrenceCount ? current.label : definition.label,
+      stepIds: Array.from(new Set([...current.stepIds, ...definition.stepIds])),
+      occurrenceCount: current.occurrenceCount + definition.occurrenceCount,
+      source: current.source === "authoring" || current.occurrenceCount
+        ? current.source || "authoring"
+        : definition.source,
+      sourceLabel: current.sourceLabel || definition.sourceLabel
+    });
+  });
+
+  return Array.from(merged.values()).sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export function mapStepParameterSegments(text?: string | null, values: Record<string, string> = {}): StepParameterSegment[] {

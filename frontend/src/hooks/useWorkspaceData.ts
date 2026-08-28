@@ -56,16 +56,16 @@ export function useWorkspaceData(options: WorkspaceDataOptions = {}) {
     enabled: scoped("issues"),
     ...common
   });
-  const testSuites = useQuery({ queryKey: queryKeys.testSuites(projectId), queryFn: async () => asArray(await api.testSuites.list()), enabled: scoped("testSuites"), ...common });
+  const testSuites = useQuery({ queryKey: queryKeys.testSuites(projectId), queryFn: async () => asArray(await api.testSuites.list({ project_id: projectId })), enabled: scoped("testSuites"), ...common });
   const testCasesProjection = options.testCasesProjection || "detail";
   const testCases = useQuery({
     queryKey: [...queryKeys.testCases(projectId), testCasesProjection],
-    queryFn: async () => asArray(await api.testCases.list({ projection: testCasesProjection, page_size: WORKSPACE_SUMMARY_PAGE_SIZE })),
+    queryFn: async () => asArray(await api.testCases.list({ project_id: projectId, projection: testCasesProjection, page_size: WORKSPACE_SUMMARY_PAGE_SIZE })),
     enabled: scoped("testCases"),
     ...common
   });
   const executions = useQuery({ queryKey: queryKeys.executions(projectId), queryFn: async () => asArray(await api.executions.list({ project_id: projectId })), enabled: scoped("executions"), ...common });
-  const executionResults = useQuery({ queryKey: queryKeys.executionResults(projectId), queryFn: async () => asArray(await api.executionResults.list()), enabled: scoped("executionResults"), ...common });
+  const executionResults = useQuery({ queryKey: queryKeys.executionResults(projectId), queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, limit: 5000 })), enabled: scoped("executionResults"), ...common });
 
   return {
     users,

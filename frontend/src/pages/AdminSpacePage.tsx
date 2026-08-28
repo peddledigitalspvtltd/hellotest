@@ -27,7 +27,7 @@ const ADMIN_SECTION_FEATURES: Record<AdminSpaceSection, string[]> = {
   users: ["hellotest.ops.admin"],
   roles: ["hellotest.ops.admin"],
   integrations: ["hellotest.api.integrations"],
-  settings: []
+  settings: ["hellotest.ops.settings"]
 };
 
 const normalizeSection = (value: string | null): AdminSpaceSection | null =>
@@ -69,13 +69,25 @@ export function AdminSpacePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [projectId] = useCurrentProject();
   const { session } = useAuth();
-  const usersQuery = useQuery({ queryKey: queryKeys.users(), queryFn: api.users.list });
-  const rolesQuery = useQuery({ queryKey: queryKeys.roles(), queryFn: api.roles.list });
-  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.scoped("admin-space"), queryFn: () => api.integrations.list() });
   const featureFlagsQuery = useFeatureFlags();
-  const canViewSystemHealth = hasPermission(session, "ops.view");
-  const isSystemHealthEnabled = featureFlagsQuery.isSuccess
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ADMIN_SECTION_FEATURES.health);
+  const sectionAccess: Record<AdminSpaceSection, boolean> = {
+    health: hasPermission(session, "ops.view", projectId),
+    users: hasPermission(session, "user.view"),
+    roles: hasPermission(session, "role.view"),
+    integrations: hasPermission(session, "integration.view"),
+    settings: hasPermission(session, "settings.view")
+  };
+  const isSectionEnabled = (section: AdminSpaceSection) => sectionAccess[section]
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ADMIN_SECTION_FEATURES[section]);
+  const usersQuery = useQuery({ queryKey: queryKeys.users(), queryFn: api.users.list, enabled: isSectionEnabled("users") });
+  const rolesQuery = useQuery({ queryKey: queryKeys.roles(), queryFn: api.roles.list, enabled: isSectionEnabled("roles") });
+  const integrationsQuery = useQuery({
+    queryKey: queryKeys.integrations.scoped("admin-space"),
+    queryFn: () => api.integrations.list(),
+    enabled: isSectionEnabled("integrations")
+  });
+  const canViewSystemHealth = sectionAccess.health;
+  const isSystemHealthEnabled = isSectionEnabled("health");
   const healthQuery = useQuery({
     queryKey: ["admin-health", projectId],
     queryFn: async () => {
@@ -91,11 +103,8 @@ export function AdminSpacePage() {
   });
 
   const requestedSection = normalizeSection(searchParams.get("section")) || (searchParams.get("view") === "roles" ? "roles" : "users");
-  const visibleSections = ADMIN_SECTIONS.filter((section) => {
-    if (section === "health" && !canViewSystemHealth) return false;
-    return areFeatureFlagsEnabled(featureFlagsQuery.data, ADMIN_SECTION_FEATURES[section]);
-  });
-  const activeSection = visibleSections.includes(requestedSection) ? requestedSection : "settings";
+  const visibleSections = ADMIN_SECTIONS.filter(isSectionEnabled);
+  const activeSection = visibleSections.includes(requestedSection) ? requestedSection : (visibleSections[0] || "settings");
   const users = asArray(usersQuery.data);
   const roles = asArray(rolesQuery.data);
   const integrations = asArray(integrationsQuery.data);
@@ -196,6 +205,22 @@ export function AdminSpacePage() {
     nextParams.set("section", section);
     setSearchParams(nextParams, { replace: false });
   };
+
+  if (!visibleSections.length) {
+    return (
+      <div className="page-content admin-space-page">
+        <PageHeader
+          eyebrow="Administration"
+          title="Admin Space"
+          description="Manage users, access roles, connected systems, and workspace preferences from one administration surface."
+        />
+        <AppErrorState
+          fallbackMessage="No enabled administration section is available for your workspace permissions."
+          title="Administration access unavailable"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="page-content admin-space-page">
