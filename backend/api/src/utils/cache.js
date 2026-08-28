@@ -21,7 +21,7 @@ redis.on('error', (err) => {
 
 redis.on('connect', () => {
   redisAvailable = true;
-  console.log('Connected to Redis at', redisUrl);
+  console.log('Connected to Redis cache and coordination service.');
 });
 
 redis.on('end', () => {
@@ -98,8 +98,28 @@ async function invalidateCache(key) {
   }
 }
 
+async function close() {
+  redisAvailable = false;
+
+  if (redis.status === "end") {
+    return;
+  }
+
+  try {
+    if (["ready", "connect", "connecting", "reconnecting"].includes(redis.status)) {
+      await redis.quit();
+      return;
+    }
+  } catch (error) {
+    console.warn(`Redis graceful shutdown failed; disconnecting: ${error.message}`);
+  }
+
+  redis.disconnect(false);
+}
+
 module.exports = {
   redis,
+  close,
   ensureRedis,
   isRedisAvailable: () => redisAvailable,
   getCache,

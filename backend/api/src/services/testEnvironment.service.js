@@ -46,6 +46,12 @@ exports.createTestEnvironment = async ({ project_id, app_type_id, name, descript
 };
 
 exports.getTestEnvironments = async ({ project_id, app_type_id }) => {
+  if (!project_id && !app_type_id) {
+    const error = new Error("project_id or app_type_id is required when listing Test Environments");
+    error.statusCode = 400;
+    throw error;
+  }
+
   let query = `
     SELECT *
     FROM test_environments

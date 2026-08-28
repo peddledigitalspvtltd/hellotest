@@ -1005,9 +1005,13 @@ async function executeRun(envelope, run, logger) {
     }
 }
 export function queueRunExecution(envelope, run, logger) {
-    setImmediate(() => {
-        void executeRun(envelope, run, logger).catch((error) => {
-            logger.error({ error, engineRunId: run.id }, "Uncaught Test Engine execution failure");
+    return new Promise((resolve) => {
+        setImmediate(() => {
+            void executeRun(envelope, run, logger)
+                .catch((error) => {
+                logger.error({ error, engineRunId: run.id }, "Uncaught Test Engine execution failure");
+            })
+                .finally(resolve);
         });
     });
 }

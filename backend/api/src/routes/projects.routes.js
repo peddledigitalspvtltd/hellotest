@@ -1,6 +1,7 @@
 const service = require("../services/project.service");
 const portfolioAnalytics = require("../services/portfolioAnalytics.service");
 const qualityDashboardReport = require("../services/qualityDashboardReport.service");
+const { config } = require("../config");
 
 module.exports = async function (fastify) {
 
@@ -35,7 +36,9 @@ module.exports = async function (fastify) {
     return portfolioAnalytics.buildPortfolioAnalytics(req.user.id);
   });
 
-  fastify.post("/projects/portfolio-attention-report.pdf", async (req, reply) => {
+  fastify.post("/projects/portfolio-attention-report.pdf", {
+    bodyLimit: config.http.largeBodyLimitBytes
+  }, async (req, reply) => {
     await fastify.authenticate(req);
     const pdf = qualityDashboardReport.renderedSnapshotPdf(req.body || {});
     if (!pdf) {

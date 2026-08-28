@@ -1,6 +1,5 @@
 const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
-const workspaceTransactionService = require("./workspaceTransaction.service");
 
 const MAX_RETAINED_VERSIONS = 20;
 
@@ -171,62 +170,6 @@ const assertExpectedRevision = async (testCaseId, expectedRevision) => {
   }
 };
 
-const restore = async ({ testCaseId, revision, userId, expectedRevision }) => {
-  const version = await get(testCaseId, revision);
-  const testCaseService = require("./testCase.service");
-  const existing = await testCaseService.getTestCase(testCaseId);
-  await testCaseService.updateTestCase(testCaseId, {
-    ...version.content,
-    test_data_set_ids: Array.isArray(version.content?.test_data_set_ids)
-      ? version.content.test_data_set_ids.slice(0, 1)
-      : [],
-    expected_revision: expectedRevision,
-    review_status: "not_requested",
-    review_history: [
-      ...(Array.isArray(existing.review_history) ? existing.review_history : []),
-      {
-        id: uuid(),
-        status: "changes_requested",
-        comment: `Restored from revision ${Number(revision)}; human review is required.`,
-        user_id: userId,
-        created_at: new Date().toISOString()
-      }
-    ],
-    updated_by: userId
-  });
-  const versions = await list(testCaseId);
-  const appType = existing.app_type_id
-    ? await db.prepare("SELECT id, project_id FROM app_types WHERE id = ?").get(existing.app_type_id)
-    : null;
-  await workspaceTransactionService.createTransaction({
-    project_id: appType?.project_id || null,
-    app_type_id: appType?.id || null,
-    category: "test_management",
-    action: "restore-version",
-    status: "completed",
-    title: `Restored ${existing.display_id || existing.title || testCaseId} from revision ${Number(revision)}`,
-    description: "The displaced content was retained and the restored case requires human review.",
-    metadata: {
-      test_case_id: testCaseId,
-      display_id: existing.display_id || null,
-      restored_from_revision: Number(revision),
-      revision: versions.current_revision
-    },
-    related_kind: "test_case",
-    related_id: testCaseId,
-    created_by: userId,
-    completed_at: new Date().toISOString()
-  }).catch((error) => {
-    console.warn("Unable to record test case version restore audit", { testCaseId, message: error.message });
-  });
-  return {
-    restored: true,
-    restored_from_revision: Number(revision),
-    revision: versions.current_revision,
-    test_case: await testCaseService.getTestCase(testCaseId)
-  };
-};
-
 module.exports = {
   assertExpectedRevision,
   buildSnapshot,
@@ -235,6 +178,5 @@ module.exports = {
   get,
   list,
   normalizeRevision,
-  restore,
   summarizeChanges
 };

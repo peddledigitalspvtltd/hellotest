@@ -3,17 +3,30 @@ const aiTestCaseGenerationService = require("../services/aiTestCaseGeneration.se
 const aiAutomationBuilderService = require("../services/aiAutomationBuilder.service");
 const projectSyncService = require("../services/projectSync.service");
 const batchProcessService = require("../services/batchProcess.service");
+const knowledgeRagService = require("../services/knowledgeRag.service");
+const requirementWorkspaceService = require("../services/requirementWorkspace.service");
 
 module.exports = async function backgroundTasksPlugin(fastify) {
   const timers = new Set();
+  const inFlight = new Set();
+  let acceptingWork = true;
 
   const registerRecurringTask = ({ intervalMs, label, run, runImmediately = true }) => {
+    let running = false;
     const guardedRun = async () => {
-      try {
-        await run();
-      } catch (error) {
-        fastify.log.error(error, label);
-      }
+      if (running || !acceptingWork) return;
+      running = true;
+      const operation = Promise.resolve()
+        .then(run)
+        .catch((error) => {
+          fastify.log.error(error, label);
+        })
+        .finally(() => {
+          running = false;
+          inFlight.delete(operation);
+        });
+      inFlight.add(operation);
+      return operation;
     };
 
     fastify.addHook("onReady", async () => {
@@ -21,7 +34,8 @@ module.exports = async function backgroundTasksPlugin(fastify) {
         await guardedRun();
       }
 
-      timers.add(setInterval(guardedRun, intervalMs));
+      const timer = setInterval(guardedRun, intervalMs);
+      timers.add(timer);
     });
   };
 
@@ -38,12 +52,29 @@ module.exports = async function backgroundTasksPlugin(fastify) {
   });
 
   registerRecurringTask({
+    intervalMs: 10 * 1000,
+    label: "Unable to process queued Story AI generation jobs",
+    run: () => requirementWorkspaceService.processQueuedGenerationJobs(),
+    runImmediately: false
+  });
+
+  registerRecurringTask({
     intervalMs: 60 * 1000,
     label: "Unable to process queued project sync jobs",
     run: async () => {
       await projectSyncService.processScheduledIntegrations();
       await projectSyncService.processQueuedSyncs();
     }
+  });
+
+  registerRecurringTask({
+    intervalMs: 5 * 1000,
+    label: "Unable to process queued Knowledge Repo ingestion jobs",
+    run: async () => {
+      await knowledgeRagService.processQueuedIngestions({ limit: 2, staleAfterMinutes: 60 });
+      await knowledgeRagService.processLegacyKnowledgeSyncOutbox({ limit: 4, leaseMinutes: 10 });
+    },
+    runImmediately: false
   });
 
   registerRecurringTask({
@@ -60,10 +91,12 @@ module.exports = async function backgroundTasksPlugin(fastify) {
   });
 
   fastify.addHook("onClose", async () => {
+    acceptingWork = false;
     for (const timer of timers) {
       clearInterval(timer);
     }
 
     timers.clear();
+    await Promise.allSettled([...inFlight]);
   });
 };

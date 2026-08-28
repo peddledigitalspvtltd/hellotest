@@ -1,6 +1,6 @@
 import type { ExecutionContext, RunStep, RunnerStepResult } from "../models/execution.js";
 import type { RunnerAdapter } from "./runner-adapter.js";
-import { resolveRunner } from "./runner-router.js";
+import { resolveStepRunner } from "./step-runner-resolver.js";
 
 export class UnifiedCaseExecutor implements RunnerAdapter {
   async setup(_context: ExecutionContext): Promise<void> {
@@ -8,11 +8,13 @@ export class UnifiedCaseExecutor implements RunnerAdapter {
   }
 
   async executeStep(step: RunStep, context: ExecutionContext): Promise<RunnerStepResult> {
-    const runner = resolveRunner({ caseId: step.stepId, caseType: step.stepType, runnerType: step.runnerType, steps: [step] } as any);
+    const runner = resolveStepRunner(step);
     await runner.setup(context);
-    const result = await runner.executeStep(step, context);
-    await runner.teardown(context);
-    return result;
+    try {
+      return await runner.executeStep(step, context);
+    } finally {
+      await runner.teardown(context);
+    }
   }
 
   async captureArtifact(_step: RunStep, _context: ExecutionContext): Promise<void> {

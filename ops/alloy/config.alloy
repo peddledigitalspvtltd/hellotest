@@ -1,0 +1,66 @@
+logging {
+  level  = "info"
+  format = "json"
+}
+
+discovery.docker "hellotest" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+
+  filter {
+    name   = "name"
+    values = ["hellotest"]
+  }
+}
+
+discovery.relabel "docker_logs" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+loki.source.docker "hellotest" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.hellotest.targets
+  labels           = { "environment" = "platform" }
+  relabel_rules    = discovery.relabel.docker_logs.rules
+  refresh_interval = "10s"
+  forward_to       = [loki.process.safety.receiver]
+}
+
+loki.process "safety" {
+  forward_to = [loki.write.local.receiver]
+
+  // Defense in depth for logs emitted outside the structured application
+  // logger. Source-side Pino redaction remains the primary control.
+  stage.replace {
+    expression = `(?i)(?:"?(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|access[_-]?key|refresh[_-]?token)"?\s*[:=]\s*"?)((?:bearer\s+)?[^",\s}]+)`
+    replace    = "[REDACTED]"
+  }
+
+  stage.replace {
+    expression = `(?i)(?:postgres(?:ql)?://[^:\s/@]+:)([^@\s/]+)(?:@)`
+    replace    = "[REDACTED]"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

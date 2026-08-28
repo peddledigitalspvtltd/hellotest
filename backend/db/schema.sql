@@ -122,11 +122,19 @@ CREATE TABLE ai_knowledge_repo (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
   app_type_id TEXT,
+  asset_type TEXT NOT NULL DEFAULT 'unknown',
+  module_name TEXT,
+  feature_name TEXT,
+  priority TEXT,
+  item_version TEXT,
+  item_status TEXT,
+  source TEXT,
   title TEXT NOT NULL,
   description TEXT,
   content_type TEXT NOT NULL DEFAULT 'text' CHECK(content_type IN ('text', 'url', 'video_url', 'file', 'pdf', 'image', 'markdown')),
   content TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  linked_test_cases JSONB NOT NULL DEFAULT '[]'::jsonb,
   embedding JSONB,
   source_uri TEXT,
   is_active BOOLEAN DEFAULT TRUE,
@@ -138,6 +146,279 @@ CREATE TABLE ai_knowledge_repo (
 
 CREATE INDEX idx_ai_knowledge_repo_scope
   ON ai_knowledge_repo (project_id, app_type_id, is_active, created_at DESC);
+CREATE INDEX idx_ai_knowledge_repo_asset_type
+  ON ai_knowledge_repo (project_id, asset_type, item_status, is_active);
+CREATE INDEX idx_ai_knowledge_repo_module_feature
+  ON ai_knowledge_repo (project_id, module_name, feature_name, is_active);
+CREATE INDEX idx_ai_knowledge_repo_source
+  ON ai_knowledge_repo (project_id, source, is_active);
+CREATE INDEX idx_ai_knowledge_repo_priority
+  ON ai_knowledge_repo (project_id, priority, is_active);
+CREATE INDEX idx_ai_knowledge_repo_linked_test_cases
+  ON ai_knowledge_repo USING GIN (linked_test_cases);
+
+CREATE TABLE ai_knowledge_relations (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_relations_source
+  ON ai_knowledge_relations (project_id, source_id, source_type);
+CREATE INDEX idx_ai_knowledge_relations_target
+  ON ai_knowledge_relations (project_id, target_id, target_type);
+
+-- Knowledge RAG uses PostgreSQL as the durable source of truth. pgvector is
+-- enabled when the extension is installed and this database role is allowed
+-- to create it; JSONB embeddings plus PostgreSQL full-text search remain a
+-- deploy-safe fallback when it is not available.
+DO $$
+BEGIN
+  BEGIN
+    CREATE EXTENSION IF NOT EXISTS vector;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector is unavailable; HelloTest will use JSONB cosine and PostgreSQL full-text search';
+  END;
+END $$;
+
+CREATE TABLE ai_knowledge_collections (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  color TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+  retrieval_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_collections_project
+  ON ai_knowledge_collections (project_id, status, updated_at DESC);
+
+CREATE TABLE ai_knowledge_sources (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+  app_scope_key TEXT NOT NULL DEFAULT '',
+  source_kind TEXT NOT NULL CHECK(source_kind IN ('requirement', 'test_case', 'execution', 'bug', 'knowledge_item', 'text', 'chat', 'file', 'url')),
+  source_ref_id TEXT,
+  title TEXT NOT NULL,
+  source_uri TEXT,
+  file_name TEXT,
+  mime_type TEXT,
+  size_bytes BIGINT,
+  attachment_id TEXT,
+  checksum_sha256 TEXT,
+  revision_token TEXT NOT NULL,
+  required_permission TEXT CHECK(required_permission IS NULL OR required_permission IN ('requirement.view', 'testcase.view', 'run.view', 'feedback.view')),
+  extraction_status TEXT NOT NULL DEFAULT 'pending' CHECK(extraction_status IN ('pending', 'processing', 'ready', 'needs_extraction', 'failed', 'archived')),
+  extraction_strategy TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  risk_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_sources_project
+  ON ai_knowledge_sources (project_id, extraction_status, updated_at DESC);
+CREATE INDEX idx_ai_knowledge_sources_reference
+  ON ai_knowledge_sources (project_id, source_kind, source_ref_id);
+CREATE UNIQUE INDEX idx_ai_knowledge_sources_stable_reference
+  ON ai_knowledge_sources (project_id, source_kind, source_ref_id)
+  WHERE source_ref_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_ai_knowledge_sources_content_hash
+  ON ai_knowledge_sources (project_id, app_scope_key, source_kind, checksum_sha256)
+  WHERE source_ref_id IS NULL AND checksum_sha256 IS NOT NULL;
+
+CREATE TABLE ai_knowledge_documents (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'en',
+  version INTEGER NOT NULL DEFAULT 1,
+  token_count INTEGER NOT NULL DEFAULT 0,
+  char_count INTEGER NOT NULL DEFAULT 0,
+  checksum_sha256 TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ai_knowledge_documents_source_version_key UNIQUE(source_id, version)
+);
+
+CREATE INDEX idx_ai_knowledge_documents_source
+  ON ai_knowledge_documents (project_id, source_id, is_active, updated_at DESC);
+CREATE UNIQUE INDEX idx_ai_knowledge_documents_one_active_source
+  ON ai_knowledge_documents (source_id) WHERE is_active = TRUE;
+
+CREATE TABLE ai_knowledge_chunks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  document_id TEXT NOT NULL REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  heading TEXT,
+  content TEXT NOT NULL,
+  token_count INTEGER NOT NULL DEFAULT 0,
+  char_start INTEGER NOT NULL DEFAULT 0,
+  char_end INTEGER NOT NULL DEFAULT 0,
+  search_vector TSVECTOR NOT NULL DEFAULT to_tsvector('simple', ''),
+  embedding JSONB,
+  fallback_embedding JSONB,
+  embedding_model TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(document_id, chunk_index)
+);
+
+CREATE INDEX idx_ai_knowledge_chunks_project
+  ON ai_knowledge_chunks (project_id, created_at DESC);
+CREATE INDEX idx_ai_knowledge_chunks_search
+  ON ai_knowledge_chunks USING GIN (search_vector);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+    ALTER TABLE ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding_vector vector;
+  END IF;
+END $$;
+
+CREATE TABLE ai_knowledge_collection_sources (
+  collection_id TEXT NOT NULL REFERENCES ai_knowledge_collections(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (collection_id, source_id)
+);
+
+CREATE INDEX idx_ai_knowledge_collection_sources_source
+  ON ai_knowledge_collection_sources (source_id, collection_id);
+
+CREATE TABLE ai_knowledge_ingestion_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  collection_id TEXT REFERENCES ai_knowledge_collections(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'completed', 'completed_with_warnings', 'failed')),
+  input_count INTEGER NOT NULL DEFAULT 0,
+  processed_count INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  chunk_count INTEGER NOT NULL DEFAULT 0,
+  warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  idempotency_key TEXT,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_ingestion_jobs_project
+  ON ai_knowledge_ingestion_jobs (project_id, created_at DESC);
+CREATE UNIQUE INDEX idx_ai_knowledge_ingestion_jobs_idempotency
+  ON ai_knowledge_ingestion_jobs (project_id, created_by, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+CREATE TABLE ai_knowledge_ingestion_inputs (
+  job_id TEXT NOT NULL REFERENCES ai_knowledge_ingestion_jobs(id) ON DELETE CASCADE,
+  input_index INTEGER NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (job_id, input_index)
+);
+
+-- Durable, data-minimized provenance remains after transient queued payloads are scrubbed.
+CREATE TABLE ai_knowledge_ingestion_results (
+  job_id TEXT NOT NULL REFERENCES ai_knowledge_ingestion_jobs(id) ON DELETE CASCADE,
+  input_index INTEGER NOT NULL,
+  source_id TEXT REFERENCES ai_knowledge_sources(id) ON DELETE SET NULL,
+  document_id TEXT REFERENCES ai_knowledge_documents(id) ON DELETE SET NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('indexed', 'reused', 'needs_extraction', 'failed')),
+  reused BOOLEAN NOT NULL DEFAULT FALSE,
+  warning_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  error_fingerprint TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (job_id, input_index)
+);
+
+CREATE INDEX idx_ai_knowledge_ingestion_results_source
+  ON ai_knowledge_ingestion_results (source_id, job_id);
+
+-- Legacy Knowledge CRUD writes only this transactional outbox marker. Embedding and
+-- chunking are performed by the leased background worker after the mutation commits.
+CREATE TABLE ai_knowledge_sync_outbox (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_ref_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('upsert', 'archive')),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  error_fingerprint TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, source_ref_id)
+);
+
+CREATE INDEX idx_ai_knowledge_sync_outbox_queue
+  ON ai_knowledge_sync_outbox (status, created_at ASC);
+
+CREATE TABLE ai_knowledge_assistant_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+  filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_assistant_sessions_project
+  ON ai_knowledge_assistant_sessions (project_id, created_by, updated_at DESC);
+
+CREATE TABLE ai_knowledge_assistant_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES ai_knowledge_assistant_sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'answered' CHECK(status IN ('pending', 'answered', 'insufficient_context', 'refused', 'provider_unavailable', 'error')),
+  citations JSONB NOT NULL DEFAULT '[]'::jsonb,
+  retrieval JSONB NOT NULL DEFAULT '{}'::jsonb,
+  safety JSONB NOT NULL DEFAULT '{}'::jsonb,
+  provider TEXT,
+  model TEXT,
+  client_turn_id TEXT,
+  content_fingerprint TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_assistant_messages_session
+  ON ai_knowledge_assistant_messages (session_id, created_at ASC);
+CREATE UNIQUE INDEX idx_ai_knowledge_assistant_messages_turn_role
+  ON ai_knowledge_assistant_messages (session_id, client_turn_id, role)
+  WHERE client_turn_id IS NOT NULL;
 
 -- =========================
 -- REQUIREMENTS
@@ -163,6 +444,7 @@ CREATE TABLE requirements (
   scrum_team TEXT,
   specification_format TEXT NOT NULL DEFAULT 'gherkin' CHECK (specification_format IN ('gherkin', 'speckit')),
   specification_content TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
   priority INTEGER DEFAULT 3,
   status TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -330,6 +612,7 @@ CREATE TABLE test_suites (
   name TEXT NOT NULL,
   parent_id TEXT,
   labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  revision INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (parent_id) REFERENCES test_suites(id)
@@ -417,6 +700,7 @@ CREATE TABLE IF NOT EXISTS test_case_module_cases (
   module_id TEXT NOT NULL REFERENCES test_case_modules(id) ON DELETE CASCADE,
   test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (module_id, test_case_id)
 );
 
@@ -587,6 +871,9 @@ CREATE TABLE executions (
   suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
   module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
   case_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
+  execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_idempotency_key TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMPTZ,
@@ -678,6 +965,9 @@ CREATE TABLE execution_results (
   data_set_row_snapshot JSONB,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   defects JSONB NOT NULL DEFAULT '[]'::jsonb,
+  step_defects JSONB NOT NULL DEFAULT '{}'::jsonb,
+  case_defects JSONB NOT NULL DEFAULT '[]'::jsonb,
+  revision INTEGER NOT NULL DEFAULT 1,
   executed_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (execution_id) REFERENCES executions(id),
@@ -869,6 +1159,7 @@ ALTER TABLE requirements ADD COLUMN IF NOT EXISTS qa_completion_target_date TIME
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS scrum_team TEXT;
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_format TEXT NOT NULL DEFAULT 'gherkin';
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS specification_content TEXT;
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_requirements_iteration
   ON requirements (iteration_id, updated_at DESC);
 
@@ -947,11 +1238,13 @@ ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_count INTEGER;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
 UPDATE test_suites SET labels = '[]'::jsonb WHERE labels IS NULL;
 
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_source TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_review_status TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_job_id TEXT;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT;
@@ -967,6 +1260,9 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS reviewer_id TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested';
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_test_cases_source_idempotency
+  ON test_cases (app_type_id, source_idempotency_key)
+  WHERE source_idempotency_key IS NOT NULL;
 
 UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL;
 UPDATE test_cases
@@ -1077,6 +1373,12 @@ ALTER TABLE executions ADD COLUMN IF NOT EXISTS case_assignments JSONB NOT NULL 
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS release TEXT;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS sprint TEXT;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS build TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_executions_source_idempotency
+  ON executions (project_id, source_idempotency_key)
+  WHERE source_idempotency_key IS NOT NULL;
 UPDATE executions
 SET assigned_to_ids = CASE
   WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb
@@ -1114,6 +1416,11 @@ CREATE TABLE IF NOT EXISTS execution_schedules (
   build TEXT,
   assigned_to TEXT,
   assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
   created_by TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -1124,6 +1431,11 @@ ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS release TEXT;
 ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS sprint TEXT;
 ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS build TEXT;
 ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS lease_owner TEXT;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS failure_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS last_error TEXT;
 UPDATE execution_schedules
 SET assigned_to_ids = CASE
   WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb
@@ -1138,6 +1450,9 @@ ALTER TABLE execution_schedules
 
 CREATE INDEX IF NOT EXISTS idx_execution_schedules_project_next_run
   ON execution_schedules (project_id, next_run_at ASC);
+CREATE INDEX IF NOT EXISTS idx_execution_schedules_due_claim
+  ON execution_schedules (is_active, next_run_at, lease_expires_at)
+  WHERE is_active = TRUE AND next_run_at IS NOT NULL;
 
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS suite_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -1161,6 +1476,10 @@ ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS module_name TEXT;
 
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS external_references JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS defects JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS step_defects JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS case_defects JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE test_case_module_cases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_suite_test_cases_test_case_sort
   ON suite_test_cases (test_case_id, sort_order);
@@ -1197,6 +1516,7 @@ CREATE TABLE IF NOT EXISTS test_engine_jobs (
   attempts INTEGER NOT NULL DEFAULT 0,
   leased_by TEXT,
   lease_expires_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   last_error TEXT,
@@ -1216,6 +1536,9 @@ CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue
 CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case
   ON test_engine_jobs (execution_id, test_case_id);
 
+CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_created_at
+  ON test_engine_jobs (execution_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -1232,6 +1555,11 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 5,
   next_run_at TIMESTAMPTZ,
+  idempotency_key TEXT,
+  request_fingerprint TEXT,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
   total_requirements INTEGER NOT NULL DEFAULT 0,
   processed_requirements INTEGER NOT NULL DEFAULT 0,
   generated_cases_count INTEGER NOT NULL DEFAULT 0,
@@ -1245,6 +1573,14 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
 
 ALTER TABLE ai_test_case_generation_jobs
   ADD COLUMN IF NOT EXISTS authoring_mode TEXT NOT NULL DEFAULT 'structured';
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT;
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+UPDATE ai_test_case_generation_jobs
+SET lease_expires_at = CURRENT_TIMESTAMP
+WHERE status = 'running' AND lease_expires_at IS NULL;
 
 ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_authoring_mode_check;
 ALTER TABLE ai_test_case_generation_jobs
@@ -1261,6 +1597,13 @@ CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_scope_status
 
 CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_project_created
   ON ai_test_case_generation_jobs (project_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_queue_claim
+  ON ai_test_case_generation_jobs (status, next_run_at, lease_expires_at, created_at ASC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_idempotency
+  ON ai_test_case_generation_jobs (project_id, created_by, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS automation_learning_cache (
   id TEXT PRIMARY KEY,
@@ -1427,3 +1770,158 @@ CREATE TABLE IF NOT EXISTS quality_dashboards (
 
 CREATE INDEX IF NOT EXISTS idx_quality_dashboards_project
   ON quality_dashboards (project_id, updated_at DESC);
+
+-- =========================
+-- AI WORKSPACES & DURABLE JOBS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS ai_prompt_templates (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  app_type_id TEXT,
+  scope TEXT NOT NULL DEFAULT 'test_case_generation',
+  name TEXT NOT NULL,
+  description TEXT,
+  goal TEXT,
+  state TEXT NOT NULL DEFAULT 'future',
+  start_date DATE,
+  end_date DATE,
+  domain TEXT,
+  role TEXT,
+  test_type TEXT,
+  test_format TEXT,
+  test_count INTEGER,
+  prompt_text TEXT NOT NULL,
+  applies_to JSONB NOT NULL DEFAULT '["requirements", "test_cases"]'::jsonb,
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_prompt_templates_scope
+  ON ai_prompt_templates (project_id, app_type_id, scope, is_active, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS agentic_workflows (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  app_type_id TEXT,
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'paused', 'archived')),
+  trigger_kind TEXT NOT NULL DEFAULT 'manual',
+  nodes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  edges JSONB NOT NULL DEFAULT '[]'::jsonb,
+  settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+  n8n_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_workflows_scope
+  ON agentic_workflows (project_id, app_type_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_workflows_created_by
+  ON agentic_workflows (project_id, created_by, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agentic_workflow_runs (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT,
+  project_id TEXT NOT NULL,
+  app_type_id TEXT,
+  workflow_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'aborted')),
+  trigger_kind TEXT NOT NULL DEFAULT 'manual',
+  input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  output_payload JSONB,
+  workflow_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  node_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_by TEXT,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_workflow_runs_scope
+  ON agentic_workflow_runs (project_id, app_type_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_workflow_runs_workflow
+  ON agentic_workflow_runs (workflow_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS automation_generator_jobs (
+  id TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL UNIQUE,
+  project_id TEXT,
+  app_type_id TEXT,
+  test_case_id TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  runtime_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+  result JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'leased', 'running', 'completed', 'failed', 'cancelled')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  leased_by TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_generator_jobs_transaction
+  ON automation_generator_jobs (transaction_id);
+
+CREATE INDEX IF NOT EXISTS idx_automation_generator_jobs_queue
+  ON automation_generator_jobs (status, lease_expires_at, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_automation_generator_jobs_case
+  ON automation_generator_jobs (test_case_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  key_prefix TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'user' CHECK (scope IN ('user', 'read', 'design', 'automation', 'runs', 'environment', 'integrations', 'admin')),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_api_keys_hash_unique
+  ON user_api_keys (key_hash);
+
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_user_active
+  ON user_api_keys (user_id, is_active, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_requirement_generation_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+  input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  result_payload JSONB,
+  last_error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lease_owner TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_project
+  ON ai_requirement_generation_jobs (project_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_queue
+  ON ai_requirement_generation_jobs (status, lease_expires_at, created_at ASC);

@@ -227,6 +227,8 @@ export OPS_TELEMETRY_API_KEY_PREFIX
 
 ensure_docker
 
+TESTENGINE_SERVICES="testengine-api testengine-web testengine-android selenium-hub selenium-node-chrome"
+
 echo "Starting Test Engine + OPS telemetry stack..."
 echo "HelloTest API base: $HELLOTEST_API_BASE_URL"
 if [ -n "${RESOLVED_ENGINE_INTEGRATION_NAME:-}" ]; then
@@ -253,10 +255,12 @@ else
 fi
 
 if [ "$PULL_IMAGE" = "1" ]; then
-  compose_cmd -f "$SCRIPT_DIR/testengine/docker-compose.deploy.yml" pull testengine selenium-hub selenium-node-chrome
+  # shellcheck disable=SC2086
+  compose_cmd -f "$SCRIPT_DIR/testengine/docker-compose.deploy.yml" pull $TESTENGINE_SERVICES
 fi
 
-compose_cmd -f "$SCRIPT_DIR/testengine/docker-compose.deploy.yml" up -d testengine selenium-hub selenium-node-chrome
+# shellcheck disable=SC2086
+compose_cmd -f "$SCRIPT_DIR/testengine/docker-compose.deploy.yml" up -d $TESTENGINE_SERVICES
 compose_cmd -f "$SCRIPT_DIR/testengine/docker-compose.deploy.yml" ps
 
 wait_for_url "$LOCAL_HEALTH_URL" "Test Engine health endpoint"

@@ -1,18 +1,21 @@
 const crypto = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
 const db = require("../db");
 const integrationService = require("./integration.service");
 const { getEmailSenderProfile, sendMail } = require("./email.service");
 const { DEFAULT_ROLE_PERMISSIONS } = require("../security/permissions.catalog");
 const { WORKSPACE_ONLY_PERMISSION_CODES } = require("./permission.service");
-const { hashPassword, verifyPassword, createToken, verifyToken } = require("../utils/token");
+const { hashPassword, passwordNeedsRehash, verifyPassword, createToken, verifyToken } = require("../utils/token");
+const { resolveSecret } = require("../security/runtimeSecrets");
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
 const VERIFICATION_MAX_ATTEMPTS = 5;
-const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
-const VERIFICATION_SECRET =
-  process.env.VERIFICATION_CODE_SECRET ||
-  process.env.SESSION_SECRET ||
-  "hellotest-verification-secret";
+const googleIdentityVerifier = new OAuth2Client();
+const VERIFICATION_SECRET = resolveSecret({
+  names: ["VERIFICATION_CODE_SECRET", "SESSION_SECRET"],
+  label: "Verification-code signing secret",
+  developmentFallback: "hellotest-verification-secret"
+});
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -332,31 +335,32 @@ const verifyGoogleIdentityToken = async (idToken, expectedClientId) => {
     throw createError("Google sign-in token is required", 400);
   }
 
-  if (typeof fetch !== "function") {
-    throw createError("Google sign-in is not supported on this server runtime.", 500);
-  }
-
-  let response;
+  let ticket;
 
   try {
-    response = await fetch(`${GOOGLE_TOKENINFO_URL}?id_token=${encodeURIComponent(idToken)}`, {
-      signal: AbortSignal.timeout(10000)
+    ticket = await googleIdentityVerifier.verifyIdToken({
+      idToken,
+      audience: expectedClientId
     });
   } catch (error) {
-    throw createError("Unable to verify Google sign-in right now. Please try again.", 502);
+    const upstreamStatus = Number(error?.response?.status || 0);
+    const transient = upstreamStatus >= 500
+      || ["ECONNRESET", "ENOTFOUND", "ETIMEDOUT"].includes(error?.code || error?.cause?.code);
+    throw createError(
+      transient
+        ? "Unable to verify Google sign-in right now. Please try again."
+        : "Google sign-in could not be verified. Please try again.",
+      transient ? 502 : 401
+    );
   }
 
-  if (!response.ok) {
-    throw createError("Google sign-in could not be verified. Please try again.", 401);
-  }
+  const payload = ticket.getPayload();
 
-  const payload = await response.json();
-
-  if (payload.aud !== expectedClientId) {
+  if (!payload || payload.aud !== expectedClientId) {
     throw createError("This Google sign-in request was issued for a different client.", 401);
   }
 
-  if (!payload.email || payload.email_verified !== "true" || !payload.sub) {
+  if (!payload.email || payload.email_verified !== true || !payload.sub) {
     throw createError("Google sign-in requires a verified email address.", 401);
   }
 
@@ -491,7 +495,11 @@ exports.login = async ({ email, password }) => {
 
   const sessionUser = await selectUserForSession(user.id);
 
-  await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
+  if (passwordNeedsRehash(user.password_hash)) {
+    await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(hashPassword(password), user.id);
+  } else {
+    await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
+  }
 
   return {
     token: createToken(sessionUser),

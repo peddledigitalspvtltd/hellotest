@@ -4,6 +4,7 @@ const { configurationTargetsForRead } = require("../utils/configurationTargets")
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { resolveSessionSecret } = require("../security/runtimeSecrets");
 
 const DIRECT_CASE_SUITE_ID = "direct-impact";
 const DIRECT_CASE_SUITE_NAME = "Direct impacted scope";
@@ -23,7 +24,7 @@ const SMART_EXECUTION_MAX_STEP_FRAGMENT_LENGTH = 96;
 const SMART_EXECUTION_MAX_STEP_SUMMARY_LENGTH = 360;
 const SMART_EXECUTION_RETURNED_CASE_LIMIT = 30;
 const SMART_EXECUTION_ACCEPTANCE_TTL_SECONDS = 60 * 60;
-const SMART_EXECUTION_ACCEPTANCE_SECRET = process.env.SESSION_SECRET || "hellotest-dev-secret";
+const SMART_EXECUTION_ACCEPTANCE_SECRET = resolveSessionSecret();
 const SMART_EXECUTION_SOURCE_LIMITS = Object.freeze({
   test_cases: 500,
   requirements: 300,

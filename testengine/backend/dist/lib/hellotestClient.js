@@ -1,19 +1,23 @@
+import { resolveTestEngineSharedSecret } from "./testEngineSecurity.js";
 const HELLOTEST_API_BASE_URL = String(process.env.HELLOTEST_API_BASE_URL || "").trim().replace(/\/+$/, "");
 const HELLOTEST_API_PATH_PREFIX = String(process.env.HELLOTEST_API_PATH_PREFIX || process.env.HELLOTEST_API_PREFIX || "")
     .trim()
     .replace(/^\/+|\/+$/g, "");
-const HELLOTEST_TESTENGINE_SECRET = String(process.env.HELLOTEST_TESTENGINE_SECRET
-    || process.env.TESTENGINE_SHARED_SECRET
-    || "hellotest-testengine-dev-secret").trim();
+const TESTENGINE_SHARED_SECRET_CONFIG = resolveTestEngineSharedSecret();
+const HELLOTEST_TESTENGINE_SECRET = TESTENGINE_SHARED_SECRET_CONFIG.secret || "";
 const ENGINE_PUBLIC_URL = String(process.env.ENGINE_PUBLIC_URL || process.env.ENGINE_HOST_URL || "")
     .trim()
     .replace(/\/+$/, "");
+const configuredRequestTimeoutMs = Number.parseInt(process.env.TESTENGINE_HELLOTEST_REQUEST_TIMEOUT_MS || "15000", 10);
+const HELLOTEST_REQUEST_TIMEOUT_MS = Number.isFinite(configuredRequestTimeoutMs)
+    ? Math.max(1_000, Math.min(60_000, configuredRequestTimeoutMs))
+    : 15_000;
 function ensureConfigured() {
     if (!HELLOTEST_API_BASE_URL) {
         throw new Error("HELLOTEST_API_BASE_URL is required for queue-pull mode");
     }
     if (!HELLOTEST_TESTENGINE_SECRET) {
-        throw new Error("HELLOTEST_TESTENGINE_SECRET is required for queue-pull mode");
+        throw new Error(TESTENGINE_SHARED_SECRET_CONFIG.reason || "HELLOTEST_TESTENGINE_SECRET is required for queue-pull mode");
     }
 }
 const appendPath = (base, path) => `${base.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
@@ -45,10 +49,23 @@ async function requestOnce(baseUrl, path, init) {
     if (init?.body && !headers.has("content-type")) {
         headers.set("content-type", "application/json");
     }
-    const response = await fetch(appendPath(baseUrl, path), {
-        ...init,
-        headers
-    });
+    const timeoutController = new AbortController();
+    const timeoutHandle = setTimeout(() => timeoutController.abort(), HELLOTEST_REQUEST_TIMEOUT_MS);
+    timeoutHandle.unref?.();
+    const signal = init?.signal
+        ? AbortSignal.any([init.signal, timeoutController.signal])
+        : timeoutController.signal;
+    let response;
+    try {
+        response = await fetch(appendPath(baseUrl, path), {
+            ...init,
+            headers,
+            signal
+        });
+    }
+    finally {
+        clearTimeout(timeoutHandle);
+    }
     const contentType = response.headers.get("content-type") || "";
     const rawBody = await response.text();
     const payload = contentType.includes("application/json") && rawBody

@@ -49,7 +49,7 @@ Expected local endpoints:
 - API: `http://localhost:3000`
 - Host recorder health: `http://localhost:4311/health`
 - Host recorder capabilities: `http://localhost:4311/api/v1/capabilities`
-- Docker Test Engine health: `http://localhost:4301/health`
+- Docker Test Engine readiness: `http://localhost:4301/health/ready`
 - Docker Test Engine capabilities: `http://localhost:4301/api/v1/capabilities`
 - OPS board: `http://localhost:4301/ops-telemetry`
 
@@ -116,7 +116,7 @@ physical desktop browser window on the host.
 If HelloTest cannot reach the Test Engine from inside the API container, verify:
 
 ```bash
-docker compose -f local-run/docker-compose.yml exec api wget -q -O - http://testengine:4301/health
+docker compose -f local-run/docker-compose.yml exec api wget -q -O - http://testengine:4301/health/ready
 ```
 
 If execution fails with `ECONNREFUSED 127.0.0.1:4444`, the local integration is

@@ -105,11 +105,11 @@ info "Internal service binds: 127.0.0.1 by default"
 # shellcheck disable=SC2086
 "$REPO_ROOT/hellotest.sh" deploy $DEPLOY_ARGS --yes
 
-require_url "http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health" "HelloTest API through HAProxy"
+require_url "http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health/ready" "HelloTest API readiness through HAProxy"
 require_url "http://127.0.0.1:${HELLOTEST_HTTP_PORT}/" "HelloTest frontend through HAProxy"
 
 info
 info "App/platform deployment complete."
-info "Local health: http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health"
+info "Local readiness: http://127.0.0.1:${HELLOTEST_HTTP_PORT}/health/ready"
 info "Public entrypoint: ${HELLOTEST_HTTP_BIND}:${HELLOTEST_HTTP_PORT}"
 info "Run deploymentscripts/aws-status.sh --stack app to audit containers."

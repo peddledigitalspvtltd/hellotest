@@ -19,6 +19,7 @@ const {
 } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { isMobileAppType, isMobileRecorderTarget } = require("../utils/mobileFeature");
+const { resolveMobileEngineSecret } = require("../security/runtimeSecrets");
 
 const LLM_TIMEOUT_MS = Math.max(10_000, Number(process.env.AUTOMATION_BUILDER_LLM_TIMEOUT_MS || 90_000));
 const ENGINE_TIMEOUT_MS = Math.max(2_000, Number(process.env.AUTOMATION_BUILDER_ENGINE_TIMEOUT_MS || 15_000));
@@ -27,6 +28,7 @@ const MAX_CAPTURED_ACTIONS = 180;
 const MAX_CAPTURED_NETWORK = 80;
 const DEFAULT_BATCH_FAILURE_THRESHOLD = Math.max(1, Number(process.env.AUTOMATION_BUILDER_BATCH_FAILURE_THRESHOLD || 3));
 const RECORDER_ORPHAN_TTL_MS = Math.max(60_000, Number(process.env.RECORDER_ORPHAN_TTL_MS || 3 * 60_000));
+const MOBILE_ENGINE_SECRET_HEADER = "x-hellotest-mobile-engine-secret";
 
 const selectCaseWithScope = obsDb.prepare(`
   SELECT
@@ -2715,7 +2717,8 @@ const buildCaseCore = async ({
     app_type_id: testCase.app_type_id || null,
     query: testCase.title || null,
     module_name: testCase.module_name || null,
-    feature_name: testCase.feature_name || null
+    feature_name: testCase.feature_name || null,
+    user: created_by ? { id: created_by } : undefined
   });
   const capturedActions = normalizeCapturedActions(captured_actions);
   const capturedNetwork = normalizeCapturedNetwork(captured_network);
@@ -4388,6 +4391,14 @@ const readEngineJson = async (url, init = {}) => {
   return payload;
 };
 
+const readMobileEngineJson = async (url, init = {}) => readEngineJson(url, {
+  ...init,
+  headers: {
+    [MOBILE_ENGINE_SECRET_HEADER]: resolveMobileEngineSecret(),
+    ...(init.headers || {})
+  }
+});
+
 const buildEngineUrl = (baseUrl, value) => {
   const normalized = normalizeText(value);
 
@@ -4491,7 +4502,11 @@ exports.cleanupOrphanRecorderSessions = async ({ limit = 25 } = {}) => {
   for (const transaction of transactions) {
     const metadata = parseTransactionMetadata(transaction);
     const sessionId = normalizeText(metadata.recorder_session_id);
-    const baseUrl = normalizeText(metadata.engine_base_url);
+    const mobileRecorder = normalizeText(metadata.recorder_target) === "mobile";
+    const baseUrl = mobileRecorder
+      ? normalizeText(metadata.mobile_engine_base_url)
+      : normalizeText(metadata.engine_base_url);
+    const readRecorderEngineJson = mobileRecorder ? readMobileEngineJson : readEngineJson;
 
     if (!sessionId || !baseUrl) {
       continue;
@@ -4500,7 +4515,8 @@ exports.cleanupOrphanRecorderSessions = async ({ limit = 25 } = {}) => {
     checked += 1;
 
     try {
-      const session = await readEngineJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(sessionId)}`);
+      const sessionPath = mobileRecorder ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
+      const session = await readRecorderEngineJson(`${baseUrl}${sessionPath}/${encodeURIComponent(sessionId)}`);
       const shouldStop = session?.status === "running" && isRecorderSessionPastOrphanTtl(session, transaction);
 
       if (!shouldStop && session?.status === "running") {
@@ -4508,7 +4524,7 @@ exports.cleanupOrphanRecorderSessions = async ({ limit = 25 } = {}) => {
       }
 
       if (shouldStop) {
-        await readEngineJson(`${baseUrl}/api/v1/recorder/sessions/${encodeURIComponent(sessionId)}/stop`, {
+        await readRecorderEngineJson(`${baseUrl}${sessionPath}/${encodeURIComponent(sessionId)}/stop`, {
           method: "POST"
         }).catch(() => null);
         stopped += 1;
@@ -4629,7 +4645,7 @@ exports.startRecorderSession = async ({
   const sessionEndpoint = recorderTarget === "mobile"
     ? `${mobileBaseUrl}/api/v1/mobile/recorder/sessions`
     : `${baseUrl}/api/v1/recorder/sessions`;
-  const session = await readEngineJson(sessionEndpoint, {
+  const session = await (recorderTarget === "mobile" ? readMobileEngineJson : readEngineJson)(sessionEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -4711,9 +4727,12 @@ exports.startRecorderSession = async ({
     recorder_target: recorderTarget,
     target_step_id: targetStepId || null,
     live_view_url: buildEngineUrl(publicBaseUrl, session.live_view_url || session.live_view_path),
-    status_url: recorderTarget === "mobile"
-      ? `${publicBaseUrl}/api/v1/mobile/recorder/sessions/${session.id}`
-      : `${publicBaseUrl}/api/v1/recorder/sessions/${session.id}`
+    status_url: buildEngineUrl(
+      publicBaseUrl,
+      session.status_url || (recorderTarget === "mobile"
+        ? `/api/v1/mobile/recorder/sessions/${session.id}`
+        : `/api/v1/recorder/sessions/${session.id}`)
+    )
   };
 };
 
@@ -4765,14 +4784,15 @@ exports.finishRecorderSession = async ({
   const mobileBaseUrl = String(metadata.mobile_engine_base_url || resolveMobileEngineBaseUrl(engineIntegration, normalizeText(recorder_mode) || metadata.recorder_mode || "remote")).replace(/\/+$/, "");
   const sessionBaseUrl = target === "mobile" ? mobileBaseUrl : baseUrl;
   const sessionPath = target === "mobile" ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
-  const session = await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
+  const readRecorderEngineJson = target === "mobile" ? readMobileEngineJson : readEngineJson;
+  const session = await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
   const allCapturedActions = normalizeCapturedActions(session.actions || []);
   const capturedActions = Array.isArray(included_action_indices)
     ? included_action_indices.map((index) => allCapturedActions.find((action) => action.index === Number(index))).filter(Boolean)
     : allCapturedActions;
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);
 
-  await readEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
+  await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
     method: "POST"
   }).catch(() => null);
 

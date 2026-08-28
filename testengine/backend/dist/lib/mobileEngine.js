@@ -1,16 +1,22 @@
-const MOBILE_ENGINE_URL = String(process.env.MOBILE_ENGINE_URL || "").trim().replace(/\/+$/, "");
+import { buildMobileEngineRequestHeaders, resolveMobileEngineClientSecurity } from "./mobileEngineSecurity.js";
 const appendPath = (base, path) => `${base}${path.startsWith("/") ? path : `/${path}`}`;
 export function isMobileEngineConfigured() {
-    return Boolean(MOBILE_ENGINE_URL);
+    return resolveMobileEngineClientSecurity().ready;
+}
+export function getMobileEngineConfigurationError() {
+    const configuration = resolveMobileEngineClientSecurity();
+    return configuration.ready ? null : configuration.reason;
 }
 export async function executeAndroidSteps(envelope, steps) {
-    if (!MOBILE_ENGINE_URL) {
-        throw new Error("MOBILE_ENGINE_URL is not configured for Android execution.");
+    const configuration = resolveMobileEngineClientSecurity();
+    if (!configuration.ready || !configuration.baseUrl) {
+        throw new Error(configuration.reason || "Mobile Engine is not configured for Android execution.");
     }
-    const response = await fetch(appendPath(MOBILE_ENGINE_URL, "/api/v1/mobile/execute"), {
+    const response = await fetch(appendPath(configuration.baseUrl, "/api/v1/mobile/execute"), {
         method: "POST",
         headers: {
-            "content-type": "application/json"
+            "content-type": "application/json",
+            ...buildMobileEngineRequestHeaders(configuration)
         },
         body: JSON.stringify({
             provider: envelope.mobile_engine?.active || "local-appium",

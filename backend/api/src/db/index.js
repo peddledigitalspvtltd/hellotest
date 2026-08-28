@@ -1,17 +1,17 @@
 const { config } = require("../config");
 const { createPostgresAdapter } = require("./createPostgresAdapter");
+const { createPoolOptions } = require("./poolConfig");
 
 const resolveSsl = () => process.env.PGSSL === "true"
   ? { rejectUnauthorized: false }
   : false;
 
 const sharedPoolOptions = {
-  allowExitOnIdle: process.env.NODE_ENV === "test",
-  connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS || 5_000),
-  idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS || 30_000),
-  keepAlive: true,
-  max: Number(process.env.DB_POOL_MAX || 20),
-  maxUses: Number(process.env.DB_CONNECTION_MAX_USES || 7_500),
+  ...createPoolOptions({
+    envPrefix: "DB_",
+    applicationName: "hellotest-api-main",
+    defaultMax: 10
+  }),
   ssl: resolveSsl()
 };
 

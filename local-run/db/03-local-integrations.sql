@@ -96,12 +96,12 @@ VALUES
   'llm',
   'Open AI',
   'https://api.openai.com/v1',
-  '********',
+  NULL,
   'gpt-5.4-mini',
   NULL,
   NULL,
   '{}'::jsonb,
-  TRUE
+  FALSE
 ),
 (
   'df45e7d9-5167-4b30-a766-3c92a2a27a99',
@@ -127,12 +127,12 @@ VALUES
   'llm',
   'grok',
   'https://api.groq.com/openai/v1',
-  '********',
+  NULL,
   'openai/gpt-oss-20b',
   NULL,
   NULL,
   '{}'::jsonb,
-  TRUE
+  FALSE
 )
 ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
@@ -143,7 +143,17 @@ ON CONFLICT (id) DO UPDATE SET
   project_key = EXCLUDED.project_key,
   username = EXCLUDED.username,
   config = EXCLUDED.config,
-  is_active = EXCLUDED.is_active,
+  is_active = CASE
+    WHEN EXCLUDED.type = 'llm' AND EXCLUDED.api_key IS NULL THEN
+      CASE
+        WHEN integrations.api_key IS NOT NULL
+          AND BTRIM(integrations.api_key) <> ''
+          AND BTRIM(integrations.api_key) !~ '^(\*{6,}|[•●]{6,})$'
+          THEN integrations.is_active
+        ELSE FALSE
+      END
+    ELSE EXCLUDED.is_active
+  END,
   updated_at = CURRENT_TIMESTAMP;
 
 DELETE FROM integrations

@@ -1,6 +1,8 @@
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { readBoundedResponseJson } = require("../utils/boundedResponse");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
 
 const DEFAULT_WEB_URLS = ["http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311"];
 const DEFAULT_MOBILE_URLS = ["http://localhost:4312", "http://127.0.0.1:4312", "http://mobile-engine:4312"];
@@ -23,19 +25,30 @@ const normalizeBaseUrl = (value) => {
   }
 
   const parsed = new URL(normalized);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("Local provider URL must be an http(s) base URL without credentials, query, or fragment");
+  }
   return parsed.toString().replace(/\/+$/, "");
 };
 
 const withTimeout = async (url, timeoutMs = 900) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      signal: controller.signal
+    const response = await resilientHttpRequest(url, {
+      cache: "no-store"
+    }, {
+      dependency: "local-execution-provider",
+      operation: "health.probe",
+      deadlineMs: timeoutMs,
+      maxAttempts: 1,
+      maxResponseBytes: 256 * 1024,
+      maxConcurrent: 8,
+      failureThreshold: 10,
+      resetTimeoutMs: 5_000
     });
-    const payload = await response.json().catch(() => null);
+    const payload = await readBoundedResponseJson(response, {
+      maxBytes: 256 * 1024,
+      label: "Local execution provider response"
+    });
     return {
       ok: response.ok,
       status: response.status,
@@ -45,10 +58,8 @@ const withTimeout = async (url, timeoutMs = 900) => {
     return {
       ok: false,
       status: 0,
-      error: error instanceof Error ? error.message : "Unable to reach service"
+      error: error?.publicMessage || "Unable to reach service"
     };
-  } finally {
-    clearTimeout(timeout);
   }
 };
 

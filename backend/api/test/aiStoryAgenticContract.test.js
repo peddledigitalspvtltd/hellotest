@@ -165,13 +165,15 @@ test("Story completion discards unsupported changed fields and routes enforce bo
   assert.match(createRoute, /requirePermission\("requirement\.ai"/);
 });
 
-test("Story creation jobs return queued, persist running, and complete for polling", async () => {
+test("Story creation jobs execute from persisted input and complete through an owned lease", async () => {
   const db = require("../src/db");
   const originalPrepare = db.prepare;
+  const originalTransaction = db.transaction;
   const originalPreview = requirementService.previewRequirementCreation;
   const rows = new Map();
   let scheduledTask;
   let resolvePreview;
+  let previewInput;
   const previewResult = {
     generated: 1,
     requirements: [{ client_id: "draft-1", title: "Grounded draft" }],
@@ -181,29 +183,63 @@ test("Story creation jobs return queued, persist running, and complete for polli
     preview_only: true
   };
 
+  db.transaction = (callback) => async (...args) => callback(...args);
   db.prepare = (sql) => {
     if (sql.includes("INSERT INTO ai_requirement_generation_jobs")) return {
       get: async (id, projectId, inputPayload, resultPayload, createdBy) => {
-        const row = { id, project_id: projectId, status: "queued", input_payload: inputPayload, result_payload: resultPayload, created_by: createdBy };
+        const row = { id, project_id: projectId, status: "queued", input_payload: inputPayload, result_payload: resultPayload, created_by: createdBy, attempts: 0, created_at: new Date().toISOString() };
         rows.set(id, row);
         return { ...row };
       }
     };
-    if (sql.includes("status = 'running'")) return {
-      run: async (resultPayload, id) => Object.assign(rows.get(id), { status: "running", result_payload: resultPayload, started_at: new Date().toISOString() })
+    if (sql.includes("FOR UPDATE SKIP LOCKED")) return {
+      get: async () => {
+        const row = [...rows.values()].find((candidate) => candidate.status === "queued" || (candidate.status === "running" && (!candidate.lease_expires_at || Date.parse(candidate.lease_expires_at) <= Date.now())));
+        return row ? { id: row.id } : undefined;
+      }
     };
-    if (sql.includes("status = 'completed'")) return {
-      run: async (resultPayload, id) => Object.assign(rows.get(id), { status: "completed", result_payload: resultPayload, completed_at: new Date().toISOString() })
+    if (sql.includes("attempts = attempts + 1")) return {
+      get: async (resultPayload, leaseOwner, leaseSeconds, id) => {
+        const row = rows.get(id);
+        const claimable = row && (row.status === "queued" || (row.status === "running" && (!row.lease_expires_at || Date.parse(row.lease_expires_at) <= Date.now())));
+        if (!claimable) return undefined;
+        Object.assign(row, { status: "running", result_payload: resultPayload, attempts: Number(row.attempts || 0) + 1, lease_owner: leaseOwner, lease_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(), heartbeat_at: new Date().toISOString(), started_at: row.started_at || new Date().toISOString() });
+        return { ...row };
+      }
     };
-    if (sql.includes("status = 'failed'")) return {
-      run: async (resultPayload, lastError, id) => Object.assign(rows.get(id), { status: "failed", result_payload: resultPayload, last_error: lastError })
+    if (sql.includes("SET lease_expires_at") && !sql.includes("status = 'completed'")) return {
+      run: async (leaseSeconds, id, leaseOwner) => {
+        const row = rows.get(id);
+        if (!row || row.status !== "running" || row.lease_owner !== leaseOwner) return { changes: 0 };
+        row.lease_expires_at = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+        return { changes: 1 };
+      }
+    };
+    if (sql.includes("SET status = 'completed'")) return {
+      get: async (resultPayload, id, leaseOwner) => {
+        const row = rows.get(id);
+        if (!row || row.status !== "running" || row.lease_owner !== leaseOwner || Date.parse(row.lease_expires_at) <= Date.now()) return undefined;
+        Object.assign(row, { status: "completed", result_payload: resultPayload, lease_owner: null, lease_expires_at: null, heartbeat_at: null, completed_at: new Date().toISOString() });
+        return { ...row };
+      }
+    };
+    if (sql.includes("SET status = 'failed'")) return {
+      get: async (resultPayload, lastError, id, leaseOwner) => {
+        const row = rows.get(id);
+        if (!row || row.status !== "running" || row.lease_owner !== leaseOwner || Date.parse(row.lease_expires_at) <= Date.now()) return undefined;
+        Object.assign(row, { status: "failed", result_payload: resultPayload, last_error: lastError, lease_owner: null, lease_expires_at: null, heartbeat_at: null });
+        return { ...row };
+      }
     };
     if (sql.includes("SELECT * FROM ai_requirement_generation_jobs WHERE id")) return {
       get: async (id, projectId) => rows.get(id)?.project_id === projectId ? { ...rows.get(id) } : undefined
     };
     throw new Error(`Unexpected job SQL: ${sql}`);
   };
-  requirementService.previewRequirementCreation = async () => new Promise((resolve) => { resolvePreview = resolve; });
+  requirementService.previewRequirementCreation = async (input) => {
+    previewInput = input;
+    return new Promise((resolve) => { resolvePreview = resolve; });
+  };
 
   try {
     const queued = await requirementWorkspaceService.createGenerationJob({
@@ -215,12 +251,19 @@ test("Story creation jobs return queued, persist running, and complete for polli
     assert.equal(queued.processing.status_label, "Queued for backend processing");
     assert.equal(queued.processing.stages[0].status, "queued");
 
+    // Prove the worker reloads durable payload instead of retaining the request
+    // closure: a restart-equivalent persisted change is what execution sees.
+    rows.get(queued.id).input_payload = { project_id: "forged-project", additional_context: "Persisted grounded context" };
+
     const runner = scheduledTask();
     await new Promise((resolve) => setImmediate(resolve));
     const running = await requirementWorkspaceService.getGenerationJob(queued.id, "project-1");
     assert.equal(running.status, "running");
     assert.equal(running.processing.status_label, "Story generation request in progress");
     assert.equal(running.processing.stages[0].status, "running");
+    assert.equal(previewInput.additional_context, "Persisted grounded context");
+    assert.equal(previewInput.project_id, "project-1", "the persisted row scope must override nested input scope");
+    assert.equal(previewInput.user_id, "user-1");
 
     resolvePreview(previewResult);
     await runner;
@@ -245,6 +288,7 @@ test("Story creation jobs return queued, persist running, and complete for polli
     assert.equal(failed.last_error, "provider selection failed");
   } finally {
     db.prepare = originalPrepare;
+    db.transaction = originalTransaction;
     requirementService.previewRequirementCreation = originalPreview;
   }
 });

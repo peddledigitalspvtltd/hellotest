@@ -1,8 +1,13 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
+const { hostname } = require("os");
 const executionService = require("./execution.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const { placeholdersFor } = require("../utils/batchHydration");
+
+const SCHEDULE_LEASE_MS = Math.max(60_000, Number(process.env.EXECUTION_SCHEDULE_LEASE_MS || 10 * 60 * 1000));
+const SCHEDULE_BATCH_LIMIT = Math.max(1, Math.min(100, Number(process.env.EXECUTION_SCHEDULE_BATCH_LIMIT || 25)));
+const SCHEDULE_WORKER_ID = `${hostname()}:${process.pid}:${uuid()}`;
 
 const selectProject = db.prepare(`
   SELECT id
@@ -99,7 +104,12 @@ const updateExecutionSchedule = db.prepare(`
 
 const updateExecutionScheduleRun = db.prepare(`
   UPDATE execution_schedules
-  SET last_run_at = CURRENT_TIMESTAMP, next_run_at = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+  SET last_run_at = CURRENT_TIMESTAMP,
+      next_run_at = ?,
+      is_active = ?,
+      failure_count = 0,
+      last_error = NULL,
+      updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -108,13 +118,51 @@ const deleteExecutionSchedule = db.prepare(`
   WHERE id = ?
 `);
 
-const selectDueExecutionSchedules = db.prepare(`
-  SELECT id
-  FROM execution_schedules
-  WHERE is_active = TRUE
-    AND next_run_at IS NOT NULL
-    AND next_run_at <= CURRENT_TIMESTAMP
-  ORDER BY next_run_at ASC, created_at ASC
+const claimDueExecutionSchedules = db.transaction(async (workerId, limit, leaseMs) => db.prepare(`
+  WITH candidates AS (
+    SELECT id
+    FROM execution_schedules
+    WHERE is_active = TRUE
+      AND next_run_at IS NOT NULL
+      AND next_run_at <= CURRENT_TIMESTAMP
+      AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+    ORDER BY next_run_at ASC, created_at ASC, id ASC
+    LIMIT ?
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE execution_schedules AS schedules
+  SET lease_owner = ?,
+      lease_expires_at = CURRENT_TIMESTAMP + (? * INTERVAL '1 millisecond'),
+      heartbeat_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  FROM candidates
+  WHERE schedules.id = candidates.id
+  RETURNING schedules.*
+`).all(limit, workerId, leaseMs));
+
+const completeClaimedExecutionSchedule = db.prepare(`
+  UPDATE execution_schedules
+  SET last_run_at = CURRENT_TIMESTAMP,
+      next_run_at = ?,
+      is_active = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      heartbeat_at = CURRENT_TIMESTAMP,
+      failure_count = 0,
+      last_error = NULL,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND lease_owner = ?
+`);
+
+const failClaimedExecutionSchedule = db.prepare(`
+  UPDATE execution_schedules
+  SET lease_owner = NULL,
+      lease_expires_at = CURRENT_TIMESTAMP + (? * INTERVAL '1 millisecond'),
+      heartbeat_at = CURRENT_TIMESTAMP,
+      failure_count = failure_count + 1,
+      last_error = ?,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND lease_owner = ?
 `);
 
 const normalizeText = (value) => {
@@ -203,13 +251,19 @@ async function hydrateSchedules(schedules) {
   }]));
 
   return schedules.map((schedule) => {
+    const {
+      lease_owner: _leaseOwner,
+      lease_expires_at: _leaseExpiresAt,
+      heartbeat_at: _heartbeatAt,
+      ...publicSchedule
+    } = schedule;
     const legacyAssignedTo = normalizeText(schedule.assigned_to);
     const assignedToIds = normalizeTextList(parseJsonValue(schedule.assigned_to_ids, []));
     const resolvedAssignedToIds = assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
     const assignedUsers = resolvedAssignedToIds.map((id) => usersById.get(id)).filter(Boolean);
 
     return {
-      ...schedule,
+      ...publicSchedule,
       suite_ids: parseJsonValue(schedule.suite_ids, []),
       test_case_ids: parseJsonValue(schedule.test_case_ids, []),
       is_active: Boolean(schedule.is_active),
@@ -459,8 +513,10 @@ exports.getExecutionSchedule = async (id) => {
   return hydrateSchedule(schedule);
 };
 
-exports.runExecutionSchedule = async (id, created_by) => {
-  const schedule = await exports.getExecutionSchedule(id);
+exports.runExecutionSchedule = async (id, created_by, { claimedSchedule, leaseOwner } = {}) => {
+  const schedule = claimedSchedule
+    ? await hydrateSchedule(claimedSchedule)
+    : await exports.getExecutionSchedule(id);
 
   if (!schedule.is_active) {
     throw new Error("This execution schedule is inactive.");
@@ -483,13 +539,25 @@ exports.runExecutionSchedule = async (id, created_by) => {
     name: `${schedule.name} Run`,
     trigger: "ci",
     execution_mode: "remote",
+    source_idempotency_key: claimedSchedule?.next_run_at
+      ? `execution-schedule:${schedule.id}:${new Date(claimedSchedule.next_run_at).toISOString()}`
+      : undefined,
     created_by: created_by || schedule.created_by
   });
 
-  const nextRunAt = addCadence(schedule.next_run_at || new Date().toISOString(), schedule.cadence);
+  const nextRunAt = addCadence(claimedSchedule?.next_run_at || schedule.next_run_at || new Date().toISOString(), schedule.cadence);
   const remainsActive = schedule.cadence !== "once";
 
-  await updateExecutionScheduleRun.run(nextRunAt, remainsActive, id);
+  if (leaseOwner) {
+    const result = await completeClaimedExecutionSchedule.run(nextRunAt, remainsActive, id, leaseOwner);
+    if (result.changes !== 1) {
+      const error = new Error(`Execution schedule ${id} lease was lost before completion`);
+      error.code = "SCHEDULE_LEASE_LOST";
+      throw error;
+    }
+  } else {
+    await updateExecutionScheduleRun.run(nextRunAt, remainsActive, id);
+  }
 
   return response;
 };
@@ -501,11 +569,36 @@ exports.deleteExecutionSchedule = async (id) => {
 };
 
 exports.processDueSchedules = async () => {
-  const dueSchedules = await selectDueExecutionSchedules.all();
+  const dueSchedules = await claimDueExecutionSchedules(
+    SCHEDULE_WORKER_ID,
+    SCHEDULE_BATCH_LIMIT,
+    SCHEDULE_LEASE_MS
+  );
+  const failures = [];
 
   for (const schedule of dueSchedules) {
-    await exports.runExecutionSchedule(schedule.id);
+    try {
+      await exports.runExecutionSchedule(schedule.id, null, {
+        claimedSchedule: schedule,
+        leaseOwner: SCHEDULE_WORKER_ID
+      });
+    } catch (error) {
+      failures.push(error);
+      if (error?.code !== "SCHEDULE_LEASE_LOST") {
+        const failureCount = Math.max(0, Number(schedule.failure_count || 0));
+        const retryDelayMs = Math.min(15 * 60_000, 60_000 * (2 ** Math.min(failureCount, 4)));
+        await failClaimedExecutionSchedule.run(
+          retryDelayMs,
+          String(error?.message || "Unable to run execution schedule").slice(0, 2_000),
+          schedule.id,
+          SCHEDULE_WORKER_ID
+        );
+      }
+    }
   }
 
+  if (failures.length) {
+    throw new AggregateError(failures, `${failures.length} execution schedule${failures.length === 1 ? "" : "s"} could not be processed`);
+  }
   return dueSchedules.length;
 };

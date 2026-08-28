@@ -14,6 +14,7 @@ security:
   - apiKeyAuth: []
 tags:
   - name: Auth
+  - name: Admin Portal
   - name: Settings
   - name: Feature Flags
   - name: Users
@@ -29,6 +30,8 @@ tags:
   - name: Test Cases
   - name: Test Case Modules
   - name: Test Steps
+  - name: Shared Step Groups
+  - name: Test Environments
   - name: Test Configurations
   - name: Test Data
   - name: Executions
@@ -36,12 +39,31 @@ tags:
   - name: Execution Results
   - name: Evidence
   - name: Quality Analytics
+  - name: Automation
+  - name: Knowledge
+  - name: Notifications
+  - name: Operations
+  - name: Workspace Transactions
   - name: Test Engine
 paths:
-  /auth/signup:
+  /auth/setup:
+    get:
+      tags: [Auth]
+      summary: Read the available sign-in and email-verification providers
+      security: []
+      responses:
+        "200":
+          description: Public authentication provider availability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSetupResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+  /auth/signup/request-code:
     post:
       tags: [Auth]
-      summary: Create account and start a session
+      summary: Request an email verification code for a new account
       security: []
       requestBody:
         required: true
@@ -51,12 +73,42 @@ paths:
               $ref: "#/components/schemas/SignupRequest"
       responses:
         "200":
-          description: Session payload
+          description: Verification code accepted for delivery
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SessionResponse"
+                $ref: "#/components/schemas/VerificationDispatchResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
         "500":
+          $ref: "#/components/responses/ErrorResponse"
+  /auth/signup/verify:
+    post:
+      tags: [Auth]
+      summary: Verify the signup code and create the account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationCodeRequest"
+      responses:
+        "200":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
           $ref: "#/components/responses/ErrorResponse"
   /auth/login:
     post:
@@ -77,6 +129,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/SessionResponse"
         "500":
+          $ref: "#/components/responses/ErrorResponse"
+  /auth/login/google:
+    post:
+      tags: [Auth]
+      summary: Sign in or create an account using a Google identity token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+      responses:
+        "200":
+          description: Session payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /auth/forgot-password/request-code:
+    post:
+      tags: [Auth]
+      summary: Request an email code for a password reset
+      description: Returns a successful response for unknown email addresses to avoid account enumeration.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetCodeRequest"
+      responses:
+        "200":
+          description: Password-reset request accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationDispatchResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /auth/forgot-password/verify:
+    post:
+      tags: [Auth]
+      summary: Verify the password-reset code and replace the password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationCodeRequest"
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
           $ref: "#/components/responses/ErrorResponse"
   /auth/session:
     get:
@@ -1533,6 +1658,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /api/runs/{runId}/status:
+    parameters:
+      - $ref: "#/components/parameters/RunIdPathParam"
+    get:
+      tags: [Test Engine]
+      summary: Read Test Engine run status within the caller's project access
+      responses:
+        "200":
+          description: Project-authorized Test Engine run status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestEngineRunStatus" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /api/runs/{runId}/results:
+    parameters:
+      - $ref: "#/components/parameters/RunIdPathParam"
+    get:
+      tags: [Test Engine]
+      summary: Read Test Engine results within the caller's project access
+      responses:
+        "200":
+          description: Project-authorized Test Engine runtime result state
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /api/runs/{runId}/logs:
+    parameters:
+      - $ref: "#/components/parameters/RunIdPathParam"
+    get:
+      tags: [Test Engine]
+      summary: Read Test Engine logs within the caller's project access
+      responses:
+        "200":
+          description: Project-authorized Test Engine logs
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /api/runs/{runId}/artifacts:
+    parameters:
+      - $ref: "#/components/parameters/RunIdPathParam"
+    get:
+      tags: [Test Engine]
+      summary: Read Test Engine artifact metadata within the caller's project access
+      responses:
+        "200":
+          description: Project-authorized Test Engine artifact metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object, additionalProperties: true }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+
   /api/testengine/callbacks/runs:
     post:
       tags: [Test Engine]
@@ -2172,7 +2356,11 @@ paths:
       tags: [Notifications]
       summary: Count unread notifications for the authenticated user
       responses:
-        "200": { description: Total unread count grouped by preference category }
+        "200":
+          description: Total unread count grouped by preference category
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationUnreadSummary" }
   /notifications/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2180,13 +2368,65 @@ paths:
       tags: [Notifications]
       summary: Delete one notification owned by the authenticated user
       responses:
-        "200": { description: Notification deletion confirmation }
+        "200":
+          description: Notification deletion confirmation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationDeleteResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /notifications/{id}/read:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    put:
+      tags: [Notifications]
+      summary: Mark one notification owned by the authenticated user as read
+      responses:
+        "200":
+          description: Notification marked as read
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /notifications/read-all:
+    put:
+      tags: [Notifications]
+      summary: Mark all unread notifications for the authenticated user as read
+      responses:
+        "200":
+          description: Bulk read-state update receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationBulkMutationResponse" }
   /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for the authenticated user
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [unread, read] }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cursor-paged notifications and the full unread count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationPage" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
     delete:
       tags: [Notifications]
       summary: Delete all notifications owned by the authenticated user
       responses:
-        "200": { description: Number of notifications deleted }
+        "200":
+          description: Bulk notification deletion receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationBulkMutationResponse" }
   /requirements/create-metadata:
     get:
       tags: [Requirements]
@@ -2241,7 +2481,15 @@ paths:
       tags: [Requirements]
       summary: Create and persist a bounded Story generation job
       responses:
-        "200": { description: Completed or failed job record with reviewable drafts }
+        "202":
+          description: Persisted queued job; poll the URL in the Location header for terminal status
+          headers:
+            Location:
+              description: Project-scoped polling URL for the accepted job
+              schema: { type: string }
+            Retry-After:
+              description: Suggested polling delay in seconds
+              schema: { type: integer, minimum: 1 }
   /requirements/ai-create-jobs/{jobId}:
     parameters:
       - name: jobId
@@ -2251,6 +2499,8 @@ paths:
     get:
       tags: [Requirements]
       summary: Read one project-scoped Story generation job
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
         "200": { description: "Generation job status, drafts, provenance, and failure details" }
   /requirement-iterations/health:
@@ -2462,10 +2712,85 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TestCaseModuleAssignmentResponse" }
+  /test-environments:
+    get:
+      tags: [Test Environments]
+      summary: List reusable test environments in one authorized project
+      description: At least one of project_id or app_type_id is required. When both are supplied, the app type must belong to that project.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - $ref: "#/components/parameters/AppTypeIdQuery"
+      responses:
+        "200":
+          description: Project-scoped test environments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TestEnvironment" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+    post:
+      tags: [Test Environments]
+      summary: Create a test environment in an authorized project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTestEnvironmentRequest" }
+      responses:
+        "200":
+          description: Environment created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /test-environments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Test Environments]
+      summary: Read a test environment in its authorized project
+      responses:
+        "200":
+          description: Test environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestEnvironment" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+    put:
+      tags: [Test Environments]
+      summary: Update a test environment with source and target project authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTestEnvironmentRequest" }
+      responses:
+        "200":
+          description: Environment updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatedResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      tags: [Test Environments]
+      summary: Delete a test environment in its authorized project
+      responses:
+        "200":
+          description: Environment deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletedResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /test-configurations:
     get:
       tags: [Test Configurations]
       summary: List project-scoped reusable test configurations
+      description: At least one of project_id or app_type_id is required. When both are supplied, the app type must belong to that project.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/AppTypeIdQuery"
@@ -2477,6 +2802,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/TestConfiguration" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
     post:
       tags: [Test Configurations]
       summary: Create a reusable test configuration and ordered target matrix
@@ -2491,6 +2818,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IdResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /test-configurations/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2503,6 +2831,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TestConfiguration" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
     put:
       tags: [Test Configurations]
       summary: Update a test configuration and ordered target matrix
@@ -2517,6 +2847,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UpdatedResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
     delete:
       tags: [Test Configurations]
       summary: Delete a test configuration
@@ -2526,6 +2858,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeletedResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /test-data-sets/ai-generate-preview:
     post:
       tags: [Test Data]
@@ -2638,6 +2972,1333 @@ paths:
       summary: Email a live dashboard report and create an audit transaction
       responses:
         "200": { description: Delivery result and transaction ID }
+  /projects/{project_id}/knowledge/overview:
+    parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Knowledge]
+      summary: Read project Knowledge Repo health, ingestion, extraction, vector, and guardrail capabilities
+      responses:
+        "200":
+          description: Project-scoped Knowledge Repo overview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeOverview" }
+  /knowledge/ingestions:
+    post:
+      tags: [Knowledge]
+      summary: Build versioned, redacted, chunked project context from records, text, chat, URLs, or one governed file
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          description: Stable 8-255 character key for safely retrying JSON or multipart ingestion requests.
+          schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9._:-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKnowledgeIngestionRequest" }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [project_id, file]
+              properties:
+                project_id: { type: string }
+                collection_id: { type: string }
+                app_type_id: { type: string }
+                title: { type: string }
+                extracted_text: { type: string, description: Required for binary media unless a governed extractor is configured. }
+                caption: { type: string }
+                transcript: { type: string }
+                chunking: { type: string, description: JSON-encoded KnowledgeChunkingConfig. }
+                file: { type: string, format: binary }
+      responses:
+        "202":
+          description: Durable JSON or multipart ingestion job accepted; poll the Location endpoint until terminal.
+          headers:
+            Location:
+              schema: { type: string }
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeIngestionResponse" }
+        "415":
+          description: "MIME, extension, or file signature is unsupported or inconsistent"
+  /knowledge/ingestions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: Read one project-scoped knowledge ingestion job
+      responses:
+        "200":
+          description: Ingestion job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeIngestionJob" }
+  /knowledge/search:
+    post:
+      tags: [Knowledge]
+      summary: Run project-filtered hybrid full-text and dense retrieval with citation hashes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KnowledgeSearchRequest" }
+      responses:
+        "200":
+          description: Thresholded and source-diversified grounded retrieval results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeSearchResponse" }
+  /knowledge/sources:
+    get:
+      tags: [Knowledge]
+      summary: List safe project knowledge source metadata without embeddings or raw document content
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Knowledge sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/KnowledgeSource" }
+  /knowledge/sources/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    delete:
+      tags: [Knowledge]
+      summary: Permanently remove a project knowledge source, its indexed versions/chunks, collection links, and protected file
+      responses:
+        "200":
+          description: Knowledge source deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, id, project_id]
+                properties:
+                  deleted: { type: boolean }
+                  id: { type: string }
+                  project_id: { type: string }
+                  attachment_deleted: { type: boolean }
+                  dependent_documents_deleted: { type: boolean }
+                  collection_links_deleted: { type: boolean }
+  /knowledge/sources/{id}/file:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: Download the protected original file for an authorized knowledge source
+      responses:
+        "200":
+          description: Original source file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+  /knowledge/collections:
+    get:
+      tags: [Knowledge]
+      summary: List project knowledge collections with source and chunk counts
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Collections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/KnowledgeCollection" }
+    post:
+      tags: [Knowledge]
+      summary: Create a project knowledge collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKnowledgeCollectionRequest" }
+      responses:
+        "200":
+          description: Created collection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeCollection" }
+  /knowledge/collections/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: Read one project knowledge collection
+      responses:
+        "200":
+          description: Collection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeCollection" }
+    put:
+      tags: [Knowledge]
+      summary: Update one project knowledge collection
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateKnowledgeCollectionRequest" }
+      responses:
+        "200":
+          description: Updated collection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeCollection" }
+    delete:
+      tags: [Knowledge]
+      summary: Delete a collection while retaining its reusable sources
+      responses:
+        "200": { description: Collection deleted and sources retained }
+  /knowledge/collections/{id}/sources:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Knowledge]
+      summary: Link existing project knowledge sources to a collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KnowledgeCollectionSourcesRequest" }
+      responses:
+        "200": { description: Updated collection }
+    delete:
+      tags: [Knowledge]
+      summary: Unlink sources without deleting their documents or chunks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KnowledgeCollectionSourcesRequest" }
+      responses:
+        "200": { description: Updated collection }
+  /knowledge/assistant/integrations:
+    get:
+      tags: [Knowledge]
+      summary: List active LLM integrations authorized for the selected project assistant
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Project-scoped and workspace-scoped LLM choices, with the configured default first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/KnowledgeAssistantIntegration" }
+  /knowledge/assistant/sessions:
+    get:
+      tags: [Knowledge]
+      summary: List the current member's grounded assistant sessions for a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Assistant sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
+    post:
+      tags: [Knowledge]
+      summary: Start a project-scoped grounded assistant session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKnowledgeAssistantSessionRequest" }
+      responses:
+        "200":
+          description: Created assistant session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
+  /knowledge/assistant/sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: Read one owned grounded assistant conversation
+      responses:
+        "200":
+          description: Session with messages
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
+  /knowledge/assistant/sessions/{id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Knowledge]
+      summary: Ask a HelloTest/project-only question using retrieved context and validated citations
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          description: Optional 8-255 character assistant client turn identifier; client_turn_id in the body takes precedence.
+          schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9._:-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKnowledgeAssistantMessageRequest" }
+      responses:
+        "200":
+          description: Grounded answer, refusal, insufficient-context response, or provider-unavailable result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeAssistantMessageResponse" }
+        "202":
+          description: An identical client turn is already being processed; retry after the response header delay.
+          headers:
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeAssistantMessageResponse" }
+  /ops-telemetry/snapshot:
+    get:
+      tags: [Operations]
+      summary: Read a project-scoped, server-authenticated OPS telemetry snapshot
+      description: The API injects the configured OPS credential server-side so browser clients never receive provider secrets.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - { in: query, name: service_name, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: event_type, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: status, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: execution_id, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 250, default: 100 } }
+      responses:
+        "200":
+          description: Redacted telemetry events and service aggregates
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsTelemetrySnapshot" }
+        "400": { description: Missing project scope }
+        "403": { description: Project permission denied }
+        "503": { description: OPS provider is unavailable or not securely configured }
+  /ops-telemetry/logs:
+    delete:
+      tags: [Operations]
+      summary: Delete project OPS telemetry logs through the configured provider
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+      responses:
+        "200":
+          description: Telemetry logs deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared: { type: boolean }
+                  deleted: { type: integer, minimum: 0 }
+                  events_path: { type: string }
+  /admin-portal/integrations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Admin Portal]
+      summary: Delete admin portal integrations
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflows/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Automation]
+      summary: Delete agentic workflows
+      responses:
+        "200": { description: Successful response }
+    get:
+      tags: [Automation]
+      summary: Read agentic workflows
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Automation]
+      summary: Update agentic workflows
+      responses:
+        "200": { description: Successful response }
+  /ai-prompt-templates/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Automation]
+      summary: Delete ai prompt templates
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Automation]
+      summary: Update ai prompt templates
+      responses:
+        "200": { description: Successful response }
+  /feedback/bulk-delete:
+    delete:
+      tags: [Issues]
+      summary: Delete feedback bulk delete
+      responses:
+        "200": { description: Successful response }
+  /projects/{id}/favorite:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Projects]
+      summary: Delete projects favorite
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Projects]
+      summary: Update projects favorite
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/{id}:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Knowledge]
+      summary: Delete projects knowledge
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Knowledge]
+      summary: Update projects knowledge
+      responses:
+        "200": { description: Successful response }
+  /shared-step-groups/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Shared Step Groups]
+      summary: Delete shared step groups
+      responses:
+        "200": { description: Successful response }
+    get:
+      tags: [Shared Step Groups]
+      summary: Read shared step groups
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Shared Step Groups]
+      summary: Update shared step groups
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/reject-generated:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Test Cases]
+      summary: Delete test cases reject generated
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Test Cases]
+      summary: Delete automation learning cache
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Test Cases]
+      summary: Update automation learning cache
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/screens/{screenName}:
+    parameters:
+      - { name: screenName, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Test Cases]
+      summary: Delete learning cache screens
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Test Cases]
+      summary: Update learning cache screens
+      responses:
+        "200": { description: Successful response }
+  /test-data-sets/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Test Data]
+      summary: Delete test data sets
+      responses:
+        "200": { description: Successful response }
+    get:
+      tags: [Test Data]
+      summary: Read test data sets
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Test Data]
+      summary: Update test data sets
+      responses:
+        "200": { description: Successful response }
+  /workspace-transactions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Workspace Transactions]
+      summary: Delete workspace transactions
+      responses:
+        "200": { description: Successful response }
+  /admin:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/audit:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin portal audit
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/integration-types:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin portal integration types
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/overview:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin portal overview
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/setup/sample-data:
+    get:
+      tags: [Admin Portal]
+      summary: Read setup sample data
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Admin Portal]
+      summary: Execute setup sample data
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/status:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin portal status
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /admin/:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /admin/*:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /admin/runtime-config.js:
+    get:
+      tags: [Admin Portal]
+      summary: Read admin runtime config
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflow-runs:
+    get:
+      tags: [Automation]
+      summary: Read agentic workflow runs
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflow-runs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Automation]
+      summary: Read agentic workflow runs
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflows:
+    get:
+      tags: [Automation]
+      summary: Read agentic workflows
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Automation]
+      summary: Execute agentic workflows
+      responses:
+        "200": { description: Successful response }
+  /ai-prompt-templates:
+    get:
+      tags: [Automation]
+      summary: Read ai prompt templates
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Automation]
+      summary: Execute ai prompt templates
+      responses:
+        "200": { description: Successful response }
+  /api/engine/runs/{runId}/snapshot:
+    parameters:
+      - { name: runId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Test Engine]
+      summary: Read runs snapshot
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /automation-generator/internal/jobs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Test Engine]
+      summary: Read internal jobs
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /executions/{id}/report.html:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Executions]
+      summary: Read executions report
+      responses:
+        "200": { description: Successful response }
+  /executions/{id}/report.pdf:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Executions]
+      summary: Read executions report
+      responses:
+        "200": { description: Successful response }
+  /feedback/{id}/edit-metadata:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Issues]
+      summary: Read feedback edit metadata
+      responses:
+        "200": { description: Successful response }
+  /feedback/create-metadata:
+    get:
+      tags: [Issues]
+      summary: Read feedback create metadata
+      responses:
+        "200": { description: Successful response }
+  /integrations/export:
+    get:
+      tags: [Integrations]
+      summary: Read integrations export
+      responses:
+        "200": { description: Successful response }
+  /local-agent/status:
+    get:
+      tags: [Test Engine]
+      summary: Read local agent status
+      responses:
+        "200": { description: Successful response }
+  /metadata/domain:
+    get:
+      tags: [Settings]
+      summary: Read metadata domain
+      responses:
+        "200": { description: Successful response }
+  /permissions:
+    get:
+      tags: [Roles]
+      summary: Read permissions
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read projects knowledge
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Knowledge]
+      summary: Execute projects knowledge
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/context-package:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read knowledge context package
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/relations/source/{source_id}:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+      - { name: source_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read relations source
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/relations/target/{target_id}:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+      - { name: target_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read relations target
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/search:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read knowledge search
+      responses:
+        "200": { description: Successful response }
+  /projects/catalog:
+    get:
+      tags: [Projects]
+      summary: Read projects catalog
+      responses:
+        "200": { description: Successful response }
+  /projects/portfolio-analytics:
+    get:
+      tags: [Projects]
+      summary: Read projects portfolio analytics
+      responses:
+        "200": { description: Successful response }
+  /requirement-test-cases:
+    get:
+      tags: [Requirements]
+      summary: Read requirement test cases
+      responses:
+        "200": { description: Successful response }
+  /requirements/alm/projects:
+    get:
+      tags: [Requirements]
+      summary: Read alm projects
+      responses:
+        "200": { description: Successful response }
+  /requirements/alm/requirements:
+    get:
+      tags: [Requirements]
+      summary: Read alm requirements
+      responses:
+        "200": { description: Successful response }
+  /roles/{id}/permissions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Roles]
+      summary: Read roles permissions
+      responses:
+        "200": { description: Successful response }
+    put:
+      tags: [Roles]
+      summary: Update roles permissions
+      responses:
+        "200": { description: Successful response }
+  /shared-step-groups:
+    get:
+      tags: [Shared Step Groups]
+      summary: Read shared step groups
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Shared Step Groups]
+      summary: Execute shared step groups
+      responses:
+        "200": { description: Successful response }
+  /suite-test-cases:
+    get:
+      tags: [Test Suites]
+      summary: Read suite test cases
+      responses:
+        "200": { description: Successful response }
+  /test-case-defects:
+    get:
+      tags: [Test Cases]
+      summary: Read test case defects
+      responses:
+        "200": { description: Successful response }
+  /test-case-defects/{testCaseId}/issues:
+    parameters:
+      - { name: testCaseId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Test Cases]
+      summary: Read test case defects issues
+      responses:
+        "200": { description: Successful response }
+  /test-cases/ai-generation-jobs:
+    get:
+      tags: [Test Cases]
+      summary: Read test cases ai generation jobs
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases ai generation jobs
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache:
+    get:
+      tags: [Test Cases]
+      summary: Read automation learning cache
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Test Cases]
+      summary: Execute automation learning cache
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/{id}/usage:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Test Cases]
+      summary: Read learning cache usage
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/export.csv:
+    get:
+      tags: [Test Cases]
+      summary: Read learning cache export
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/screens/{screenName}/usage:
+    parameters:
+      - { name: screenName, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Test Cases]
+      summary: Read screens usage
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/repository-context:
+    get:
+      tags: [Test Cases]
+      summary: Read automation repository context
+      responses:
+        "200": { description: Successful response }
+  /test-data-sets:
+    get:
+      tags: [Test Data]
+      summary: Read test data sets
+      responses:
+        "200": { description: Successful response }
+    post:
+      tags: [Test Data]
+      summary: Execute test data sets
+      responses:
+        "200": { description: Successful response }
+  /testengine/internal/jobs/queue-stats:
+    get:
+      tags: [Test Engine]
+      summary: Read jobs queue stats
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /workspace-transactions:
+    get:
+      tags: [Workspace Transactions]
+      summary: Read workspace transactions
+      responses:
+        "200": { description: Successful response }
+  /workspace-transactions/{id}/artifacts:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Workspace Transactions]
+      summary: Read workspace transactions artifacts
+      responses:
+        "200": { description: Successful response }
+  /workspace-transactions/{id}/artifacts/{artifactId}/download:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: artifactId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Workspace Transactions]
+      summary: Read artifacts download
+      responses:
+        "200": { description: Successful response }
+  /workspace-transactions/{id}/events:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Workspace Transactions]
+      summary: Read workspace transactions events
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/auth/login:
+    post:
+      tags: [Admin Portal]
+      summary: Execute auth login
+      security: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/integrations:
+    post:
+      tags: [Admin Portal]
+      summary: Execute admin portal integrations
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/setup/schema:
+    post:
+      tags: [Admin Portal]
+      summary: Execute setup schema
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/users:
+    post:
+      tags: [Admin Portal]
+      summary: Execute admin portal users
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /agentic-assistant/sessions:
+    post:
+      tags: [Automation]
+      summary: Execute agentic assistant sessions
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflows/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Automation]
+      summary: Execute agentic workflows runs
+      responses:
+        "200": { description: Successful response }
+  /agentic-workflows/api-agent-test:
+    post:
+      tags: [Automation]
+      summary: Execute agentic workflows api agent test
+      responses:
+        "200": { description: Successful response }
+  /analytics/jql:
+    post:
+      tags: [Quality Analytics]
+      summary: Execute analytics jql
+      responses:
+        "200": { description: Successful response }
+  /analytics/jql-batch:
+    post:
+      tags: [Quality Analytics]
+      summary: Execute analytics jql batch
+      responses:
+        "200": { description: Successful response }
+  /api/engine/runs/{runId}/heartbeat:
+    parameters:
+      - { name: runId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Engine]
+      summary: Execute runs heartbeat
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /api/engine/runs/claim:
+    post:
+      tags: [Test Engine]
+      summary: Execute runs claim
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /automation-generator/internal/jobs/{id}/run:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Engine]
+      summary: Execute jobs run
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /automation-generator/internal/jobs/lease:
+    post:
+      tags: [Test Engine]
+      summary: Execute jobs lease
+      security:
+        - testEngineSecret: []
+      responses:
+        "200": { description: Successful response }
+  /executions/{id}/cases/{testCaseId}/ai-analysis:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: testCaseId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Executions]
+      summary: Execute cases ai analysis
+      responses:
+        "200": { description: Successful response }
+  /executions/{id}/share-report:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Executions]
+      summary: Execute executions share report
+      responses:
+        "200": { description: Successful response }
+  /executions/local-run:
+    post:
+      tags: [Executions]
+      summary: Execute executions local run
+      responses:
+        "200": { description: Successful response }
+  /executions/manual-run-suggestion:
+    post:
+      tags: [Executions]
+      summary: Execute executions manual run suggestion
+      responses:
+        "200": { description: Successful response }
+  /feedback/ai-triage-preview:
+    post:
+      tags: [Issues]
+      summary: Execute feedback ai triage preview
+      responses:
+        "200": { description: Successful response }
+  /feedback/export:
+    post:
+      tags: [Issues]
+      summary: Execute feedback export
+      responses:
+        "200": { description: Successful response }
+  /integrations/import:
+    post:
+      tags: [Integrations]
+      summary: Execute integrations import
+      responses:
+        "200": { description: Successful response }
+  /local-agent/start:
+    post:
+      tags: [Test Engine]
+      summary: Execute local agent start
+      responses:
+        "200": { description: Successful response }
+  /projects/{id}/sync/{provider}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Projects]
+      summary: Execute projects sync
+      responses:
+        "200": { description: Successful response }
+  /projects/{project_id}/knowledge/relations:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Knowledge]
+      summary: Execute knowledge relations
+      responses:
+        "200": { description: Successful response }
+  /projects/portfolio-attention-report.pdf:
+    post:
+      tags: [Projects]
+      summary: Execute projects portfolio attention report
+      responses:
+        "200": { description: Successful response }
+  /requirements/{id}/ai-optimize-preview:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requirements]
+      summary: Execute requirements ai optimize preview
+      responses:
+        "200": { description: Successful response }
+  /requirements/{id}/design-test-cases-accept:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requirements]
+      summary: Execute requirements design test cases accept
+      responses:
+        "200": { description: Successful response }
+  /requirements/{id}/design-test-cases-preview:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requirements]
+      summary: Execute requirements design test cases preview
+      responses:
+        "200": { description: Successful response }
+  /requirements/{id}/generate-test-cases:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requirements]
+      summary: Execute requirements generate test cases
+      responses:
+        "200": { description: Successful response }
+  /requirements/import/alm:
+    post:
+      tags: [Requirements]
+      summary: Execute import alm
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/accept-generated:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases accept generated
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/automation/build:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute automation build
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/automation/generator-jobs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute automation generator jobs
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/automation/recorder-session:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute automation recorder session
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/automation/recorder-session/{sessionId}/finish:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute recorder session finish
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/review:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases review
+      responses:
+        "200": { description: Successful response }
+  /test-cases/ai-authoring-preview:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases ai authoring preview
+      responses:
+        "200": { description: Successful response }
+  /test-cases/ai-step-rephrase:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases ai step rephrase
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/build-batch:
+    post:
+      tags: [Test Cases]
+      summary: Execute automation build batch
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/{id}/ai-improve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Test Cases]
+      summary: Execute learning cache ai improve
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/extract-fields:
+    post:
+      tags: [Test Cases]
+      summary: Execute learning cache extract fields
+      responses:
+        "200": { description: Successful response }
+  /test-cases/automation/learning-cache/import:
+    post:
+      tags: [Test Cases]
+      summary: Execute learning cache import
+      responses:
+        "200": { description: Successful response }
+  /test-cases/design-test-cases-accept:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases design test cases accept
+      responses:
+        "200": { description: Successful response }
+  /test-cases/design-test-cases-preview:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases design test cases preview
+      responses:
+        "200": { description: Successful response }
+  /test-cases/export:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases export
+      responses:
+        "200": { description: Successful response }
+  /test-cases/import:
+    post:
+      tags: [Test Cases]
+      summary: Execute test cases import
+      responses:
+        "200": { description: Successful response }
+  /test-steps/duplicate:
+    post:
+      tags: [Test Steps]
+      summary: Execute test steps duplicate
+      responses:
+        "200": { description: Successful response }
+  /test-steps/group:
+    post:
+      tags: [Test Steps]
+      summary: Execute test steps group
+      responses:
+        "200": { description: Successful response }
+  /test-steps/insert-shared-group:
+    post:
+      tags: [Test Steps]
+      summary: Execute test steps insert shared group
+      responses:
+        "200": { description: Successful response }
+  /test-steps/run-api-request:
+    post:
+      tags: [Test Steps]
+      summary: Execute test steps run api request
+      responses:
+        "200": { description: Successful response }
+  /test-steps/ungroup:
+    post:
+      tags: [Test Steps]
+      summary: Execute test steps ungroup
+      responses:
+        "200": { description: Successful response }
+  /users/import:
+    post:
+      tags: [Users]
+      summary: Execute users import
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/feature-flags:
+    put:
+      tags: [Admin Portal]
+      summary: Update admin portal feature flags
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/security/password:
+    put:
+      tags: [Admin Portal]
+      summary: Update security password
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /admin-portal/users/{id}/status:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Admin Portal]
+      summary: Update users status
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Successful response }
+  /requirement-test-cases/replace:
+    put:
+      tags: [Requirements]
+      summary: Update requirement test cases replace
+      responses:
+        "200": { description: Successful response }
+  /requirements/{id}/related-requirements:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Requirements]
+      summary: Update requirements related requirements
+      responses:
+        "200": { description: Successful response }
+  /suite-test-cases/reorder:
+    put:
+      tags: [Test Suites]
+      summary: Update suite test cases reorder
+      responses:
+        "200": { description: Successful response }
+  /test-case-defects/replace:
+    put:
+      tags: [Test Cases]
+      summary: Update test case defects replace
+      responses:
+        "200": { description: Successful response }
+  /test-cases/{id}/test-steps/reorder:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Test Cases]
+      summary: Update test steps reorder
+      responses:
+        "200": { description: Successful response }
+  /test-steps/reorder:
+    put:
+      tags: [Test Steps]
+      summary: Update test steps reorder
+      responses:
+        "200": { description: Successful response }
+  /users/{id}/password:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Users]
+      summary: Update users password
+      responses:
+        "200": { description: Successful response }
 components:
   securitySchemes:
     bearerAuth:
@@ -2724,6 +4385,12 @@ components:
       required: true
       schema:
         type: string
+    RunIdPathParam:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
     ExecutionIdQuery:
       name: execution_id
       in: query
@@ -2766,6 +4433,361 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    OpsTelemetrySnapshot:
+      type: object
+      required: [checked_at, project_id, events, services]
+      properties:
+        checked_at: { type: string, format: date-time }
+        project_id: { type: string }
+        events:
+          type: object
+          required: [items, total]
+          properties:
+            total: { type: integer, minimum: 0 }
+            items:
+              type: array
+              maxItems: 250
+              items: { type: object, additionalProperties: true }
+        services:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              maxItems: 100
+              items: { type: object, additionalProperties: true }
+    KnowledgeChunkingConfig:
+      type: object
+      description: Token-facing chunk controls; max_chars and overlap_chars remain supported compatibility aliases.
+      properties:
+        strategy: { type: string, enum: [structure_aware, semantic, fixed, recursive, markdown, gherkin], default: structure_aware }
+        chunk_size: { type: integer, minimum: 100, maximum: 1000, default: 400, description: Approximate tokens per chunk. }
+        chunk_overlap: { type: integer, minimum: 0, maximum: 333, default: 55, description: Approximate overlap tokens. }
+        max_chars: { type: integer, minimum: 400, maximum: 4000 }
+        overlap_chars: { type: integer, minimum: 0 }
+    KnowledgeInput:
+      type: object
+      properties:
+        kind: { type: string, enum: [requirement, test_case, execution, bug, text, chat, file, url] }
+        entity_id: { type: string }
+        title: { type: string }
+        content: { type: string }
+        extracted_text: { type: string }
+        transcript: { type: string }
+        caption: { type: string }
+        source_uri: { type: string, format: uri }
+        file_name: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        metadata: { type: object, additionalProperties: true }
+    CreateKnowledgeIngestionRequest:
+      type: object
+      required: [project_id]
+      properties:
+        project_id: { type: string }
+        collection_id: { type: string }
+        app_type_id: { type: string }
+        title: { type: string }
+        chunking: { $ref: "#/components/schemas/KnowledgeChunkingConfig" }
+        inputs:
+          type: array
+          maxItems: 300
+          items: { $ref: "#/components/schemas/KnowledgeInput" }
+        selected_records:
+          type: object
+          properties:
+            requirements: { type: array, items: { type: string } }
+            test_cases: { type: array, items: { type: string } }
+            executions: { type: array, items: { type: string } }
+            bugs: { type: array, items: { type: string } }
+    KnowledgeIngestionJob:
+      type: object
+      required: [id, project_id, status, input_count, processed_count, failed_count, chunk_count]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        collection_id: { type: string, nullable: true }
+        status: { type: string, enum: [queued, running, completed, completed_with_warnings, failed] }
+        input_count: { type: integer }
+        processed_count: { type: integer }
+        failed_count: { type: integer }
+        chunk_count: { type: integer }
+        warnings: { type: array, items: { type: object, additionalProperties: true } }
+        errors: { type: array, items: { type: object, additionalProperties: true } }
+        config: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+        results: { type: array, items: { $ref: "#/components/schemas/KnowledgeIngestionResult" } }
+    KnowledgeIngestionResult:
+      type: object
+      required: [input_index, outcome, reused]
+      properties:
+        input_index: { type: integer, minimum: 0 }
+        source_id: { type: string, nullable: true }
+        document_id: { type: string, nullable: true }
+        outcome: { type: string, enum: [indexed, reused, needs_extraction, failed] }
+        reused: { type: boolean }
+        warning_codes: { type: array, items: { type: string } }
+        error_fingerprint: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    KnowledgeSource:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        source_kind: { type: string }
+        source_ref_id: { type: string, nullable: true }
+        title: { type: string }
+        source_uri: { type: string, nullable: true }
+        file_name: { type: string, nullable: true }
+        mime_type: { type: string, nullable: true }
+        size_bytes: { type: integer, format: int64, nullable: true }
+        attachment_id: { type: string, nullable: true }
+        checksum_sha256: { type: string, nullable: true }
+        extraction_status: { type: string, enum: [pending, processing, ready, needs_extraction, failed, archived] }
+        extraction_strategy: { type: string, nullable: true }
+        risk_flags: { type: array, items: { type: string } }
+        collection_ids: { type: array, items: { type: string } }
+        document_count: { type: integer }
+        chunk_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    KnowledgeDocument:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        source_id: { type: string }
+        title: { type: string }
+        version: { type: integer }
+        token_count: { type: integer }
+        char_count: { type: integer }
+        checksum_sha256: { type: string }
+        is_active: { type: boolean }
+    KnowledgeIngestionResponse:
+      type: object
+      properties:
+        accepted: { type: boolean }
+        idempotent_replay: { type: boolean }
+        status_url: { type: string }
+        job: { $ref: "#/components/schemas/KnowledgeIngestionJob" }
+        sources: { type: array, items: { $ref: "#/components/schemas/KnowledgeSource" } }
+        documents: { type: array, items: { $ref: "#/components/schemas/KnowledgeDocument" } }
+        chunk_count: { type: integer }
+        deduplicated_count: { type: integer }
+        warnings: { type: array, items: { type: object, additionalProperties: true } }
+    KnowledgeCollection:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        status: { type: string, enum: [active, archived] }
+        retrieval_config: { type: object, additionalProperties: true }
+        source_count: { type: integer }
+        document_count: { type: integer }
+        chunk_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateKnowledgeCollectionRequest:
+      type: object
+      required: [project_id, name]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        color: { type: string }
+        retrieval_config: { type: object, additionalProperties: true }
+    UpdateKnowledgeCollectionRequest:
+      type: object
+      properties:
+        app_type_id: { type: string, nullable: true }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        status: { type: string, enum: [active, archived] }
+        retrieval_config: { type: object, additionalProperties: true }
+    KnowledgeCollectionSourcesRequest:
+      type: object
+      required: [source_ids]
+      properties:
+        source_ids: { type: array, minItems: 1, maxItems: 500, items: { type: string } }
+    KnowledgeCitation:
+      type: object
+      required: [id, label, source_kind, document_id, chunk_id, chunk_hash]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        source_id: { type: string }
+        source_kind: { type: string }
+        source_ref_id: { type: string, nullable: true }
+        source_uri: { type: string, nullable: true, description: Sanitized external URL or authorized HelloTest file route. }
+        document_id: { type: string }
+        chunk_id: { type: string }
+        excerpt: { type: string }
+        source_hash: { type: string, nullable: true }
+        version_hash: { type: string, nullable: true }
+        chunk_hash: { type: string }
+        location:
+          type: object
+          properties:
+            chunk_index: { type: integer }
+            heading: { type: string, nullable: true }
+            char_start: { type: integer }
+            char_end: { type: integer }
+            page: { type: integer, nullable: true }
+    KnowledgeSearchHit:
+      type: object
+      properties:
+        id: { type: string }
+        chunk_id: { type: string }
+        document_id: { type: string }
+        source_id: { type: string }
+        collection_ids: { type: array, items: { type: string } }
+        title: { type: string }
+        source_kind: { type: string }
+        source_ref_id: { type: string, nullable: true }
+        content: { type: string }
+        excerpt: { type: string }
+        score: { type: number, minimum: 0, maximum: 1 }
+        lexical_score: { type: number, minimum: 0, maximum: 1 }
+        semantic_score: { type: number, minimum: 0, maximum: 1 }
+        reciprocal_rank_score: { type: number, minimum: 0, maximum: 1 }
+        citation: { $ref: "#/components/schemas/KnowledgeCitation" }
+    KnowledgeSearchRequest:
+      type: object
+      required: [project_id, query]
+      properties:
+        project_id: { type: string }
+        query: { type: string, maxLength: 4000 }
+        mode: { type: string, enum: [hybrid, semantic, keyword], default: hybrid }
+        limit: { type: integer, minimum: 1, maximum: 50 }
+        filters:
+          type: object
+          properties:
+            collection_ids: { type: array, items: { type: string } }
+            source_kinds: { type: array, items: { type: string } }
+            app_type_id: { type: string }
+    KnowledgeSearchResponse:
+      type: object
+      properties:
+        project_id: { type: string }
+        query: { type: string }
+        mode: { type: string }
+        results: { type: array, items: { $ref: "#/components/schemas/KnowledgeSearchHit" } }
+        retrieval: { type: object, additionalProperties: true }
+        guardrails: { type: array, items: { type: string } }
+    KnowledgeOverview:
+      type: object
+      properties:
+        project_id: { type: string }
+        counts: { type: object, additionalProperties: { type: integer } }
+        recent_jobs: { type: array, items: { $ref: "#/components/schemas/KnowledgeIngestionJob" } }
+        capabilities:
+          type: object
+          properties:
+            hybrid_search: { type: boolean }
+            vector_store: { type: object, additionalProperties: true }
+            embedding: { type: object, additionalProperties: true }
+            extraction:
+              type: object
+              properties:
+                max_file_bytes: { type: integer, format: int64 }
+                max_extractable_bytes: { type: integer, format: int64 }
+                max_extracted_text_chars: { type: integer }
+                native_text_mime_types: { type: array, items: { type: string } }
+                supported_mime_types: { type: array, items: { type: string } }
+                tika_configured: { type: boolean }
+                binary_requires_extracted_text: { type: boolean }
+                tika_documents_can_be_extracted_server_side: { type: boolean }
+                media_requires_caption_or_transcript: { type: boolean }
+            product_help: { type: object, additionalProperties: true }
+            guardrails: { type: array, items: { type: string } }
+    KnowledgeAssistantMessage:
+      type: object
+      properties:
+        id: { type: string }
+        session_id: { type: string }
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string }
+        status: { type: string, enum: [pending, answered, insufficient_context, refused, provider_unavailable, error] }
+        client_turn_id: { type: string, nullable: true }
+        citations: { type: array, items: { $ref: "#/components/schemas/KnowledgeCitation" } }
+        retrieval:
+          type: object
+          description: Project-scoped chained retrieval trace, including query_chain, grounded_result_count, chain_strategy, and non-sensitive failure fingerprints.
+          additionalProperties: true
+        safety: { type: object, additionalProperties: true }
+        provider: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    KnowledgeAssistantSession:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        title: { type: string }
+        status: { type: string, enum: [active, archived] }
+        filters: { type: object, additionalProperties: true }
+        message_count: { type: integer }
+        last_message_at: { type: string, format: date-time, nullable: true }
+        messages: { type: array, items: { $ref: "#/components/schemas/KnowledgeAssistantMessage" } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    KnowledgeAssistantIntegration:
+      type: object
+      required: [id, name, model, scope, is_default]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        model: { type: string }
+        scope: { type: string, enum: [project, workspace] }
+        project_id: { type: string, nullable: true }
+        is_default: { type: boolean }
+    CreateKnowledgeAssistantSessionRequest:
+      type: object
+      required: [project_id]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string }
+        integration_id: { type: string, maxLength: 255, description: Optional active LLM integration authorized for this project and retained as the session selection. }
+        title: { type: string }
+        filters: { type: object, additionalProperties: true }
+    CreateKnowledgeAssistantMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, maxLength: 8000 }
+        integration_id: { type: string, maxLength: 255, description: Optional active LLM integration authorized for this project; overrides the session selection for this turn. }
+        client_turn_id: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9._:-]+$" }
+        filters: { type: object, additionalProperties: true }
+    KnowledgeAssistantMessageResponse:
+      type: object
+      properties:
+        session: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
+        pending: { type: boolean }
+        client_turn_id: { type: string, nullable: true }
+        idempotent_replay: { type: boolean }
+        retry_after_seconds: { type: integer, minimum: 1 }
+        user_message: { $ref: "#/components/schemas/KnowledgeAssistantMessage" }
+        assistant_message: { $ref: "#/components/schemas/KnowledgeAssistantMessage" }
+        message: { $ref: "#/components/schemas/KnowledgeAssistantMessage" }
+        citations: { type: array, items: { $ref: "#/components/schemas/KnowledgeCitation" } }
+        retrieval:
+          type: object
+          description: Project-scoped chained retrieval trace, including query_chain, planned_queries, grounded_result_count, chain_strategy, and non-sensitive failure fingerprints.
+          additionalProperties: true
+        guardrails: { type: array, items: { type: string } }
+        provenance: { type: object, additionalProperties: true }
     IdResponse:
       type: object
       properties:
@@ -3002,6 +5024,105 @@ components:
       required: [flags]
       properties:
         flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+    AuthSetupResponse:
+      type: object
+      required: [google, emailVerification]
+      properties:
+        google:
+          type: object
+          required: [enabled, clientId]
+          properties:
+            enabled: { type: boolean }
+            clientId: { type: string, nullable: true }
+        emailVerification:
+          type: object
+          required: [enabled, senderEmail, senderName]
+          properties:
+            enabled: { type: boolean }
+            senderEmail: { type: string, format: email, nullable: true }
+            senderName: { type: string, nullable: true }
+    GoogleLoginRequest:
+      type: object
+      required: [idToken]
+      properties:
+        idToken: { type: string, minLength: 10 }
+    PasswordResetCodeRequest:
+      type: object
+      required: [email, newPassword]
+      properties:
+        email: { type: string, format: email }
+        newPassword: { type: string, minLength: 6, maxLength: 128 }
+    VerificationCodeRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email: { type: string, format: email }
+        code: { type: string, minLength: 6, maxLength: 6, pattern: "^[0-9]{6}$" }
+    VerificationDispatchResponse:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        expiresAt: { type: string, format: date-time }
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+    Notification:
+      type: object
+      required: [id, user_id, type, title, message, status, preference]
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        session_id: { type: string, nullable: true }
+        project_id: { type: string, nullable: true }
+        run_id: { type: string, nullable: true }
+        target_url: { type: string, nullable: true }
+        type: { type: string }
+        title: { type: string }
+        message: { type: string }
+        status: { type: string, enum: [unread, read] }
+        preference:
+          type: string
+          enum: [executionFailures, executionCompletions, runAssignments, issueReports, aiDesign, aiAutomation, importExport, requirementChanges, testCaseChanges, integrationChanges, userRoleChanges, projectMembership, scheduledRuns, unspecified]
+        created_at: { type: string, format: date-time, nullable: true }
+    NotificationPage:
+      type: object
+      required: [items, total, next_cursor, is_last, unread_count]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Notification" }
+        total: { type: integer, minimum: 0 }
+        next_cursor: { type: string, nullable: true }
+        is_last: { type: boolean }
+        unread_count: { type: integer, minimum: 0 }
+    NotificationUnreadSummary:
+      type: object
+      required: [count, by_preference]
+      properties:
+        count: { type: integer, minimum: 0 }
+        by_preference:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+    NotificationDeleteResponse:
+      type: object
+      required: [deleted, id]
+      properties:
+        deleted: { type: boolean }
+        id: { type: string }
+    NotificationBulkMutationResponse:
+      type: object
+      required: [count, remaining, has_more, failed_count]
+      properties:
+        updated: { type: boolean }
+        deleted: { type: boolean }
+        count: { type: integer, minimum: 0 }
+        remaining: { type: integer, minimum: 0 }
+        has_more: { type: boolean }
+        failed_count: { type: integer, minimum: 0 }
+        before: { type: string, format: date-time }
     SignupRequest:
       type: object
       required: [email, password]
@@ -3846,6 +5967,7 @@ components:
         project_key: { type: string, nullable: true }
         username: { type: string, nullable: true }
         config:
+          type: object
           nullable: true
           oneOf:
             - $ref: "#/components/schemas/EmailIntegrationConfig"
@@ -3950,9 +6072,51 @@ components:
       properties:
         id: { type: string, nullable: true, description: Stable client row identity. Generated by the server when omitted or duplicated. }
         os: { type: string, enum: ["", Windows, macOS, Linux], description: Desktop operating system. }
-        browser: { type: string, description: Browser name such as Chrome, Firefox, Safari, or Edge. }
+        browser: { type: string, description: "Browser name such as Chrome, Firefox, Safari, or Edge." }
         mobile_os: { type: string, enum: ["", Android, iOS], description: Mobile operating system. }
-        version: { type: string, description: Free-text target version such as 13, 14, 17, or latest. }
+        version: { type: string, description: "Free-text target version such as 13, 14, 17, or latest." }
+    TestEnvironment:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        base_url: { type: string, nullable: true }
+        browser: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
+        created_at: { type: string, format: date-time, nullable: true }
+    CreateTestEnvironmentRequest:
+      type: object
+      required: [project_id, name]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true }
+        base_url: { type: string, nullable: true }
+        browser: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
+    UpdateTestEnvironmentRequest:
+      type: object
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true }
+        base_url: { type: string, nullable: true }
+        browser: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/KeyValueEntry" }
     TestConfiguration:
       type: object
       properties:
@@ -4069,6 +6233,7 @@ components:
         id: { type: string, nullable: true }
         name: { type: string }
         snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionEnvironmentSnapshot"
@@ -4078,6 +6243,7 @@ components:
         id: { type: string, nullable: true }
         name: { type: string }
         snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionConfigurationSnapshot"
@@ -4087,6 +6253,7 @@ components:
         id: { type: string, nullable: true }
         name: { type: string }
         snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionDataSetSnapshot"
@@ -4150,6 +6317,7 @@ components:
         test_data_set_id: { type: string, nullable: true }
         test_data_set_name: { type: string, nullable: true }
         test_data_set_snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionDataSetSnapshot"
@@ -4161,6 +6329,7 @@ components:
           items: { type: string }
         assignment_source: { type: string, nullable: true, enum: [run, suite, module, case] }
         assigned_user:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AssignedUserSummary"
@@ -4176,6 +6345,7 @@ components:
         step_type: { type: string, nullable: true, enum: [web, api, android, ios] }
         automation_code: { type: string, nullable: true }
         api_request:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/StepApiRequest"
@@ -4217,14 +6387,17 @@ components:
           nullable: true
           enum: [queued, running, completed, failed, aborted]
         test_environment:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionScopedEnvironment"
         test_configuration:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionScopedConfiguration"
         test_data_set:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionScopedDataSet"
@@ -4251,6 +6424,7 @@ components:
             type: array
             items: { type: string }
         assigned_user:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AssignedUserSummary"
@@ -4393,6 +6567,7 @@ components:
         data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
         data_set_iteration_key: { type: string, nullable: true }
         data_set_row_snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestDataSetRow"
@@ -4432,6 +6607,7 @@ components:
           type: array
           items: { type: string }
         assigned_user:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AssignedUserSummary"
@@ -4577,6 +6753,7 @@ components:
         data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
         data_set_iteration_key: { type: string, nullable: true }
         data_set_row_snapshot:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestDataSetRow"
@@ -4733,6 +6910,7 @@ components:
         duration_ms: { type: number, nullable: true }
         note: { type: string, nullable: true }
         evidence_image:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineInlineEvidence"
@@ -4749,6 +6927,19 @@ components:
         error: { type: string, nullable: true }
         logs:
           $ref: "#/components/schemas/TestEngineExecutionLogsPayload"
+    TestEngineRunStatus:
+      type: object
+      properties:
+        engine_run_id: { type: string }
+        status: { type: string, enum: [queued, claimed, leased, running, completed, failed, aborted] }
+        leased_by: { type: string, nullable: true }
+        lease_expires_at: { type: string, format: date-time, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        heartbeat_at: { type: string, format: date-time, nullable: true }
+        last_error: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+      required: [engine_run_id, status]
     TestEngineRunProject:
       type: object
       properties:
@@ -4798,6 +6989,7 @@ components:
         expected_result: { type: string, nullable: true }
         automation_code: { type: string, nullable: true }
         api_request:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/StepApiRequest"
@@ -4883,6 +7075,7 @@ components:
         manual_spec:
           $ref: "#/components/schemas/TestEngineManualSpec"
         attached_script:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineAttachedScript"
@@ -4895,20 +7088,24 @@ components:
         case_parameters:
           $ref: "#/components/schemas/StringMap"
         environment:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineRunEnvironment"
         configuration:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineRunConfiguration"
         data_set:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineRunDataSet"
         artifact_policy:
           $ref: "#/components/schemas/TestEngineRunArtifactPolicy"
         callback:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineCallbackTarget"
@@ -4942,6 +7139,7 @@ components:
         payload:
           $ref: "#/components/schemas/TestEngineRunEnvelope"
         runtime_state:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineQueueRuntimeState"
@@ -4967,6 +7165,7 @@ components:
           items:
             $ref: "#/components/schemas/TestEngineStepOutcome"
         case_result:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineCaseResult"
@@ -4995,6 +7194,7 @@ components:
       type: object
       properties:
         job:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineQueuedJob"
@@ -5028,10 +7228,12 @@ components:
         status: { type: string, enum: [passed, failed, blocked] }
         note: { type: string }
         evidence:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/TestEngineInlineEvidence"
         api_detail:
+          type: object
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionApiDetail"

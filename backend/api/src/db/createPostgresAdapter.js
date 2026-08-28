@@ -4,6 +4,30 @@ const { Pool } = require("pg");
 
 const MAX_PLACEHOLDER_CACHE_SIZE = 2_000;
 
+const attachCleanupError = (originalError, property, cleanupError) => {
+  if (!originalError || (typeof originalError !== "object" && typeof originalError !== "function")) {
+    return;
+  }
+
+  try {
+    Object.defineProperty(originalError, property, {
+      configurable: true,
+      enumerable: false,
+      value: cleanupError
+    });
+  } catch {
+    // The original error is deliberately preserved even when it is immutable.
+  }
+};
+
+const defaultPoolErrorHandler = (error) => {
+  const code = typeof error?.code === "string" ? error.code : "PG_POOL_ERROR";
+  const message = String(error?.message || "PostgreSQL idle client failed")
+    .replace(/:\/\/[^/@\s]+@/g, "://[redacted]@")
+    .slice(0, 500);
+  process.stderr.write(`[database] ${code}: ${message}\n`);
+};
+
 const isPlainObject = (value) => {
   if (value === null || typeof value !== "object") {
     return false;
@@ -113,10 +137,32 @@ const createStatementName = (sql, namespace) => {
   return `${namespace}_${digest}`.slice(0, 63);
 };
 
-function createPostgresAdapter({ poolConfig, statementNamespace = "hellotest" }) {
+function createPostgresAdapter({
+  poolConfig,
+  statementNamespace = "hellotest",
+  PoolClass = Pool,
+  onPoolError = defaultPoolErrorHandler
+}) {
   const transactionContext = new AsyncLocalStorage();
   const placeholderCache = new Map();
-  const pool = new Pool(poolConfig);
+  const pool = new PoolClass(poolConfig);
+  const poolState = {
+    backgroundErrorCount: 0,
+    lastBackgroundErrorAt: null,
+    lastBackgroundErrorCode: null
+  };
+  let closePromise = null;
+
+  pool.on?.("error", (error, client) => {
+    poolState.backgroundErrorCount += 1;
+    poolState.lastBackgroundErrorAt = new Date().toISOString();
+    poolState.lastBackgroundErrorCode = typeof error?.code === "string" ? error.code : null;
+    try {
+      onPoolError(error, client);
+    } catch (handlerError) {
+      defaultPoolErrorHandler(handlerError);
+    }
+  });
 
   const compileSql = (sql) => {
     const cached = placeholderCache.get(sql);
@@ -167,33 +213,99 @@ function createPostgresAdapter({ poolConfig, statementNamespace = "hellotest" })
     };
   };
 
-  const transaction = (callback) => async (...args) => {
-    if (transactionContext.getStore()?.client) {
-      return callback(...args);
-    }
+  const runNestedTransaction = async (store, callback, args) => {
+    store.savepointCounter += 1;
+    const savepoint = `hellotest_sp_${store.savepointCounter}`;
+    await store.client.query(`SAVEPOINT ${savepoint}`);
 
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      const result = await transactionContext.run({ client }, () => callback(...args));
-      await client.query("COMMIT");
+      const result = await callback(...args);
+      await store.client.query(`RELEASE SAVEPOINT ${savepoint}`);
       return result;
     } catch (error) {
-      await client.query("ROLLBACK");
+      try {
+        await store.client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await store.client.query(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch (savepointError) {
+        attachCleanupError(error, "savepointRollbackError", savepointError);
+      }
       throw error;
-    } finally {
-      client.release();
     }
   };
 
-  const close = () => pool.end();
+  const transaction = (callback) => async (...args) => {
+    const activeTransaction = transactionContext.getStore();
+    if (activeTransaction?.client) {
+      return runNestedTransaction(activeTransaction, callback, args);
+    }
 
-  return { pool, query, prepare, transaction, close };
+    const client = await pool.connect();
+    let transactionStarted = false;
+    let commitAttempted = false;
+    let destroyClient = false;
+    try {
+      await client.query("BEGIN");
+      transactionStarted = true;
+      const result = await transactionContext.run(
+        { client, savepointCounter: 0 },
+        () => callback(...args)
+      );
+      commitAttempted = true;
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      if (commitAttempted) {
+        attachCleanupError(error, "transactionOutcomeUnknown", true);
+      }
+      if (transactionStarted) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          destroyClient = true;
+          attachCleanupError(error, "rollbackError", rollbackError);
+        }
+      } else {
+        destroyClient = true;
+      }
+      throw error;
+    } finally {
+      client.release(destroyClient);
+    }
+  };
+
+  const getPoolStats = () => {
+    const max = Number(pool.options?.max || poolConfig?.max || 10);
+    const total = Number(pool.totalCount || 0);
+    const idle = Number(pool.idleCount || 0);
+    const waiting = Number(pool.waitingCount || 0);
+    return {
+      total,
+      idle,
+      active: Math.max(0, total - idle),
+      waiting,
+      max,
+      utilization: max > 0 ? Math.min(1, Math.max(0, (total - idle) / max)) : 0,
+      saturated: waiting > 0 || (max > 0 && total >= max && idle === 0),
+      background_error_count: poolState.backgroundErrorCount,
+      last_background_error_at: poolState.lastBackgroundErrorAt,
+      last_background_error_code: poolState.lastBackgroundErrorCode
+    };
+  };
+
+  const close = () => {
+    if (!closePromise) {
+      closePromise = Promise.resolve().then(() => pool.end());
+    }
+    return closePromise;
+  };
+
+  return { pool, query, prepare, transaction, getPoolStats, close };
 }
 
 module.exports = {
   createPostgresAdapter,
   createStatementName,
+  defaultPoolErrorHandler,
   serializeParam,
   toPgPlaceholders
 };

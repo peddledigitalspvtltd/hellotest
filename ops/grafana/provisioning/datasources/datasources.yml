@@ -2,6 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
@@ -9,7 +10,34 @@ datasources:
     editable: false
 
   - name: Loki
+    uid: loki
     type: loki
     access: proxy
     url: http://loki:3100
     editable: false
+    jsonData:
+      derivedFields:
+        - datasourceUid: jaeger
+          matcherRegex: '"(?:traceId|trace_id|trace_id_hex)":"?([a-fA-F0-9]{32})'
+          name: TraceID
+          url: '${__value.raw}'
+
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
+    jsonData:
+      nodeGraph:
+        enabled: true
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: -2m
+        spanEndTimeShift: 2m

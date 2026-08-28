@@ -4,6 +4,8 @@ metadata:
   name: hellotest-testengine-config
 data:
   PORT: "4301"
+  NODE_ENV: "production"
+  TESTENGINE_QUEUE_REQUIRED: "true"
   HELLOTEST_API_BASE_URL: "http://hellotest-api:3000"
   ENGINE_PUBLIC_URL: "http://hellotest-testengine-web:4301"
   TESTENGINE_API_POLL_CONCURRENCY: "8"
@@ -32,6 +34,7 @@ spec:
         app: hellotest-testengine
         engine-class: api
     spec:
+      terminationGracePeriodSeconds: 40
       containers:
         - name: worker
           image: hellotest-testengine:latest
@@ -60,13 +63,15 @@ spec:
             - containerPort: 4301
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 15
 ---
 apiVersion: apps/v1
@@ -88,6 +93,7 @@ spec:
         app: hellotest-testengine
         engine-class: web
     spec:
+      terminationGracePeriodSeconds: 40
       containers:
         - name: worker
           image: hellotest-testengine:latest
@@ -116,13 +122,15 @@ spec:
             - containerPort: 4301
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 15
 ---
 apiVersion: v1
@@ -157,6 +165,7 @@ spec:
         app: hellotest-testengine
         engine-class: android
     spec:
+      terminationGracePeriodSeconds: 40
       containers:
         - name: worker
           image: hellotest-testengine:latest
@@ -171,6 +180,11 @@ spec:
               value: android
             - name: MOBILE_ENGINE_URL
               value: "http://hellotest-mobile-engine:4312"
+            - name: MOBILE_ENGINE_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hellotest-mobile-engine-secret
+                  key: shared-secret
             - name: TESTENGINE_POLL_INTERVAL_MS
               value: "1000"
             - name: TESTENGINE_POLL_CONCURRENCY
@@ -187,14 +201,80 @@ spec:
             - containerPort: 4301
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 4301
+            timeoutSeconds: 3
             periodSeconds: 15
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hellotest-mobile-engine
+  labels:
+    app: hellotest-mobile-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hellotest-mobile-engine
+  template:
+    metadata:
+      labels:
+        app: hellotest-mobile-engine
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: mobile-engine
+          image: hellotest-mobile-engine:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "4312"
+            - name: NODE_ENV
+              value: production
+            - name: MOBILE_ENGINE_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hellotest-mobile-engine-secret
+                  key: shared-secret
+            - name: MOBILE_PROVIDER
+              value: local-appium
+            - name: APPIUM_SERVER_URL
+              value: "http://appium:4723"
+            - name: MOBILE_REQUIRE_PROVIDER_READY
+              value: "false"
+          ports:
+            - containerPort: 4312
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 4312
+            timeoutSeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 4312
+            timeoutSeconds: 3
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hellotest-mobile-engine
+spec:
+  selector:
+    app: hellotest-mobile-engine
+  ports:
+    - name: http
+      port: 4312
+      targetPort: 4312
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

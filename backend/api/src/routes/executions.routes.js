@@ -8,9 +8,8 @@ const projectService = require("../services/project.service");
 const featureFlagService = require("../services/featureFlag.service");
 const testDataSetService = require("../services/testDataSet.service");
 const mobileFeatureService = require("../services/mobileFeature.service");
+const executionHistoryService = require("../services/executionHistory.service");
 const { EXECUTION_FINAL_STATUS_VALUES } = require("../domain/catalog");
-const db = require("../db");
-const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 
 const createAccessError = (message, statusCode = 403) => {
   const error = new Error(message);
@@ -67,27 +66,13 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, app_type_id: { required: false, type: "string" }, requirement_id: { required: false, type: "string" }, test_case_id: { required: false, type: "string" }, page_size: { required: false, type: "string" } }, req.query || {});
     await projectService.getProject(req.query.project_id, req.user.id);
-    const conditions = ["executions.project_id = ?"];
-    const params = [req.query.project_id];
-    if (req.query.app_type_id) { conditions.push("execution_results.app_type_id = ?"); params.push(req.query.app_type_id); }
-    if (req.query.test_case_id) { conditions.push("execution_results.test_case_id = ?"); params.push(req.query.test_case_id); }
-    if (req.query.requirement_id) { conditions.push("EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = ? AND requirement_test_cases.test_case_id = execution_results.test_case_id)"); params.push(req.query.requirement_id); }
-    const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.page_size || 50), 10) || 50));
-    const rows = await db.prepare(`
-      SELECT execution_results.id, executions.id AS execution_id, executions.display_id AS execution_display_id,
-             executions.name AS execution_name, executions.status AS execution_status, executions.trigger,
-             executions.suite_ids, execution_results.test_case_id,
-             COALESCE(execution_results.test_case_title, test_cases.title) AS test_case_title,
-             execution_results.status AS result_status, execution_results.defects, execution_results.created_at AS result_created_at,
-             executions.started_at, executions.ended_at, executions.release, executions.sprint, executions.build
-      FROM execution_results
-      JOIN executions ON executions.id = execution_results.execution_id
-      LEFT JOIN test_cases ON test_cases.id = execution_results.test_case_id
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY execution_results.created_at DESC, execution_results.id DESC
-      LIMIT ?
-    `).all(...params, limit);
-    return rows.map((row) => ({ ...row, defects: normalizeStoredReferenceList(row.defects), suite_ids: normalizeStoredReferenceList(row.suite_ids) }));
+    return executionHistoryService.list({
+      projectId: req.query.project_id,
+      appTypeId: req.query.app_type_id,
+      requirementId: req.query.requirement_id,
+      testCaseId: req.query.test_case_id,
+      pageSize: req.query.page_size
+    });
   });
 
   fastify.post("/executions/smart-plan-preview", async (req) => {

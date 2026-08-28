@@ -5,8 +5,13 @@ const { reapplyRuntimeSchema } = require("../db/bootstrap");
 const authService = require("./auth.service");
 const featureFlagService = require("./featureFlag.service");
 const { hashPassword, verifyPassword } = require("../utils/token");
+const { isProduction, validateProductionSecret } = require("../security/runtimeSecrets");
 
 const BOOTSTRAP_EMAIL = "bootstrap.admin@hellotest.local";
+const LEGACY_SAMPLE_PASSWORD_HASHES = Object.freeze([
+  "7752a0a257bd37b43d32b6e22132d60c6b065798e1ad9fb2c0ee68e65cac741c0e2e7dd599e3754f1de07e5b8c9038a8766f292a37fb0cf685b2020dd9339b02",
+  "4297827f5aa1cb1aba10577e664dcf1f5744f67c70f410f63f30da5c7493cf2c9f4bde7a197bd216d3da83e40c153d73c6cdb4ddb54b584575c3a8d4cb4d17f9"
+]);
 const REQUIRED_TABLES = [
   "users", "roles", "permissions", "projects", "project_members", "app_types",
   "requirements", "test_suites", "test_cases", "test_steps", "executions",
@@ -28,6 +33,49 @@ const recordAudit = async ({ actorId = null, action, targetType = null, targetId
     INSERT INTO admin_audit_log (id, actor_id, action, target_type, target_id, summary, metadata, ip_address)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(crypto.randomUUID(), actorId, action, targetType, targetId, summary, metadata, ipAddress);
+};
+
+const retireLegacySampleCredentials = async () => {
+  if (!isProduction()) return 0;
+
+  const legacy = await db.prepare(`
+    SELECT COUNT(*)::INTEGER AS count
+    FROM users
+    WHERE password_hash IN (${LEGACY_SAMPLE_PASSWORD_HASHES.map(() => "?").join(", ")})
+      AND (
+        id IN ('u1', 'u2')
+        OR LOWER(email) IN ('admin@hellotest.ai', 'member@hellotest.ai')
+      )
+  `).get(...LEGACY_SAMPLE_PASSWORD_HASHES);
+  if (Number(legacy?.count || 0) === 0) return 0;
+
+  const retired = await db.prepare(`
+    UPDATE users
+    SET
+      password_hash = ?,
+      status = 'suspended',
+      is_workspace_admin = FALSE,
+      must_change_password = TRUE
+    WHERE password_hash IN (${LEGACY_SAMPLE_PASSWORD_HASHES.map(() => "?").join(", ")})
+      AND (
+        id IN ('u1', 'u2')
+        OR LOWER(email) IN ('admin@hellotest.ai', 'member@hellotest.ai')
+      )
+  `).run(
+    hashPassword(crypto.randomBytes(32).toString("hex")),
+    ...LEGACY_SAMPLE_PASSWORD_HASHES
+  );
+
+  if (retired.changes > 0) {
+    await recordAudit({
+      action: "security.sample_credentials_retired",
+      targetType: "user",
+      summary: "Disabled legacy sample accounts that still used published development credentials.",
+      metadata: { retired_accounts: retired.changes }
+    });
+  }
+
+  return retired.changes;
 };
 
 const getSchemaState = async () => {
@@ -59,8 +107,17 @@ exports.ensureAdminFoundation = async () => {
     ON CONFLICT (role_id, permission_id) DO NOTHING
   `).run(adminRole.id);
 
+  await retireLegacySampleCredentials();
+
   if (!config.adminPortal.bootstrapEnabled) {
     return;
+  }
+
+  if (isProduction()) {
+    validateProductionSecret(config.adminPortal.bootstrapPassword, "ADMIN_BOOTSTRAP_PASSWORD", 16);
+    if (String(config.adminPortal.bootstrapUsername).trim().toLowerCase() === "admin") {
+      throw createError("ADMIN_BOOTSTRAP_USERNAME must not use the default 'admin' identity in production", 500);
+    }
   }
 
   const existing = await db.prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?)").get(config.adminPortal.bootstrapUsername);
@@ -82,6 +139,8 @@ exports.ensureAdminFoundation = async () => {
     adminRole.id
   );
 };
+
+exports.retireLegacySampleCredentials = retireLegacySampleCredentials;
 
 exports.getPublicStatus = async () => {
   let databaseReady = false;

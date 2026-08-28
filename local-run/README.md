@@ -46,6 +46,12 @@ Open:
 - Test Engine: `http://localhost:4301`
 - Test Engine OPS board: `http://localhost:4301/ops-telemetry`
 
+Published development ports bind to `127.0.0.1` by default so seeded accounts,
+databases, object storage, and execution services are not exposed to the LAN.
+Use the matching `*_BIND` setting in `.env` only when another trusted host must
+connect (for example, `API_BIND=0.0.0.0`). Apply host firewall rules before
+opening a bind.
+
 Seed login:
 
 - `admin@hellotest.ai` / `admin123`
@@ -78,9 +84,10 @@ and can be scaled without changing the browser/API URL:
 The local Test Engine defaults to:
 
 - `TESTENGINE_API_REPLICAS=0`
-- `TESTENGINE_WEB_REPLICAS=0`
+- `TESTENGINE_WEB_REPLICAS=1`
 - `TESTENGINE_ANDROID_REPLICAS=0`
 - `TESTENGINE_AUTOSCALE=true`
+- `TESTENGINE_WEB_MIN_WORKERS=1`
 - `TESTENGINE_AUTOSCALE_MAX_WORKERS=3`
 - `TESTENGINE_API_POLL_INTERVAL_MS=1000`
 - `TESTENGINE_WEB_POLL_INTERVAL_MS=1000`
@@ -89,11 +96,11 @@ The local Test Engine defaults to:
 - `TESTENGINE_WEB_POLL_CONCURRENCY=2`
 - `TESTENGINE_ANDROID_POLL_CONCURRENCY=1`
 
-That means the Test Engine gateway stays available while worker containers are
-created only when HelloTest has queued execution work. The local autoscaler checks
-queue depth every 15 seconds, scales each pool independently from zero, caps each
-pool at 3 workers by default, and removes obsolete stopped containers after
-scale-down. API bursts can scale up without starting extra browsers or mobile
+That keeps one Web worker warm so the Test Engine gateway and recorder endpoints
+remain healthy. The local autoscaler checks queue depth every 15 seconds, scales
+the API and Android pools independently from zero, scales Web above its one-worker
+floor, caps each pool at 3 workers by default, and removes obsolete stopped
+containers after scale-down. API bursts can scale up without starting extra mobile
 device sessions. To force API workers manually:
 
 ```bash
@@ -115,6 +122,31 @@ bin/autoscale-testengine.sh once
 Local LLM and local automation-generator agent services are intentionally not
 part of this low-footprint local stack. Use HelloTest's integration settings for a
 remote LLM provider when AI generation is needed.
+
+## Mobile Engine Health
+
+The mobile engine exposes `/health/live` for process liveness and
+`/health/ready` for dependency readiness. With the default
+`MOBILE_PROVIDER=local-appium`, readiness probes the configured Appium `/status`
+endpoint with a two-second ceiling. Because Appium is an on-demand local device
+dependency and is not bundled, an unavailable provider is reported as
+`degraded` without preventing the base stack from starting. Set
+`MOBILE_REQUIRE_PROVIDER_READY=true` when Android capacity is mandatory; in that
+mode readiness fails closed until Appium is available. The legacy `/health`
+endpoint remains available for older integrations.
+
+All `/api/v1/mobile/*` operations are authenticated with the dedicated
+`MOBILE_ENGINE_SHARED_SECRET`; health and capabilities remain public for
+orchestration probes. The API and Android worker send the credential
+automatically. Recorder live views use a random token scoped to one recorder
+session, never the service credential. Production rejects missing, default, or
+shorter-than-32-character mobile secrets. The checked-in `.env.example` value
+is development-only.
+
+Remote file pushes default to a 15-second download deadline and a 25 MiB limit.
+Override `MOBILE_REMOTE_DOWNLOAD_TIMEOUT_MS` or
+`MOBILE_REMOTE_DOWNLOAD_MAX_BYTES` in `.env` when a controlled environment needs
+different bounded values.
 
 ## AI Generation
 

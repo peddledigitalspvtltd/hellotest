@@ -1,4 +1,5 @@
 const db = require("../db");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
 const { randomUUID: uuid } = require("crypto");
 const { sanitizeVariablesForRead } = require("../utils/contextVariables");
 const integrationService = require("./integration.service");
@@ -183,6 +184,12 @@ const selectExecutionRecord = db.prepare(`
   WHERE id = ?
 `);
 
+const selectExecutionBySourceIdempotency = db.prepare(`
+  SELECT id, status
+  FROM executions
+  WHERE project_id = ? AND source_idempotency_key = ?
+`);
+
 const selectExecutionCaseSnapshot = db.prepare(`
   SELECT execution_id, test_case_id, suite_id, module_id, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
@@ -338,30 +345,28 @@ function normalizeLocalEngineBaseUrl(value) {
 }
 
 async function canReachLocalEngine(baseUrl) {
-  if (typeof fetch !== "function") {
-    return false;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 900);
-
   try {
-    const response = await fetch(`${baseUrl}/health`, {
-      method: "GET",
-      signal: controller.signal
+    const response = await resilientHttpRequest(`${baseUrl}/health`, {
+      method: "GET"
+    }, {
+      dependency: "local-execution-engine",
+      operation: "health.probe",
+      deadlineMs: 900,
+      maxAttempts: 1,
+      maxResponseBytes: 256 * 1024,
+      maxConcurrent: 8,
+      failureThreshold: 10,
+      resetTimeoutMs: 5_000
     });
     return response.ok;
   } catch {
     return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
 async function resolveLocalEngineBaseUrl(preferredUrl) {
   const candidates = [
     preferredUrl,
-    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
     process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
     "http://localhost:4311",
     "http://127.0.0.1:4311",
@@ -1305,7 +1310,8 @@ exports.createExecution = async ({
   name,
   created_by,
   trigger = "manual",
-  initial_status = "queued"
+  initial_status = "queued",
+  source_idempotency_key
 }) => {
   if (!project_id || !created_by) {
     throw new Error("Missing required fields");
@@ -1322,6 +1328,42 @@ exports.createExecution = async ({
   `).get(created_by);
 
   if (!user) throw new Error("Invalid user");
+
+  const resolvedSourceIdempotencyKey = normalizeText(source_idempotency_key);
+  if (resolvedSourceIdempotencyKey?.length > 255) {
+    const error = new Error("Execution idempotency key must be 255 characters or fewer");
+    error.statusCode = 400;
+    throw error;
+  }
+  const requestedExecutionMode = normalizeText(execution_mode) === "local"
+    ? "local"
+    : normalizeText(execution_mode) === "remote"
+      ? "remote"
+      : "manual";
+  const replayExistingExecution = async (existing) => {
+    if (existing.status === "queued" && (requestedExecutionMode === "remote" || requestedExecutionMode === "local")) {
+      try {
+        await exports.startExecution(existing.id, {
+          initiated_by: created_by,
+          execution_mode: requestedExecutionMode,
+          engine_base_url: engine_base_url || undefined
+        });
+      } catch (error) {
+        const refreshed = await selectExecutionBySourceIdempotency.get(project_id, resolvedSourceIdempotencyKey);
+        if (!refreshed || refreshed.status === "queued") throw error;
+      }
+    }
+    const refreshed = await selectExecutionBySourceIdempotency.get(project_id, resolvedSourceIdempotencyKey);
+    return {
+      id: existing.id,
+      idempotent_replay: true,
+      status: refreshed?.status || existing.status
+    };
+  };
+  if (resolvedSourceIdempotencyKey) {
+    const existing = await selectExecutionBySourceIdempotency.get(project_id, resolvedSourceIdempotencyKey);
+    if (existing) return replayExistingExecution(existing);
+  }
 
   const resolvedAssignedToIds = await resolveExecutionAssigneesForCreate(project_id, assigned_to_ids, assigned_to, created_by);
   const resolvedAssignedTo = resolvedAssignedToIds[0] || null;
@@ -1473,13 +1515,14 @@ exports.createExecution = async ({
         sprint,
         build,
         execution_hooks,
+        source_idempotency_key,
         parallel_enabled,
         parallel_count,
         assigned_to,
         assigned_to_ids,
         created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       project_id,
@@ -1500,6 +1543,7 @@ exports.createExecution = async ({
       normalizeText(sprint),
       normalizeText(build),
       Array.isArray(execution_hooks) ? execution_hooks : [],
+      resolvedSourceIdempotencyKey,
       normalizedParallelEnabled,
       normalizedParallelCount,
       resolvedAssignedTo,
@@ -1566,7 +1610,14 @@ exports.createExecution = async ({
     }
   });
 
-  await transaction();
+  try {
+    await transaction();
+  } catch (error) {
+    if (error?.code !== "23505" || !resolvedSourceIdempotencyKey) throw error;
+    const existing = await selectExecutionBySourceIdempotency.get(project_id, resolvedSourceIdempotencyKey);
+    if (!existing) throw error;
+    return replayExistingExecution(existing);
+  }
 
   if (normalizedExecutionMode === "remote" || normalizedExecutionMode === "local") {
     await exports.startExecution(id, {
@@ -1576,7 +1627,7 @@ exports.createExecution = async ({
     });
   }
 
-  return { id };
+  return { id, idempotent_replay: false };
 };
 
 exports.createLocalRun = async (input = {}) => {

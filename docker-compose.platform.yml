@@ -1,17 +1,29 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: hellotest-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - hellotest-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: always
+
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
     container_name: hellotest-postgres
     ports:
-      - "${HELLOTEST_POSTGRES_BIND:-0.0.0.0}:${HELLOTEST_POSTGRES_PORT:-5432}:5432"
+      - "${HELLOTEST_POSTGRES_BIND:-127.0.0.1}:${HELLOTEST_POSTGRES_PORT:-5432}:5432"
     volumes:
       - hellotest-postgres-data:/var/lib/postgresql/data
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hellotest}
       POSTGRES_USER: ${POSTGRES_USER:-hellotest}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hellotest} -d ${POSTGRES_DB:-hellotest}"]
       interval: 5s
@@ -19,7 +31,7 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: hellotest-minio
     command: server /data --console-address ":9001"
     expose:
@@ -27,9 +39,40 @@ services:
       - "9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
     volumes:
       - hellotest-minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: always
+
+  tika:
+    image: apache/tika:3.3.0.0
+    container_name: hellotest-tika
+    expose:
+      - "9998"
+    networks:
+      - knowledge-parser
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9998 && printf \"GET /version HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     restart: always
 
   api:
@@ -39,32 +82,65 @@ services:
     image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
     container_name: hellotest-api
     ports:
-      - "${HELLOTEST_API_BIND:-0.0.0.0}:${HELLOTEST_API_PORT:-3000}:3000"
+      - "${HELLOTEST_API_BIND:-127.0.0.1}:${HELLOTEST_API_PORT:-3000}:3000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
-      SESSION_SECRET: ${SESSION_SECRET:-hellotest-dev-secret}
+      NODE_ENV: production
+      APP_MODE: ${APP_MODE:-aws}
+      DATABASE_URL: ${DATABASE_URL:-}
+      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      OBS_POSTGRES_HOST: postgres
+      OBS_POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      OBS_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      OBS_POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SESSION_SECRET: ${SESSION_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost}
       ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
       ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
+      ADMIN_BOOTSTRAP_ENABLED: ${ADMIN_BOOTSTRAP_ENABLED:-true}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-bootstrap-admin}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       OTEL_SERVICE_NAME: hellotest-api
+      ENABLE_OBSERVABILITY: ${ENABLE_OBSERVABILITY:-true}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hellotest}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hellotest-minio-dev-secret}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
       MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
+      KNOWLEDGE_MAX_FILE_BYTES: ${KNOWLEDGE_MAX_FILE_BYTES:-52428800}
+      KNOWLEDGE_EXTRACTION_MAX_BYTES: ${KNOWLEDGE_EXTRACTION_MAX_BYTES:-20971520}
+      KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS: ${KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS:-2000000}
+      KNOWLEDGE_TIKA_URL: ${KNOWLEDGE_TIKA_URL:-http://tika:9998}
+      KNOWLEDGE_TIKA_TIMEOUT_MS: ${KNOWLEDGE_TIKA_TIMEOUT_MS:-30000}
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      tika:
+        condition: service_healthy
+      otel-collector:
         condition: service_started
+    networks:
+      - default
+      - knowledge-parser
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -98,7 +174,7 @@ services:
         condition: service_healthy
     ports:
       - "${HELLOTEST_HTTP_BIND:-0.0.0.0}:${HELLOTEST_HTTP_PORT:-80}:80"
-      - "${HELLOTEST_HAPROXY_STATS_BIND:-0.0.0.0}:${HELLOTEST_HAPROXY_STATS_PORT:-8404}:8404"
+      - "${HELLOTEST_HAPROXY_STATS_BIND:-127.0.0.1}:${HELLOTEST_HAPROXY_STATS_PORT:-8404}:8404"
     volumes:
       - ./ops/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     restart: always
@@ -112,9 +188,15 @@ services:
       otel-collector:
         condition: service_started
     ports:
-      - "${HELLOTEST_PROMETHEUS_BIND:-0.0.0.0}:${HELLOTEST_PROMETHEUS_PORT:-9090}:9090"
+      - "${HELLOTEST_PROMETHEUS_BIND:-127.0.0.1}:${HELLOTEST_PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}
     volumes:
       - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
     restart: always
 
   loki:
@@ -122,9 +204,10 @@ services:
     container_name: hellotest-loki
     command: ["-config.file=/etc/loki/local-config.yaml"]
     ports:
-      - "${HELLOTEST_LOKI_BIND:-0.0.0.0}:${HELLOTEST_LOKI_PORT:-3100}:3100"
+      - "${HELLOTEST_LOKI_BIND:-127.0.0.1}:${HELLOTEST_LOKI_PORT:-3100}:3100"
     volumes:
       - ./ops/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
     restart: always
 
   promtail:
@@ -145,29 +228,54 @@ services:
     depends_on:
       - prometheus
       - loki
+      - jaeger
     ports:
-      - "${HELLOTEST_GRAFANA_BIND:-0.0.0.0}:${HELLOTEST_GRAFANA_PORT:-3001}:3000"
+      - "${HELLOTEST_GRAFANA_BIND:-127.0.0.1}:${HELLOTEST_GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./ops/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./ops/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: always
+
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
+    container_name: hellotest-jaeger
+    ports:
+      - "${HELLOTEST_JAEGER_BIND:-127.0.0.1}:${HELLOTEST_JAEGER_PORT:-16686}:16686"
     restart: always
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.104.0
+    image: otel/opentelemetry-collector-contrib:0.157.0
     container_name: hellotest-otel-collector
     command: ["--config=/etc/otel-collector/config.yaml"]
     ports:
-      - "${HELLOTEST_OTEL_GRPC_BIND:-0.0.0.0}:${HELLOTEST_OTEL_GRPC_PORT:-4317}:4317"
-      - "${HELLOTEST_OTEL_HTTP_BIND:-0.0.0.0}:${HELLOTEST_OTEL_HTTP_PORT:-4318}:4318"
-      - "${HELLOTEST_OTEL_METRICS_BIND:-0.0.0.0}:${HELLOTEST_OTEL_METRICS_PORT:-9464}:9464"
+      - "${HELLOTEST_OTEL_GRPC_BIND:-127.0.0.1}:${HELLOTEST_OTEL_GRPC_PORT:-4317}:4317"
+      - "${HELLOTEST_OTEL_HTTP_BIND:-127.0.0.1}:${HELLOTEST_OTEL_HTTP_PORT:-4318}:4318"
+      - "${HELLOTEST_OTEL_METRICS_BIND:-127.0.0.1}:${HELLOTEST_OTEL_METRICS_PORT:-9464}:9464"
+    expose:
+      - "13133"
     volumes:
       - ./ops/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+    depends_on:
+      - jaeger
+      - loki
+    mem_limit: 512m
     restart: always
 
+networks:
+  knowledge-parser:
+    internal: true
+
 volumes:
+  hellotest-redis-data:
   hellotest-postgres-data:
   hellotest-minio-data:
+  prometheus-data:
+  loki-data:
   grafana-data:

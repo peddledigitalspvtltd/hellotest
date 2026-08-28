@@ -2,9 +2,15 @@ import Fastify from "fastify";
 import { buildAcceptedRun, buildCapabilities } from "./lib/pipeline.js";
 import { queueRunExecution, saveAcceptedRun } from "./lib/executor.js";
 import { createOpsTelemetry } from "./lib/opsTelemetry.js";
-import { startQueueWorker } from "./lib/queueWorker.js";
+import { startQueueWorker, type QueueWorkerController } from "./lib/queueWorker.js";
 import { getRun, getRunEnvelope, listRuns, saveRun } from "./lib/runStore.js";
 import { registerRecorderRoutes } from "./lib/recorder.js";
+import {
+  createCorsHook,
+  createPrivilegedRunGuard,
+  resolveCorsPolicy,
+  resolveTestEngineSharedSecret
+} from "./lib/testEngineSecurity.js";
 import { captureLiveSessionScreenshot, getLiveSessionStatus } from "./lib/webEngine.js";
 import type { EngineRunEnvelope } from "./contracts/hellotest.js";
 
@@ -65,18 +71,14 @@ const app = Fastify({
     level: process.env.LOG_LEVEL || "info"
   }
 });
+const sharedSecretConfig = resolveTestEngineSharedSecret();
+const privilegedRunGuard = createPrivilegedRunGuard(sharedSecretConfig);
+const corsPolicy = resolveCorsPolicy();
+const activeDirectExecutions = new Set<Promise<void>>();
+let queueWorker: QueueWorkerController | null = null;
+let shuttingDown = false;
 
-app.addHook("onRequest", async (request, reply) => {
-  const origin = request.headers.origin;
-  reply.header("access-control-allow-origin", typeof origin === "string" ? origin : "*");
-  reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
-  reply.header("access-control-allow-headers", "content-type,x-hellotest-recorder-token,authorization");
-  reply.header("access-control-max-age", "600");
-
-  if (request.method === "OPTIONS") {
-    reply.code(204).send();
-  }
-});
+app.addHook("onRequest", createCorsHook(corsPolicy));
 
 app.options("/*", async (_request, reply) => {
   reply.code(204).send();
@@ -91,13 +93,48 @@ const getOpsTelemetry = () => {
   return opsTelemetry;
 };
 
-app.get("/health", async () => ({
+const buildLiveHealth = () => ({
   ok: true,
+  status: "live",
   service: process.env.ENGINE_NAME || "HelloTest Test Engine",
   runner: process.env.TESTENGINE_WORKER_CLASS || "hybrid",
   ui: "hellotest",
-  execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android",
+  execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android"
+});
+
+app.get("/health/live", async () => buildLiveHealth());
+
+app.get("/health/ready", async (_request, reply) => {
+  const worker = queueWorker?.getHealthSnapshot() || null;
+  const ready = !shuttingDown
+    && Boolean(opsTelemetry)
+    && sharedSecretConfig.ready
+    && Boolean(worker?.ready);
+
+  reply.code(ready ? 200 : 503).header("cache-control", "no-store");
+  return {
+    ok: ready,
+    status: ready ? "ready" : "not_ready",
+    service: process.env.ENGINE_NAME || "HelloTest Test Engine",
+    checks: {
+      accepting_requests: !shuttingDown,
+      shared_secret: {
+        ready: sharedSecretConfig.ready,
+        configured: Boolean(sharedSecretConfig.source && sharedSecretConfig.source !== "development-fallback"),
+        source: sharedSecretConfig.source,
+        reason: sharedSecretConfig.reason
+      },
+      queue_worker: worker,
+      ops_telemetry_initialized: Boolean(opsTelemetry)
+    }
+  };
+});
+
+// Compatibility endpoint for older operators. Deployment probes use the explicit live/ready endpoints.
+app.get("/health", async () => ({
+  ...buildLiveHealth(),
   supported_web_engines: ["playwright", "selenium"],
+  queue_worker: queueWorker?.getHealthSnapshot() || null,
   ops_telemetry: getOpsTelemetry().getHealthSnapshot()
 }));
 
@@ -188,11 +225,11 @@ app.get("/api/v1/live-session", async (request, reply) => {
   };
 });
 
-app.get("/api/v1/runs", async () => ({
+app.get("/api/v1/runs", { preHandler: privilegedRunGuard }, async () => ({
   items: listRuns()
 }));
 
-app.get("/api/v1/runs/:id", async (request, reply) => {
+app.get("/api/v1/runs/:id", { preHandler: privilegedRunGuard }, async (request, reply) => {
   const params = request.params as { id: string };
   const run = getRun(params.id);
 
@@ -204,7 +241,14 @@ app.get("/api/v1/runs/:id", async (request, reply) => {
   return run;
 });
 
-app.post("/api/v1/runs", async (request, reply) => {
+const trackDirectExecution = (execution: Promise<void>) => {
+  activeDirectExecutions.add(execution);
+  void execution.finally(() => {
+    activeDirectExecutions.delete(execution);
+  });
+};
+
+app.post("/api/v1/runs", { preHandler: privilegedRunGuard }, async (request, reply) => {
   const envelope = request.body as EngineRunEnvelope;
 
   if (!envelope?.engine_run_id || !envelope?.hellotest_run_id || !envelope?.hellotest_test_case_id) {
@@ -223,7 +267,7 @@ app.post("/api/v1/runs", async (request, reply) => {
   }
 
   const accepted = saveAcceptedRun(envelope, buildAcceptedRun(envelope));
-  queueRunExecution(envelope, accepted, app.log);
+  trackDirectExecution(queueRunExecution(envelope, accepted, app.log));
   reply.code(202);
   return {
     id: accepted.id,
@@ -232,7 +276,7 @@ app.post("/api/v1/runs", async (request, reply) => {
   };
 });
 
-app.post("/api/v1/runs/:id/retry", async (request, reply) => {
+app.post("/api/v1/runs/:id/retry", { preHandler: privilegedRunGuard }, async (request, reply) => {
   const params = request.params as { id: string };
   const existing = getRun(params.id);
 
@@ -257,7 +301,7 @@ app.post("/api/v1/runs/:id/retry", async (request, reply) => {
     updated_at: new Date().toISOString()
   }, envelope);
 
-  queueRunExecution(envelope, retried, app.log);
+  trackDirectExecution(queueRunExecution(envelope, retried, app.log));
 
   reply.code(202);
   return retried;
@@ -267,14 +311,99 @@ const startServer = async () => {
   opsTelemetry = await createOpsTelemetry(app.log);
   await opsTelemetry.register(app);
   await registerRecorderRoutes(app);
-  startQueueWorker(app.log, opsTelemetry);
+  queueWorker = startQueueWorker(app.log, opsTelemetry);
+  app.addHook("onClose", async () => {
+    shuttingDown = true;
+    const configuredTimeout = Number.parseInt(process.env.TESTENGINE_SHUTDOWN_TIMEOUT_MS || "30000", 10);
+    const timeoutMs = Number.isFinite(configuredTimeout)
+      ? Math.max(1, Math.min(120_000, configuredTimeout))
+      : 30_000;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let directExecutionsTimedOut = false;
+    const drainDirectExecutions = Promise.allSettled(Array.from(activeDirectExecutions)).then(() => undefined);
+    const directExecutionTimeout = new Promise<void>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        directExecutionsTimedOut = true;
+        resolve();
+      }, timeoutMs);
+      timeoutHandle.unref?.();
+    });
+
+    await Promise.all([
+      queueWorker?.stop({ timeoutMs }),
+      Promise.race([drainDirectExecutions, directExecutionTimeout])
+    ]);
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+
+    if (directExecutionsTimedOut && activeDirectExecutions.size > 0) {
+      app.log.error({
+        active_direct_executions: activeDirectExecutions.size,
+        timeout_ms: timeoutMs
+      }, "Test Engine shutdown timed out while direct executions were still active");
+    }
+  });
   await app.listen({
     port,
     host: "0.0.0.0"
   });
 };
 
-startServer().catch((error) => {
+let shutdownPromise: Promise<void> | null = null;
+const shutdown = (signal: NodeJS.Signals) => {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shuttingDown = true;
+  app.log.info({ signal }, "Test Engine graceful shutdown started");
+  const configuredTimeout = Number.parseInt(process.env.TESTENGINE_SHUTDOWN_TIMEOUT_MS || "30000", 10);
+  const timeoutMs = Number.isFinite(configuredTimeout)
+    ? Math.max(1, Math.min(120_000, configuredTimeout))
+    : 30_000;
+  const forceExitTimer = setTimeout(() => {
+    app.log.error({ signal, timeout_ms: timeoutMs }, "Test Engine graceful shutdown exceeded its deadline");
+    process.exit(1);
+  }, timeoutMs + 2_000);
+
+  shutdownPromise = app.close()
+    .then(() => {
+      const workerHealth = queueWorker?.getHealthSnapshot();
+      const pendingWork = activeDirectExecutions.size + (workerHealth?.active_jobs || 0);
+
+      if (pendingWork === 0 && !workerHealth?.polling) {
+        clearTimeout(forceExitTimer);
+        app.log.info({ signal }, "Test Engine graceful shutdown completed");
+        return;
+      }
+
+      app.log.error({
+        signal,
+        pending_work: pendingWork,
+        worker_polling: Boolean(workerHealth?.polling)
+      }, "Test Engine stopped accepting requests but could not drain all work before its deadline");
+      process.exitCode = 1;
+    })
+    .catch((error) => {
+      clearTimeout(forceExitTimer);
+      app.log.error({ error, signal }, "Test Engine graceful shutdown failed");
+      process.exitCode = 1;
+    });
+
+  return shutdownPromise;
+};
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+process.once("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+startServer().catch(async (error) => {
   app.log.error(error);
-  process.exit(1);
+  await app.close().catch(() => undefined);
+  process.exitCode = 1;
 });

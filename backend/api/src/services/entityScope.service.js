@@ -45,6 +45,9 @@ const ENTITY_SCOPES = {
   },
   issue: {
     query: "SELECT id, project_id FROM feedback WHERE id = ?"
+  },
+  knowledge_source: {
+    query: "SELECT id, project_id FROM ai_knowledge_sources WHERE id = ?"
   }
 };
 

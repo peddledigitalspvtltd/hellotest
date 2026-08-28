@@ -1,9 +1,21 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: hellotest-local-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - hellotest-local-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
     container_name: hellotest-local-postgres
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - hellotest-local-postgres-data:/var/lib/postgresql/data
       - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -20,31 +32,65 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: hellotest-local-minio
     command: server /data --console-address ":9001"
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${MINIO_API_BIND:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
     volumes:
       - hellotest-local-minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  tika:
+    image: apache/tika:3.3.0.0
+    container_name: hellotest-local-tika
+    expose:
+      - "9998"
+    networks:
+      - knowledge-parser
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9998 && printf \"GET /version HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
 
   api:
     image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
     container_name: hellotest-local-api
     ports:
-      - "${API_PORT:-3000}:3000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     environment:
+      APP_MODE: ${APP_MODE:-local}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SESSION_SECRET: ${SESSION_SECRET:-hellotest-local-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
       ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
       HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
@@ -54,13 +100,25 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-104857600}
+      KNOWLEDGE_MAX_FILE_BYTES: ${KNOWLEDGE_MAX_FILE_BYTES:-52428800}
+      KNOWLEDGE_EXTRACTION_MAX_BYTES: ${KNOWLEDGE_EXTRACTION_MAX_BYTES:-20971520}
+      KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS: ${KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS:-2000000}
+      KNOWLEDGE_TIKA_URL: ${KNOWLEDGE_TIKA_URL:-http://tika:9998}
+      KNOWLEDGE_TIKA_TIMEOUT_MS: ${KNOWLEDGE_TIKA_TIMEOUT_MS:-30000}
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
+      tika:
+        condition: service_healthy
+    networks:
+      - default
+      - knowledge-parser
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -69,8 +127,8 @@ services:
     image: ${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}
     container_name: hellotest-local-frontend
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
-      - "${HELLOTEST_ADMIN_PORT:-8081}:81"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
+      - "${ADMIN_BIND:-127.0.0.1}:${HELLOTEST_ADMIN_PORT:-8081}:81"
     environment:
       HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}
     depends_on:
@@ -88,6 +146,7 @@ services:
       - "4301"
     environment:
       PORT: 4301
+      NODE_ENV: development
       ENGINE_NAME: hellotest-local-testengine-api-worker
       TESTENGINE_WORKER_CLASS: api
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
@@ -104,10 +163,11 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
+    stop_grace_period: 35s
     deploy:
       replicas: ${TESTENGINE_API_REPLICAS:-0}
 
@@ -117,6 +177,7 @@ services:
       - "4301"
     environment:
       PORT: 4301
+      NODE_ENV: development
       ENGINE_NAME: hellotest-local-testengine-web-worker
       TESTENGINE_WORKER_CLASS: web
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
@@ -133,12 +194,13 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
+    stop_grace_period: 35s
     deploy:
-      replicas: ${TESTENGINE_WEB_REPLICAS:-0}
+      replicas: ${TESTENGINE_WEB_REPLICAS:-1}
 
   testengine-android-worker:
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
@@ -146,6 +208,7 @@ services:
       - "4301"
     environment:
       PORT: 4301
+      NODE_ENV: development
       ENGINE_NAME: hellotest-local-testengine-android-worker
       TESTENGINE_WORKER_CLASS: android
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
@@ -153,6 +216,7 @@ services:
       HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://mobile-engine:4312}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_ANDROID_POLL_INTERVAL_MS:-1000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_ANDROID_POLL_CONCURRENCY:-1}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
@@ -165,10 +229,11 @@ services:
       mobile-engine:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
+    stop_grace_period: 35s
     deploy:
       replicas: ${TESTENGINE_ANDROID_REPLICAS:-0}
 
@@ -176,11 +241,11 @@ services:
     image: haproxy:2.9-alpine
     container_name: hellotest-local-testengine
     ports:
-      - "${TESTENGINE_PORT:-4301}:4301"
+      - "${TESTENGINE_BIND:-127.0.0.1}:${TESTENGINE_PORT:-4301}:4301"
     volumes:
       - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -189,20 +254,35 @@ services:
     image: ${HELLOTEST_MOBILE_ENGINE_IMAGE:-jayarajumetta/hellotest-mobile-engine:latest}
     container_name: hellotest-local-mobile-engine
     ports:
-      - "${MOBILE_ENGINE_PORT:-4312}:4312"
+      - "${MOBILE_ENGINE_BIND:-127.0.0.1}:${MOBILE_ENGINE_PORT:-4312}:4312"
     environment:
       PORT: 4312
+      NODE_ENV: development
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
+      MOBILE_PROVIDER: ${MOBILE_PROVIDER:-local-appium}
+      MOBILE_REMOTE_URL: ${MOBILE_REMOTE_URL:-}
       APPIUM_SERVER_URL: ${APPIUM_SERVER_URL:-http://host.docker.internal:4723}
       ANDROID_DEVICE_NAME: ${ANDROID_DEVICE_NAME:-Android Device}
       ANDROID_PLATFORM_VERSION: ${ANDROID_PLATFORM_VERSION:-}
       ANDROID_APP: ${ANDROID_APP:-}
+      MOBILE_READINESS_TIMEOUT_MS: ${MOBILE_READINESS_TIMEOUT_MS:-2000}
+      MOBILE_REQUIRE_PROVIDER_READY: ${MOBILE_REQUIRE_PROVIDER_READY:-false}
+      MOBILE_REMOTE_DOWNLOAD_TIMEOUT_MS: ${MOBILE_REMOTE_DOWNLOAD_TIMEOUT_MS:-15000}
+      MOBILE_REMOTE_DOWNLOAD_MAX_BYTES: ${MOBILE_REMOTE_DOWNLOAD_MAX_BYTES:-26214400}
+      MOBILE_SHUTDOWN_TIMEOUT_MS: ${MOBILE_SHUTDOWN_TIMEOUT_MS:-10000}
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4312/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4312/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 10
+      start_period: 10s
+
+networks:
+  knowledge-parser:
+    internal: true
 
 volumes:
+  hellotest-local-redis-data:
   hellotest-local-postgres-data:
   hellotest-local-testengine-artifacts:
   hellotest-local-minio-data:

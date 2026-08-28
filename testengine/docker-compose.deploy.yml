@@ -5,9 +5,11 @@ x-testengine-worker: &testengine-worker
     NODE_ENV: production
     ARTIFACT_ROOT: /artifacts
     HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-http://host.docker.internal:3000}
-    HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+    HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:?HELLOTEST_TESTENGINE_SECRET must be set to a non-default value of at least 32 characters}
+    MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:?MOBILE_ENGINE_SHARED_SECRET must be set to a non-default value of at least 32 characters}
     ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
     LOG_LEVEL: ${LOG_LEVEL:-info}
+    TESTENGINE_CORS_ORIGINS: ${TESTENGINE_CORS_ORIGINS:-}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     OPS_TELEMETRY_ENABLED: ${OPS_TELEMETRY_ENABLED:-true}
     OPS_TELEMETRY_EVENTS_PATH: ${OPS_TELEMETRY_EVENTS_PATH:-/api/v1/events}
@@ -21,10 +23,11 @@ x-testengine-worker: &testengine-worker
   volumes:
     - testengine-artifacts:/artifacts
   healthcheck:
-    test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4301/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));\""]
+    test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4301/health/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));\""]
     interval: 15s
     timeout: 10s
     retries: 10
+  stop_grace_period: 35s
   restart: always
 
 services:
@@ -67,12 +70,37 @@ services:
       <<: *testengine-env
       ENGINE_NAME: HelloTest Android Execution Engine
       TESTENGINE_WORKER_CLASS: android
-      MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://host.docker.internal:4312}
+      MOBILE_ENGINE_URL: ${MOBILE_ENGINE_URL:-http://mobile-engine:4312}
       TESTENGINE_POLL_INTERVAL_MS: ${TESTENGINE_ANDROID_POLL_INTERVAL_MS:-1000}
       TESTENGINE_POLL_CONCURRENCY: ${TESTENGINE_ANDROID_POLL_CONCURRENCY:-1}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_ANDROID:-hellotest-testengine-android}
       OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES_ANDROID:-service.name=hellotest-testengine-android}
       OPS_TELEMETRY_SERVICE_NAME: ${OPS_TELEMETRY_SERVICE_NAME_ANDROID:-hellotest-testengine-android}
+    depends_on:
+      mobile-engine:
+        condition: service_healthy
+
+  mobile-engine:
+    image: ${HELLOTEST_MOBILE_ENGINE_IMAGE:-jayarajumetta/hellotest-mobile-engine:latest}
+    container_name: hellotest-mobile-engine
+    ports:
+      - "${MOBILE_ENGINE_BIND:-127.0.0.1}:${MOBILE_ENGINE_PORT:-4312}:4312"
+    environment:
+      PORT: 4312
+      NODE_ENV: production
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:?MOBILE_ENGINE_SHARED_SECRET must be set to a non-default value of at least 32 characters}
+      MOBILE_PROVIDER: ${MOBILE_PROVIDER:-local-appium}
+      MOBILE_REMOTE_URL: ${MOBILE_REMOTE_URL:-}
+      APPIUM_SERVER_URL: ${APPIUM_SERVER_URL:-http://host.docker.internal:4723}
+      MOBILE_REQUIRE_PROVIDER_READY: ${MOBILE_REQUIRE_PROVIDER_READY:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4312/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 15s
+    restart: always
 
   selenium-hub:
     image: ${HELLOTEST_SELENIUM_HUB_IMAGE:-selenium/hub:4.22.0}

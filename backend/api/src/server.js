@@ -1,20 +1,23 @@
-require("./tracing"); // Must be loaded before other modules
+const tracing = require("./tracing"); // Must load before instrumented modules.
 const app = require("./app");
+const db = require("./db");
+const obsDb = require("./obsDb");
+const cache = require("./utils/cache");
 const { config } = require("./config");
+const { createRuntimeLifecycle } = require("./services/runtimeLifecycle.service");
 
-const port = config.port;
-
-process.on("unhandledRejection", (reason) => {
-  app.log.error({ error: reason }, "Unhandled promise rejection captured; API process remains alive.");
+const lifecycle = createRuntimeLifecycle({
+  app,
+  resources: [
+    { close: () => cache.close() },
+    { close: () => db.close() },
+    { close: () => obsDb.close() },
+    { close: () => tracing.shutdown() }
+  ]
 });
 
-process.on("uncaughtException", (error) => {
-  app.log.fatal({ error }, "Uncaught exception captured; API process remains alive.");
-});
+lifecycle.registerProcessHandlers();
 
-app.listen({ port, host: "0.0.0.0" })
-  .then(() => console.log("API running"))
-  .catch(err => {
-    console.error(err);
-    process.exit(1);
-  });
+app.listen({ port: config.port, host: "0.0.0.0" })
+  .then(() => app.log.info({ port: config.port }, "HelloTest API is ready"))
+  .catch((error) => lifecycle.shutdown({ reason: error, exitCode: 1, fatal: true }));

@@ -1,4 +1,5 @@
 const service = require("../services/testEngineDispatch.service");
+const { config } = require("../config");
 
 module.exports = async function (fastify) {
   fastify.post("/testengine/internal/jobs/lease", async (req) => {
@@ -47,7 +48,9 @@ module.exports = async function (fastify) {
     });
   });
 
-  fastify.post("/testengine/internal/jobs/:id/steps/:stepId/report", async (req) => {
+  fastify.post("/testengine/internal/jobs/:id/steps/:stepId/report", {
+    bodyLimit: config.http.largeBodyLimitBytes
+  }, async (req) => {
     await fastify.authenticateTestEngine(req);
 
     fastify.validate({
@@ -77,7 +80,9 @@ module.exports = async function (fastify) {
     });
   });
 
-  fastify.post("/testengine/internal/jobs/:id/complete", async (req) => {
+  fastify.post("/testengine/internal/jobs/:id/complete", {
+    bodyLimit: config.http.largeBodyLimitBytes
+  }, async (req) => {
     await fastify.authenticateTestEngine(req);
 
     fastify.validate({

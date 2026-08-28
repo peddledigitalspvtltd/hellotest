@@ -36,6 +36,18 @@ import type {
   Integration,
   JiraAttachment,
   JiraComment,
+  KnowledgeAssistantIntegration,
+  KnowledgeAssistantMessageResponse,
+  KnowledgeAssistantSession,
+  KnowledgeCollection,
+  KnowledgeIngestion,
+  KnowledgeIngestionRequest,
+  KnowledgeIngestionResponse,
+  KnowledgeOverview,
+  KnowledgeSearchFilters,
+  KnowledgeSearchMode,
+  KnowledgeSearchResponse,
+  KnowledgeSource,
   KeyValueEntry,
   Permission,
   PermissionGroup,
@@ -464,13 +476,17 @@ export class HelloTestApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly currentRevision?: number;
+  readonly requestId?: string;
+  readonly traceId?: string;
 
-  constructor(message: string, status: number, payload: ApiError = {}) {
+  constructor(message: string, status: number, payload: ApiError = {}, diagnostics: { requestId?: string; traceId?: string } = {}) {
     super(message);
     this.name = "HelloTestApiError";
     this.status = status;
     this.code = payload.code;
     this.currentRevision = payload.current_revision;
+    this.requestId = diagnostics.requestId;
+    this.traceId = diagnostics.traceId;
   }
 }
 
@@ -481,10 +497,15 @@ async function parseApiError(response: Response) {
   const message = error.message || (response.status === 403
     ? "You do not have permission to perform this action."
     : `Request failed with status ${response.status}`);
-  return new HelloTestApiError(message, response.status, error);
+  const requestId = response.headers.get("x-request-id") || undefined;
+  const traceId = response.headers.get("x-trace-id") || undefined;
+  const diagnosticSuffix = traceId || requestId
+    ? ` (support reference: ${traceId || requestId})`
+    : "";
+  return new HelloTestApiError(`${message}${diagnosticSuffix}`, response.status, error, { requestId, traceId });
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
   const method = String(init?.method || "GET").toUpperCase();
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers(init?.headers);
@@ -513,13 +534,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const executeRequest = async (): Promise<T> => {
     let response: Response;
     try {
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
+      const signal = init?.signal
+        ? AbortSignal.any([init.signal, timeoutSignal])
+        : timeoutSignal;
       response = await fetch(`${API_BASE_URL}${scopedPath}`, {
         ...init,
         method,
         headers,
-        signal: AbortSignal.timeout(30_000)
+        signal
       });
     } catch (err) {
+      if (init?.signal?.aborted) throw err;
       if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
         throw new Error(`Request timeout: ${scopedPath} took too long to respond`);
       }
@@ -590,20 +616,26 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   return response.blob();
 }
 
-async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+async function requestForm<T>(path: string, formData: FormData, options?: { idempotencyKey?: string; signal?: AbortSignal }): Promise<T> {
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers();
   const token = getStoredToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (options?.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
   let response: Response;
   try {
+    const timeoutSignal = AbortSignal.timeout(120_000);
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
     response = await fetch(`${API_BASE_URL}${scopedPath}`, {
       method: "POST",
       headers,
       body: formData,
-      signal: AbortSignal.timeout(120_000)
+      signal
     });
   } catch (err) {
+    if (options?.signal?.aborted) throw err;
     if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
       throw new Error("Attachment upload timed out. Try a smaller file or check object storage connectivity.");
     }
@@ -1223,13 +1255,97 @@ export const api = {
   },
   knowledgeRepo: {
     list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
+    overview: (projectId: string) =>
+      request<KnowledgeOverview>(`/projects/${projectId}/knowledge/overview`),
+    search: (input: {
+      project_id: string;
+      query: string;
+      mode?: KnowledgeSearchMode;
+      limit?: number;
+      filters?: KnowledgeSearchFilters;
+    }) => request<KnowledgeSearchResponse>("/knowledge/search", {
+      method: "POST",
+      body: JSON.stringify(input)
+    }),
+    sources: (projectId: string) =>
+      request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId })}`),
+    deleteSource: (id: string) =>
+      request<{ deleted: boolean; id: string }>(`/knowledge/sources/${id}`, { method: "DELETE" }),
+    downloadSource: (id: string) => requestBlob(`/knowledge/sources/${id}/file`),
     contextPackage: (projectId: string, query?: { app_type_id?: string; query?: string; asset_type?: string; priority?: string }) =>
       request<{ project_id: string; knowledge: any[]; related_context?: any[] }>(
         `/projects/${projectId}/knowledge/context-package${toQueryString(query)}`
       ),
     create: (projectId: string, input: any) => request<any>(`/projects/${projectId}/knowledge`, { method: "POST", body: JSON.stringify(input) }),
     update: (projectId: string, id: string, input: any) => request<any>(`/projects/${projectId}/knowledge/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" })
+    delete: (projectId: string, id: string) => request<{ success: boolean }>(`/projects/${projectId}/knowledge/${id}`, { method: "DELETE" }),
+    ingestions: {
+      create: (input: KnowledgeIngestionRequest, options?: { idempotencyKey?: string }) =>
+        request<KnowledgeIngestionResponse>("/knowledge/ingestions", {
+          method: "POST",
+          body: JSON.stringify(input),
+          headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined
+        }),
+      upload: (input: KnowledgeIngestionRequest, file: File, extractedText?: string, options?: { idempotencyKey?: string }) => {
+        const formData = new FormData();
+        formData.set("file", file);
+        formData.set("project_id", input.project_id);
+        if (input.app_type_id) formData.set("app_type_id", input.app_type_id);
+        if (input.collection_id) formData.set("collection_id", input.collection_id);
+        if (input.title) formData.set("title", input.title);
+        if (input.chunking) formData.set("chunking", JSON.stringify(input.chunking));
+        if (input.inputs?.length) formData.set("inputs", JSON.stringify(input.inputs));
+        if (input.selected_records) formData.set("selected_records", JSON.stringify(input.selected_records));
+        if (extractedText?.trim()) formData.set("extracted_text", extractedText.trim());
+        return requestForm<KnowledgeIngestionResponse>("/knowledge/ingestions", formData, options);
+      },
+      get: (id: string) => request<KnowledgeIngestion>(`/knowledge/ingestions/${id}`)
+    },
+    collections: {
+      list: (projectId: string) =>
+        request<KnowledgeCollection[]>(`/knowledge/collections${toQueryString({ project_id: projectId })}`),
+      get: (id: string) => request<KnowledgeCollection>(`/knowledge/collections/${id}`),
+      create: (input: { project_id: string; app_type_id?: string | null; name: string; description?: string; color?: string }) =>
+        request<KnowledgeCollection>("/knowledge/collections", {
+          method: "POST",
+          body: JSON.stringify(input)
+        }),
+      update: (id: string, input: Partial<Pick<KnowledgeCollection, "name" | "description" | "color" | "is_active">>) =>
+        request<KnowledgeCollection>(`/knowledge/collections/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(input)
+        }),
+      delete: (id: string) => request<{ deleted: boolean; id?: string }>(`/knowledge/collections/${id}`, { method: "DELETE" }),
+      addSources: (id: string, sourceIds: string[]) =>
+        request<KnowledgeCollection>(`/knowledge/collections/${id}/sources`, {
+          method: "POST",
+          body: JSON.stringify({ source_ids: sourceIds })
+        }),
+      removeSources: (id: string, sourceIds: string[]) =>
+        request<KnowledgeCollection>(`/knowledge/collections/${id}/sources`, {
+          method: "DELETE",
+          body: JSON.stringify({ source_ids: sourceIds })
+        })
+    },
+    assistant: {
+      listIntegrations: (projectId: string) =>
+        request<KnowledgeAssistantIntegration[]>(`/knowledge/assistant/integrations${toQueryString({ project_id: projectId })}`),
+      listSessions: (projectId: string) =>
+        request<KnowledgeAssistantSession[]>(`/knowledge/assistant/sessions${toQueryString({ project_id: projectId })}`),
+      createSession: (input: { project_id: string; app_type_id?: string | null; title?: string; integration_id?: string }, options?: { signal?: AbortSignal }) =>
+        request<KnowledgeAssistantSession>("/knowledge/assistant/sessions", {
+          method: "POST",
+          body: JSON.stringify(input),
+          signal: options?.signal
+        }),
+      getSession: (id: string) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`),
+      sendMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string }, options?: { signal?: AbortSignal }) =>
+        request<KnowledgeAssistantMessageResponse>(`/knowledge/assistant/sessions/${id}/messages`, {
+          method: "POST",
+          body: JSON.stringify(input),
+          signal: options?.signal
+        }, 210_000)
+    }
   },
   issues: {
     list: (query?: { project_id?: string; user_id?: string; status?: string; q?: string; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
@@ -2037,6 +2153,8 @@ export const api = {
       request<{ deleted: boolean }>(`/workspace-transactions/${id}`, { method: "DELETE" })
   },
   opsTelemetry: {
+    snapshot: (query: { project_id: string; service_name?: string; event_type?: string; status?: string; execution_id?: string; search?: string; limit?: number }) =>
+      request<import("../types").OpsTelemetrySnapshot>(`/ops-telemetry/snapshot${toQueryString(query)}`),
     clearLogs: (query?: { project_id?: string }) =>
       request<{ cleared: boolean; deleted: number; events_path: string }>(`/ops-telemetry/logs${toQueryString(query)}`, {
         method: "DELETE"

@@ -7,6 +7,32 @@ const db = require("../db");
 const { config } = require("../config");
 const objectStorage = require("./objectStorage.service");
 const { requireEntityPermission } = require("./entityScope.service");
+const permissionService = require("./permission.service");
+
+const assertKnowledgeSourceAttachmentAccess = async ({ user, entityType, entityId, permissionCode, operation }) => {
+  if (String(entityType || "").trim().toLowerCase().replace(/[\s-]+/g, "_") !== "knowledge_source") return;
+  const requiredBasePermission = ["list", "download"].includes(operation) ? "knowledge.view" : "knowledge.manage";
+  if (permissionCode !== requiredBasePermission) {
+    const error = new Error("Managed Knowledge Repo files are available only through Knowledge endpoints.");
+    error.statusCode = 403;
+    throw error;
+  }
+  const source = await db.prepare(`
+    SELECT project_id, required_permission
+    FROM ai_knowledge_sources WHERE id = ?
+  `).get(entityId);
+  if (!source) {
+    const error = new Error("Knowledge source not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!await permissionService.hasPermission(user, requiredBasePermission, source.project_id)
+    || (source.required_permission && !await permissionService.hasPermission(user, source.required_permission, source.project_id))) {
+    const error = new Error("Permission required for this managed Knowledge source file.");
+    error.statusCode = 403;
+    throw error;
+  }
+};
 
 const safeFileName = (value) => {
   const base = path.basename(String(value || "attachment"))
@@ -53,6 +79,7 @@ const getRow = async (id) => {
 };
 
 const list = async ({ user, entityType, entityId, projectId }) => {
+  await assertKnowledgeSourceAttachmentAccess({ user, entityType, entityId, permissionCode: "attachment.view", operation: "list" });
   const scope = await requireEntityPermission({
     user,
     permissionCode: "attachment.view",
@@ -70,10 +97,11 @@ const list = async ({ user, entityType, entityId, projectId }) => {
   return rows.map(serialize);
 };
 
-const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream }) => {
+const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream, permissionCode = "attachment.create" }) => {
+  await assertKnowledgeSourceAttachmentAccess({ user, entityType, entityId, permissionCode, operation: "upload" });
   const scope = await requireEntityPermission({
     user,
-    permissionCode: "attachment.create",
+    permissionCode,
     entityType,
     entityId,
     projectId
@@ -145,11 +173,12 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
   }
 };
 
-const download = async ({ user, id }) => {
+const download = async ({ user, id, permissionCode = "attachment.view" }) => {
   const row = await getRow(id);
+  await assertKnowledgeSourceAttachmentAccess({ user, entityType: row.entity_type, entityId: row.entity_id, permissionCode, operation: "download" });
   await requireEntityPermission({
     user,
-    permissionCode: "attachment.view",
+    permissionCode,
     entityType: row.entity_type,
     entityId: row.entity_id,
     projectId: row.project_id
@@ -180,11 +209,12 @@ const purgeProjectObjects = async (projectId, knownRows) => {
   };
 };
 
-const remove = async ({ user, id }) => {
+const remove = async ({ user, id, permissionCode = "attachment.delete" }) => {
   const row = await getRow(id);
+  await assertKnowledgeSourceAttachmentAccess({ user, entityType: row.entity_type, entityId: row.entity_id, permissionCode, operation: "remove" });
   await requireEntityPermission({
     user,
-    permissionCode: "attachment.delete",
+    permissionCode,
     entityType: row.entity_type,
     entityId: row.entity_id,
     projectId: row.project_id
@@ -195,6 +225,7 @@ const remove = async ({ user, id }) => {
 };
 
 module.exports = {
+  assertKnowledgeSourceAttachmentAccess,
   download,
   list,
   meta: () => ({

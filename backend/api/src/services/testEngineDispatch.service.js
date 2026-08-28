@@ -14,10 +14,15 @@ const {
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { materializeTemplateValue } = require("../utils/testDataGenerators");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
+const { resolveTestEngineSecret } = require("../security/runtimeSecrets");
+const { readBoundedResponseJson } = require("../utils/boundedResponse");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
+const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
 const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.TESTENGINE_JOB_LEASE_SECONDS || 90));
+const DIRECT_DISPATCH_TIMEOUT_MS = Math.max(1_000, Math.min(60_000, Number(process.env.TESTENGINE_DIRECT_DISPATCH_TIMEOUT_MS || 10_000)));
 const TESTENGINE_WEB_ENGINE_VALUES = new Set(["playwright", "selenium"]);
 const TESTENGINE_BROWSER_ALIASES = new Map([
   ["chrome", "chromium"],
@@ -714,11 +719,10 @@ const resolveDirectCallbackBaseUrl = (integration) =>
   || "http://localhost:3000";
 
 const resolveCallbackSecret = (integration) =>
-  normalizeText(integration?.config?.callback_secret)
-  || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
-  || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
-  || normalizeText(process.env.HELLOTEST_TESTENGINE_SECRET)
-  || "hellotest-testengine-dev-secret";
+  resolveTestEngineSecret(
+    normalizeText(integration?.config?.callback_secret),
+    normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
+  );
 
 const buildDirectCallback = (integration) => {
   const baseUrl = resolveDirectCallbackBaseUrl(integration).replace(/\/+$/, "");
@@ -1720,6 +1724,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
     }
   };
   const callback = buildDirectCallback(directIntegration);
+  const dispatchSecret = resolveTestEngineSecret();
 
   for (const item of plan.eligibleCases) {
     const objectRepository = await listObjectRepositoryForEnvelope({
@@ -1789,13 +1794,23 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
 
     let response;
     try {
-      response = await fetch(`${engineHost}/api/v1/runs`, {
+      response = await resilientHttpRequest(`${engineHost}/api/v1/runs`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          accept: "application/json"
+          accept: "application/json",
+          "x-hellotest-testengine-secret": dispatchSecret
         },
         body: JSON.stringify(envelope)
+      }, {
+        dependency: "test-engine",
+        operation: "run.dispatch",
+        deadlineMs: DIRECT_DISPATCH_TIMEOUT_MS,
+        maxAttempts: 1,
+        maxResponseBytes: 1024 * 1024,
+        maxConcurrent: 32,
+        failureThreshold: 6,
+        resetTimeoutMs: 15_000
       });
     } catch (error) {
       await updateQueueTransaction(transaction.id, {
@@ -1809,17 +1824,28 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       throw new Error(`Unable to reach ${isApiOnlyRun ? "local Test Engine" : "local Playwright runner"} at ${engineHost}: ${error instanceof Error ? error.message : "request failed"}`);
     }
 
-    const payload = await response.json().catch(() => null);
+    const payload = await readBoundedResponseJson(response, {
+      maxBytes: 1024 * 1024,
+      label: "Test Engine response"
+    }).catch(() => null);
     if (!response.ok) {
+      const failure = serviceError(SERVICE_ERROR_CODES.UPSTREAM_REJECTED, {
+        dependency: "test-engine",
+        operation: "run.dispatch",
+        retryable: response.status === 429 || response.status >= 500,
+        statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+        upstreamStatus: response.status
+      });
       await updateQueueTransaction(transaction.id, {
         status: "failed",
         metadata: {
           ...transactionMetadata,
-          failure: payload?.message || `Local runner failed with status ${response.status}`
+          failure: failure.code,
+          upstream_status: response.status
         },
         completed_at: new Date().toISOString()
       });
-      throw new Error(payload?.message || `Local runner failed with status ${response.status}`);
+      throw failure;
     }
   }
 

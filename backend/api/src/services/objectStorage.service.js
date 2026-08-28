@@ -76,6 +76,33 @@ const ensureBucket = async () => {
   return bucketPromise;
 };
 
+/**
+ * Perform a read-only connectivity check for operational health endpoints.
+ *
+ * Health probes must never provision infrastructure. Bucket creation remains an
+ * explicit side effect of the write path through ensureBucket().
+ */
+const probeBucket = async () => {
+  if (!isEnabled()) {
+    return {
+      enabled: false,
+      exists: false,
+      bucket: config.objectStorage.bucket
+    };
+  }
+
+  try {
+    const exists = await getClient().bucketExists(config.objectStorage.bucket);
+    return {
+      enabled: true,
+      exists,
+      bucket: config.objectStorage.bucket
+    };
+  } catch (error) {
+    throw createError(`Object storage is unavailable: ${error.message || "connection failed"}`);
+  }
+};
+
 const putObject = async ({ objectName, stream, mimeType }) => {
   const bucket = await ensureBucket();
   const result = await getClient().putObject(bucket, objectName, stream, undefined, {
@@ -97,6 +124,7 @@ module.exports = {
   ensureBucket,
   getObject,
   isEnabled,
+  probeBucket,
   putObject,
   removeObject
 };

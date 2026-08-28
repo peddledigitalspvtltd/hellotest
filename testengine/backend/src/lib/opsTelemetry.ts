@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { appendFile, mkdir, open as openFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 type JsonObject = Record<string, unknown>;
 
@@ -38,11 +38,51 @@ type TelemetryConfig = {
   apiKey: string | null;
   apiKeyHeader: string;
   apiKeyPrefix: string | null;
+  authenticationRequired: boolean;
+  authenticationMisconfigured: boolean;
+  allowUnauthenticatedLocal: boolean;
+  maxPayloadBytes: number;
+  maxStringCharacters: number;
+  maxDepth: number;
+  maxArrayItems: number;
+  maxObjectKeys: number;
+  maxStoreBytes: number;
+  retentionMs: number;
 };
 
 const DEFAULT_EVENTS_PATH = "/api/v1/events";
 const DEFAULT_BOARD_PATH = "/ops-telemetry";
 const DEFAULT_SERVICES_PATH = "/api/v1/ops-telemetry/services";
+const REDACTED_VALUE = "[REDACTED]";
+const TRUNCATED_VALUE = "[TRUNCATED]";
+const LOCAL_ENVIRONMENTS = new Set(["development", "dev", "local", "test"]);
+const SENSITIVE_KEY_NAMES = new Set([
+  "authorization",
+  "proxy_authorization",
+  "cookie",
+  "set_cookie",
+  "x_api_key",
+  "api_key",
+  "apikey",
+  "password",
+  "passwd",
+  "secret",
+  "client_secret",
+  "private_key",
+  "credential",
+  "credentials",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "token",
+  "captures",
+  "request_body",
+  "response_body",
+  "body",
+  "body_text",
+  "body_json",
+  "data_url"
+]);
 
 const normalizeText = (value: unknown): string | null => {
   if (typeof value !== "string") {
@@ -73,6 +113,23 @@ const normalizeInteger = (value: unknown, fallback: number): number => {
   return fallback;
 };
 
+const normalizeBoolean = (value: unknown, fallback: boolean): boolean => {
+  const normalized = normalizeText(value)?.toLowerCase();
+
+  if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+
+  if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+
+  return fallback;
+};
+
+const clampInteger = (value: unknown, fallback: number, minimum: number, maximum: number): number =>
+  Math.min(maximum, Math.max(minimum, normalizeInteger(value, fallback)));
+
 const isPlainObject = (value: unknown): value is JsonObject => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -80,6 +137,155 @@ const isPlainObject = (value: unknown): value is JsonObject => {
 
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+};
+
+const normalizeKeyName = (value: string) => value
+  .trim()
+  .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_+|_+$/g, "");
+
+const isSensitiveKey = (value: string) => {
+  const normalized = normalizeKeyName(value);
+
+  if (SENSITIVE_KEY_NAMES.has(normalized)) {
+    return true;
+  }
+
+  return /(^|_)(auth|authorization|cookie|password|passwd|secret|credential|api_key|token|jwt|session|private_key)(_|$)/.test(normalized);
+};
+
+const redactSensitiveText = (value: string) => value
+  .replace(/\b(Bearer|Basic)\s+[^\s,;"']+/gi, "$1 [REDACTED]")
+  .replace(/([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)=)[^&#\s]*/gi, "$1[REDACTED]")
+  .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, "$1[REDACTED]@");
+
+const truncateText = (value: string, maximum: number) => {
+  const redacted = redactSensitiveText(value);
+
+  if (redacted.length <= maximum) {
+    return redacted;
+  }
+
+  const available = Math.max(0, maximum - TRUNCATED_VALUE.length);
+  return `${redacted.slice(0, available)}${TRUNCATED_VALUE}`;
+};
+
+const sanitizeValue = (
+  value: unknown,
+  config: Pick<TelemetryConfig, "maxStringCharacters" | "maxDepth" | "maxArrayItems" | "maxObjectKeys">,
+  depth = 0,
+  seen = new WeakSet<object>()
+): unknown => {
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return truncateText(value, config.maxStringCharacters);
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "bigint") {
+    return truncateText(value.toString(), config.maxStringCharacters);
+  }
+
+  if (typeof value !== "object") {
+    return null;
+  }
+
+  if (depth >= config.maxDepth || seen.has(value)) {
+    return TRUNCATED_VALUE;
+  }
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const itemLimit = Math.max(1, config.maxArrayItems);
+    const wasTruncated = value.length > itemLimit;
+    const values = value
+      .slice(0, wasTruncated ? Math.max(0, itemLimit - 1) : itemLimit)
+      .map((item) => sanitizeValue(item, config, depth + 1, seen));
+
+    if (wasTruncated) {
+      values.push(TRUNCATED_VALUE);
+    }
+
+    seen.delete(value);
+    return values;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const output: JsonObject = {};
+  const keyLimit = Math.max(1, config.maxObjectKeys);
+  const selectedEntries = entries.slice(0, keyLimit);
+
+  for (const [key, nestedValue] of selectedEntries) {
+    output[truncateText(key, 256)] = isSensitiveKey(key)
+      ? REDACTED_VALUE
+      : sanitizeValue(nestedValue, config, depth + 1, seen);
+  }
+
+  if (entries.length > keyLimit) {
+    output.__truncated__ = TRUNCATED_VALUE;
+  }
+
+  seen.delete(value);
+  return output;
+};
+
+const sanitizeObject = (
+  value: JsonObject,
+  config: Pick<TelemetryConfig, "maxStringCharacters" | "maxDepth" | "maxArrayItems" | "maxObjectKeys">
+): JsonObject => {
+  const sanitized = sanitizeValue(value, config);
+  return isPlainObject(sanitized) ? sanitized : {};
+};
+
+const jsonByteLength = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+const boundPayload = (payload: JsonObject, config: TelemetryConfig): JsonObject => {
+  const sanitized = sanitizeObject(payload, config);
+
+  if (jsonByteLength(sanitized) <= config.maxPayloadBytes) {
+    return sanitized;
+  }
+
+  const bounded: JsonObject = {};
+  const retainedKeys = [
+    "source",
+    "service_name",
+    "environment",
+    "event_type",
+    "status",
+    "summary",
+    "project_id",
+    "integration_id"
+  ];
+
+  for (const key of retainedKeys) {
+    const value = sanitized[key];
+    if (typeof value === "string") {
+      bounded[key] = truncateText(value, 256);
+    } else if (typeof value === "number" || typeof value === "boolean" || value === null) {
+      bounded[key] = value;
+    }
+  }
+
+  bounded.__truncated__ = "[TRUNCATED: payload exceeded configured byte limit]";
+  return bounded;
+};
+
+const redactRemoteAddress = (value: string | null) => value ? REDACTED_VALUE : null;
+
+const secureEqual = (actual: string, expected: string) => {
+  const actualDigest = createHash("sha256").update(actual).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(actualDigest, expectedDigest);
 };
 
 const normalizeUrl = (value: unknown): string | null => {
@@ -119,6 +325,18 @@ const escapeHtml = (value: string) =>
 const buildConfig = (): TelemetryConfig => {
   const artifactRoot = normalizeText(process.env.ARTIFACT_ROOT) || "/artifacts";
   const publicBaseUrl = normalizeUrl(process.env.ENGINE_PUBLIC_URL);
+  const environment =
+    normalizeText(process.env.OPS_TELEMETRY_ENVIRONMENT)
+    || normalizeText(process.env.OPS_ENVIRONMENT)
+    || normalizeText(process.env.NODE_ENV)
+    || "production";
+  const apiKey = normalizeText(process.env.OPS_TELEMETRY_API_KEY);
+  const isLocalEnvironment = LOCAL_ENVIRONMENTS.has(environment.toLowerCase());
+  const allowUnauthenticatedLocal = isLocalEnvironment
+    && normalizeBoolean(process.env.OPS_TELEMETRY_ALLOW_UNAUTHENTICATED_LOCAL, true);
+  const authenticationRequired = Boolean(apiKey) || !allowUnauthenticatedLocal;
+  const maxPayloadBytes = clampInteger(process.env.OPS_TELEMETRY_MAX_PAYLOAD_BYTES, 64 * 1024, 4 * 1024, 1024 * 1024);
+  const requestedStoreBytes = clampInteger(process.env.OPS_TELEMETRY_MAX_STORE_BYTES, 16 * 1024 * 1024, 16 * 1024, 256 * 1024 * 1024);
   const apiKeyPrefix = Object.prototype.hasOwnProperty.call(process.env, "OPS_TELEMETRY_API_KEY_PREFIX")
     ? String(process.env.OPS_TELEMETRY_API_KEY_PREFIX ?? "")
     : "Bearer";
@@ -129,69 +347,232 @@ const buildConfig = (): TelemetryConfig => {
       normalizeText(process.env.OPS_TELEMETRY_SERVICE_NAME)
       || normalizeText(process.env.OTEL_SERVICE_NAME)
       || "hellotest-testengine",
-    environment:
-      normalizeText(process.env.OPS_TELEMETRY_ENVIRONMENT)
-      || normalizeText(process.env.OPS_ENVIRONMENT)
-      || process.env.NODE_ENV
-      || "production",
+    environment,
     eventsPath: normalizePath(process.env.OPS_TELEMETRY_EVENTS_PATH, DEFAULT_EVENTS_PATH),
     boardPath: normalizePath(process.env.OPS_TELEMETRY_BOARD_PATH, DEFAULT_BOARD_PATH),
     servicesPath: DEFAULT_SERVICES_PATH,
     storePath:
       normalizeText(process.env.OPS_TELEMETRY_STORE_PATH)
       || path.join(artifactRoot, "ops-telemetry-events.ndjson"),
-    maxEvents: Math.max(100, normalizeInteger(process.env.OPS_TELEMETRY_MAX_EVENTS, 2000)),
+    maxEvents: clampInteger(process.env.OPS_TELEMETRY_MAX_EVENTS, 2000, 1, 10_000),
     publicBaseUrl,
-    apiKey: normalizeText(process.env.OPS_TELEMETRY_API_KEY),
+    apiKey,
     apiKeyHeader: normalizeText(process.env.OPS_TELEMETRY_API_KEY_HEADER) || "Authorization",
-    apiKeyPrefix: apiKeyPrefix.length ? apiKeyPrefix : null
+    apiKeyPrefix: apiKeyPrefix.length ? apiKeyPrefix : null,
+    authenticationRequired,
+    authenticationMisconfigured: authenticationRequired && !apiKey,
+    allowUnauthenticatedLocal,
+    maxPayloadBytes,
+    maxStringCharacters: clampInteger(process.env.OPS_TELEMETRY_MAX_STRING_CHARACTERS, 4096, 128, 16_384),
+    maxDepth: clampInteger(process.env.OPS_TELEMETRY_MAX_DEPTH, 8, 2, 16),
+    maxArrayItems: clampInteger(process.env.OPS_TELEMETRY_MAX_ARRAY_ITEMS, 100, 1, 500),
+    maxObjectKeys: clampInteger(process.env.OPS_TELEMETRY_MAX_OBJECT_KEYS, 100, 1, 500),
+    maxStoreBytes: Math.max(requestedStoreBytes, maxPayloadBytes * 4),
+    retentionMs: clampInteger(process.env.OPS_TELEMETRY_RETENTION_HOURS, 24 * 7, 1, 24 * 365) * 60 * 60 * 1000
   };
 };
 
-const createStoredEvent = (payload: JsonObject, remoteAddress: string | null, requestSource: string | null): StoredTelemetryEvent => ({
-  id: randomUUID(),
-  received_at: new Date().toISOString(),
-  remote_address: remoteAddress,
-  request_source: requestSource,
-  source: normalizeText(payload.source),
-  service_name: normalizeText(payload.service_name),
-  environment: normalizeText(payload.environment),
-  event_type: normalizeText(payload.event_type),
-  status: normalizeText(payload.status),
-  summary: normalizeText(payload.summary),
-  project_id: normalizeText(payload.project_id),
-  integration_id: normalizeText(payload.integration_id),
-  execution: isPlainObject(payload.execution) ? payload.execution : null,
-  test_case: isPlainObject(payload.test_case) ? payload.test_case : null,
-  suite: isPlainObject(payload.suite) ? payload.suite : null,
-  step: isPlainObject(payload.step) ? payload.step : null,
-  payload
-});
+const createStoredEvent = (
+  rawPayload: JsonObject,
+  remoteAddress: string | null,
+  requestSource: string | null,
+  config: TelemetryConfig
+): StoredTelemetryEvent => {
+  const payload = boundPayload(rawPayload, config);
 
-const normalizeStoredEvent = (value: unknown): StoredTelemetryEvent | null => {
+  return {
+    id: randomUUID(),
+    received_at: new Date().toISOString(),
+    remote_address: redactRemoteAddress(remoteAddress),
+    request_source: requestSource ? truncateText(requestSource, config.maxStringCharacters) : null,
+    source: normalizeText(payload.source),
+    service_name: normalizeText(payload.service_name),
+    environment: normalizeText(payload.environment),
+    event_type: normalizeText(payload.event_type),
+    status: normalizeText(payload.status),
+    summary: normalizeText(payload.summary),
+    project_id: normalizeText(payload.project_id),
+    integration_id: normalizeText(payload.integration_id),
+    execution: isPlainObject(payload.execution) ? payload.execution : null,
+    test_case: isPlainObject(payload.test_case) ? payload.test_case : null,
+    suite: isPlainObject(payload.suite) ? payload.suite : null,
+    step: isPlainObject(payload.step) ? payload.step : null,
+    payload
+  };
+};
+
+const normalizeStoredEvent = (value: unknown, config: TelemetryConfig): StoredTelemetryEvent | null => {
   if (!isPlainObject(value) || !normalizeText(value.id) || !normalizeText(value.received_at) || !isPlainObject(value.payload)) {
     return null;
   }
 
+  const sanitized = sanitizeObject(value, config);
+  const payload = isPlainObject(sanitized.payload) ? boundPayload(sanitized.payload, config) : null;
+
+  if (!payload) {
+    return null;
+  }
+
   return {
-    id: String(value.id),
-    received_at: String(value.received_at),
-    remote_address: normalizeText(value.remote_address),
-    request_source: normalizeText(value.request_source),
-    source: normalizeText(value.source),
-    service_name: normalizeText(value.service_name),
-    environment: normalizeText(value.environment),
-    event_type: normalizeText(value.event_type),
-    status: normalizeText(value.status),
-    summary: normalizeText(value.summary),
-    project_id: normalizeText(value.project_id),
-    integration_id: normalizeText(value.integration_id),
-    execution: isPlainObject(value.execution) ? value.execution : null,
-    test_case: isPlainObject(value.test_case) ? value.test_case : null,
-    suite: isPlainObject(value.suite) ? value.suite : null,
-    step: isPlainObject(value.step) ? value.step : null,
-    payload: value.payload
+    id: String(sanitized.id),
+    received_at: String(sanitized.received_at),
+    remote_address: (() => {
+      const remoteAddress = normalizeText(sanitized.remote_address);
+      return redactRemoteAddress(remoteAddress);
+    })(),
+    request_source: normalizeText(sanitized.request_source),
+    source: normalizeText(sanitized.source) || normalizeText(payload.source),
+    service_name: normalizeText(sanitized.service_name) || normalizeText(payload.service_name),
+    environment: normalizeText(sanitized.environment) || normalizeText(payload.environment),
+    event_type: normalizeText(sanitized.event_type) || normalizeText(payload.event_type),
+    status: normalizeText(sanitized.status) || normalizeText(payload.status),
+    summary: normalizeText(sanitized.summary) || normalizeText(payload.summary),
+    project_id: normalizeText(sanitized.project_id) || normalizeText(payload.project_id),
+    integration_id: normalizeText(sanitized.integration_id) || normalizeText(payload.integration_id),
+    execution: isPlainObject(sanitized.execution) ? sanitized.execution : (isPlainObject(payload.execution) ? payload.execution : null),
+    test_case: isPlainObject(sanitized.test_case) ? sanitized.test_case : (isPlainObject(payload.test_case) ? payload.test_case : null),
+    suite: isPlainObject(sanitized.suite) ? sanitized.suite : (isPlainObject(payload.suite) ? payload.suite : null),
+    step: isPlainObject(sanitized.step) ? sanitized.step : (isPlainObject(payload.step) ? payload.step : null),
+    payload
   };
+};
+
+const serializeEventStore = (events: StoredTelemetryEvent[]) =>
+  events.length ? `${events.map((event) => JSON.stringify(event)).join("\n")}\n` : "";
+
+const pruneEvents = (events: StoredTelemetryEvent[], config: TelemetryConfig, now = Date.now()) => {
+  const cutoff = now - config.retentionMs;
+  let retained = events.filter((event) => {
+    const receivedAt = Date.parse(event.received_at);
+    return Number.isFinite(receivedAt) && receivedAt >= cutoff && receivedAt <= now + 5 * 60 * 1000;
+  });
+
+  if (retained.length > config.maxEvents) {
+    retained = retained.slice(-config.maxEvents);
+  }
+
+  let serialized = serializeEventStore(retained);
+  while (retained.length && Buffer.byteLength(serialized, "utf8") > config.maxStoreBytes) {
+    retained.shift();
+    serialized = serializeEventStore(retained);
+  }
+
+  const changed = retained.length !== events.length || retained.some((event, index) => event.id !== events[index]?.id);
+  events.splice(0, events.length, ...retained);
+  return { changed, serialized };
+};
+
+const readStoreTail = async (storePath: string, maximumBytes: number) => {
+  const handle = await openFile(storePath, "r");
+
+  try {
+    const fileStats = await handle.stat();
+    const start = Math.max(0, fileStats.size - maximumBytes);
+    const length = fileStats.size - start;
+    const buffer = Buffer.alloc(length);
+
+    if (length) {
+      await handle.read(buffer, 0, length, start);
+    }
+
+    let raw = buffer.toString("utf8");
+    if (start > 0) {
+      const firstLineEnd = raw.indexOf("\n");
+      raw = firstLineEnd >= 0 ? raw.slice(firstLineEnd + 1) : "";
+    }
+
+    return { raw, originalBytes: fileStats.size, truncated: start > 0 };
+  } finally {
+    await handle.close();
+  }
+};
+
+const loadStoredEvents = async (config: TelemetryConfig) => {
+  const { raw, originalBytes, truncated } = await readStoreTail(config.storePath, config.maxStoreBytes);
+  const loaded = raw
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return normalizeStoredEvent(JSON.parse(line), config);
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is StoredTelemetryEvent => Boolean(item));
+  const beforePrune = loaded.length;
+  const { changed, serialized } = pruneEvents(loaded, config);
+
+  const canonicalRaw = raw.length && !raw.endsWith("\n") ? `${raw}\n` : raw;
+
+  return {
+    events: loaded,
+    serialized,
+    needsRewrite:
+      truncated
+      || originalBytes > config.maxStoreBytes
+      || changed
+      || beforePrune !== raw.split(/\r?\n/).filter(Boolean).length
+      || serialized !== canonicalRaw
+  };
+};
+
+const atomicWriteStore = async (storePath: string, serialized: string) => {
+  const temporaryPath = `${storePath}.${process.pid}.${randomUUID()}.tmp`;
+
+  try {
+    await writeFile(temporaryPath, serialized, { encoding: "utf8", mode: 0o600 });
+    await rename(temporaryPath, storePath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+};
+
+const wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+const withStoreLock = async <T>(storePath: string, operation: () => Promise<T>): Promise<T> => {
+  const lockPath = `${storePath}.lock`;
+  let lockHandle: Awaited<ReturnType<typeof openFile>> | null = null;
+
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      lockHandle = await openFile(lockPath, "wx", 0o600);
+      await lockHandle.writeFile(`${process.pid}\n${Date.now()}\n`, "utf8");
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") {
+        throw error;
+      }
+
+      if (attempt % 25 === 24) {
+        try {
+          const lockStats = await stat(lockPath);
+          if (Date.now() - lockStats.mtimeMs > 30_000) {
+            await unlink(lockPath);
+            continue;
+          }
+        } catch (lockError) {
+          if ((lockError as NodeJS.ErrnoException)?.code !== "ENOENT") {
+            throw lockError;
+          }
+        }
+      }
+
+      await wait(10);
+    }
+  }
+
+  if (!lockHandle) {
+    throw new Error("Timed out acquiring OPS telemetry event-store lock");
+  }
+
+  try {
+    return await operation();
+  } finally {
+    await lockHandle.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
+  }
 };
 
 const buildSearchHaystack = (event: StoredTelemetryEvent) =>
@@ -945,39 +1326,85 @@ const renderBoardHtml = (config: TelemetryConfig) => {
 export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
   const config = buildConfig();
   const events: StoredTelemetryEvent[] = [];
-  let writeQueue = Promise.resolve();
+  let writeQueue: Promise<void> = Promise.resolve();
 
   await mkdir(path.dirname(config.storePath), { recursive: true });
 
   try {
-    const raw = await readFile(config.storePath, "utf8");
-    const loaded = raw
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => {
-        try {
-          return normalizeStoredEvent(JSON.parse(line));
-        } catch {
-          return null;
+    const loaded = await withStoreLock(config.storePath, async () => {
+      try {
+        const snapshot = await loadStoredEvents(config);
+        if (snapshot.needsRewrite) {
+          await atomicWriteStore(config.storePath, snapshot.serialized);
         }
-      })
-      .filter((item): item is StoredTelemetryEvent => Boolean(item));
-
-    if (loaded.length > config.maxEvents) {
-      loaded.splice(0, loaded.length - config.maxEvents);
-    }
+        return snapshot.events;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+          await atomicWriteStore(config.storePath, "");
+          return [];
+        }
+        throw error;
+      }
+    });
 
     events.push(...loaded);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code !== "ENOENT") {
-      logger.warn({ error }, "Unable to preload OPS telemetry events");
-    }
+    logger.warn({ error }, "Unable to preload OPS telemetry events");
   }
 
-  const persistEvent = (event: StoredTelemetryEvent) => {
+  if (config.authenticationMisconfigured && config.enabled) {
+    logger.error(
+      {
+        ops_telemetry: true,
+        environment: config.environment,
+        api_key_header: config.apiKeyHeader
+      },
+      "OPS telemetry HTTP routes are locked because authentication is not configured for this environment"
+    );
+  }
+
+  const compactStoreWithEvent = async (event: StoredTelemetryEvent) => {
+    let durableEvents: StoredTelemetryEvent[] = [];
+
+    try {
+      durableEvents = (await loadStoredEvents(config)).events;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    if (!durableEvents.some((item) => item.id === event.id)) {
+      durableEvents.push(event);
+    }
+
+    durableEvents.sort((left, right) => Date.parse(left.received_at) - Date.parse(right.received_at));
+    const { serialized } = pruneEvents(durableEvents, config);
+    await atomicWriteStore(config.storePath, serialized);
+  };
+
+  const persistEvent = (event: StoredTelemetryEvent, forceCompaction: boolean) => {
     writeQueue = writeQueue
-      .then(() => appendFile(config.storePath, `${JSON.stringify(event)}\n`, "utf8"))
+      .then(() => withStoreLock(config.storePath, async () => {
+        const serialized = `${JSON.stringify(event)}\n`;
+        const eventBytes = Buffer.byteLength(serialized, "utf8");
+        let currentBytes = 0;
+
+        try {
+          currentBytes = (await stat(config.storePath)).size;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+            throw error;
+          }
+        }
+
+        if (forceCompaction || currentBytes + eventBytes > config.maxStoreBytes) {
+          await compactStoreWithEvent(event);
+          return;
+        }
+
+        await appendFile(config.storePath, serialized, { encoding: "utf8", mode: 0o600 });
+      }))
       .catch((error) => {
         logger.error({ error, storePath: config.storePath }, "Unable to persist OPS telemetry event");
       });
@@ -992,14 +1419,12 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
       return null;
     }
 
-    const storedEvent = createStoredEvent(payload, remoteAddress, requestSource);
+    const storedEvent = createStoredEvent(payload, remoteAddress, requestSource, config);
 
     events.push(storedEvent);
-    if (events.length > config.maxEvents) {
-      events.splice(0, events.length - config.maxEvents);
-    }
+    const { changed } = pruneEvents(events, config);
 
-    persistEvent(storedEvent);
+    persistEvent(storedEvent, changed);
 
     logger.info(
       {
@@ -1071,7 +1496,7 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
     const deleted = events.length;
     events.splice(0, events.length);
     writeQueue = writeQueue
-      .then(() => writeFile(config.storePath, "", "utf8"))
+      .then(() => withStoreLock(config.storePath, () => atomicWriteStore(config.storePath, "")))
       .catch((error) => {
         logger.error({ error, storePath: config.storePath }, "Unable to clear OPS telemetry event store");
       });
@@ -1102,39 +1527,66 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
     board_path: config.boardPath,
     board_url: buildPublicUrl(config.publicBaseUrl, config.boardPath),
     services_path: config.servicesPath,
-    services_url: buildPublicUrl(config.publicBaseUrl, config.servicesPath)
+    services_url: buildPublicUrl(config.publicBaseUrl, config.servicesPath),
+    authentication_required: config.authenticationRequired,
+    authentication_configured: Boolean(config.apiKey),
+    authentication_ready: !config.authenticationMisconfigured,
+    unauthenticated_local_access: config.allowUnauthenticatedLocal,
+    max_events: config.maxEvents,
+    max_payload_bytes: config.maxPayloadBytes,
+    max_store_bytes: config.maxStoreBytes,
+    retention_hours: Math.round(config.retentionMs / (60 * 60 * 1000))
   });
 
   const authorizeRequest = (headers: Record<string, unknown>) => {
-    if (!config.apiKey) {
+    if (!config.authenticationRequired) {
       return true;
+    }
+
+    if (!config.apiKey) {
+      return false;
     }
 
     const headerLookup = config.apiKeyHeader.toLowerCase();
     const actualHeader = Object.entries(headers).find(([name]) => name.toLowerCase() === headerLookup)?.[1];
+    const actualValue = Array.isArray(actualHeader) ? actualHeader[0] : actualHeader;
 
-    if (typeof actualHeader !== "string") {
+    if (typeof actualValue !== "string") {
       return false;
     }
 
     const expectedValue = config.apiKeyPrefix ? `${config.apiKeyPrefix} ${config.apiKey}` : config.apiKey;
-    return actualHeader.trim() === expectedValue;
+    return secureEqual(actualValue.trim(), expectedValue);
+  };
+
+  const authorizeRoute = (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header("Cache-Control", "no-store");
+
+    if (!config.enabled) {
+      reply.code(503).send({ message: "OPS telemetry is disabled" });
+      return false;
+    }
+
+    if (config.authenticationMisconfigured) {
+      reply.code(503).send({ message: "OPS telemetry authentication is not configured for this environment" });
+      return false;
+    }
+
+    if (!authorizeRequest(request.headers as Record<string, unknown>)) {
+      if (config.apiKeyHeader.toLowerCase() === "authorization") {
+        reply.header("WWW-Authenticate", `${config.apiKeyPrefix || "Bearer"} realm="ops-telemetry"`);
+      }
+      reply.code(401).send({ message: "Unauthorized OPS telemetry request" });
+      return false;
+    }
+
+    return true;
   };
 
   const receiveEvent = async (app: FastifyInstance, routePath: string) => {
-    app.post(routePath, async (request, reply) => {
-      if (!config.enabled) {
-        reply.code(503);
-        return {
-          message: "OPS telemetry is disabled"
-        };
-      }
-
-      if (!authorizeRequest(request.headers as Record<string, unknown>)) {
-        reply.code(401);
-        return {
-          message: "Unauthorized OPS telemetry request"
-        };
+    app.post(routePath, { bodyLimit: config.maxPayloadBytes }, async (request, reply) => {
+      if (!authorizeRoute(request, reply)) {
+        return reply;
       }
 
       if (!isPlainObject(request.body)) {
@@ -1158,20 +1610,16 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
       };
     });
 
-    app.get(routePath, async (request) => listEvents(request.query as Record<string, unknown>));
-    app.delete(routePath, async (request, reply) => {
-      if (!config.enabled) {
-        reply.code(503);
-        return {
-          message: "OPS telemetry is disabled"
-        };
+    app.get(routePath, async (request, reply) => {
+      if (!authorizeRoute(request, reply)) {
+        return reply;
       }
 
-      if (!authorizeRequest(request.headers as Record<string, unknown>)) {
-        reply.code(401);
-        return {
-          message: "Unauthorized OPS telemetry request"
-        };
+      return listEvents(request.query as Record<string, unknown>);
+    });
+    app.delete(routePath, async (request, reply) => {
+      if (!authorizeRoute(request, reply)) {
+        return reply;
       }
 
       return clearEvents();
@@ -1186,10 +1634,25 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
         await receiveEvent(app, routePath);
       }
 
-      app.get(config.servicesPath, async () => listServices());
-      app.get(config.boardPath, async (_request, reply) => {
+      app.get(config.servicesPath, async (request, reply) => {
+        if (!authorizeRoute(request, reply)) {
+          return reply;
+        }
+
+        return listServices();
+      });
+      app.get(config.boardPath, async (request, reply) => {
+        if (!authorizeRoute(request, reply)) {
+          return reply;
+        }
+
+        reply.header("X-Content-Type-Options", "nosniff");
+        reply.header("Referrer-Policy", "no-referrer");
         reply.type("text/html; charset=utf-8");
         return renderBoardHtml(config);
+      });
+      app.addHook("onClose", async () => {
+        await writeQueue;
       });
     },
     captureLocalEvent(payload: JsonObject) {

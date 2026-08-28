@@ -4,6 +4,21 @@ const projectService = require("../services/project.service");
 const { hasMobileOperatingSystem, isMobileAppType } = require("../utils/mobileFeature");
 const { configurationTargetsUseMobile } = require("../utils/configurationTargets");
 
+const createScopeError = (message) => Object.assign(new Error(message), { statusCode: 400 });
+
+const resolveListProjectId = async ({ project_id, app_type_id } = {}) => {
+  if (!project_id && !app_type_id) {
+    throw createScopeError("project_id or app_type_id is required when listing Test Configurations");
+  }
+
+  if (!app_type_id) return project_id;
+  const appType = await appTypeService.getAppType(app_type_id);
+  if (project_id && appType.project_id !== project_id) {
+    throw createScopeError("App type must belong to the selected project");
+  }
+  return project_id || appType.project_id;
+};
+
 const configurationUsesMobile = async (configuration, appType = null) => {
   const resolvedAppType = appType || (configuration?.app_type_id
     ? await appTypeService.getAppType(configuration.app_type_id)
@@ -36,6 +51,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("configuration.manage", { projectId: req.body.project_id })(req);
 
     let appType = null;
     if (req.body.app_type_id) {
@@ -54,12 +70,9 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const { project_id, app_type_id } = req.query;
 
-    if (project_id) {
-      await projectService.getProject(project_id, req.user.id);
-    } else if (app_type_id) {
-      const appType = await appTypeService.getAppType(app_type_id);
-      await projectService.getProject(appType.project_id, req.user.id);
-    }
+    const scopedProjectId = await resolveListProjectId({ project_id, app_type_id });
+    await projectService.getProject(scopedProjectId, req.user.id);
+    await fastify.requirePermission("configuration.view", { projectId: scopedProjectId })(req);
 
     const configurations = await service.getTestConfigurations({ project_id, app_type_id });
     const visible = [];
@@ -78,6 +91,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const configuration = await service.getTestConfiguration(req.params.id);
     await projectService.getProject(configuration.project_id, req.user.id);
+    await fastify.requirePermission("configuration.view", { projectId: configuration.project_id })(req);
     await requireMobileConfigurationPermission(fastify, req, "mobile.view", configuration);
     return configuration;
   });
@@ -138,6 +152,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const configuration = await service.getTestConfiguration(req.params.id);
     await projectService.getProject(configuration.project_id, req.user.id);
+    await fastify.requirePermission("configuration.manage", { projectId: configuration.project_id })(req);
     return service.deleteTestConfiguration(req.params.id);
   });
 };

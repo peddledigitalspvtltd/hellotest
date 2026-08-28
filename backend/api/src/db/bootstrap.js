@@ -5,6 +5,7 @@ const {
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require("../security/permissions.catalog");
 
 let bootstrapPromise = null;
+const SCHEMA_LOCK_KEY = "hellotest:main-runtime-schema:v1";
 
 const sqlEnum = (values) => values.map((value) => `'${String(value).replace(/'/g, "''")}'`).join(", ");
 const sqlValue = (value) => `'${String(value).replace(/'/g, "''")}'`;
@@ -135,6 +136,283 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_repo_priority ON ai_knowledge_repo (project_id, priority, is_active)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_repo_linked_test_cases ON ai_knowledge_repo USING GIN (linked_test_cases)`,
   `
+    DO $$
+    BEGIN
+      BEGIN
+        CREATE EXTENSION IF NOT EXISTS vector;
+      EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'pgvector unavailable; using JSONB cosine and PostgreSQL full-text search';
+      END;
+    END $$
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_collections (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      color TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      retrieval_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_collections DROP CONSTRAINT IF EXISTS ai_knowledge_collections_status_check`,
+  `ALTER TABLE ai_knowledge_collections ADD CONSTRAINT ai_knowledge_collections_status_check CHECK(status IN ('active', 'archived'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_collections_project ON ai_knowledge_collections (project_id, status, updated_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_sources (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+      app_scope_key TEXT NOT NULL DEFAULT '',
+      source_kind TEXT NOT NULL,
+      source_ref_id TEXT,
+      title TEXT NOT NULL,
+      source_uri TEXT,
+      file_name TEXT,
+      mime_type TEXT,
+      size_bytes BIGINT,
+      attachment_id TEXT,
+      checksum_sha256 TEXT,
+      revision_token TEXT,
+      required_permission TEXT,
+      extraction_status TEXT NOT NULL DEFAULT 'pending',
+      extraction_strategy TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      risk_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_sources DROP CONSTRAINT IF EXISTS ai_knowledge_sources_source_kind_check`,
+  `ALTER TABLE ai_knowledge_sources ADD CONSTRAINT ai_knowledge_sources_source_kind_check CHECK(source_kind IN ('requirement', 'test_case', 'execution', 'bug', 'knowledge_item', 'text', 'chat', 'file', 'url'))`,
+  `ALTER TABLE ai_knowledge_sources ADD COLUMN IF NOT EXISTS required_permission TEXT`,
+  `ALTER TABLE ai_knowledge_sources ADD COLUMN IF NOT EXISTS app_scope_key TEXT`,
+  `UPDATE ai_knowledge_sources SET app_scope_key = COALESCE(app_type_id, '') WHERE app_scope_key IS NULL`,
+  `ALTER TABLE ai_knowledge_sources ALTER COLUMN app_scope_key SET DEFAULT ''`,
+  `ALTER TABLE ai_knowledge_sources ALTER COLUMN app_scope_key SET NOT NULL`,
+  `ALTER TABLE ai_knowledge_sources ADD COLUMN IF NOT EXISTS revision_token TEXT`,
+  `UPDATE ai_knowledge_sources SET revision_token = id || ':' || EXTRACT(EPOCH FROM updated_at)::TEXT WHERE revision_token IS NULL`,
+  `ALTER TABLE ai_knowledge_sources ALTER COLUMN revision_token SET NOT NULL`,
+  `UPDATE ai_knowledge_sources SET required_permission = CASE source_kind WHEN 'requirement' THEN 'requirement.view' WHEN 'test_case' THEN 'testcase.view' WHEN 'execution' THEN 'run.view' WHEN 'bug' THEN 'feedback.view' ELSE NULL END`,
+  `ALTER TABLE ai_knowledge_sources DROP CONSTRAINT IF EXISTS ai_knowledge_sources_required_permission_check`,
+  `ALTER TABLE ai_knowledge_sources ADD CONSTRAINT ai_knowledge_sources_required_permission_check CHECK(required_permission IS NULL OR required_permission IN ('requirement.view', 'testcase.view', 'run.view', 'feedback.view'))`,
+  `ALTER TABLE ai_knowledge_sources DROP CONSTRAINT IF EXISTS ai_knowledge_sources_extraction_status_check`,
+  `ALTER TABLE ai_knowledge_sources ADD CONSTRAINT ai_knowledge_sources_extraction_status_check CHECK(extraction_status IN ('pending', 'processing', 'ready', 'needs_extraction', 'failed', 'archived'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_project ON ai_knowledge_sources (project_id, extraction_status, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_reference ON ai_knowledge_sources (project_id, source_kind, source_ref_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_sources_stable_reference ON ai_knowledge_sources (project_id, source_kind, source_ref_id) WHERE source_ref_id IS NOT NULL`,
+  `DROP INDEX IF EXISTS idx_ai_knowledge_sources_content_hash`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_sources_content_hash ON ai_knowledge_sources (project_id, app_scope_key, source_kind, checksum_sha256) WHERE source_ref_id IS NULL AND checksum_sha256 IS NOT NULL`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'en',
+      version INTEGER NOT NULL DEFAULT 1,
+      token_count INTEGER NOT NULL DEFAULT 0,
+      char_count INTEGER NOT NULL DEFAULT 0,
+      checksum_sha256 TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_documents_source ON ai_knowledge_documents (project_id, source_id, is_active, updated_at DESC)`,
+  `WITH ranked AS (
+     SELECT id, ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY created_at ASC, id ASC)::INTEGER AS next_version
+     FROM ai_knowledge_documents
+   )
+   UPDATE ai_knowledge_documents documents
+   SET version = ranked.next_version
+   FROM ranked WHERE documents.id = ranked.id AND documents.version <> ranked.next_version`,
+  `ALTER TABLE ai_knowledge_documents DROP CONSTRAINT IF EXISTS ai_knowledge_documents_source_version_key`,
+  `ALTER TABLE ai_knowledge_documents ADD CONSTRAINT ai_knowledge_documents_source_version_key UNIQUE(source_id, version)`,
+  `WITH ranked_active AS (
+     SELECT id, ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY version DESC, updated_at DESC, id DESC) AS active_rank
+     FROM ai_knowledge_documents WHERE is_active = TRUE
+   )
+   UPDATE ai_knowledge_documents documents
+   SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+   FROM ranked_active WHERE documents.id = ranked_active.id AND ranked_active.active_rank > 1`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_documents_one_active_source ON ai_knowledge_documents (source_id) WHERE is_active = TRUE`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      document_id TEXT NOT NULL REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      heading TEXT,
+      content TEXT NOT NULL,
+      token_count INTEGER NOT NULL DEFAULT 0,
+      char_start INTEGER NOT NULL DEFAULT 0,
+      char_end INTEGER NOT NULL DEFAULT 0,
+      search_vector TSVECTOR NOT NULL DEFAULT to_tsvector('simple', ''),
+      embedding JSONB,
+      fallback_embedding JSONB,
+      embedding_model TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(document_id, chunk_index)
+    )
+  `,
+  `ALTER TABLE ai_knowledge_chunks ADD COLUMN IF NOT EXISTS fallback_embedding JSONB`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_project ON ai_knowledge_chunks (project_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_search ON ai_knowledge_chunks USING GIN (search_vector)`,
+  `
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+        ALTER TABLE ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding_vector vector;
+      END IF;
+    END $$
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_collection_sources (
+      collection_id TEXT NOT NULL REFERENCES ai_knowledge_collections(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (collection_id, source_id)
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_collection_sources_source ON ai_knowledge_collection_sources (source_id, collection_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      collection_id TEXT REFERENCES ai_knowledge_collections(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      input_count INTEGER NOT NULL DEFAULT 0,
+      processed_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      chunk_count INTEGER NOT NULL DEFAULT 0,
+      warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+      errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      idempotency_key TEXT,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_ingestion_jobs DROP CONSTRAINT IF EXISTS ai_knowledge_ingestion_jobs_status_check`,
+  `ALTER TABLE ai_knowledge_ingestion_jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+  `ALTER TABLE ai_knowledge_ingestion_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
+  `ALTER TABLE ai_knowledge_ingestion_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE ai_knowledge_ingestion_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
+  `ALTER TABLE ai_knowledge_ingestion_jobs ADD CONSTRAINT ai_knowledge_ingestion_jobs_status_check CHECK(status IN ('queued', 'running', 'completed', 'completed_with_warnings', 'failed'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_ingestion_jobs_project ON ai_knowledge_ingestion_jobs (project_id, created_at DESC)`,
+  `DROP INDEX IF EXISTS idx_ai_knowledge_ingestion_jobs_idempotency`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_ingestion_jobs_idempotency ON ai_knowledge_ingestion_jobs (project_id, created_by, idempotency_key) WHERE idempotency_key IS NOT NULL`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_inputs (
+      job_id TEXT NOT NULL REFERENCES ai_knowledge_ingestion_jobs(id) ON DELETE CASCADE,
+      input_index INTEGER NOT NULL,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (job_id, input_index)
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_ingestion_results (
+      job_id TEXT NOT NULL REFERENCES ai_knowledge_ingestion_jobs(id) ON DELETE CASCADE,
+      input_index INTEGER NOT NULL,
+      source_id TEXT REFERENCES ai_knowledge_sources(id) ON DELETE SET NULL,
+      document_id TEXT REFERENCES ai_knowledge_documents(id) ON DELETE SET NULL,
+      outcome TEXT NOT NULL,
+      reused BOOLEAN NOT NULL DEFAULT FALSE,
+      warning_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      error_fingerprint TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (job_id, input_index)
+    )
+  `,
+  `ALTER TABLE ai_knowledge_ingestion_results DROP CONSTRAINT IF EXISTS ai_knowledge_ingestion_results_outcome_check`,
+  `ALTER TABLE ai_knowledge_ingestion_results ADD CONSTRAINT ai_knowledge_ingestion_results_outcome_check CHECK(outcome IN ('indexed', 'reused', 'needs_extraction', 'failed'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_ingestion_results_source ON ai_knowledge_ingestion_results (source_id, job_id)`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_sync_outbox (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      source_ref_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      error_fingerprint TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(project_id, source_ref_id)
+    )
+  `,
+  `ALTER TABLE ai_knowledge_sync_outbox DROP CONSTRAINT IF EXISTS ai_knowledge_sync_outbox_action_check`,
+  `ALTER TABLE ai_knowledge_sync_outbox ADD CONSTRAINT ai_knowledge_sync_outbox_action_check CHECK(action IN ('upsert', 'archive'))`,
+  `ALTER TABLE ai_knowledge_sync_outbox DROP CONSTRAINT IF EXISTS ai_knowledge_sync_outbox_status_check`,
+  `ALTER TABLE ai_knowledge_sync_outbox ADD CONSTRAINT ai_knowledge_sync_outbox_status_check CHECK(status IN ('queued', 'running', 'failed'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sync_outbox_queue ON ai_knowledge_sync_outbox (status, created_at ASC)`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_assistant_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_assistant_sessions DROP CONSTRAINT IF EXISTS ai_knowledge_assistant_sessions_status_check`,
+  `ALTER TABLE ai_knowledge_assistant_sessions ADD CONSTRAINT ai_knowledge_assistant_sessions_status_check CHECK(status IN ('active', 'archived'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_assistant_sessions_project ON ai_knowledge_assistant_sessions (project_id, created_by, updated_at DESC)`,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_assistant_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES ai_knowledge_assistant_sessions(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'answered',
+      citations JSONB NOT NULL DEFAULT '[]'::jsonb,
+      retrieval JSONB NOT NULL DEFAULT '{}'::jsonb,
+      safety JSONB NOT NULL DEFAULT '{}'::jsonb,
+      provider TEXT,
+      model TEXT,
+      client_turn_id TEXT,
+      content_fingerprint TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_assistant_messages ADD COLUMN IF NOT EXISTS client_turn_id TEXT`,
+  `ALTER TABLE ai_knowledge_assistant_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE ai_knowledge_assistant_messages DROP CONSTRAINT IF EXISTS ai_knowledge_assistant_messages_role_check`,
+  `ALTER TABLE ai_knowledge_assistant_messages ADD CONSTRAINT ai_knowledge_assistant_messages_role_check CHECK(role IN ('user', 'assistant'))`,
+  `ALTER TABLE ai_knowledge_assistant_messages DROP CONSTRAINT IF EXISTS ai_knowledge_assistant_messages_status_check`,
+  `ALTER TABLE ai_knowledge_assistant_messages ADD CONSTRAINT ai_knowledge_assistant_messages_status_check CHECK(status IN ('pending', 'answered', 'insufficient_context', 'refused', 'provider_unavailable', 'error'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_assistant_messages_session ON ai_knowledge_assistant_messages (session_id, created_at ASC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_assistant_messages_turn_role ON ai_knowledge_assistant_messages (session_id, client_turn_id, role) WHERE client_turn_id IS NOT NULL`,
+  `UPDATE ai_knowledge_assistant_sessions SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE created_by IS NULL AND status = 'active'`,
+  `
     CREATE TABLE IF NOT EXISTS ai_knowledge_relations (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -155,6 +433,12 @@ const statements = [
   `ALTER TABLE ai_knowledge_relations ADD COLUMN IF NOT EXISTS relation_type TEXT`,
   `ALTER TABLE ai_knowledge_relations ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE ai_knowledge_relations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `DELETE FROM ai_knowledge_relations relations WHERE relations.project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects WHERE projects.id = relations.project_id)`,
+  `UPDATE ai_knowledge_relations SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`,
+  `ALTER TABLE ai_knowledge_relations ALTER COLUMN project_id SET NOT NULL`,
+  `ALTER TABLE ai_knowledge_relations ALTER COLUMN created_at SET NOT NULL`,
+  `ALTER TABLE ai_knowledge_relations DROP CONSTRAINT IF EXISTS ai_knowledge_relations_project_id_fkey`,
+  `ALTER TABLE ai_knowledge_relations ADD CONSTRAINT ai_knowledge_relations_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_relations_source ON ai_knowledge_relations (project_id, source_id, source_type)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_relations_target ON ai_knowledge_relations (project_id, target_id, target_type)`,
   `
@@ -625,10 +909,12 @@ const statements = [
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS sprint TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS build TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_count INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_executions_source_idempotency ON executions (project_id, source_idempotency_key) WHERE source_idempotency_key IS NOT NULL`,
   `UPDATE executions SET assigned_to_ids = CASE WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb ELSE jsonb_build_array(assigned_to) END WHERE assigned_to_ids IS NULL`,
   `ALTER TABLE executions ALTER COLUMN assigned_to_ids SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE executions ALTER COLUMN assigned_to_ids SET NOT NULL`,
@@ -654,6 +940,11 @@ const statements = [
       build TEXT,
       assigned_to TEXT,
       assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
       created_by TEXT NOT NULL,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -679,6 +970,11 @@ const statements = [
   `UPDATE execution_schedules SET assigned_to_ids = CASE WHEN assigned_to IS NULL OR BTRIM(assigned_to) = '' THEN '[]'::jsonb ELSE jsonb_build_array(assigned_to) END WHERE assigned_to_ids IS NULL`,
   `ALTER TABLE execution_schedules ALTER COLUMN assigned_to_ids SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE execution_schedules ALTER COLUMN assigned_to_ids SET NOT NULL`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS failure_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS last_error TEXT`,
   `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`,
   `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
@@ -885,6 +1181,14 @@ const statements = [
       images JSONB NOT NULL DEFAULT '[]'::jsonb,
       authoring_mode TEXT NOT NULL DEFAULT 'structured',
       status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      next_run_at TIMESTAMPTZ,
+      idempotency_key TEXT,
+      request_fingerprint TEXT,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
       total_requirements INTEGER NOT NULL DEFAULT 0,
       processed_requirements INTEGER NOT NULL DEFAULT 0,
       generated_cases_count INTEGER NOT NULL DEFAULT 0,
@@ -910,6 +1214,11 @@ const statements = [
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS request_fingerprint TEXT`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS total_requirements INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS processed_requirements INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS generated_cases_count INTEGER NOT NULL DEFAULT 0`,
@@ -925,6 +1234,7 @@ const statements = [
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN attempts SET NOT NULL`,
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN max_attempts SET DEFAULT 5`,
   `ALTER TABLE ai_test_case_generation_jobs ALTER COLUMN max_attempts SET NOT NULL`,
+  `UPDATE ai_test_case_generation_jobs SET lease_expires_at = CURRENT_TIMESTAMP WHERE status = 'running' AND lease_expires_at IS NULL`,
   `ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_authoring_mode_check`,
   `ALTER TABLE ai_test_case_generation_jobs ADD CONSTRAINT ai_test_case_generation_jobs_authoring_mode_check CHECK (authoring_mode IN ('structured', 'gherkin'))`,
   `ALTER TABLE ai_test_case_generation_jobs DROP CONSTRAINT IF EXISTS ai_test_case_generation_jobs_status_check`,
@@ -1070,6 +1380,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_execution_case_snapshots_execution_id ON execution_case_snapshots (execution_id, sort_order)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_step_snapshots_execution_case ON execution_step_snapshots (execution_id, test_case_id, step_order)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_schedules_project_next_run ON execution_schedules (project_id, next_run_at ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_schedules_due_claim ON execution_schedules (is_active, next_run_at, lease_expires_at) WHERE is_active = TRUE AND next_run_at IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_shared_step_groups_app_type ON shared_step_groups (app_type_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_steps_case_group ON test_steps (test_case_id, group_id, step_order)`,
   `ALTER TABLE execution_results DROP CONSTRAINT IF EXISTS execution_results_status_check`,
@@ -1137,14 +1448,24 @@ const statements = [
     INSERT INTO permissions (id, code, description)
     VALUES
       ${permissionSeedValues}
-    ON CONFLICT (code)
-    DO UPDATE SET description = EXCLUDED.description
+    ON CONFLICT DO NOTHING
+  `,
+  `
+    UPDATE permissions AS permission
+    SET description = catalog.description
+    FROM (VALUES
+      ${permissionSeedValues}
+    ) AS catalog(id, code, description)
+    WHERE permission.code = catalog.code
+      AND permission.description IS DISTINCT FROM catalog.description
   `,
   ...rolePermissionSeedStatements,
   `CREATE INDEX IF NOT EXISTS idx_execution_suites_execution_suite ON execution_suites (execution_id, suite_id)`,
   `DROP INDEX IF EXISTS idx_ai_test_case_generation_jobs_scope_status`,
   `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_scope_status ON ai_test_case_generation_jobs (app_type_id, status, next_run_at, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_project_created ON ai_test_case_generation_jobs (project_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_queue_claim ON ai_test_case_generation_jobs (status, next_run_at, lease_expires_at, created_at ASC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_idempotency ON ai_test_case_generation_jobs (project_id, created_by, idempotency_key) WHERE idempotency_key IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_test_cases_app_status_created ON test_cases (app_type_id, status, created_at DESC)`,
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS external_references JSONB`,
   `UPDATE execution_results SET external_references = '[]'::jsonb WHERE external_references IS NULL`,
@@ -1175,6 +1496,7 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_source TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_review_status TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_job_id TEXT`,
+  `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT`,
@@ -1190,6 +1512,7 @@ const statements = [
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'not_requested'`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS review_history JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_quality_score INTEGER`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_cases_source_idempotency ON test_cases (app_type_id, source_idempotency_key) WHERE source_idempotency_key IS NOT NULL`,
   `UPDATE test_cases SET author_id = created_by WHERE author_id IS NULL AND created_by IS NOT NULL`,
   `UPDATE test_cases SET author_id = NULL WHERE author_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = test_cases.author_id)`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_author_id_fkey`,
@@ -1285,6 +1608,7 @@ const statements = [
       PRIMARY KEY (module_id, test_case_id)
     )
   `,
+  `ALTER TABLE test_case_module_cases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_module_cases_case ON test_case_module_cases (test_case_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_module_sort ON test_case_module_cases (module_id, sort_order)`,
   `
@@ -1489,6 +1813,7 @@ const statements = [
       attempts INTEGER NOT NULL DEFAULT 0,
       leased_by TEXT,
       lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
       started_at TIMESTAMPTZ,
       completed_at TIMESTAMPTZ,
       last_error TEXT,
@@ -1600,6 +1925,7 @@ const statements = [
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS leased_by TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS last_error TEXT`,
@@ -1609,6 +1935,7 @@ const statements = [
   `UPDATE test_engine_jobs SET payload = '{}'::jsonb WHERE payload IS NULL`,
   `UPDATE test_engine_jobs SET runtime_state = '{}'::jsonb WHERE runtime_state IS NULL`,
   `UPDATE test_engine_jobs SET status = 'queued' WHERE status IS NULL OR BTRIM(status) = ''`,
+  `UPDATE test_engine_jobs SET status = 'leased' WHERE status = 'claimed'`,
   `UPDATE test_engine_jobs SET engine_class = 'android' WHERE (engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')) AND app_type_kind = 'android'`,
   `UPDATE test_engine_jobs SET engine_class = 'api' WHERE (engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')) AND app_type_kind = 'api'`,
   `UPDATE test_engine_jobs SET engine_class = 'web' WHERE engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')`,
@@ -1624,6 +1951,8 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_engine_jobs_engine_run_id ON test_engine_jobs (engine_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, engine_class, app_type_kind, engine_host, created_at ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case ON test_engine_jobs (execution_id, test_case_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_created_at ON test_engine_jobs (execution_id, created_at DESC)`,
+  `DROP INDEX IF EXISTS idx_test_engine_jobs_exec`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'remote'`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS worker_id TEXT`,
@@ -2077,6 +2406,10 @@ const statements = [
       input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       result_payload JSONB,
       last_error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
       created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       started_at TIMESTAMPTZ,
@@ -2084,9 +2417,17 @@ const statements = [
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
+  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
+  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
+  `UPDATE ai_requirement_generation_jobs SET attempts = 0 WHERE attempts IS NULL`,
+  `ALTER TABLE ai_requirement_generation_jobs ALTER COLUMN attempts SET DEFAULT 0`,
+  `ALTER TABLE ai_requirement_generation_jobs ALTER COLUMN attempts SET NOT NULL`,
   `ALTER TABLE ai_requirement_generation_jobs DROP CONSTRAINT IF EXISTS ai_requirement_generation_jobs_status_check`,
   `ALTER TABLE ai_requirement_generation_jobs ADD CONSTRAINT ai_requirement_generation_jobs_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed'))`,
   `CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_project ON ai_requirement_generation_jobs (project_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_queue ON ai_requirement_generation_jobs (status, lease_expires_at, created_at ASC)`,
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS step_defects JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS case_defects JSONB`,
   `
@@ -2114,13 +2455,20 @@ const statements = [
   rebrandJsonColumn("quality_dashboards", "gadgets")
 ];
 
+const executeStatements = () => db.transaction(async () => {
+  // PostgreSQL DDL is transactional. The advisory transaction lock prevents
+  // horizontally scaled API replicas from racing the same compatibility
+  // migration while retaining an all-or-nothing schema outcome.
+  await db.query("SET LOCAL lock_timeout = '60s'");
+  await db.query("SELECT pg_advisory_xact_lock(hashtext(?))", [SCHEMA_LOCK_KEY]);
+  for (const statement of statements) {
+    await db.query(statement);
+  }
+})();
+
 const ensureRuntimeSchema = async () => {
   if (!bootstrapPromise) {
-    bootstrapPromise = (async () => {
-      for (const statement of statements) {
-        await db.query(statement);
-      }
-    })().catch((error) => {
+    bootstrapPromise = executeStatements().catch((error) => {
       bootstrapPromise = null;
       throw error;
     });
@@ -2129,11 +2477,7 @@ const ensureRuntimeSchema = async () => {
   return bootstrapPromise;
 };
 
-const reapplyRuntimeSchema = async () => {
-  for (const statement of statements) {
-    await db.query(statement);
-  }
-};
+const reapplyRuntimeSchema = executeStatements;
 
 module.exports = {
   ensureRuntimeSchema,

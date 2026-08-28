@@ -31,10 +31,10 @@ check_url() {
 }
 
 check_url "frontend" "http://localhost:$LOCAL_FRONTEND_PORT"
-check_url "api" "http://localhost:$LOCAL_API_PORT/health"
-check_url "testengine" "http://localhost:$LOCAL_TESTENGINE_PORT/health"
+check_url "api" "http://localhost:$LOCAL_API_PORT/health/ready"
+check_url "testengine" "http://localhost:$LOCAL_TESTENGINE_PORT/health/ready"
 check_url "capabilities" "http://localhost:$LOCAL_TESTENGINE_PORT/api/v1/capabilities"
-check_url "mobile-engine" "http://localhost:$LOCAL_MOBILE_ENGINE_PORT/health"
+check_url "mobile-engine" "http://localhost:$LOCAL_MOBILE_ENGINE_PORT/health/ready"
 check_url "mobile-capabilities" "http://localhost:$LOCAL_MOBILE_ENGINE_PORT/api/v1/capabilities"
 if curl -fsS "http://localhost:$LOCAL_HOST_RECORDER_PORT/health" >/dev/null; then
   echo "OK   host-recorder http://localhost:$LOCAL_HOST_RECORDER_PORT/health"

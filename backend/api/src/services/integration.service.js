@@ -1,6 +1,8 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const { INTEGRATION_TYPE_OPTIONS, INTEGRATION_TYPE_VALUES } = require("../domain/catalog");
+const { readBoundedResponseText } = require("../utils/boundedResponse");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -9,6 +11,15 @@ const normalizeText = (value) => {
 
   const normalized = value.trim();
   return normalized ? normalized : null;
+};
+
+const normalizeLimitedText = (value, label, maxLength) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (normalized.length > maxLength) {
+    throw new Error(`${label} must be ${maxLength} characters or fewer`);
+  }
+  return normalized;
 };
 
 const isPlainObject = (value) => {
@@ -113,6 +124,8 @@ const isMaskedSecretValue = (value) => {
   return normalized === MASKED_SECRET_VALUE || /^\*{6,}$/.test(normalized) || /^[•●]{6,}$/.test(normalized);
 };
 
+const isUsableApiCredential = (value) => Boolean(normalizeText(value)) && !isMaskedSecretValue(value);
+
 const ensureAbsoluteHttpUrl = (value, label) => {
   const normalized = normalizeText(value);
 
@@ -132,13 +145,56 @@ const ensureAbsoluteHttpUrl = (value, label) => {
     throw new Error(`${label} must use http or https`);
   }
 
+  if (parsed.username || parsed.password) {
+    throw new Error(`${label} must not contain embedded credentials`);
+  }
+
+  if (parsed.search || parsed.hash) {
+    throw new Error(`${label} must not contain a query string or fragment`);
+  }
+
   return parsed;
+};
+
+const normalizeServicePath = (value, label, fallback) => {
+  const normalized = normalizeText(value) || fallback;
+  if (!normalized || !normalized.startsWith("/") || normalized.startsWith("//") || /[\r\n]/.test(normalized)) {
+    throw new Error(`${label} must be a same-origin absolute path beginning with /`);
+  }
+  return normalized;
+};
+
+const normalizeHeaderName = (value, label, fallback) => {
+  const normalized = normalizeText(value) || fallback;
+  if (!normalized || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(normalized)) {
+    throw new Error(`${label} is not a valid HTTP header name`);
+  }
+  return normalized;
+};
+
+const normalizeHeaderPrefix = (value, fallback = "Bearer") => {
+  const normalized = value === undefined ? fallback : String(value ?? "").trim();
+  if (normalized.length > 64 || /[\r\n]/.test(normalized)) {
+    throw new Error("API key prefix must be 64 characters or fewer and cannot contain line breaks");
+  }
+  return normalized;
 };
 
 function normalizeAbsoluteBaseUrl(value, label) {
   return ensureAbsoluteHttpUrl(value, label)
     .toString()
     .replace(/\/+$/, "");
+}
+
+function normalizeEmbeddingBaseUrl(value) {
+  const parsed = ensureAbsoluteHttpUrl(value, "Embedding base URL");
+  if (parsed.username || parsed.password) {
+    throw new Error("Embedding base URL must not contain credentials");
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("Embedding base URL must not contain a query string or fragment");
+  }
+  return parsed.toString().replace(/\/+$/, "");
 }
 
 const resolveOpsBaseUrl = async ({ base_url, project_id } = {}) => {
@@ -158,29 +214,27 @@ const resolveOpsBaseUrl = async ({ base_url, project_id } = {}) => {
   return normalizeAbsoluteBaseUrl(engineBaseUrl, "Test Engine host URL");
 };
 
-const fetchWithTimeout = async (url, init = {}, timeoutMs = TESTENGINE_CONNECTION_TIMEOUT_MS) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`Request timed out after ${timeoutMs}ms`);
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timer);
+const fetchWithTimeout = async (url, init = {}, timeoutMs = TESTENGINE_CONNECTION_TIMEOUT_MS, options = {}) => resilientHttpRequest(
+  url,
+  init,
+  {
+    dependency: options.dependency || "integration-provider",
+    operation: options.operation || "connection.test",
+    deadlineMs: timeoutMs,
+    maxAttempts: options.maxAttempts || 2,
+    maxResponseBytes: 1024 * 1024,
+    maxConcurrent: 8,
+    failureThreshold: 4,
+    resetTimeoutMs: 20_000
   }
-};
+);
 
 const readResponsePayload = async (response) => {
   const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-  const rawBody = await response.text();
+  const rawBody = await readBoundedResponseText(response, {
+    maxBytes: 1024 * 1024,
+    label: "Integration provider response"
+  });
 
   if (!rawBody) {
     return null;
@@ -212,7 +266,7 @@ const testTestEngineConnection = async ({ base_url }) => {
       headers: {
         accept: "application/json"
       }
-    });
+    }, TESTENGINE_CONNECTION_TIMEOUT_MS, { dependency: "test-engine", operation: "health.probe" });
   } catch (error) {
     const localhostFallbacks = ["localhost", "127.0.0.1"].includes(engineBaseUrl.hostname.toLowerCase())
       ? ["http://host.docker.internal:4301", "http://testengine:4301"]
@@ -229,7 +283,7 @@ const testTestEngineConnection = async ({ base_url }) => {
           headers: {
             accept: "application/json"
           }
-        });
+        }, TESTENGINE_CONNECTION_TIMEOUT_MS, { dependency: "test-engine", operation: "health.probe" });
         fallbackError = null;
         break;
       } catch (nextError) {
@@ -263,7 +317,7 @@ const testTestEngineConnection = async ({ base_url }) => {
       headers: {
         accept: "application/json"
       }
-    });
+    }, TESTENGINE_CONNECTION_TIMEOUT_MS, { dependency: "test-engine", operation: "capabilities.read" });
   } catch (error) {
     throw new Error(
       `Reached the Test Engine host, but capabilities could not be read from ${capabilitiesUrl}: ${error instanceof Error ? error.message : "request failed"}`
@@ -314,15 +368,14 @@ const testOpsConnection = async ({ base_url, config = {}, api_key } = {}) => {
     project_id: normalizeText(normalizedConfig.project_id)
   });
   const opsBaseUrl = ensureAbsoluteHttpUrl(normalizedBaseUrl, "OPS host URL");
-  const healthUrl = new URL(normalizeText(normalizedConfig.health_path) || "/health", opsBaseUrl).toString();
-  const eventsPath = normalizeText(normalizedConfig.events_path) || "/api/v1/events";
+  const healthPath = normalizeServicePath(normalizedConfig.health_path, "OPS health path", "/health");
+  const healthUrl = new URL(healthPath, opsBaseUrl).toString();
+  const eventsPath = normalizeServicePath(normalizedConfig.events_path, "OPS events path", "/api/v1/events");
   const eventsUrl = new URL(eventsPath, opsBaseUrl).toString();
   const boardUrl = new URL("/ops-telemetry", opsBaseUrl).toString();
   const startedAt = Date.now();
-  const authHeaderName = normalizeText(normalizedConfig.api_key_header) || "Authorization";
-  const authHeaderPrefix = Object.prototype.hasOwnProperty.call(normalizedConfig, "api_key_prefix")
-    ? String(normalizedConfig.api_key_prefix ?? "")
-    : "Bearer";
+  const authHeaderName = normalizeHeaderName(normalizedConfig.api_key_header, "OPS API key header", "Authorization");
+  const authHeaderPrefix = normalizeHeaderPrefix(normalizedConfig.api_key_prefix);
   const normalizedApiKey = normalizeText(api_key);
   const headers = {
     accept: "application/json"
@@ -335,7 +388,10 @@ const testOpsConnection = async ({ base_url, config = {}, api_key } = {}) => {
   let healthResponse;
 
   try {
-    healthResponse = await fetchWithTimeout(healthUrl, { headers });
+    healthResponse = await fetchWithTimeout(healthUrl, { headers }, Math.max(500, Math.min(30_000, normalizeInteger(normalizedConfig.timeout_ms) || 4_000)), {
+      dependency: "ops-telemetry",
+      operation: "health.probe"
+    });
   } catch (error) {
     throw new Error(
       `Unable to reach OPS health endpoint at ${healthUrl}: ${error instanceof Error ? error.message : "request failed"}`
@@ -353,7 +409,10 @@ const testOpsConnection = async ({ base_url, config = {}, api_key } = {}) => {
   let eventsResponse;
 
   try {
-    eventsResponse = await fetchWithTimeout(eventsUrl, { headers });
+    eventsResponse = await fetchWithTimeout(eventsUrl, { headers }, Math.max(500, Math.min(30_000, normalizeInteger(normalizedConfig.timeout_ms) || 4_000)), {
+      dependency: "ops-telemetry",
+      operation: "events.probe"
+    });
   } catch (error) {
     throw new Error(
       `Reached the OPS host, but the events endpoint could not be read from ${eventsUrl}: ${error instanceof Error ? error.message : "request failed"}`
@@ -382,6 +441,20 @@ const testOpsConnection = async ({ base_url, config = {}, api_key } = {}) => {
 const normalizeConfig = (type, input, username) => {
   const raw = normalizeObject(input);
   const integrationTypeConfig = INTEGRATION_TYPE_OPTIONS.find((option) => option.value === type)?.defaults || {};
+
+  if (type === "llm") {
+    const project_id = normalizeLimitedText(raw.project_id, "LLM project ID", 255);
+    const embedding_model = normalizeLimitedText(raw.embedding_model, "Embedding model", 255);
+    const embeddingBaseUrlInput = normalizeLimitedText(raw.embedding_base_url, "Embedding base URL", 2_048);
+
+    return {
+      project_id,
+      embedding_model,
+      embedding_base_url: embeddingBaseUrlInput
+        ? normalizeEmbeddingBaseUrl(embeddingBaseUrlInput)
+        : null
+    };
+  }
 
   if (type === "email") {
     const host = normalizeText(raw.host);
@@ -571,11 +644,13 @@ const normalizeConfig = (type, input, username) => {
   if (type === "ops") {
     return {
       project_id: normalizeText(raw.project_id),
-      events_path: normalizeText(raw.events_path) || String(integrationTypeConfig.events_path || "/api/v1/events"),
-      health_path: normalizeText(raw.health_path) || String(integrationTypeConfig.health_path || "/health"),
+      events_path: normalizeServicePath(raw.events_path, "OPS events path", String(integrationTypeConfig.events_path || "/api/v1/events")),
+      health_path: normalizeServicePath(raw.health_path, "OPS health path", String(integrationTypeConfig.health_path || "/health")),
+      api_key_header: normalizeHeaderName(raw.api_key_header, "OPS API key header", "Authorization"),
+      api_key_prefix: normalizeHeaderPrefix(raw.api_key_prefix),
       service_name: normalizeText(raw.service_name) || String(integrationTypeConfig.service_name || "hellotest-testengine"),
       environment: normalizeText(raw.environment) || String(integrationTypeConfig.environment || "production"),
-      timeout_ms: Math.max(500, normalizeInteger(raw.timeout_ms) ?? Number(integrationTypeConfig.timeout_ms ?? 4000)),
+      timeout_ms: Math.max(500, Math.min(30_000, normalizeInteger(raw.timeout_ms) ?? Number(integrationTypeConfig.timeout_ms ?? 4000))),
       emit_step_events: raw.emit_step_events !== false,
       emit_case_events: raw.emit_case_events !== false,
       emit_suite_events: raw.emit_suite_events !== false,
@@ -613,7 +688,8 @@ const validateType = (type) => {
 const validatePayload = (payload) => {
   const type = normalizeText(payload.type);
   const name = normalizeText(payload.name);
-  const base_url = normalizeText(payload.base_url);
+  const rawBaseUrl = normalizeText(payload.base_url);
+  const base_url = rawBaseUrl ? normalizeAbsoluteBaseUrl(rawBaseUrl, `${name || type || "Integration"} base URL`) : null;
   const api_key = normalizeText(payload.api_key);
   const model = normalizeText(payload.model);
   const project_key = normalizeText(payload.project_key);
@@ -627,8 +703,8 @@ const validatePayload = (payload) => {
   }
 
   if (type === "llm") {
-    if (!api_key) {
-      throw new Error("LLM integrations require an API key");
+    if (!isUsableApiCredential(api_key)) {
+      throw new Error("LLM integrations require a usable API key; masked placeholders are not credentials");
     }
 
     if (!model) {
@@ -981,4 +1057,13 @@ exports.testConnection = async (input = {}) => {
   }
 
   throw new Error("Connection testing is currently available only for Test Engine and OPS integrations");
+};
+
+exports.isUsableApiCredential = isUsableApiCredential;
+
+exports._internals = {
+  isMaskedSecretValue,
+  isUsableApiCredential,
+  normalizeConfig,
+  validatePayload
 };

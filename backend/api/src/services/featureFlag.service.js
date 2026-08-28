@@ -237,7 +237,12 @@ const FEATURE_GROUPS = [
       { key: "hellotest.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
       { key: "hellotest.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "hellotest.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },
-      { key: "hellotest.ai.knowledge", label: "Knowledge repo", routes: ["/knowledge-repo"] },
+      {
+        key: "hellotest.ai.knowledge",
+        label: "Knowledge Repo and grounded assistant",
+        description: "Build project-scoped context from HelloTest records, text, chat, and governed files; search it with citations and use the guarded floating Knowledge Assistant.",
+        routes: ["/knowledge-repo"]
+      },
       { key: "hellotest.ai.agentic_workflows", label: "Agentic workflows", routes: ["/agentic-workflows"] },
       { key: "hellotest.ai.prompt_mapping", label: "AI prompt key mapping", routes: ["/admin-space"] }
     ]

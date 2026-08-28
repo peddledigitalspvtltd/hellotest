@@ -7,3 +7,171 @@
   grid-column: 2;
   justify-self: start;
 }
+
+.testops-telemetry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.testops-telemetry-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.testops-telemetry-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.testops-telemetry-metrics article {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, var(--accent) 22%);
+  border-radius: 12px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--surface) 94%, var(--accent) 6%), var(--surface));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.testops-telemetry-metrics span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.testops-telemetry-metrics strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1.35rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.testops-telemetry-search {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.testops-telemetry-search > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.testops-telemetry-search input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.testops-telemetry-search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: none;
+}
+
+.testops-telemetry-events {
+  display: grid;
+  gap: 0.7rem;
+  max-height: 62vh;
+  padding-right: 0.2rem;
+  overflow: auto;
+}
+
+.testops-telemetry-event {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.testops-telemetry-event header,
+.testops-telemetry-event footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.testops-telemetry-event header > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.testops-telemetry-event header strong,
+.testops-telemetry-event header span {
+  overflow-wrap: anywhere;
+}
+
+.testops-telemetry-event header span,
+.testops-telemetry-event footer {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.testops-telemetry-event p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.testops-telemetry-event footer {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.testops-telemetry-event details {
+  border-top: 1px solid var(--border);
+  padding-top: 0.55rem;
+}
+
+.testops-telemetry-event summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.testops-telemetry-event pre {
+  max-height: 260px;
+  margin: 0.6rem 0 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--text);
+  font-size: 0.74rem;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .testops-telemetry-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .testops-telemetry-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .testops-telemetry-event header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -5,6 +5,7 @@ const executionResultService = require("./executionResult.service");
 const integrationService = require("./integration.service");
 const opsTelemetryService = require("./opsTelemetry.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
+const { resolveTestEngineSecret } = require("../security/runtimeSecrets");
 
 const selectTestCase = db.prepare(`
   SELECT id, title, app_type_id
@@ -388,11 +389,10 @@ const resolveCallbackSignature = (headers = {}) =>
   || "";
 
 const resolveCallbackSecret = (integration) =>
-  normalizeText(integration?.config?.callback_secret)
-  || normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
-  || normalizeText(process.env.TESTENGINE_SHARED_SECRET)
-  || normalizeText(process.env.HELLOTEST_TESTENGINE_SECRET)
-  || "hellotest-testengine-dev-secret";
+  resolveTestEngineSecret(
+    normalizeText(integration?.config?.callback_secret),
+    normalizeText(process.env.TESTENGINE_CALLBACK_SECRET)
+  );
 
 async function ensureTransaction({
   engineRunId,

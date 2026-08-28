@@ -1,92 +1,70 @@
 # HelloTest Platform Stack
 
-HelloTest already runs on Fastify, which means Pino logging is native through the backend logger. The platform work added here keeps that base intact and layers the stronger runtime pieces around it instead of replacing working behavior.
+The platform profile is a single-command local/VM deployment with explicit readiness ordering and a complete three-signal observability path.
 
-## What Is Included
-
-- `Fastify + Pino`
-  - HelloTest backend stays on Fastify and now honors `LOG_LEVEL`.
-- `Health + readiness + metrics`
-  - `GET /health`
-  - `GET /health/ready`
-  - `GET /metrics`
-- `HAProxy`
-  - front door for the web app and API
-  - stats UI on `http://localhost:8404/stats`
-  - set `HELLOTEST_HTTP_PORT` if host port `80` is already in use
-- `Prometheus`
-  - scrapes HelloTest API metrics and OpenTelemetry Collector metrics
-- `Grafana`
-  - ready with Prometheus and Loki datasources
-- `Loki + Promtail`
-  - collects container logs for HelloTest services
-- `OpenTelemetry Collector`
-  - receives future OTLP traces/logs/metrics and exposes collector metrics
-
-## Current Scope
-
-- Pino logging is active now through Fastify.
-- Prometheus-ready API metrics are active now through `/metrics`.
-- Request trace propagation is active now through `traceparent` and `X-Trace-ID` headers.
-- The OpenTelemetry Collector is wired in now for future OTLP exporters, but the HelloTest API is not yet using the full OpenTelemetry SDK.
-- The Promtail setup is intended for Linux Docker hosts such as EC2 because it reads Docker container logs from the host filesystem.
-
-## Files
-
-- [docker-compose.platform.yml](/Users/jayarajumetta/MJ/hellotest/docker-compose.platform.yml:1)
-- [backend/api/src/plugins/observability.js](/Users/jayarajumetta/MJ/hellotest/backend/api/src/plugins/observability.js:1)
-- [ops/haproxy/haproxy.cfg](/Users/jayarajumetta/MJ/hellotest/ops/haproxy/haproxy.cfg:1)
-- [ops/prometheus/prometheus.yml](/Users/jayarajumetta/MJ/hellotest/ops/prometheus/prometheus.yml:1)
-- [ops/grafana/provisioning/datasources/datasources.yml](/Users/jayarajumetta/MJ/hellotest/ops/grafana/provisioning/datasources/datasources.yml:1)
-- [ops/loki/loki-config.yml](/Users/jayarajumetta/MJ/hellotest/ops/loki/loki-config.yml:1)
-- [ops/promtail/promtail-config.yml](/Users/jayarajumetta/MJ/hellotest/ops/promtail/promtail-config.yml:1)
-- [ops/otel-collector/config.yaml](/Users/jayarajumetta/MJ/hellotest/ops/otel-collector/config.yaml:1)
-
-## Runtime Shape
-
-- `docker-compose.full.yml`
-  - current HelloTest app stack
-  - PostgreSQL + API + frontend
-- `docker-compose.platform.yml`
-  - HelloTest app stack plus HAProxy, Prometheus, Grafana, Loki, Promtail, and OTel Collector
-- `testengine/docker-compose.deploy.yml`
-  - standalone Playwright Test Engine deployment for a separate EC2
-
-## Operator Flow
-
-Use [hellotest.sh](/Users/jayarajumetta/MJ/hellotest/hellotest.sh:1) as the root entrypoint for service relation config, image publishing, and compose deployment:
+## Start and verify
 
 ```bash
 ./hellotest.sh config --stack platform
-./hellotest.sh push
 ./hellotest.sh deploy --stack platform
-./hellotest.sh deploy --stack testengine --yes
+./scripts/validate-deployment-contracts.sh
 ```
 
-`hellotest.sh` generates `.hellotest/<stack>.env` with the resolved frontend, API, worker, Test Engine, database, Redis, and image settings. Override values with environment variables or `--config <file>`.
+Generated `.hellotest/*.env` files are mode `600` inside a mode `700` directory. `./hellotest.sh config` redacts secrets by default; use `--show-secrets` only in a controlled terminal.
+For the platform and standalone Test Engine profiles, missing secrets are generated with cryptographic randomness and reused from the protected env file on later commands. The production Compose profile fails closed when those secrets are absent instead of falling back to development credentials.
+The platform database initializes schema only; it never installs the known sample accounts from `backend/db/seed.sql`. A random one-time bootstrap administrator is created from the protected deployment env file and is forced through password replacement after first sign-in. Sample content remains an explicit Administration action.
 
-For AWS EC2 deployments, prefer the `deploymentscripts` wrappers because they bind internal services to localhost by default and make duplicate/container audits easier.
+On a new platform installation, retrieve that one-time identity only from a private terminal:
 
-## AWS Service Scripts
+```bash
+./hellotest.sh config --stack platform --show-secrets
+```
 
-- [deploymentscripts/aws-app-deploy.sh](/Users/jayarajumetta/MJ/hellotest/deploymentscripts/aws-app-deploy.sh:1)
-- [deploymentscripts/aws-testengine-deploy.sh](/Users/jayarajumetta/MJ/hellotest/deploymentscripts/aws-testengine-deploy.sh:1)
-- [deploymentscripts/aws-status.sh](/Users/jayarajumetta/MJ/hellotest/deploymentscripts/aws-status.sh:1)
-- [deploymentscripts/aws-logs.sh](/Users/jayarajumetta/MJ/hellotest/deploymentscripts/aws-logs.sh:1)
+Sign in, replace the bootstrap password immediately, then set `ADMIN_BOOTSTRAP_ENABLED=false` in the deployment configuration. Existing databases that still contain the published legacy sample hashes have those accounts automatically suspended and de-privileged on a production API start.
 
-## Recommended Deploy Split
+## Runtime topology
 
-- HelloTest EC2
-  - PostgreSQL
-  - HelloTest API
-  - HelloTest frontend
-  - HAProxy
-  - Prometheus
-  - Grafana
-  - Loki
-  - Promtail
-  - OTel Collector
-- Test Engine EC2
-  - Playwright Test Engine only
+- PostgreSQL/pgvector stores transactional, execution, and Knowledge Repo vector data.
+- Redis provides cache and coordination.
+- MinIO stores attachments and generated artifacts.
+- Apache Tika performs isolated rich-document extraction.
+- Fastify serves the API and administration gateway.
+- Nginx serves the product and administration frontends.
+- HAProxy is the public HTTP front door.
+- Prometheus scrapes API metrics and evaluates runtime alerts.
+- Loki and Promtail collect container logs.
+- OpenTelemetry Collector receives OTLP, enforces memory/redaction/batching policy, and exports traces and logs.
+- Jaeger v2 stores and queries local traces.
+- Grafana provisions Prometheus, Loki, Jaeger, trace/log correlation, and the HelloTest Runtime Overview dashboard.
+- `testengine/backend` is the only supported execution worker plane; the legacy `apps/hellotest-execution-engine` tree is archived source and has no deployment contract.
 
-That split keeps browser execution isolated from the core QA workspace while still giving the platform team one observability story.
+The bundled Jaeger all-in-one profile uses bounded single-node memory storage and is intended for local or light VM operations. A production deployment should point the Collector exporter and the admin trace URL at an organization-managed persistent tracing backend.
+The bundled, version-pinned MinIO node is likewise a reproducible local/light-VM S3-compatible provider. Security-sensitive production deployments should configure `STORAGE_PROVIDER=s3` with an actively maintained, organization-managed object store and its normal backup/lifecycle controls.
+
+## Health contracts
+
+- `/health` and `/health/live`: process liveness only.
+- `/health/ready`: critical PostgreSQL stores; returns 503 when the API must leave rotation.
+- `/admin/health`: authenticated full dependency registry including Redis, storage, Tika, telemetry, schema, attachments, and permissions.
+- MinIO uses `/minio/health/ready`.
+- Compose consumers wait for `service_healthy`, not merely a started container.
+
+## Operator endpoints
+
+Defaults can be changed with the corresponding `HELLOTEST_*` environment variable.
+
+| Endpoint | Default |
+| --- | --- |
+| Product | `http://localhost` |
+| Administration | `http://localhost:8081/admin/` |
+| API | `http://localhost:3000` |
+| Grafana | `http://localhost:3001` |
+| Jaeger | `http://localhost:16686` |
+| Prometheus | `http://localhost:9090` |
+| HAProxy statistics | `http://localhost:8404/stats` |
+
+## Configuration ownership
+
+Infrastructure addresses and credentials come from environment/secrets management and require a restart. Project-scoped LLM, Test Engine, OPS, email, source-control, and other provider settings remain governed through Administration > Integrations. This prevents a compromised browser session from rewriting database or telemetry infrastructure while still making provider services pluggable.
+
+See [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md) for dependency rules and service contracts.

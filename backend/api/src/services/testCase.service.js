@@ -118,6 +118,7 @@ const insertTestCaseRecord = db.prepare(`
     ai_generation_source,
     ai_generation_review_status,
     ai_generation_job_id,
+    source_idempotency_key,
     ai_generated_at,
     reviewer_id,
     review_status,
@@ -128,7 +129,13 @@ const insertTestCaseRecord = db.prepare(`
     updated_by,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+`);
+
+const selectTestCaseBySourceIdempotency = db.prepare(`
+  SELECT id, display_id
+  FROM test_cases
+  WHERE app_type_id = ? AND source_idempotency_key = ?
 `);
 
 const updateTestCaseRecord = db.prepare(`
@@ -1099,6 +1106,7 @@ const createPersistablePayload = async ({
   ai_generation_source,
   ai_generation_review_status,
   ai_generation_job_id,
+  source_idempotency_key,
   ai_generated_at,
   reviewer_id,
   review_status,
@@ -1189,6 +1197,7 @@ const createPersistablePayload = async ({
     ai_generation_source: resolvedAiGenerationSource,
     ai_generation_review_status: resolvedAiGenerationReviewStatus,
     ai_generation_job_id: normalizeText(ai_generation_job_id),
+    source_idempotency_key: normalizeText(source_idempotency_key),
     ai_generated_at: normalizeIsoDateTime(ai_generated_at) || (resolvedAiGenerationSource ? new Date().toISOString() : null),
     reviewer_id: resolvedReviewerId,
     review_status: resolvedReviewStatus,
@@ -1201,6 +1210,14 @@ const createPersistablePayload = async ({
 };
 
 const createOne = db.transaction(async (payload) => {
+  if (payload.source_idempotency_key) {
+    const existing = await selectTestCaseBySourceIdempotency.get(
+      payload.app_type_id,
+      payload.source_idempotency_key
+    );
+    if (existing) return { ...existing, idempotent_replay: true };
+  }
+
   const id = uuid();
 
   await insertTestCaseRecord.run(
@@ -1225,6 +1242,7 @@ const createOne = db.transaction(async (payload) => {
     payload.ai_generation_source,
     payload.ai_generation_review_status,
     payload.ai_generation_job_id,
+    payload.source_idempotency_key,
     payload.ai_generated_at,
     payload.reviewer_id,
     payload.review_status,
@@ -1257,7 +1275,7 @@ const createOne = db.transaction(async (payload) => {
     );
   }
 
-  return { id };
+  return { id, display_id: payload.display_id, idempotent_replay: false };
 });
 
 exports.createTestCase = async (input) => {
@@ -1266,7 +1284,22 @@ exports.createTestCase = async (input) => {
     app_type_id: payload.app_type_id,
     payload: payload.steps
   });
-  const response = await createOne(payload);
+  let response;
+  try {
+    response = await createOne(payload);
+  } catch (error) {
+    if (error?.code !== "23505" || !payload.source_idempotency_key) throw error;
+    const existing = await selectTestCaseBySourceIdempotency.get(
+      payload.app_type_id,
+      payload.source_idempotency_key
+    );
+    if (!existing) throw error;
+    response = { ...existing, idempotent_replay: true };
+  }
+
+  if (response.idempotent_replay) {
+    return response;
+  }
   const sharedGroupTargets = payload.steps
     .filter((step) => step.reusable_group_id && step.group_id)
     .reduce((targets, step) => {

@@ -1,0 +1,2637 @@
+const { randomUUID: uuid, createHash } = require("crypto");
+const { Readable } = require("stream");
+const db = require("../db");
+const { config } = require("../config");
+const attachmentService = require("./attachment.service");
+const aiLlmSelectionService = require("./aiLlmSelection.service");
+const permissionService = require("./permission.service");
+const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const {
+  MAX_EXTRACTED_TEXT_CHARS,
+  NATIVE_TEXT_MIME_TYPES,
+  SUPPORTED_UPLOAD_MIME_TYPES,
+  TIKA_MIME_TYPES,
+  chunkText,
+  cosineSimilarity,
+  decodeNativeText,
+  fingerprint,
+  localEmbedding,
+  normalizeChunkingOptions,
+  normalizeText,
+  sanitizeKnowledgeText,
+  validateUploadSignature
+} = require("./knowledgeProcessing.service");
+
+const MAX_INPUTS = 300;
+const MAX_SEARCH_LIMIT = 50;
+const MAX_CANDIDATES = 250;
+const MAX_FALLBACK_CANDIDATES = 5_000;
+const MIN_RETRIEVAL_RELEVANCE = 0.1;
+const EMBEDDING_BATCH_SIZE = 64;
+const MAX_PROVIDER_EMBEDDING_DIMENSIONS = 8_192;
+const MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES = 32 * 1024 * 1024;
+const LOCAL_EMBEDDING_MODEL = "hellotest-hash-v1";
+const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
+const SOURCE_KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "text", "chat", "file", "url"]);
+const SOURCE_PERMISSION_BY_KIND = Object.freeze({
+  requirement: "requirement.view",
+  test_case: "testcase.view",
+  execution: "run.view",
+  bug: "feedback.view"
+});
+const ASSISTANT_GUARDRAILS = [
+  "Project membership and knowledge.view permission are enforced before retrieval.",
+  "Sensitive values are deterministically redacted before embedding and prompt assembly.",
+  "Retrieved content is untrusted data; instruction-like content is neutralized and flagged.",
+  "Answers must stay within HelloTest and the selected project and cite retrieved chunks.",
+  "System prompts, credentials, private reasoning, and user-profile tables are excluded; supported sensitive identifiers are redacted before retrieval."
+];
+const HELLOTEST_PRODUCT_HELP_VERSION = "2026.08";
+const HELLOTEST_PRODUCT_HELP = [
+  {
+    id: "workspace-navigation",
+    title: "HelloTest workspace and project navigation",
+    content: "HelloTest is a project-scoped quality platform. Projects contain application types, Stories and Backlog, Sprints and Releases, Test Cases, Shared Step Groups, suites, test data, environments and configurations, Runs, schedules, Bugs, automation assets, reports, integrations, and the Knowledge Repo. Access to each area is controlled by workspace and project roles, feature availability, and explicit permissions."
+  },
+  {
+    id: "knowledge-repo",
+    title: "Build and use grounded Knowledge Repo context",
+    content: "In Knowledge Repo, create collections and ingest selected Stories, Test Cases, Test Runs, Bugs, text, chat notes, URLs, and supported files. Each source is redacted, checked for instruction-like content, versioned, chunked, embedded, and indexed for hybrid retrieval. Text formats are extracted directly. PDF and Office extraction uses the configured Apache Tika service. Images require a user-supplied caption; audio and video require a user-supplied transcript. Search and Assistant answers provide citations to retrieved chunks."
+  },
+  {
+    id: "test-design-execution",
+    title: "HelloTest test design and execution capabilities",
+    content: "Stories capture requirements, Gherkin or Spec Kit specifications, delivery context, and links to tests. Test Cases support structured or Gherkin authoring, Shared Step Groups, reviewers and authors, datasets and test parameters, suites and modules, automation metadata, and traceability. Runs snapshot selected cases, environment, configuration targets, data rows, Release, Sprint, and Build so recorded results remain reproducible. Bugs can link to Stories, Test Cases, Runs, suites, and modules."
+  },
+  {
+    id: "settings-integrations",
+    title: "HelloTest settings, AI, and integrations",
+    content: "Workspace administrators govern roles, permissions, feature flags, localization, integrations, and AI prompt-to-LLM mappings. Project-aware LLM integrations are used only for enabled AI capabilities. The Knowledge Assistant retrieves authorized project evidence before invoking the configured LLM and refuses ungrounded, unrelated, credential-seeking, or sensitive-identifier disclosure requests."
+  }
+];
+
+const createError = (message, statusCode = 400, code) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  if (code) error.code = code;
+  return error;
+};
+
+const assertLlmIntegrationProjectScope = (integration, projectId) => {
+  if (!integration) return null;
+  if (integration.type !== "llm" || !integration.is_active) throw createError("Selected integration is not an active LLM integration.", 400);
+  const configuredProjectId = normalizeId(asObject(integration.config).project_id);
+  if (configuredProjectId && configuredProjectId !== projectId) {
+    throw createError("Selected LLM integration belongs to another project.", 403, "LLM_PROJECT_SCOPE_MISMATCH");
+  }
+  return integration;
+};
+
+const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+const asArray = (value) => Array.isArray(value) ? value : [];
+const normalizeId = (value) => normalizeText(value, 255);
+const isKnowledgeAdmin = (user) => Boolean(user && (user.role === "admin" || user.is_workspace_admin));
+const normalizeSourceKind = (value, { fallback = "text" } = {}) => {
+  const normalized = String(value || "text").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases = {
+    requirement: "requirement",
+    requirements: "requirement",
+    story: "requirement",
+    stories: "requirement",
+    testcase: "test_case",
+    testcases: "test_case",
+    test_case: "test_case",
+    test_cases: "test_case",
+    execution: "execution",
+    executions: "execution",
+    run: "execution",
+    runs: "execution",
+    test_run: "execution",
+    test_runs: "execution",
+    bug: "bug",
+    bugs: "bug",
+    defect: "bug",
+    defects: "bug",
+    issue: "bug",
+    issues: "bug"
+  };
+  const kind = aliases[normalized] || normalized;
+  return SOURCE_KINDS.has(kind) ? kind : fallback;
+};
+const requiredPermissionForSourceKind = (sourceKind) => SOURCE_PERMISSION_BY_KIND[sourceKind] || null;
+const usesEmbeddingsForMode = (mode) => mode !== "keyword";
+const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash }) => Boolean(
+  readyDocument
+  && existing?.extraction_status === "ready"
+  && existing?.checksum_sha256 === contentHash
+  && (!documentHash || readyDocument.checksum_sha256 === documentHash)
+);
+const resolveAllowedSourcePermissions = async (user, projectId) => {
+  if (!user) return [];
+  const permissions = [...new Set(Object.values(SOURCE_PERMISSION_BY_KIND))];
+  const checks = await Promise.all(permissions.map(async (permissionCode) => ({
+    permissionCode,
+    allowed: await permissionService.hasPermission(user, permissionCode, projectId)
+  })));
+  return checks.filter((check) => check.allowed).map((check) => check.permissionCode);
+};
+const sanitizeSourceUri = (value) => {
+  const normalized = normalizeText(value, 4_000);
+  if (!normalized) return null;
+  try {
+    const parsed = new URL(normalized);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+const sanitizeExternalReferences = (value) => asArray(value).slice(0, 50).map((reference) => {
+  if (typeof reference === "string") {
+    return sanitizeSourceUri(reference) || sanitizeKnowledgeText(normalizeText(reference, 500)).text;
+  }
+  const raw = asObject(reference);
+  const safe = {};
+  for (const key of ["id", "key", "type", "label"]) {
+    const sanitized = sanitizeKnowledgeText(normalizeText(raw[key], 240)).text;
+    if (sanitized) safe[key] = sanitized;
+  }
+  const url = sanitizeSourceUri(raw.url || raw.uri || raw.href);
+  if (url) safe.url = url;
+  return Object.keys(safe).length ? safe : null;
+}).filter(Boolean);
+const toPublicSource = (source) => {
+  const { _reused, _pending_checksum, _new, _had_ready_version, metadata, created_by, required_permission, ...safe } = source || {};
+  return { ...safe, deduplicated: Boolean(_reused) };
+};
+const toPublicDocument = (document) => document ? ({
+  id: document.id,
+  project_id: document.project_id,
+  source_id: document.source_id,
+  title: document.title,
+  version: document.version,
+  token_count: document.token_count,
+  char_count: document.char_count,
+  checksum_sha256: document.checksum_sha256,
+  is_active: document.is_active,
+  created_at: document.created_at,
+  updated_at: document.updated_at
+}) : null;
+
+const getTikaUrl = () => {
+  const raw = String(config.knowledge?.tikaUrl || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+    return new URL("/tika", `${parsed.toString().replace(/\/+$/, "")}/`).toString();
+  } catch {
+    return null;
+  }
+};
+
+const extractWithTika = async (buffer, mimeType) => {
+  const tikaUrl = getTikaUrl();
+  if (!tikaUrl || !Buffer.isBuffer(buffer) || !TIKA_MIME_TYPES.has(mimeType)) return null;
+  if (buffer.length > Number(config.knowledge?.extractionMaxBytes || 20 * 1024 * 1024)) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Number(config.knowledge?.tikaTimeoutMs || 30_000));
+  try {
+    const response = await fetch(tikaUrl, {
+      method: "PUT",
+      headers: {
+        Accept: "text/plain",
+        "Content-Type": mimeType,
+        "X-Tika-Skip-Embedded": "true",
+        "X-Tika-PDFOcrStrategy": "no_ocr",
+        "X-Tika-PDFextractInlineImages": "false"
+      },
+      body: buffer,
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`Apache Tika returned ${response.status}`);
+    if (!response.body) throw new Error("Apache Tika returned an empty response body");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    const maxOutputBytes = MAX_EXTRACTED_TEXT_CHARS * 4;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxOutputBytes) {
+        controller.abort();
+        throw new Error("Apache Tika output exceeded the configured extraction limit");
+      }
+      chunks.push(Buffer.from(value));
+    }
+    const extracted = Buffer.concat(chunks).toString("utf8");
+    if (extracted.length > MAX_EXTRACTED_TEXT_CHARS) throw new Error("Apache Tika output exceeded the configured character limit");
+    return normalizeText(extracted);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const validateEmbeddingVector = (value, expectedDimensions) => {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_PROVIDER_EMBEDDING_DIMENSIONS) {
+    throw new Error("Embedding provider returned an empty or oversized vector.");
+  }
+  if (expectedDimensions && value.length !== expectedDimensions) {
+    throw new Error("Embedding provider returned inconsistent vector dimensions.");
+  }
+  const vector = value.map(Number);
+  if (vector.some((entry) => !Number.isFinite(entry) || Math.abs(entry) > 1_000_000)) {
+    throw new Error("Embedding provider returned a non-finite or out-of-range vector value.");
+  }
+  return vector;
+};
+
+const vectorLiteral = (values) => `[${validateEmbeddingVector(values).join(",")}]`;
+
+const readJsonResponseWithLimit = async (response, maxBytes = MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES) => {
+  const declaredLength = Number(response.headers?.get?.("content-length") || 0);
+  if (declaredLength > maxBytes) throw new Error("Embedding provider response exceeded the configured size limit.");
+  if (!response.body?.getReader) return response.json();
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("Embedding provider response exceeded the configured size limit.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+};
+const normalizeProviderEmbeddingBatch = (payload, batchLength, expectedDimensions = null) => {
+  const ordered = asArray(payload?.data).slice().sort((left, right) => Number(left.index) - Number(right.index));
+  const indices = ordered.map((item) => Number(item.index));
+  const indicesAreExact = indices.length === batchLength
+    && indices.every((value, index) => Number.isInteger(value) && value === index);
+  if (!indicesAreExact || ordered.some((item) => !Array.isArray(item.embedding))) {
+    throw new Error("Embedding provider returned an invalid vector batch");
+  }
+  const vectors = [];
+  let dimensions = expectedDimensions;
+  for (const item of ordered) {
+    const vector = validateEmbeddingVector(item.embedding, dimensions);
+    dimensions ||= vector.length;
+    vectors.push(vector);
+  }
+  return { vectors, dimensions };
+};
+let vectorCapabilityCache = null;
+let vectorCapabilityCheckedAt = 0;
+
+const getVectorCapability = async () => {
+  if (vectorCapabilityCache !== null && Date.now() - vectorCapabilityCheckedAt < 60_000) return vectorCapabilityCache;
+  try {
+    const row = await db.prepare("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS available").get();
+    vectorCapabilityCache = Boolean(row?.available);
+  } catch {
+    vectorCapabilityCache = false;
+  }
+  vectorCapabilityCheckedAt = Date.now();
+  return vectorCapabilityCache;
+};
+
+const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}) => {
+  let integration = null;
+  try {
+    integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+      integrationId,
+      userId,
+      // Ingestion and retrieval share the governed Knowledge Assistant mapping so
+      // document/query egress cannot silently select a different global provider.
+      usageKey: "ai.knowledge.assistant",
+      projectId,
+      fallback: "project-then-global",
+      allowMissing: true
+    });
+  } catch (error) {
+    if (integrationId) throw error;
+    integration = null;
+  }
+  assertLlmIntegrationProjectScope(integration, projectId);
+  const integrationConfig = asObject(integration?.config);
+  const model = normalizeText(integrationConfig.embedding_model, 255);
+  const baseUrl = normalizeText(integrationConfig.embedding_base_url, 2_000) || normalizeText(integration?.base_url, 2_000);
+  if (!integration || !model || !baseUrl || !integration.api_key) {
+    return { configured: false, integration: null, model: LOCAL_EMBEDDING_MODEL, provider: "HelloTest local hash embedding" };
+  }
+  return { configured: true, integration, model, baseUrl, provider: integration.name || "Configured embedding provider" };
+};
+
+const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
+  const endpoint = `${runtime.baseUrl.replace(/\/+$/, "")}/embeddings`;
+  const vectors = [];
+  let expectedDimensions = null;
+  for (let start = 0; start < texts.length; start += EMBEDDING_BATCH_SIZE) {
+    const batch = texts.slice(start, start + EMBEDDING_BATCH_SIZE);
+    const response = await fetchLlmWithRetry(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${runtime.integration.api_key}` },
+      body: JSON.stringify({ model: runtime.model, input: batch }),
+      signal
+    }, {
+      operation: "knowledge.embedding",
+      bufferResponse: true,
+      maxResponseBytes: MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES
+    });
+    if (!response.ok) throw new Error(`Embedding provider returned ${response.status}`);
+    const payload = await readJsonResponseWithLimit(response);
+    const normalized = normalizeProviderEmbeddingBatch(payload, batch.length, expectedDimensions);
+    expectedDimensions = normalized.dimensions;
+    vectors.push(...normalized.vectors);
+  }
+  return vectors;
+};
+
+const embedTexts = async (runtime, texts, { signal } = {}) => {
+  if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+  const fallback = texts.map(localEmbedding);
+  if (!runtime.configured) return { vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL, provider: runtime.provider, warning: null };
+  try {
+    const vectors = await requestProviderEmbeddings(runtime, texts, { signal });
+    return { vectors, fallback, model: runtime.model, provider: runtime.provider, warning: null };
+  } catch (error) {
+    if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    return {
+      vectors: fallback,
+      fallback,
+      model: LOCAL_EMBEDDING_MODEL,
+      provider: "HelloTest local hash embedding",
+      warning: `Configured embeddings were unavailable; local retrieval fallback was used (${error instanceof Error ? error.message : "request failed"}).`
+    };
+  }
+};
+
+const assertCollectionScope = async (projectId, collectionId) => {
+  if (!collectionId) return null;
+  const collection = await db.prepare("SELECT * FROM ai_knowledge_collections WHERE id = ? AND project_id = ?").get(collectionId, projectId);
+  if (!collection) throw createError("Knowledge collection was not found in this project.", 404);
+  return collection;
+};
+
+const compactJson = (value, maxLength = 2_000) => {
+  try {
+    return JSON.stringify(value ?? null).slice(0, maxLength);
+  } catch {
+    return "";
+  }
+};
+
+const serializeRequirement = (row, linkedTestCaseIds = []) => ({
+  source_kind: "requirement",
+  source_ref_id: row.id,
+  app_type_id: null,
+  title: row.title || row.display_id || row.id,
+  content: [
+    `Story ${row.display_id || row.id}: ${row.title}`,
+    `Status: ${row.status || "not recorded"}`,
+    `Priority: ${row.priority ?? "not recorded"}`,
+    row.release ? `Release: ${row.release}` : "",
+    row.sprint ? `Sprint: ${row.sprint}` : "",
+    row.description || "",
+    row.specification_content || "",
+    asArray(row.gherkin_scenarios).length ? compactJson(row.gherkin_scenarios, 8_000) : "",
+    asArray(row.labels).length ? `Labels: ${compactJson(row.labels, 1_000)}` : "",
+    sanitizeExternalReferences(row.external_references).length ? `External references: ${compactJson(sanitizeExternalReferences(row.external_references), 2_000)}` : "",
+    linkedTestCaseIds.length ? `Linked Test Case IDs (${linkedTestCaseIds.length}): ${linkedTestCaseIds.join(", ")}` : "Linked Test Case IDs: none"
+  ].filter(Boolean).join("\n\n"),
+  metadata: {
+    display_id: row.display_id,
+    status: row.status,
+    priority: row.priority,
+    linked_test_case_ids: linkedTestCaseIds,
+    linked_test_case_count: linkedTestCaseIds.length,
+    source_updated_at: row.updated_at || row.created_at
+  }
+});
+
+const serializeTestCase = async (row) => {
+  const steps = await db.prepare(`
+    SELECT step_order, action, expected_result, step_type
+    FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC LIMIT 100
+  `).all(row.id);
+  const [requirementLinks, dataSets, modules, suite] = await Promise.all([
+    db.prepare(`
+      SELECT requirement_id FROM requirement_test_cases
+      WHERE test_case_id = ? ORDER BY requirement_id LIMIT 50
+    `).all(row.id),
+    db.prepare(`
+      SELECT data_sets.id, data_sets.name, data_sets.columns, data_sets.rows
+      FROM test_case_data_sets links
+      JOIN test_data_sets data_sets ON data_sets.id = links.test_data_set_id
+      WHERE links.test_case_id = ? ORDER BY links.sort_order, data_sets.id LIMIT 3
+    `).all(row.id),
+    db.prepare(`
+      SELECT modules.id, modules.name
+      FROM test_case_module_cases links
+      JOIN test_case_modules modules ON modules.id = links.module_id
+      WHERE links.test_case_id = ? ORDER BY links.sort_order, modules.id LIMIT 20
+    `).all(row.id),
+    row.suite_id ? db.prepare("SELECT id, name FROM test_suites WHERE id = ?").get(row.suite_id) : null
+  ]);
+  const requirementIds = [...new Set([
+    normalizeId(row.requirement_id),
+    ...requirementLinks.map((link) => normalizeId(link.requirement_id))
+  ].filter(Boolean))].slice(0, 50);
+  const dataSetEvidence = dataSets.map((dataSet) => ({
+    id: dataSet.id,
+    name: dataSet.name,
+    columns: asArray(dataSet.columns).slice(0, 50),
+    first_row: asArray(dataSet.rows)[0] || null,
+    row_count: asArray(dataSet.rows).length
+  }));
+  return {
+    source_kind: "test_case",
+    source_ref_id: row.id,
+    app_type_id: row.app_type_id || null,
+    title: row.title || row.display_id || row.id,
+    content: [
+      `Test Case ${row.display_id || row.id}: ${row.title}`,
+      `Status: ${row.status || "not recorded"}`,
+      `Priority: ${row.priority ?? "not recorded"}`,
+      `Authoring mode: ${row.authoring_mode || "structured"}`,
+      `Review status: ${row.review_status || "not_requested"}`,
+      requirementIds.length ? `Requirement IDs: ${requirementIds.join(", ")}` : "",
+      suite ? `Suite: ${suite.name} (${suite.id})` : "",
+      modules.length ? `Modules: ${modules.map((module) => `${module.name} (${module.id})`).join(", ")}` : "",
+      Object.keys(asObject(row.parameter_values)).length ? `Test parameters: ${compactJson(row.parameter_values, 4_000)}` : "",
+      dataSetEvidence.length ? `Linked dataset evidence: ${compactJson(dataSetEvidence, 6_000)}` : "",
+      asArray(row.labels).length ? `Labels: ${compactJson(row.labels, 1_000)}` : "",
+      sanitizeExternalReferences(row.external_references).length ? `External references: ${compactJson(sanitizeExternalReferences(row.external_references), 2_000)}` : "",
+      row.description || "",
+      row.gherkin_document || "",
+      ...steps.map((step) => `Step ${step.step_order}: ${step.action || ""}\nExpected: ${step.expected_result || ""}\nType: ${step.step_type || "manual"}`)
+    ].filter(Boolean).join("\n\n"),
+    metadata: {
+      display_id: row.display_id,
+      status: row.status,
+      priority: row.priority,
+      review_status: row.review_status,
+      step_count: steps.length,
+      requirement_ids: requirementIds,
+      module_ids: modules.map((module) => module.id),
+      suite_id: suite?.id || null,
+      data_set_ids: dataSetEvidence.map((dataSet) => dataSet.id),
+      source_updated_at: row.updated_at || row.created_at
+    }
+  };
+};
+
+const serializeExecution = async (row) => {
+  const [results, countRows] = await Promise.all([
+    db.prepare(`
+      SELECT id, test_case_id, test_case_title, status, duration_ms, error, logs,
+        test_data_set_id, test_data_set_name, data_set_iteration_index,
+        data_set_row_snapshot, created_at
+      FROM execution_results WHERE execution_id = ?
+      ORDER BY CASE status WHEN 'failed' THEN 1 WHEN 'blocked' THEN 2 WHEN 'running' THEN 3 ELSE 4 END,
+        created_at DESC, id DESC LIMIT 50
+    `).all(row.id),
+    db.prepare(`
+      SELECT COALESCE(status, 'unknown') AS status, COUNT(*)::INTEGER AS count
+      FROM execution_results WHERE execution_id = ?
+      GROUP BY COALESCE(status, 'unknown')
+      ORDER BY COALESCE(status, 'unknown')
+    `).all(row.id)
+  ]);
+  const resultCounts = Object.fromEntries(countRows.map((entry) => [entry.status, Number(entry.count || 0)]));
+  const sanitizeSnapshot = (value, maxLength) => sanitizeKnowledgeText(compactJson(value, maxLength)).text || null;
+  const failureEvidence = results.filter((result) => ["failed", "blocked"].includes(result.status)).slice(0, 12).map((result) => ({
+    result_id: result.id,
+    test_case_id: result.test_case_id,
+    test_case_title: result.test_case_title,
+    status: result.status,
+    error: normalizeText(result.error, 1_500) || null,
+    log_excerpt: normalizeText(result.logs, 1_500) || null,
+    data_set: result.test_data_set_name || result.test_data_set_id || null,
+    iteration: result.data_set_iteration_index ?? null,
+    data_set_row_snapshot: sanitizeSnapshot(result.data_set_row_snapshot, 2_000)
+  }));
+  const environmentSnapshot = sanitizeSnapshot(row.test_environment_snapshot, 3_000);
+  const configurationSnapshot = sanitizeSnapshot(row.test_configuration_snapshot, 3_000);
+  const dataSetSnapshot = sanitizeSnapshot(row.test_data_set_snapshot, 3_000);
+  const failedOrBlockedTotal = Number(resultCounts.failed || 0) + Number(resultCounts.blocked || 0);
+  return {
+    source_kind: "execution",
+    source_ref_id: row.id,
+    app_type_id: row.app_type_id || null,
+    title: row.name || `Test Run ${row.id}`,
+    content: [
+      `Test Run ${row.name || row.id}`,
+      `Status: ${row.status || "not recorded"}`,
+      `Trigger: ${row.trigger || "not recorded"}`,
+      `Mode: ${row.execution_mode || "not recorded"}`,
+      `Result summary: ${compactJson(resultCounts, 1_000)}`,
+      row.test_environment_name ? `Environment: ${row.test_environment_name}` : "",
+      environmentSnapshot ? `Environment snapshot: ${environmentSnapshot}` : "",
+      row.test_configuration_name ? `Configuration: ${row.test_configuration_name}` : "",
+      configurationSnapshot ? `Configuration snapshot: ${configurationSnapshot}` : "",
+      row.test_data_set_name ? `Run dataset: ${row.test_data_set_name}` : "",
+      dataSetSnapshot ? `Run dataset snapshot: ${dataSetSnapshot}` : "",
+      row.release ? `Release: ${row.release}` : "",
+      row.sprint ? `Sprint: ${row.sprint}` : "",
+      row.build ? `Build: ${row.build}` : "",
+      row.error_message ? `Recorded run error: ${normalizeText(row.error_message, 2_000)}` : "",
+      failureEvidence.length ? `Failed or blocked case evidence: ${compactJson(failureEvidence, 12_000)}` : "No failed or blocked case results were recorded in the bounded result window."
+    ].filter(Boolean).join("\n"),
+    metadata: {
+      status: row.status,
+      release: row.release,
+      sprint: row.sprint,
+      build: row.build,
+      result_counts: resultCounts,
+      failed_or_blocked_count: failedOrBlockedTotal,
+      failure_evidence_count: failureEvidence.length,
+      failure_evidence_truncated: failedOrBlockedTotal > failureEvidence.length,
+      result_evidence_window_count: results.length,
+      result_evidence_truncated: Object.values(resultCounts).reduce((sum, count) => sum + Number(count || 0), 0) > results.length,
+      environment_name: row.test_environment_name || null,
+      configuration_name: row.test_configuration_name || null,
+      data_set_name: row.test_data_set_name || null,
+      source_updated_at: row.ended_at || row.started_at || row.created_at
+    }
+  };
+};
+
+const serializeBug = (row) => ({
+  source_kind: "bug",
+  source_ref_id: row.id,
+  app_type_id: null,
+  title: row.title || row.display_id || row.id,
+  content: [
+    `Bug ${row.display_id || row.id}: ${row.title}`,
+    `Status: ${row.status || "not recorded"}`,
+    `Severity: ${row.severity || "not recorded"}`,
+    `Priority: ${row.priority || "not recorded"}`,
+    row.environment ? `Environment: ${row.environment}` : "",
+    row.build ? `Build: ${row.build}` : "",
+    row.release ? `Release: ${row.release}` : "",
+    row.sprint ? `Sprint: ${row.sprint}` : "",
+    row.fix_version ? `Fix version: ${row.fix_version}` : "",
+    row.linked_test_run_id ? `Linked Test Run ID: ${row.linked_test_run_id}` : "",
+    asArray(row.linked_requirement_ids).length ? `Linked Story IDs: ${asArray(row.linked_requirement_ids).slice(0, 50).join(", ")}` : "",
+    asArray(row.linked_test_case_ids).length ? `Linked Test Case IDs: ${asArray(row.linked_test_case_ids).slice(0, 50).join(", ")}` : "",
+    asArray(row.linked_test_suite_ids).length ? `Linked Suite IDs: ${asArray(row.linked_test_suite_ids).slice(0, 50).join(", ")}` : "",
+    asArray(row.linked_module_ids).length ? `Linked Module IDs: ${asArray(row.linked_module_ids).slice(0, 50).join(", ")}` : "",
+    row.message || "",
+    row.steps_to_reproduce ? `Steps to reproduce:\n${row.steps_to_reproduce}` : "",
+    row.expected_result ? `Expected:\n${row.expected_result}` : "",
+    row.actual_result ? `Actual:\n${row.actual_result}` : "",
+    row.root_cause ? `Recorded root cause:\n${row.root_cause}` : ""
+  ].filter(Boolean).join("\n\n"),
+  metadata: {
+    display_id: row.display_id,
+    status: row.status,
+    severity: row.severity,
+    priority: row.priority,
+    linked_test_run_id: row.linked_test_run_id || null,
+    linked_requirement_ids: asArray(row.linked_requirement_ids).slice(0, 50),
+    linked_test_case_ids: asArray(row.linked_test_case_ids).slice(0, 50),
+    source_updated_at: row.updated_at || row.created_at
+  }
+});
+
+const loadApplicationRecord = async (projectId, kind, id) => {
+  if (kind === "requirement") {
+    const row = await db.prepare(`
+      SELECT id, display_id, title, description, gherkin_scenarios, specification_content,
+        external_references, labels, priority, status, sprint, release, created_at, updated_at
+      FROM requirements WHERE id = ? AND project_id = ?
+    `).get(id, projectId);
+    if (!row) throw createError(`Story ${id} was not found in this project.`, 404);
+    const linkedTestCases = await db.prepare(`
+      SELECT test_case_id FROM requirement_test_cases
+      WHERE requirement_id = ? ORDER BY test_case_id LIMIT 100
+    `).all(id);
+    return serializeRequirement(row, linkedTestCases.map((link) => link.test_case_id));
+  }
+  if (kind === "test_case") {
+    const row = await db.prepare(`
+      SELECT test_cases.id, test_cases.display_id, test_cases.app_type_id, test_cases.title,
+        test_cases.description, test_cases.gherkin_document, test_cases.authoring_mode,
+        test_cases.priority, test_cases.status, test_cases.suite_id, test_cases.requirement_id,
+        test_cases.parameter_values, test_cases.review_status, test_cases.external_references,
+        test_cases.labels, test_cases.created_at, test_cases.updated_at
+      FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id
+      WHERE test_cases.id = ? AND app_types.project_id = ?
+    `).get(id, projectId);
+    if (!row) throw createError(`Test Case ${id} was not found in this project.`, 404);
+    return serializeTestCase(row);
+  }
+  if (kind === "execution") {
+    const row = await db.prepare(`
+      SELECT id, app_type_id, name, status, trigger, execution_mode, release, sprint, build,
+        error_message, duration_ms, test_environment_name, test_configuration_name,
+        test_data_set_name, test_environment_snapshot, test_configuration_snapshot,
+        test_data_set_snapshot, created_at, started_at, ended_at
+      FROM executions WHERE id = ? AND project_id = ?
+    `).get(id, projectId);
+    if (!row) throw createError(`Test Run ${id} was not found in this project.`, 404);
+    return serializeExecution(row);
+  }
+  if (kind === "bug") {
+    const row = await db.prepare(`
+      SELECT id, display_id, title, message, steps_to_reproduce, expected_result, actual_result,
+        root_cause, status, severity, priority, environment, build, sprint, fix_version, release,
+        linked_test_run_id, linked_test_case_ids, linked_test_suite_ids, linked_module_ids,
+        linked_requirement_ids, labels, created_at, updated_at
+      FROM feedback WHERE id = ? AND project_id = ?
+    `).get(id, projectId);
+    if (!row) throw createError(`Bug ${id} was not found in this project.`, 404);
+    return serializeBug(row);
+  }
+  throw createError(`Unsupported application record type: ${kind}`);
+};
+
+const normalizeSelectedRecordInputs = (selectedRecords) => {
+  const selected = asObject(selectedRecords);
+  const mappings = [
+    ["requirements", "requirement"],
+    ["test_cases", "test_case"],
+    ["testCases", "test_case"],
+    ["executions", "execution"],
+    ["test_runs", "execution"],
+    ["bugs", "bug"]
+  ];
+  const inputs = [];
+  for (const [field, kind] of mappings) {
+    for (const item of asArray(selected[field])) {
+      const id = normalizeId(typeof item === "string" ? item : item?.id);
+      if (id && !inputs.some((input) => input.kind === kind && input.entity_id === id)) inputs.push({ kind, entity_id: id });
+    }
+  }
+  return inputs;
+};
+
+const getRecordSourcePermissionCodes = (rawInputs) => {
+  const required = new Set();
+  for (const rawInput of rawInputs) {
+    const source = asObject(rawInput);
+    const kind = normalizeSourceKind(source.kind || source.type || source.entity_type || source.source_kind);
+    if (SOURCE_PERMISSION_BY_KIND[kind]) required.add(SOURCE_PERMISSION_BY_KIND[kind]);
+  }
+  return [...required];
+};
+
+const assertRecordSourcePermissions = async (projectId, rawInputs, user) => {
+  const required = getRecordSourcePermissionCodes(rawInputs);
+  for (const permissionCode of required) {
+    if (!user || !await permissionService.hasPermission(user, permissionCode, projectId)) {
+      throw createError(`Permission required to ingest selected records: ${permissionCode}`, 403, "KNOWLEDGE_SOURCE_PERMISSION_REQUIRED");
+    }
+  }
+};
+
+const sanitizeClientMetadata = (value, sourceKind) => {
+  const raw = asObject(value);
+  const safe = {};
+  for (const key of ["submitted_from", "language"]) {
+    if (typeof raw[key] !== "string") continue;
+    const sanitized = sanitizeKnowledgeText(normalizeText(raw[key], 240));
+    if (sanitized.text) safe[key] = sanitized.text;
+  }
+  if (sourceKind === "chat") safe.chat_role = raw.chat_role === "assistant" ? "assistant" : "user";
+  return safe;
+};
+
+const stableSourceKey = ({ source_kind, source_ref_id, app_scope_key, app_type_id, checksum_sha256 } = {}) => {
+  const kind = normalizeSourceKind(source_kind);
+  const reference = normalizeId(source_ref_id);
+  if (reference) return `ref:${kind}:${reference}`;
+  const checksum = normalizeText(checksum_sha256, 128);
+  if (!checksum) return null;
+  return `hash:${kind}:${normalizeId(app_scope_key ?? app_type_id) || ""}:${checksum}`;
+};
+
+const applicationSnapshotFingerprint = (record = {}) => {
+  const { snapshot_fingerprint, ...metadata } = asObject(record.metadata);
+  return fingerprint(JSON.stringify({
+    source_kind: normalizeSourceKind(record.source_kind),
+    source_ref_id: normalizeId(record.source_ref_id),
+    app_type_id: normalizeId(record.app_type_id) || null,
+    title: sanitizeKnowledgeText(record.title).text,
+    content: sanitizeKnowledgeText(record.content).text,
+    metadata
+  }));
+};
+
+const normalizeInput = async (projectId, input) => {
+  const source = asObject(input);
+  const kind = normalizeSourceKind(source.kind || source.type || source.entity_type || source.source_kind);
+  const entityId = normalizeId(source.entity_id || source.source_ref_id || source.record_id);
+  if (["requirement", "test_case", "execution", "bug"].includes(kind)) {
+    if (!entityId) throw createError(`${kind} entity_id is required.`);
+    const record = await loadApplicationRecord(projectId, kind, entityId);
+    // Parent timestamps do not necessarily move when linked steps, datasets,
+    // modules, or execution results change. Fingerprint the complete bounded
+    // evidence snapshot so activation can reject a mixed/stale child view.
+    record.metadata = {
+      ...asObject(record.metadata),
+      snapshot_fingerprint: applicationSnapshotFingerprint(record)
+    };
+    return record;
+  }
+
+  const supplied = normalizeText(source.content || source.text || source.extracted_text || source.transcript || source.caption);
+  const title = normalizeText(source.title || source.file_name || (kind === "chat" ? "Chat context" : "Text context"), 500);
+  if (!title) throw createError("Every context input requires a title.");
+  return {
+    source_kind: kind,
+    source_ref_id: entityId || null,
+    // Only the route-validated top-level app_type_id may scope client-authored
+    // text/chat/URL inputs; nested IDs are discarded to prevent cross-project scope injection.
+    app_type_id: null,
+    title,
+    content: supplied,
+    source_uri: normalizeText(source.source_uri || source.url, 4_000) || null,
+    file_name: normalizeText(source.file_name, 500) || null,
+    mime_type: normalizeText(source.mime_type, 255) || null,
+    size_bytes: Number.isFinite(Number(source.size_bytes)) ? Math.max(0, Number(source.size_bytes)) : null,
+    extraction_strategy: supplied ? (source.extraction_strategy || "client_supplied") : "metadata_only",
+    metadata: sanitizeClientMetadata({
+      ...asObject(source.metadata),
+      chat_role: kind === "chat" ? (source.role === "assistant" ? "assistant" : "user") : undefined
+    }, kind)
+  };
+};
+
+const isApplicationRecordSnapshotCurrent = async (projectId, input) => {
+  const kind = input?.source_kind;
+  const id = normalizeId(input?.source_ref_id);
+  if (!SOURCE_PERMISSION_BY_KIND[kind] || !id) return true;
+  // Re-serialize the same bounded, identity-free evidence immediately before
+  // activation. This covers child tables whose writes do not touch the parent
+  // updated_at (steps, links, datasets, modules, and run results).
+  const expectedFingerprint = normalizeText(input?.metadata?.snapshot_fingerprint, 128);
+  if (expectedFingerprint) {
+    try {
+      const fresh = await loadApplicationRecord(projectId, kind, id);
+      return applicationSnapshotFingerprint(fresh) === expectedFingerprint;
+    } catch {
+      return false;
+    }
+  }
+  let row;
+  if (kind === "requirement") {
+    row = await db.prepare("SELECT updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId);
+  } else if (kind === "test_case") {
+    row = await db.prepare(`
+      SELECT test_cases.updated_at FROM test_cases
+      JOIN app_types ON app_types.id = test_cases.app_type_id
+      WHERE test_cases.id = ? AND app_types.project_id = ?
+    `).get(id, projectId);
+  } else if (kind === "bug") {
+    row = await db.prepare("SELECT updated_at FROM feedback WHERE id = ? AND project_id = ?").get(id, projectId);
+  } else if (kind === "execution") {
+    row = await db.prepare(`
+      SELECT status, ended_at, started_at, created_at
+      FROM executions WHERE id = ? AND project_id = ?
+    `).get(id, projectId);
+    if (row?.status !== input.metadata?.status) return false;
+    row = row ? { updated_at: row.ended_at || row.started_at || row.created_at } : null;
+  }
+  return Boolean(row)
+    && String(row.updated_at || "") === String(input.metadata?.source_updated_at || "");
+};
+
+const createJob = async ({ projectId, collectionId, inputCount, config: jobConfig, userId, status = "running", idempotencyKey }) => {
+  const id = uuid();
+  const normalizedStatus = status === "queued" ? "queued" : "running";
+  const result = await db.prepare(`
+    INSERT INTO ai_knowledge_ingestion_jobs (
+      id, project_id, collection_id, status, input_count, config, idempotency_key,
+      created_by, started_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    id,
+    projectId,
+    collectionId || null,
+    normalizedStatus,
+    inputCount,
+    jobConfig,
+    normalizeText(idempotencyKey, 255) || null,
+    userId || null,
+    normalizedStatus === "running" ? new Date().toISOString() : null
+  );
+  return getIngestionJob(id);
+};
+
+const getIngestionJob = async (id, { user } = {}) => {
+  const job = await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE id = ?").get(id);
+  if (!job) throw createError("Knowledge ingestion job not found.", 404);
+  // Job titles, result source IDs and errors can reveal domain activity. Non-admin
+  // users may inspect only jobs they initiated; null-owner jobs fail closed.
+  if (user && !isKnowledgeAdmin(user) && (!job.created_by || job.created_by !== user.id)) {
+    throw createError("This knowledge ingestion belongs to another workspace member.", 403, "KNOWLEDGE_JOB_ACCESS_DENIED");
+  }
+  const results = await db.prepare(`
+    SELECT input_index, source_id, document_id, outcome, reused, warning_codes,
+      error_fingerprint, created_at, updated_at
+    FROM ai_knowledge_ingestion_results
+    WHERE job_id = ? ORDER BY input_index ASC
+  `).all(id);
+  return toPublicIngestionJob(job, results);
+};
+
+const toPublicIngestionJob = (job, results = []) => {
+  const rawConfig = asObject(job?.config);
+  const safeConfig = {
+    title: normalizeText(rawConfig.title, 500) || null,
+    app_type_id: normalizeId(rawConfig.app_type_id) || null,
+    chunking: asObject(rawConfig.chunking),
+    upload: Boolean(rawConfig.upload),
+    queue_version: Number(rawConfig.queue_version || 0) || null
+  };
+  return {
+    id: job.id,
+    project_id: job.project_id,
+    collection_id: job.collection_id || null,
+    status: job.status,
+    input_count: Number(job.input_count || 0),
+    processed_count: Number(job.processed_count || 0),
+    failed_count: Number(job.failed_count || 0),
+    chunk_count: Number(job.chunk_count || 0),
+    warnings: asArray(job.warnings),
+    errors: asArray(job.errors).map((entry) => ({
+      input_index: Number.isInteger(entry?.input_index) ? entry.input_index : undefined,
+      code: normalizeText(entry?.code, 120) || "ingestion_failed",
+      error_fingerprint: normalizeText(entry?.error_fingerprint, 128) || null
+    })),
+    config: safeConfig,
+    created_at: job.created_at,
+    started_at: job.started_at || null,
+    completed_at: job.completed_at || null,
+    updated_at: job.updated_at,
+    results
+  };
+};
+
+const recordIngestionResult = async (jobId, inputIndex, {
+  sourceId,
+  documentId,
+  outcome,
+  reused = false,
+  warningCodes = [],
+  errorFingerprint = null
+}, { leaseOwner } = {}) => {
+  const result = leaseOwner ? await db.prepare(`
+    WITH owned_job AS (
+      SELECT id FROM ai_knowledge_ingestion_jobs
+      WHERE id = ? AND status = 'running' AND lease_owner = ?
+        AND lease_expires_at > CURRENT_TIMESTAMP
+      FOR UPDATE
+    )
+    INSERT INTO ai_knowledge_ingestion_results (
+      job_id, input_index, source_id, document_id, outcome, reused, warning_codes, error_fingerprint
+    )
+    SELECT owned_job.id, ?, ?, ?, ?, ?, ?, ? FROM owned_job
+    ON CONFLICT (job_id, input_index) DO UPDATE SET
+      source_id = EXCLUDED.source_id, document_id = EXCLUDED.document_id,
+      outcome = EXCLUDED.outcome, reused = EXCLUDED.reused,
+      warning_codes = EXCLUDED.warning_codes, error_fingerprint = EXCLUDED.error_fingerprint,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING job_id
+  `).get(jobId, leaseOwner, inputIndex, sourceId || null, documentId || null, outcome, Boolean(reused), warningCodes, errorFingerprint)
+    : await db.prepare(`
+      INSERT INTO ai_knowledge_ingestion_results (
+        job_id, input_index, source_id, document_id, outcome, reused, warning_codes, error_fingerprint
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (job_id, input_index) DO UPDATE SET
+        source_id = EXCLUDED.source_id, document_id = EXCLUDED.document_id,
+        outcome = EXCLUDED.outcome, reused = EXCLUDED.reused,
+        warning_codes = EXCLUDED.warning_codes, error_fingerprint = EXCLUDED.error_fingerprint,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING job_id
+    `).get(jobId, inputIndex, sourceId || null, documentId || null, outcome, Boolean(reused), warningCodes, errorFingerprint);
+  if (leaseOwner && !result) throw createError("Knowledge ingestion lease was lost before recording provenance.", 409, "KNOWLEDGE_LEASE_LOST");
+  return result;
+};
+
+const createSource = async ({ projectId, collectionId, input, userId, jobId, leaseOwner, _leaseLocked = false }) => {
+  if (jobId && !_leaseLocked) {
+    return db.transaction(async () => {
+      const ownedJob = leaseOwner ? await db.prepare(`
+        SELECT id FROM ai_knowledge_ingestion_jobs
+        WHERE id = ? AND project_id = ? AND status = 'running' AND lease_owner = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP
+        FOR UPDATE
+      `).get(jobId, projectId, leaseOwner) : await db.prepare(`
+        SELECT id FROM ai_knowledge_ingestion_jobs
+        WHERE id = ? AND project_id = ? AND status IN ('queued', 'running')
+        FOR UPDATE
+      `).get(jobId, projectId);
+      if (!ownedJob) throw createError("Knowledge ingestion lease was lost before source persistence.", 409, "KNOWLEDGE_LEASE_LOST");
+      return createSource({ projectId, collectionId, input, userId, jobId, leaseOwner, _leaseLocked: true });
+    })();
+  }
+  const sanitizedContent = sanitizeKnowledgeText(input.content || "").text;
+  const safeTitle = sanitizeKnowledgeText(input.title).text || "Untitled knowledge source";
+  const safeFileName = input.file_name ? sanitizeKnowledgeText(input.file_name).text : null;
+  const safeSourceUri = sanitizeSourceUri(input.source_uri);
+  const contentHash = normalizeText(input.checksum_sha256, 128) || (sanitizedContent ? fingerprint(sanitizedContent) : null);
+  const documentHash = sanitizedContent ? fingerprint(sanitizedContent) : null;
+  const requiredPermission = requiredPermissionForSourceKind(input.source_kind);
+  const appScopeKey = normalizeId(input.app_type_id) || "";
+  const revisionToken = uuid();
+  let existing = null;
+  if (input.source_ref_id) {
+    existing = await db.prepare(`
+      SELECT * FROM ai_knowledge_sources
+      WHERE project_id = ? AND source_kind = ? AND source_ref_id = ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(projectId, input.source_kind, input.source_ref_id);
+  } else if (contentHash) {
+    existing = await db.prepare(`
+      SELECT * FROM ai_knowledge_sources
+      WHERE project_id = ? AND app_scope_key = ?
+        AND source_kind = ? AND checksum_sha256 = ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(projectId, appScopeKey, input.source_kind, contentHash);
+  }
+  if (existing) {
+    if (collectionId) {
+      await db.prepare(`
+        INSERT INTO ai_knowledge_collection_sources (collection_id, source_id)
+        VALUES (?, ?) ON CONFLICT (collection_id, source_id) DO NOTHING
+      `).run(collectionId, existing.id);
+    }
+    const readyDocument = await db.prepare(`
+      SELECT id, checksum_sha256 FROM ai_knowledge_documents
+      WHERE source_id = ? AND is_active = TRUE LIMIT 1
+    `).get(existing.id);
+    if (canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash })) {
+      return { ...existing, _reused: true, _new: false, _had_ready_version: true };
+    }
+    const structuredRecord = Boolean(requiredPermission && input.source_ref_id);
+    if (structuredRecord) {
+      // Do not publish stale record metadata before its complete evidence
+      // fingerprint has passed the activation guard. Only reserve a revision;
+      // the authoritative fields are flipped with the document transaction.
+      await db.prepare(`
+        UPDATE ai_knowledge_sources
+        SET revision_token = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(revisionToken, existing.id);
+    } else {
+      await db.prepare(`
+        UPDATE ai_knowledge_sources
+        SET app_type_id = ?, title = ?, source_uri = ?, file_name = ?, mime_type = ?, size_bytes = ?,
+          extraction_strategy = ?, metadata = ?, required_permission = ?,
+          revision_token = ?, risk_flags = '[]'::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        input.app_type_id || null, safeTitle, safeSourceUri, safeFileName || existing.file_name || null,
+        input.mime_type || existing.mime_type || null, input.size_bytes ?? existing.size_bytes ?? null,
+        input.extraction_strategy || (input.content ? "structured_record" : "metadata_only"),
+        asObject(input.metadata), requiredPermission, revisionToken, existing.id
+      );
+    }
+    return {
+      ...existing,
+      app_type_id: input.app_type_id || null,
+      title: safeTitle,
+      source_uri: safeSourceUri,
+      file_name: safeFileName || existing.file_name || null,
+      mime_type: input.mime_type || existing.mime_type || null,
+      size_bytes: input.size_bytes ?? existing.size_bytes ?? null,
+      extraction_strategy: input.extraction_strategy || (input.content ? "structured_record" : "metadata_only"),
+      metadata: asObject(input.metadata),
+      required_permission: requiredPermission,
+      revision_token: revisionToken,
+      _pending_checksum: contentHash,
+      _pending_source_update: structuredRecord,
+      _new: false,
+      _had_ready_version: Boolean(readyDocument)
+    };
+  }
+
+  const id = uuid();
+  const status = input.content ? "processing" : "needs_extraction";
+  try {
+    await db.prepare(`
+      INSERT INTO ai_knowledge_sources (
+        id, project_id, app_type_id, app_scope_key, source_kind, source_ref_id, title, source_uri,
+        file_name, mime_type, size_bytes, checksum_sha256, required_permission, extraction_status,
+        extraction_strategy, metadata, risk_flags, created_by, revision_token
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, projectId, input.app_type_id || null, appScopeKey, input.source_kind, input.source_ref_id || null,
+      safeTitle, safeSourceUri, safeFileName, input.mime_type || null,
+      input.size_bytes ?? null, contentHash, requiredPermission, status,
+      input.extraction_strategy || (input.content ? "structured_record" : "metadata_only"),
+      asObject(input.metadata), [], userId || null, revisionToken
+    );
+  } catch (error) {
+    if (error?.code !== "23505") throw error;
+    // A concurrent request won the stable-reference/content-hash insert. Re-read
+    // that winner and apply the normal version/dedup logic instead of failing or
+    // creating duplicate chunks.
+    return createSource({ projectId, collectionId, input, userId, jobId, leaseOwner, _leaseLocked: true });
+  }
+  if (collectionId) {
+    await db.prepare(`
+      INSERT INTO ai_knowledge_collection_sources (collection_id, source_id)
+      VALUES (?, ?) ON CONFLICT (collection_id, source_id) DO NOTHING
+    `).run(collectionId, id);
+  }
+  return {
+    ...await db.prepare("SELECT * FROM ai_knowledge_sources WHERE id = ?").get(id),
+    _new: true,
+    _had_ready_version: false
+  };
+};
+
+const markSourcePersistenceFailed = async (source, { jobId, leaseOwner } = {}) => {
+  if (!source?.id || source._reused || source._had_ready_version) return;
+  if (leaseOwner) {
+    const result = await db.transaction(async () => {
+      const owned = await db.prepare(`
+        SELECT id FROM ai_knowledge_ingestion_jobs
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP
+        FOR UPDATE
+      `).get(jobId, leaseOwner);
+      if (!owned) return { owned: false };
+      const updated = await db.prepare(`
+        UPDATE ai_knowledge_sources
+        SET extraction_status = 'failed', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND (?::TEXT IS NULL OR revision_token = ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM ai_knowledge_documents
+            WHERE source_id = ai_knowledge_sources.id AND is_active = TRUE
+          )
+        RETURNING id
+      `).get(source.id, source.revision_token || null, source.revision_token || null);
+      return { owned: true, updated: Boolean(updated) };
+    })();
+    if (!result?.owned) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    return;
+  }
+  await db.prepare(`
+    UPDATE ai_knowledge_sources
+    SET extraction_status = 'failed', updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND (?::TEXT IS NULL OR revision_token = ?)
+      AND NOT EXISTS (
+        SELECT 1 FROM ai_knowledge_documents
+        WHERE source_id = ai_knowledge_sources.id AND is_active = TRUE
+      )
+  `).run(source.id, source.revision_token || null, source.revision_token || null);
+};
+
+const markSourceNeedsExtraction = async (source, { jobId, leaseOwner } = {}) => {
+  if (!source?.id) return;
+  if (leaseOwner) {
+    const result = await db.transaction(async () => {
+      const owned = await db.prepare(`
+        SELECT id FROM ai_knowledge_ingestion_jobs
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP
+        FOR UPDATE
+      `).get(jobId, leaseOwner);
+      if (!owned) return false;
+      await db.prepare(`
+        UPDATE ai_knowledge_sources
+        SET extraction_status = 'needs_extraction', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND revision_token = ? AND extraction_status <> 'ready'
+      `).run(source.id, source.revision_token);
+      return true;
+    })();
+    if (!result) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    return;
+  }
+  await db.prepare(`
+    UPDATE ai_knowledge_sources
+    SET extraction_status = 'needs_extraction', updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND revision_token = ? AND extraction_status <> 'ready'
+  `).run(source.id, source.revision_token);
+};
+
+const removeUnactivatedNewSourceAfterLeaseLoss = async (source) => {
+  if (!source?._new || !source.id || !source.revision_token) return;
+  await db.prepare(`
+    UPDATE ai_knowledge_sources sources
+    SET extraction_status = 'archived',
+      revision_token = id || ':lease-lost:' || EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::TEXT || ':' || RANDOM()::TEXT,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE sources.id = ? AND sources.revision_token = ? AND sources.attachment_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM ai_knowledge_documents documents
+        WHERE documents.source_id = sources.id AND documents.is_active = TRUE
+      )
+  `).run(source.id, source.revision_token);
+};
+
+const persistEmbeddingVector = async (chunkId, vector) => {
+  if (!await getVectorCapability()) return false;
+  try {
+    await db.prepare("UPDATE ai_knowledge_chunks SET embedding_vector = ?::vector WHERE id = ?").run(vectorLiteral(vector), chunkId);
+    return true;
+  } catch {
+    // A malformed row or provider-dimension mismatch must degrade this row only;
+    // extension capability is independently probed and remains available.
+    return false;
+  }
+};
+
+const persistDocument = async ({ projectId, source, content, chunking, embeddingRuntime, metadata = {}, activationGuard, signal }) => {
+  const sanitized = sanitizeKnowledgeText(content);
+  if (!sanitized.text) return { document: null, chunks: [], warning: "No extractable text was available; the source was retained for a caption, transcript, or extraction step." };
+  const documentId = uuid();
+  const checksum = fingerprint(sanitized.text);
+  let version = null;
+  const chunks = chunkText(sanitized.text, chunking);
+  if (!chunks.length) return { document: null, chunks: [], warning: "No searchable chunks could be produced from this source." };
+  const embeddingResult = await embedTexts(embeddingRuntime, chunks.map((chunk) => chunk.content), { signal });
+  if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+
+  const persistedChunks = [];
+  const pendingVectorWrites = [];
+  const commitDocumentVersion = db.transaction(async () => {
+    const lockedSource = await db.prepare(`
+      SELECT id, revision_token FROM ai_knowledge_sources
+      WHERE id = ? AND project_id = ? AND extraction_status <> 'archived'
+      FOR UPDATE
+    `).get(source.id, projectId);
+    if (!lockedSource) throw createError("Knowledge source no longer exists in this project.", 404);
+    if (!source.revision_token || lockedSource.revision_token !== source.revision_token) {
+      throw createError("Knowledge source changed while indexing; this stale version was not activated.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+    if (activationGuard && !await activationGuard()) {
+      throw createError("Knowledge source changed or was archived while indexing; this version was not activated.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+    const versionRow = await db.prepare(`
+      SELECT COALESCE(MAX(version), 0)::INTEGER + 1 AS version
+      FROM ai_knowledge_documents WHERE source_id = ?
+    `).get(source.id);
+    version = Number(versionRow?.version || 1);
+    await db.prepare(`
+      INSERT INTO ai_knowledge_documents (
+        id, project_id, source_id, title, content, version, token_count, char_count,
+        checksum_sha256, metadata, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+    `).run(
+      documentId, projectId, source.id, source.title, sanitized.text, version,
+      Math.ceil(sanitized.text.length / 4), sanitized.text.length, checksum,
+      { ...metadata, redactions: sanitized.redactions, redaction_count: sanitized.redaction_count, control_character_count: sanitized.control_character_count, risk_flags: sanitized.risk_flags }
+    );
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index];
+      const id = uuid();
+      await db.prepare(`
+        INSERT INTO ai_knowledge_chunks (
+          id, project_id, document_id, source_id, chunk_index, heading, content, token_count,
+          char_start, char_end, search_vector, embedding, fallback_embedding, embedding_model, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, to_tsvector('simple', ?), ?, ?, ?, ?)
+      `).run(
+        id, projectId, documentId, source.id, chunk.index, chunk.heading, chunk.content,
+        chunk.token_count, chunk.char_start, chunk.char_end, chunk.content,
+        embeddingResult.vectors[index], embeddingResult.fallback[index], embeddingResult.model,
+        { risk_flags: sanitized.risk_flags, redaction_count: sanitized.redaction_count }
+      );
+      // Keep optional pgvector writes outside the core document transaction. A
+      // PostgreSQL vector-cast error aborts its transaction even when caught;
+      // JSONB/fallback indexing must remain fully usable in that case.
+      pendingVectorWrites.push({ id, vector: embeddingResult.vectors[index] });
+      persistedChunks.push({ id, ...chunk, document_id: documentId, source_id: source.id });
+    }
+
+    // Re-check after all potentially long chunk writes and immediately before
+    // the active-version flip. Child evidence writers do not share this source
+    // row lock, so the first pre-insert check alone is not a sufficient guard.
+    if (activationGuard && !await activationGuard()) {
+      throw createError("Knowledge evidence changed while indexing; the stale document was not activated.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+    await db.prepare(`
+      UPDATE ai_knowledge_documents SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+      WHERE source_id = ? AND id <> ? AND is_active = TRUE
+    `).run(source.id, documentId);
+    await db.prepare(`
+      UPDATE ai_knowledge_documents
+      SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(documentId);
+    await db.prepare(`
+      UPDATE ai_knowledge_sources
+      SET app_type_id = ?, title = ?, source_uri = ?, file_name = ?, mime_type = ?, size_bytes = ?,
+        extraction_strategy = ?, metadata = ?, required_permission = ?,
+        extraction_status = 'ready', checksum_sha256 = COALESCE(?, checksum_sha256),
+        risk_flags = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      source.app_type_id || null, source.title, sanitizeSourceUri(source.source_uri), source.file_name || null,
+      source.mime_type || null, source.size_bytes ?? null, source.extraction_strategy || null,
+      asObject(source.metadata), source.required_permission || null,
+      source._pending_checksum || null, sanitized.risk_flags, source.id
+    );
+  });
+  await commitDocumentVersion();
+  for (const pending of pendingVectorWrites) await persistEmbeddingVector(pending.id, pending.vector);
+
+  const document = await db.prepare("SELECT * FROM ai_knowledge_documents WHERE id = ?").get(documentId);
+  return { document, chunks: persistedChunks, warning: embeddingResult.warning };
+};
+
+const completeJob = async (jobId, { processed, failed, chunkCount, warnings, errors }, { leaseOwner } = {}) => {
+  const status = failed && !processed ? "failed" : warnings.length || failed ? "completed_with_warnings" : "completed";
+  const result = await db.prepare(`
+    UPDATE ai_knowledge_ingestion_jobs
+    SET status = ?, processed_count = ?, failed_count = ?, chunk_count = ?, warnings = ?, errors = ?,
+      completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+      lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL
+    WHERE id = ? ${leaseOwner ? "AND status = 'running' AND lease_owner = ?" : ""}
+  `).run(status, processed, failed, chunkCount, warnings, errors, jobId, ...(leaseOwner ? [leaseOwner] : []));
+  if (leaseOwner && !result.changes) throw createError("Knowledge ingestion lease was lost before completion.", 409, "KNOWLEDGE_LEASE_LOST");
+  return getIngestionJob(jobId);
+};
+
+const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selectedRecords, chunking, integrationId, user, existingJobId, leaseOwner, signal }) => {
+  const normalizedProjectId = normalizeId(projectId);
+  if (!normalizedProjectId) throw createError("project_id is required.");
+  await assertCollectionScope(normalizedProjectId, collectionId);
+  const rawInputs = [...asArray(inputs), ...normalizeSelectedRecordInputs(selectedRecords)];
+  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Bug, text, chat, URL, or file input.");
+  if (rawInputs.length > MAX_INPUTS) throw createError(`A single ingestion can contain at most ${MAX_INPUTS} inputs.`);
+  await assertRecordSourcePermissions(normalizedProjectId, rawInputs, user);
+  const chunkingOptions = normalizeChunkingOptions(asObject(chunking));
+  const embeddingRuntime = await resolveEmbeddingRuntime({ userId: user?.id, projectId: normalizedProjectId, integrationId });
+  const job = existingJobId
+    ? await getIngestionJob(existingJobId)
+    : await createJob({
+        projectId: normalizedProjectId,
+        collectionId,
+        inputCount: rawInputs.length,
+        config: { title: normalizeText(title, 500) || null, app_type_id: normalizeId(appTypeId) || null, chunking: chunkingOptions },
+        userId: user?.id
+      });
+  if (job.project_id !== normalizedProjectId || (existingJobId && job.status !== "running")) {
+    throw createError("Queued knowledge ingestion job is not in a processable project state.", 409);
+  }
+  const sources = [];
+  const documents = [];
+  const warnings = [];
+  const errors = [];
+  let chunkCount = 0;
+  let processed = 0;
+  let failed = 0;
+  let deduplicatedCount = 0;
+
+  for (let index = 0; index < rawInputs.length; index += 1) {
+    let source = null;
+    try {
+      const input = await normalizeInput(normalizedProjectId, rawInputs[index]);
+      input.app_type_id = input.app_type_id || normalizeId(appTypeId) || null;
+      source = await createSource({
+        projectId: normalizedProjectId,
+        collectionId,
+        input,
+        userId: user?.id,
+        jobId: job.id,
+        leaseOwner
+      });
+      sources.push(source);
+      if (source._reused) {
+        deduplicatedCount += 1;
+        warnings.push({ input_index: index, source_id: source.id, code: "deduplicated", message: "An identical current source was already indexed and was reused." });
+        await recordIngestionResult(job.id, index, { sourceId: source.id, outcome: "reused", reused: true, warningCodes: ["deduplicated"] }, { leaseOwner });
+        processed += 1;
+        continue;
+      }
+      const persisted = await persistDocument({
+        projectId: normalizedProjectId,
+        source,
+        content: input.content,
+        chunking: chunkingOptions,
+        embeddingRuntime,
+        metadata: { source_kind: input.source_kind, source_ref_id: input.source_ref_id },
+        signal,
+        activationGuard: async () => {
+          if (!await isApplicationRecordSnapshotCurrent(normalizedProjectId, input)) return false;
+          if (!leaseOwner) return true;
+          const lease = await db.prepare(`
+            SELECT 1 AS owned FROM ai_knowledge_ingestion_jobs
+            WHERE id = ? AND status = 'running' AND lease_owner = ?
+              AND lease_expires_at > CURRENT_TIMESTAMP
+          `).get(job.id, leaseOwner);
+          return Boolean(lease?.owned) && !signal?.aborted;
+        }
+      });
+      if (persisted.document) documents.push(toPublicDocument(persisted.document));
+      if (!persisted.document) {
+        await markSourceNeedsExtraction(source, { jobId: job.id, leaseOwner });
+      }
+      chunkCount += persisted.chunks.length;
+      if (persisted.warning) warnings.push({ input_index: index, source_id: source.id, message: persisted.warning });
+      await recordIngestionResult(job.id, index, {
+        sourceId: source.id,
+        documentId: persisted.document?.id,
+        outcome: persisted.document ? "indexed" : "needs_extraction",
+        warningCodes: persisted.warning ? ["ingestion_warning"] : []
+      }, { leaseOwner });
+      processed += 1;
+    } catch (error) {
+      try {
+        await markSourcePersistenceFailed(source, { jobId: job.id, leaseOwner });
+      } catch (persistenceError) {
+        if (persistenceError?.code === "KNOWLEDGE_LEASE_LOST") {
+          await removeUnactivatedNewSourceAfterLeaseLoss(source);
+        }
+        throw persistenceError;
+      }
+      failed += 1;
+      const errorFingerprint = fingerprint(error instanceof Error ? error.message : "Ingestion failed");
+      errors.push({ input_index: index, code: "ingestion_failed", error_fingerprint: errorFingerprint });
+      await recordIngestionResult(job.id, index, { sourceId: source?.id, outcome: "failed", errorFingerprint }, { leaseOwner });
+    }
+    if (existingJobId) {
+      const progress = await db.prepare(`
+        UPDATE ai_knowledge_ingestion_jobs SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+      `).run(job.id, leaseOwner);
+      if (!progress.changes) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    }
+  }
+  const completedJob = await completeJob(job.id, { processed, failed, chunkCount, warnings, errors }, { leaseOwner });
+  return { job: completedJob, sources: sources.map(toPublicSource), documents, chunk_count: chunkCount, deduplicated_count: deduplicatedCount, warnings };
+};
+
+const prepareQueuedInput = async (projectId, rawInput, appTypeId) => {
+  const source = asObject(rawInput);
+  const kind = normalizeSourceKind(source.kind || source.type || source.entity_type || source.source_kind);
+  const entityId = normalizeId(source.entity_id || source.source_ref_id || source.record_id);
+  if (SOURCE_PERMISSION_BY_KIND[kind]) {
+    if (!entityId) throw createError(`${kind} entity_id is required.`);
+    return {
+      kind,
+      entity_id: entityId,
+      stable_source_key: stableSourceKey({ source_kind: kind, source_ref_id: entityId })
+    };
+  }
+  const normalized = await normalizeInput(projectId, source);
+  const scopedAppTypeId = normalizeId(appTypeId) || null;
+  const sanitizedContent = sanitizeKnowledgeText(normalized.content || "").text;
+  const contentChecksum = sanitizedContent ? fingerprint(sanitizedContent) : null;
+  return {
+    kind: normalized.source_kind,
+    entity_id: normalized.source_ref_id || undefined,
+    app_type_id: scopedAppTypeId || undefined,
+    title: sanitizeKnowledgeText(normalized.title).text,
+    content: sanitizedContent,
+    source_uri: sanitizeSourceUri(normalized.source_uri),
+    file_name: normalized.file_name ? sanitizeKnowledgeText(normalized.file_name).text : undefined,
+    mime_type: normalized.mime_type || undefined,
+    size_bytes: normalized.size_bytes ?? undefined,
+    extraction_strategy: normalized.extraction_strategy,
+    metadata: normalized.metadata,
+    stable_source_key: stableSourceKey({
+      source_kind: normalized.source_kind,
+      app_type_id: scopedAppTypeId,
+      checksum_sha256: contentChecksum
+    }) || undefined
+  };
+};
+
+const enqueueIngestion = async ({
+  projectId,
+  collectionId,
+  appTypeId,
+  title,
+  inputs,
+  selectedRecords,
+  chunking,
+  idempotencyKey,
+  user
+}) => {
+  const normalizedProjectId = normalizeId(projectId);
+  if (!normalizedProjectId) throw createError("project_id is required.");
+  await assertCollectionScope(normalizedProjectId, collectionId);
+  const rawInputs = [...asArray(inputs), ...normalizeSelectedRecordInputs(selectedRecords)];
+  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Bug, text, chat, URL, or file input.");
+  if (rawInputs.length > MAX_INPUTS) throw createError(`A single ingestion can contain at most ${MAX_INPUTS} inputs.`);
+  await assertRecordSourcePermissions(normalizedProjectId, rawInputs, user);
+  const preparedInputs = [];
+  for (const rawInput of rawInputs) preparedInputs.push(await prepareQueuedInput(normalizedProjectId, rawInput, appTypeId));
+  const chunkingOptions = normalizeChunkingOptions(asObject(chunking));
+  const normalizedIdempotencyKey = normalizeText(idempotencyKey, 255) || null;
+  const requestFingerprint = fingerprint(JSON.stringify({
+    project_id: normalizedProjectId,
+    collection_id: normalizeId(collectionId),
+    app_type_id: normalizeId(appTypeId),
+    title: normalizeText(title, 500),
+    chunking: chunkingOptions,
+    inputs: preparedInputs
+  }));
+
+  if (normalizedIdempotencyKey) {
+    const existing = await db.prepare(`
+      SELECT * FROM ai_knowledge_ingestion_jobs
+      WHERE project_id = ? AND created_by = ? AND idempotency_key = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(normalizedProjectId, user?.id, normalizedIdempotencyKey);
+    if (existing) {
+      if (asObject(existing.config).request_fingerprint !== requestFingerprint) {
+        throw createError("Idempotency-Key was already used for a different knowledge ingestion request.", 409, "IDEMPOTENCY_KEY_REUSED");
+      }
+      return {
+        accepted: ["queued", "running"].includes(existing.status),
+        idempotent_replay: true,
+        job: toPublicIngestionJob(existing),
+        sources: [],
+        documents: [],
+        chunk_count: Number(existing.chunk_count || 0),
+        deduplicated_count: 0,
+        warnings: asArray(existing.warnings),
+        status_url: `/knowledge/ingestions/${existing.id}`
+      };
+    }
+  }
+
+  let job;
+  try {
+    job = await db.transaction(async () => {
+      const created = await createJob({
+      projectId: normalizedProjectId,
+      collectionId,
+      inputCount: preparedInputs.length,
+      config: {
+        title: normalizeText(title, 500) || null,
+        app_type_id: normalizeId(appTypeId) || null,
+        chunking: chunkingOptions,
+        request_fingerprint: requestFingerprint,
+        queue_version: 1
+      },
+      userId: user?.id,
+      status: "queued",
+      idempotencyKey: normalizedIdempotencyKey
+    });
+      for (let index = 0; index < preparedInputs.length; index += 1) {
+        await db.prepare(`
+          INSERT INTO ai_knowledge_ingestion_inputs (job_id, input_index, payload)
+          VALUES (?, ?, ?)
+        `).run(created.id, index, preparedInputs[index]);
+      }
+      return created;
+    })();
+  } catch (error) {
+    if (error?.code !== "23505" || !normalizedIdempotencyKey) throw error;
+    const existing = await db.prepare(`
+      SELECT * FROM ai_knowledge_ingestion_jobs
+      WHERE project_id = ? AND created_by = ? AND idempotency_key = ?
+    `).get(normalizedProjectId, user?.id, normalizedIdempotencyKey);
+    if (!existing || asObject(existing.config).request_fingerprint !== requestFingerprint) {
+      throw createError("Idempotency-Key was already used for a different knowledge ingestion request.", 409, "IDEMPOTENCY_KEY_REUSED");
+    }
+    return {
+      accepted: ["queued", "running"].includes(existing.status),
+      idempotent_replay: true,
+      job: toPublicIngestionJob(existing),
+      sources: [],
+      documents: [],
+      chunk_count: Number(existing.chunk_count || 0),
+      deduplicated_count: 0,
+      warnings: asArray(existing.warnings),
+      status_url: `/knowledge/ingestions/${existing.id}`
+    };
+  }
+  return {
+    accepted: true,
+    idempotent_replay: false,
+    job,
+    sources: [],
+    documents: [],
+    chunk_count: 0,
+    deduplicated_count: 0,
+    warnings: [],
+    status_url: `/knowledge/ingestions/${job.id}`
+  };
+};
+
+const claimQueuedIngestion = (workerId, leaseMinutes) => db.transaction(async () => {
+  const queued = await db.prepare(`
+    SELECT id FROM ai_knowledge_ingestion_jobs
+    WHERE status = 'queued'
+    ORDER BY created_at ASC, id ASC
+    LIMIT 1 FOR UPDATE SKIP LOCKED
+  `).get();
+  if (!queued) return null;
+  return db.prepare(`
+    UPDATE ai_knowledge_ingestion_jobs
+    SET status = 'running', started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+      lease_owner = ?, lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 minute'),
+      heartbeat_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status = 'queued'
+    RETURNING *
+  `).get(workerId, leaseMinutes, queued.id);
+})();
+
+const renewIngestionLease = async (jobId, workerId, leaseMinutes) => db.prepare(`
+  UPDATE ai_knowledge_ingestion_jobs
+  SET lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 minute'),
+    heartbeat_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND status = 'running' AND lease_owner = ?
+`).run(leaseMinutes, jobId, workerId);
+
+const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {}) => {
+  const normalizedLimit = Math.max(1, Math.min(10, Number.parseInt(limit, 10) || 2));
+  const normalizedStaleMinutes = Math.max(15, Math.min(24 * 60, Number.parseInt(staleAfterMinutes, 10) || 60));
+  const leaseMinutes = Math.max(5, Math.min(30, Math.ceil(normalizedStaleMinutes / 4)));
+  await db.prepare(`
+    UPDATE ai_knowledge_ingestion_jobs
+    SET status = 'queued', started_at = NULL, updated_at = CURRENT_TIMESTAMP,
+      lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+      warnings = warnings || ?::jsonb
+    WHERE status = 'running' AND completed_at IS NULL
+      AND (
+        (lease_expires_at IS NOT NULL AND lease_expires_at < CURRENT_TIMESTAMP)
+        OR (lease_expires_at IS NULL AND updated_at < CURRENT_TIMESTAMP - (?::INTEGER * INTERVAL '1 minute'))
+      )
+  `).run([{ code: "stale_lease_recovered", message: "A stale ingestion lease was recovered after a worker restart." }], normalizedStaleMinutes);
+
+  const outcomes = [];
+  for (let index = 0; index < normalizedLimit; index += 1) {
+    const job = await claimQueuedIngestion(KNOWLEDGE_WORKER_ID, leaseMinutes);
+    if (!job) break;
+    let terminalStatePersisted = false;
+    let queuedInputs = [];
+    let jobConfig = {};
+    const leaseController = new AbortController();
+    const heartbeat = setInterval(async () => {
+      try {
+        const renewed = await renewIngestionLease(job.id, KNOWLEDGE_WORKER_ID, leaseMinutes);
+        if (!renewed.changes) leaseController.abort();
+      } catch (error) {
+        leaseController.abort();
+        console.warn(JSON.stringify({
+          event: "knowledge_ingestion_lease_heartbeat_failed",
+          job_id: job.id,
+          error_fingerprint: fingerprint(error instanceof Error ? error.message : String(error))
+        }));
+      }
+    }, 30_000);
+    heartbeat.unref?.();
+    try {
+      queuedInputs = await db.prepare(`
+        SELECT payload FROM ai_knowledge_ingestion_inputs
+        WHERE job_id = ? ORDER BY input_index ASC
+      `).all(job.id);
+      if (!queuedInputs.length) throw createError("Queued knowledge inputs are unavailable.", 409);
+      jobConfig = asObject(job.config);
+      const workerUser = job.created_by ? await db.prepare(`
+        SELECT id, is_workspace_admin FROM users WHERE id = ?
+      `).get(job.created_by) : null;
+      if (workerUser?.is_workspace_admin) workerUser.role = "admin";
+      const result = jobConfig.upload
+        ? await processQueuedUpload({ job, payload: asObject(queuedInputs[0].payload), user: workerUser, leaseOwner: KNOWLEDGE_WORKER_ID, signal: leaseController.signal })
+        : await ingest({
+            projectId: job.project_id,
+            collectionId: job.collection_id,
+            appTypeId: jobConfig.app_type_id,
+            title: jobConfig.title,
+            inputs: queuedInputs.map((row) => row.payload),
+            chunking: jobConfig.chunking,
+            user: workerUser,
+            existingJobId: job.id,
+            leaseOwner: KNOWLEDGE_WORKER_ID,
+            signal: leaseController.signal
+          });
+      terminalStatePersisted = true;
+      outcomes.push({ id: job.id, status: result.job.status });
+    } catch (error) {
+      const safeMessage = sanitizeKnowledgeText(error instanceof Error ? error.message : "Queued ingestion failed").text.slice(0, 1_000);
+      if (jobConfig.upload) {
+        const stagedSourceId = normalizeId(asObject(queuedInputs[0]?.payload).source_id);
+        if (stagedSourceId) {
+          await markSourcePersistenceFailed({
+            id: stagedSourceId,
+            revision_token: asObject(queuedInputs[0]?.payload).revision_token,
+            _new: true,
+            _had_ready_version: false
+          }, { jobId: job.id, leaseOwner: KNOWLEDGE_WORKER_ID });
+          await recordIngestionResult(job.id, 0, {
+            sourceId: stagedSourceId,
+            outcome: "failed",
+            errorFingerprint: fingerprint(safeMessage)
+          }, { leaseOwner: KNOWLEDGE_WORKER_ID });
+        }
+      }
+      await completeJob(job.id, { processed: 0, failed: Number(job.input_count || 1), chunkCount: 0, warnings: [], errors: [{ code: "job_failed", error_fingerprint: fingerprint(safeMessage) }] }, { leaseOwner: KNOWLEDGE_WORKER_ID });
+      terminalStatePersisted = true;
+      console.warn(JSON.stringify({
+        event: "knowledge_ingestion_job_failed",
+        job_id: job.id,
+        project_id: job.project_id,
+        error_fingerprint: fingerprint(safeMessage)
+      }));
+      outcomes.push({ id: job.id, status: "failed" });
+    } finally {
+      clearInterval(heartbeat);
+      if (terminalStatePersisted) await db.prepare(`
+        DELETE FROM ai_knowledge_ingestion_inputs inputs
+        WHERE inputs.job_id = ? AND EXISTS (
+          SELECT 1 FROM ai_knowledge_ingestion_jobs jobs
+          WHERE jobs.id = inputs.job_id AND jobs.status IN ('completed', 'completed_with_warnings', 'failed')
+        )
+      `).run(job.id);
+    }
+  }
+  return outcomes;
+};
+
+const archiveLegacyKnowledgeSource = async (projectId, sourceRefId) => {
+  await db.prepare(`
+    UPDATE ai_knowledge_sources
+    SET extraction_status = 'archived',
+      revision_token = id || ':archived:' || EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::TEXT || ':' || RANDOM()::TEXT,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
+  `).run(projectId, sourceRefId);
+  await db.prepare(`
+    UPDATE ai_knowledge_documents SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+    WHERE source_id IN (
+      SELECT id FROM ai_knowledge_sources
+      WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
+    ) AND is_active = TRUE
+  `).run(projectId, sourceRefId);
+};
+
+const queueLegacyKnowledgeSync = async ({ projectId, sourceRefId, userId, action = "upsert" }) => {
+  const normalizedProjectId = normalizeId(projectId);
+  const normalizedSourceRefId = normalizeId(sourceRefId);
+  if (!normalizedProjectId || !normalizedSourceRefId) throw createError("Legacy knowledge sync requires projectId and sourceRefId.");
+  const id = uuid();
+  return db.prepare(`
+    INSERT INTO ai_knowledge_sync_outbox (
+      id, project_id, source_ref_id, action, status, requested_by
+    ) VALUES (?, ?, ?, ?, 'queued', ?)
+    ON CONFLICT (project_id, source_ref_id) DO UPDATE SET
+      action = EXCLUDED.action,
+      status = 'queued',
+      attempts = 0,
+      requested_by = EXCLUDED.requested_by,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      error_fingerprint = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING id, project_id, source_ref_id, action, status
+  `).get(id, normalizedProjectId, normalizedSourceRefId, action === "archive" ? "archive" : "upsert", userId || null);
+};
+
+const claimLegacyKnowledgeSync = (workerId, leaseMinutes) => db.transaction(async () => {
+  const queued = await db.prepare(`
+    SELECT id FROM ai_knowledge_sync_outbox
+    WHERE status = 'queued'
+    ORDER BY created_at ASC, id ASC
+    LIMIT 1 FOR UPDATE SKIP LOCKED
+  `).get();
+  if (!queued) return null;
+  return db.prepare(`
+    UPDATE ai_knowledge_sync_outbox
+    SET status = 'running', attempts = attempts + 1, lease_owner = ?,
+      lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 minute'),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status = 'queued'
+    RETURNING *
+  `).get(workerId, leaseMinutes, queued.id);
+})();
+
+const processLegacyKnowledgeSyncOutbox = async ({ limit = 4, leaseMinutes = 10 } = {}) => {
+  const normalizedLimit = Math.max(1, Math.min(20, Number.parseInt(limit, 10) || 4));
+  const normalizedLeaseMinutes = Math.max(2, Math.min(30, Number.parseInt(leaseMinutes, 10) || 10));
+  await db.prepare(`
+    UPDATE ai_knowledge_sync_outbox
+    SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE status = 'running' AND lease_expires_at < CURRENT_TIMESTAMP
+  `).run();
+  const outcomes = [];
+  for (let index = 0; index < normalizedLimit; index += 1) {
+    const event = await claimLegacyKnowledgeSync(KNOWLEDGE_WORKER_ID, normalizedLeaseMinutes);
+    if (!event) break;
+    const leaseController = new AbortController();
+    const heartbeat = setInterval(async () => {
+      try {
+        const renewed = await db.prepare(`
+          UPDATE ai_knowledge_sync_outbox
+          SET lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 minute'),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'running' AND lease_owner = ?
+        `).run(normalizedLeaseMinutes, event.id, KNOWLEDGE_WORKER_ID);
+        if (!renewed.changes) leaseController.abort();
+      } catch {
+        leaseController.abort();
+      }
+    }, 30_000);
+    heartbeat.unref?.();
+    try {
+      const record = event.action === "upsert" ? await db.prepare(`
+        SELECT id, project_id, app_type_id, title, description, content_type,
+          content, source_uri, is_active
+        FROM ai_knowledge_repo WHERE id = ? AND project_id = ?
+      `).get(event.source_ref_id, event.project_id) : null;
+      if (!record || !record.is_active || !normalizeText(record.content)) {
+        await db.transaction(async () => {
+          const owned = await db.prepare(`
+            SELECT 1 AS owned FROM ai_knowledge_sync_outbox
+            WHERE id = ? AND status = 'running' AND lease_owner = ?
+            FOR UPDATE
+          `).get(event.id, KNOWLEDGE_WORKER_ID);
+          if (!owned || leaseController.signal.aborted) throw createError("Legacy sync lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+          await archiveLegacyKnowledgeSource(event.project_id, event.source_ref_id);
+        })();
+      } else {
+        await syncLegacyKnowledgeItem(event.project_id, record, event.requested_by, {
+          signal: leaseController.signal,
+          activationGuard: async () => {
+            const owned = await db.prepare(`
+              SELECT 1 AS owned FROM ai_knowledge_sync_outbox
+              WHERE id = ? AND status = 'running' AND lease_owner = ?
+                AND lease_expires_at > CURRENT_TIMESTAMP
+              FOR SHARE
+            `).get(event.id, KNOWLEDGE_WORKER_ID);
+            return Boolean(owned?.owned) && !leaseController.signal.aborted;
+          }
+        });
+      }
+      const deleted = await db.prepare(`
+        DELETE FROM ai_knowledge_sync_outbox
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+      `).run(event.id, KNOWLEDGE_WORKER_ID);
+      outcomes.push({ id: event.id, status: deleted.changes ? "completed" : "superseded" });
+    } catch (error) {
+      const errorFingerprint = fingerprint(error instanceof Error ? error.message : "legacy sync failed");
+      await db.prepare(`
+        UPDATE ai_knowledge_sync_outbox
+        SET status = CASE WHEN attempts >= 5 THEN 'failed' ELSE 'queued' END,
+          lease_owner = NULL, lease_expires_at = NULL, error_fingerprint = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND lease_owner = ?
+      `).run(errorFingerprint, event.id, KNOWLEDGE_WORKER_ID);
+      outcomes.push({ id: event.id, status: "retry_scheduled", error_fingerprint: errorFingerprint });
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+  return outcomes;
+};
+
+const streamToBoundedBuffer = async (stream, maxBytes) => {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > maxBytes) {
+      stream.destroy?.();
+      throw createError(`Stored knowledge file exceeds the ${maxBytes}-byte processing limit.`, 413);
+    }
+    chunks.push(buffer);
+  }
+  if (!bytes) throw createError("Stored knowledge file is empty.", 409);
+  return Buffer.concat(chunks);
+};
+
+const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) => {
+  if (signal?.aborted) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+  const source = await db.prepare(`
+    SELECT id, project_id, app_type_id, source_kind, source_ref_id, title, file_name,
+      mime_type, size_bytes, attachment_id, checksum_sha256, extraction_status,
+      extraction_strategy, metadata, revision_token
+    FROM ai_knowledge_sources WHERE id = ? AND project_id = ?
+  `).get(payload.source_id, job.project_id);
+  if (!source?.attachment_id || source.attachment_id !== payload.attachment_id) {
+    throw createError("Queued knowledge upload is no longer attached to its project source.", 409);
+  }
+  if (!payload.revision_token || source.revision_token !== payload.revision_token) {
+    throw createError("A newer upload revision superseded this queued file.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+  }
+  const suppliedText = normalizeText(payload.supplied_text);
+  if ((suppliedText ? fingerprint(suppliedText) : null) !== (payload.supplied_text_hash || null)) {
+    throw createError("Queued extracted text fingerprint is invalid.", 409, "KNOWLEDGE_INPUT_FINGERPRINT_MISMATCH");
+  }
+  const maxFileBytes = Math.min(Number(config.knowledge?.maxFileBytes || 50 * 1024 * 1024), Number(config.objectStorage.maxAttachmentBytes));
+  const { stream } = await attachmentService.download({ user, id: source.attachment_id, permissionCode: "knowledge.manage" });
+  const buffer = await streamToBoundedBuffer(stream, maxFileBytes);
+  if (signal?.aborted) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+  validateUploadSignature(buffer, source.file_name, source.mime_type);
+  const actualChecksum = createHash("sha256").update(buffer).digest("hex");
+  if (actualChecksum !== source.checksum_sha256 || actualChecksum !== payload.checksum_sha256) {
+    throw createError("Stored knowledge file checksum no longer matches the queued upload.", 409, "KNOWLEDGE_FILE_CHECKSUM_MISMATCH");
+  }
+
+  let extractedText = suppliedText;
+  let extractionStrategy = extractedText ? "client_supplied" : "metadata_only";
+  let extractionWarning = null;
+  if (!extractedText && NATIVE_TEXT_MIME_TYPES.has(source.mime_type)) {
+    extractedText = decodeNativeText(buffer, source.mime_type);
+    extractionStrategy = "native_text";
+  } else if (!extractedText && TIKA_MIME_TYPES.has(source.mime_type) && getTikaUrl()) {
+    if (buffer.length > Number(config.knowledge?.extractionMaxBytes || 20 * 1024 * 1024)) {
+      extractionWarning = "The file is stored, but exceeds the configured server extraction limit; provide bounded extracted_text to index it.";
+    } else {
+      try {
+        extractedText = await extractWithTika(buffer, source.mime_type);
+        extractionStrategy = extractedText ? "apache_tika" : "metadata_only";
+      } catch (error) {
+        extractionWarning = `Apache Tika could not extract this file (error ${fingerprint(error instanceof Error ? error.message : "request failed")}).`;
+      }
+    }
+  }
+  if (!extractedText && !extractionWarning) {
+    extractionWarning = "The file is stored, but searchable context needs extracted_text, a caption, a transcript, or a configured supported document processor.";
+  }
+  await db.prepare(`
+    UPDATE ai_knowledge_sources
+    SET extraction_status = CASE
+          WHEN EXISTS (SELECT 1 FROM ai_knowledge_documents WHERE source_id = ? AND is_active = TRUE) THEN 'ready'
+          ELSE 'processing'
+        END,
+      extraction_strategy = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(source.id, extractionStrategy, source.id);
+  const embeddingRuntime = await resolveEmbeddingRuntime({ userId: user?.id, projectId: job.project_id });
+  const persisted = await persistDocument({
+    projectId: job.project_id,
+    source,
+    content: extractedText,
+    chunking: asObject(job.config).chunking,
+    embeddingRuntime,
+    metadata: { attachment_id: source.attachment_id, mime_type: source.mime_type },
+    signal,
+    activationGuard: async () => {
+      const lease = await db.prepare(`
+        SELECT 1 AS owned FROM ai_knowledge_ingestion_jobs
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP
+      `).get(job.id, leaseOwner);
+      return Boolean(lease?.owned) && !signal?.aborted;
+    }
+  });
+  const warningMessages = [extractionWarning, persisted.warning].filter(Boolean);
+  const warnings = warningMessages.map((message) => ({ source_id: source.id, code: "extraction_warning", message }));
+  if (!persisted.document) {
+    await markSourceNeedsExtraction(source, { jobId: job.id, leaseOwner });
+  }
+  await recordIngestionResult(job.id, 0, {
+    sourceId: source.id,
+    documentId: persisted.document?.id,
+    outcome: persisted.document ? "indexed" : "needs_extraction",
+    warningCodes: warningMessages.length ? ["extraction_warning"] : []
+  }, { leaseOwner });
+  const completedJob = await completeJob(job.id, {
+    processed: 1,
+    failed: 0,
+    chunkCount: persisted.chunks.length,
+    warnings,
+    errors: []
+  }, { leaseOwner });
+  return { job: completedJob, source_id: source.id, status: completedJob.status };
+};
+
+const ingestUpload = async ({ user, fields, file, idempotencyKey }) => {
+  const projectId = normalizeId(fields.project_id);
+  if (!projectId) throw createError("project_id is required before the file field.");
+  const collectionId = normalizeId(fields.collection_id) || null;
+  await assertCollectionScope(projectId, collectionId);
+  const mimeType = String(file.mimetype || "application/octet-stream").toLowerCase().split(";")[0].trim();
+  const safeFileName = attachmentService.safeFileName(file.filename);
+  if (!SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) throw createError(`Unsupported knowledge file type: ${mimeType}.`, 415);
+  const buffer = await file.toBuffer();
+  const maxFileBytes = Math.min(Number(config.knowledge?.maxFileBytes || 50 * 1024 * 1024), Number(config.objectStorage.maxAttachmentBytes));
+  if (!buffer.length || buffer.length > maxFileBytes || file.file?.truncated) {
+    throw createError(`Knowledge files must be non-empty and no larger than ${maxFileBytes} bytes.`);
+  }
+  try {
+    validateUploadSignature(buffer, safeFileName, mimeType);
+  } catch (error) {
+    throw createError(error instanceof Error ? error.message : "Knowledge file validation failed.", 415, "KNOWLEDGE_FILE_SIGNATURE_MISMATCH");
+  }
+  const checksum = createHash("sha256").update(buffer).digest("hex");
+  const suppliedText = sanitizeKnowledgeText(normalizeText(fields.extracted_text || fields.transcript || fields.caption)).text;
+  const chunkingOptions = normalizeChunkingOptions(asObject(fields.chunking));
+  const normalizedIdempotencyKey = normalizeText(idempotencyKey, 255) || null;
+  const uploadStableSourceKey = stableSourceKey({
+    source_kind: "file",
+    app_type_id: normalizeId(fields.app_type_id),
+    checksum_sha256: checksum
+  });
+  const requestFingerprint = fingerprint(JSON.stringify({
+    project_id: projectId,
+    collection_id: collectionId,
+    app_type_id: normalizeId(fields.app_type_id),
+    title: normalizeText(fields.title, 500) || safeFileName,
+    file_name: safeFileName,
+    mime_type: mimeType,
+    checksum_sha256: checksum,
+    supplied_text_hash: suppliedText ? fingerprint(suppliedText) : null,
+    chunking: chunkingOptions
+  }));
+  if (normalizedIdempotencyKey) {
+    const existing = await db.prepare(`
+      SELECT * FROM ai_knowledge_ingestion_jobs
+      WHERE project_id = ? AND created_by = ? AND idempotency_key = ?
+    `).get(projectId, user?.id, normalizedIdempotencyKey);
+    if (existing) {
+      if (asObject(existing.config).request_fingerprint !== requestFingerprint) {
+        throw createError("Idempotency-Key was already used for a different knowledge upload.", 409, "IDEMPOTENCY_KEY_REUSED");
+      }
+      return {
+        accepted: ["queued", "running"].includes(existing.status),
+        idempotent_replay: true,
+        job: await getIngestionJob(existing.id, { user }),
+        sources: [], documents: [], chunk_count: Number(existing.chunk_count || 0),
+        deduplicated_count: 0, warnings: asArray(existing.warnings),
+        status_url: `/knowledge/ingestions/${existing.id}`
+      };
+    }
+  }
+  let job;
+  try {
+    job = await createJob({
+      projectId,
+      collectionId,
+      inputCount: 1,
+      config: {
+        title: normalizeText(fields.title, 500) || safeFileName,
+        app_type_id: normalizeId(fields.app_type_id) || null,
+        chunking: chunkingOptions,
+        upload: true,
+        stable_source_key: uploadStableSourceKey,
+        queue_version: 1,
+        request_fingerprint: requestFingerprint
+      },
+      userId: user?.id,
+      status: "running",
+      idempotencyKey: normalizedIdempotencyKey
+    });
+  } catch (error) {
+    if (error?.code !== "23505" || !normalizedIdempotencyKey) throw error;
+    const winner = await db.prepare(`
+      SELECT * FROM ai_knowledge_ingestion_jobs
+      WHERE project_id = ? AND created_by = ? AND idempotency_key = ?
+    `).get(projectId, user?.id, normalizedIdempotencyKey);
+    if (!winner || asObject(winner.config).request_fingerprint !== requestFingerprint) {
+      throw createError("Idempotency-Key was already used for a different knowledge upload.", 409, "IDEMPOTENCY_KEY_REUSED");
+    }
+    return {
+      accepted: ["queued", "running"].includes(winner.status),
+      idempotent_replay: true,
+      job: await getIngestionJob(winner.id, { user }),
+      sources: [], documents: [], chunk_count: Number(winner.chunk_count || 0),
+      deduplicated_count: 0, warnings: asArray(winner.warnings),
+      status_url: `/knowledge/ingestions/${winner.id}`
+    };
+  }
+  const input = {
+    source_kind: "file",
+    source_ref_id: null,
+    app_type_id: normalizeId(fields.app_type_id) || null,
+    title: normalizeText(fields.title, 500) || safeFileName,
+    content: suppliedText,
+    source_uri: null,
+    file_name: safeFileName,
+    mime_type: mimeType,
+    size_bytes: buffer.length,
+    extraction_strategy: suppliedText ? "client_supplied" : "queued_extraction",
+    metadata: { original_file_name: safeFileName }
+  };
+  input.checksum_sha256 = checksum;
+  let source;
+  try {
+    source = await createSource({ projectId, collectionId, input, userId: user?.id, jobId: job.id });
+    if (source._reused) {
+      const warnings = [{ source_id: source.id, code: "deduplicated", message: "This exact file and extracted content are already indexed; the current version was reused." }];
+      await recordIngestionResult(job.id, 0, { sourceId: source.id, outcome: "reused", reused: true, warningCodes: ["deduplicated"] });
+      const completedJob = await completeJob(job.id, { processed: 1, failed: 0, chunkCount: 0, warnings, errors: [] });
+      return { accepted: false, idempotent_replay: false, job: completedJob, sources: [toPublicSource(source)], documents: [], chunk_count: 0, deduplicated_count: 1, warnings, status_url: `/knowledge/ingestions/${job.id}` };
+    }
+    let uploadedAttachment = null;
+    const attachment = source.attachment_id
+      ? { id: source.attachment_id }
+      : (uploadedAttachment = await attachmentService.upload({
+          user,
+          entityType: "knowledge_source",
+          entityId: source.id,
+          projectId,
+          fileName: safeFileName,
+          mimeType,
+          stream: Readable.from(buffer),
+          permissionCode: "knowledge.manage"
+        }));
+    const attached = await db.prepare(`
+      UPDATE ai_knowledge_sources
+      SET attachment_id = ?, checksum_sha256 = ?,
+        extraction_status = CASE
+          WHEN EXISTS (SELECT 1 FROM ai_knowledge_documents WHERE source_id = ? AND is_active = TRUE) THEN 'ready'
+          ELSE 'processing'
+        END,
+        extraction_strategy = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND revision_token = ?
+      RETURNING id
+    `).get(attachment.id, checksum, source.id, "queued_extraction", source.id, source.revision_token);
+    if (!attached) {
+      if (uploadedAttachment) {
+        await attachmentService.remove({ user, id: uploadedAttachment.id, permissionCode: "knowledge.manage" }).catch(() => undefined);
+      }
+      throw createError("A newer upload revision superseded this staged file.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+    await db.transaction(async () => {
+      await db.prepare(`
+        INSERT INTO ai_knowledge_ingestion_inputs (job_id, input_index, payload)
+        VALUES (?, 0, ?)
+      `).run(job.id, {
+        kind: "staged_file",
+        source_id: source.id,
+        attachment_id: attachment.id,
+        checksum_sha256: checksum,
+        supplied_text: suppliedText || null,
+        supplied_text_hash: suppliedText ? fingerprint(suppliedText) : null,
+        revision_token: source.revision_token,
+        stable_source_key: stableSourceKey({
+          source_kind: source.source_kind,
+          app_scope_key: source.app_scope_key,
+          checksum_sha256: checksum
+        })
+      });
+      await db.prepare(`
+        UPDATE ai_knowledge_ingestion_jobs
+        SET status = 'queued', started_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'running'
+      `).run(job.id);
+    })();
+    return {
+      accepted: true,
+      idempotent_replay: false,
+      job: await getIngestionJob(job.id, { user }),
+      sources: [toPublicSource({ ...source, attachment_id: attachment.id, extraction_status: source._had_ready_version ? "ready" : "processing" })],
+      documents: [], chunk_count: 0, deduplicated_count: 0, warnings: [],
+      status_url: `/knowledge/ingestions/${job.id}`
+    };
+  } catch (error) {
+    await markSourcePersistenceFailed(source);
+    const errorFingerprint = fingerprint(error instanceof Error ? error.message : "Upload staging failed");
+    await recordIngestionResult(job.id, 0, { sourceId: source?.id, outcome: "failed", errorFingerprint });
+    await completeJob(job.id, { processed: 0, failed: 1, chunkCount: 0, warnings: [], errors: [{ code: "upload_staging_failed", error_fingerprint: errorFingerprint }] });
+    throw error;
+  }
+};
+
+const normalizeFilterIds = (value, max = 100) => [...new Set(asArray(value).map(normalizeId).filter(Boolean))].slice(0, max);
+
+const getProductHelpCandidates = (query, { includeEmbeddings = true } = {}) => {
+  const queryTokens = new Set(String(query || "").toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
+  return HELLOTEST_PRODUCT_HELP.map((section) => {
+    const contentTokens = new Set(section.content.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
+    const overlap = queryTokens.size ? [...queryTokens].filter((token) => contentTokens.has(token)).length / queryTokens.size : 0;
+    const sourceHash = fingerprint(`hellotest-product-help:${HELLOTEST_PRODUCT_HELP_VERSION}`);
+    const versionHash = fingerprint(`${section.id}:${HELLOTEST_PRODUCT_HELP_VERSION}:${section.content}`);
+    return {
+      chunk_id: `product-help-${section.id}-${HELLOTEST_PRODUCT_HELP_VERSION.replace(/\W/g, "-")}`,
+      document_id: `product-help-${section.id}`,
+      source_id: "hellotest-product-help",
+      content: section.content,
+      chunk_index: 0,
+      heading: section.title,
+      char_start: 0,
+      char_end: section.content.length,
+      embedding: includeEmbeddings ? localEmbedding(section.content) : null,
+      fallback_embedding: includeEmbeddings ? localEmbedding(section.content) : null,
+      embedding_model: includeEmbeddings ? LOCAL_EMBEDDING_MODEL : null,
+      lexical_rank: overlap,
+      title: section.title,
+      version_hash: versionHash,
+      source_kind: "product_help",
+      source_ref_id: `${section.id}@${HELLOTEST_PRODUCT_HELP_VERSION}`,
+      app_type_id: null,
+      source_uri: null,
+      risk_flags: [],
+      source_hash: sourceHash,
+      collection_ids: []
+    };
+  }).filter((candidate) => candidate.lexical_rank > 0);
+};
+
+const search = async ({
+  projectId,
+  query,
+  mode = "hybrid",
+  limit = 12,
+  filters = {},
+  user,
+  userId,
+  integrationId,
+  allowedSourcePermissions
+} = {}) => {
+  const normalizedProjectId = normalizeId(projectId);
+  const sanitizedQuery = sanitizeKnowledgeText(normalizeText(query, 4_000));
+  if (!normalizedProjectId || !sanitizedQuery.text) throw createError("project_id and query are required.");
+  const normalizedLimit = Math.max(1, Math.min(MAX_SEARCH_LIMIT, Number.parseInt(limit, 10) || 12));
+  const normalizedMode = ["hybrid", "semantic", "keyword"].includes(mode) ? mode : "hybrid";
+  const normalizedFilters = asObject(filters);
+  const collectionIds = normalizeFilterIds(normalizedFilters.collection_ids || normalizedFilters.collections);
+  const requestedSourceKinds = [...new Set(asArray(normalizedFilters.source_kinds || normalizedFilters.source_types)
+    .map((value) => String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_"))
+    .filter(Boolean))].slice(0, 20);
+  const normalizedRequestedSourceKinds = requestedSourceKinds
+    .map((kind) => kind === "product_help" ? kind : normalizeSourceKind(kind, { fallback: null }))
+    .filter(Boolean);
+  const includeProductHelp = !requestedSourceKinds.length || normalizedRequestedSourceKinds.includes("product_help");
+  const sourceKinds = [...new Set(normalizedRequestedSourceKinds.filter((kind) => kind !== "product_help"))];
+  const includePersistedSources = !requestedSourceKinds.length || sourceKinds.length > 0;
+  const appTypeId = normalizeId(normalizedFilters.app_type_id) || null;
+  const effectiveAllowedSourcePermissions = Array.isArray(allowedSourcePermissions)
+    ? [...new Set(allowedSourcePermissions.filter((permissionCode) => Object.values(SOURCE_PERMISSION_BY_KIND).includes(permissionCode)))]
+    : await resolveAllowedSourcePermissions(user, normalizedProjectId);
+  const filterParams = [normalizedProjectId, normalizedProjectId, normalizedProjectId];
+  const clauses = [
+    "chunks.project_id = ?",
+    "documents.project_id = ?",
+    "sources.project_id = ?",
+    "documents.is_active = TRUE",
+    "sources.extraction_status = 'ready'"
+  ];
+  if (effectiveAllowedSourcePermissions.length) {
+    clauses.push(`(sources.required_permission IS NULL OR sources.required_permission IN (${effectiveAllowedSourcePermissions.map(() => "?").join(", ")}))`);
+    filterParams.push(...effectiveAllowedSourcePermissions);
+  } else {
+    clauses.push("sources.required_permission IS NULL");
+  }
+  if (appTypeId) {
+    clauses.push("(sources.app_type_id = ? OR sources.app_type_id IS NULL)");
+    filterParams.push(appTypeId);
+  }
+  if (sourceKinds.length) {
+    clauses.push(`sources.source_kind IN (${sourceKinds.map(() => "?").join(", ")})`);
+    filterParams.push(...sourceKinds);
+  }
+  if (collectionIds.length) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM ai_knowledge_collection_sources scoped_collections
+      WHERE scoped_collections.source_id = chunks.source_id
+        AND scoped_collections.collection_id IN (${collectionIds.map(() => "?").join(", ")})
+    )`);
+    filterParams.push(...collectionIds);
+  }
+  const embeddingProjection = !usesEmbeddingsForMode(normalizedMode)
+    ? "NULL::jsonb AS embedding, NULL::jsonb AS fallback_embedding, NULL::text AS embedding_model,"
+    : "chunks.embedding, chunks.fallback_embedding, chunks.embedding_model,";
+  const candidateProjection = `
+    SELECT chunks.id AS chunk_id, chunks.document_id, chunks.source_id, chunks.content,
+      chunks.chunk_index, chunks.heading, chunks.char_start, chunks.char_end, chunks.metadata,
+      ${embeddingProjection}
+      documents.title, documents.checksum_sha256 AS version_hash,
+      sources.source_kind, sources.source_ref_id, sources.app_type_id,
+      sources.source_uri, sources.risk_flags, sources.checksum_sha256 AS source_hash,
+      ARRAY(SELECT collection_id FROM ai_knowledge_collection_sources links WHERE links.source_id = chunks.source_id) AS collection_ids
+    FROM ai_knowledge_chunks chunks
+    JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
+    JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
+  `;
+
+  let queryEmbeddingResult = null;
+  let queryVector = null;
+  let fallbackQueryVector = null;
+  let pgvectorAvailable = false;
+  if (usesEmbeddingsForMode(normalizedMode)) {
+    const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
+    queryEmbeddingResult = await embedTexts(runtime, [sanitizedQuery.text]);
+    queryVector = queryEmbeddingResult.vectors[0];
+    fallbackQueryVector = queryEmbeddingResult.fallback[0];
+    pgvectorAvailable = await getVectorCapability();
+  }
+  const lexicalCandidates = includePersistedSources ? await db.prepare(`
+      ${candidateProjection.replace("SELECT ", "SELECT ts_rank_cd(chunks.search_vector, plainto_tsquery('simple', ?)) AS lexical_rank, ")}
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY lexical_rank DESC, chunks.created_at DESC
+      LIMIT ?
+    `).all(
+      sanitizedQuery.text,
+      ...filterParams,
+      normalizedMode === "keyword" || pgvectorAvailable ? MAX_CANDIDATES : MAX_FALLBACK_CANDIDATES
+    ) : [];
+  if (includeProductHelp && !collectionIds.length) {
+    lexicalCandidates.push(...getProductHelpCandidates(sanitizedQuery.text, { includeEmbeddings: usesEmbeddingsForMode(normalizedMode) }));
+    lexicalCandidates.sort((left, right) => Number(right.lexical_rank || 0) - Number(left.lexical_rank || 0));
+  }
+
+  let denseCandidates = [];
+  let vectorMode = normalizedMode === "keyword"
+    ? "postgresql-fts-only"
+    : pgvectorAvailable ? "pgvector-exact+fts" : "degraded-local-jsonb-cosine+fts";
+  if (usesEmbeddingsForMode(normalizedMode) && pgvectorAvailable && includePersistedSources) {
+    try {
+      denseCandidates = await db.prepare(`
+        ${candidateProjection.replace("SELECT ", "SELECT (1 - (chunks.embedding_vector <=> ?::vector)) AS dense_similarity, 0::real AS lexical_rank, ")}
+        WHERE ${clauses.join(" AND ")}
+          AND chunks.embedding_vector IS NOT NULL
+          AND chunks.embedding_model = ?
+          AND vector_dims(chunks.embedding_vector) = ?
+        ORDER BY dense_similarity DESC
+        LIMIT ?
+      `).all(vectorLiteral(queryVector), ...filterParams, queryEmbeddingResult.model, queryVector.length, MAX_CANDIDATES);
+    } catch {
+      vectorMode = "degraded-local-jsonb-cosine+fts";
+    }
+  }
+
+  const candidateById = new Map();
+  for (const candidate of lexicalCandidates) candidateById.set(candidate.chunk_id, candidate);
+  for (const candidate of denseCandidates) candidateById.set(candidate.chunk_id, { ...candidateById.get(candidate.chunk_id), ...candidate });
+  const candidates = [...candidateById.values()];
+  const queryTokens = new Set(sanitizedQuery.text.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
+  const lexicalRankById = new Map(
+    lexicalCandidates.filter((candidate) => Number(candidate.lexical_rank) > 0).map((candidate, index) => [candidate.chunk_id, index + 1])
+  );
+  const semanticRanked = normalizedMode === "keyword" ? [] : (denseCandidates.length ? denseCandidates : candidates.slice().sort((left, right) => {
+    const leftVector = left.embedding_model === queryEmbeddingResult.model && Array.isArray(left.embedding) ? left.embedding : left.fallback_embedding;
+    const rightVector = right.embedding_model === queryEmbeddingResult.model && Array.isArray(right.embedding) ? right.embedding : right.fallback_embedding;
+    return cosineSimilarity(rightVector, right.embedding_model === queryEmbeddingResult.model ? queryVector : fallbackQueryVector)
+      - cosineSimilarity(leftVector, left.embedding_model === queryEmbeddingResult.model ? queryVector : fallbackQueryVector);
+  }));
+  const semanticRankById = new Map(semanticRanked.map((candidate, index) => [candidate.chunk_id, index + 1]));
+  const scoredAll = candidates.map((candidate) => {
+    const primaryCompatible = normalizedMode !== "keyword"
+      && candidate.embedding_model === queryEmbeddingResult.model
+      && Array.isArray(candidate.embedding);
+    const semantic = normalizedMode === "keyword" ? 0 : Math.max(0, cosineSimilarity(
+      primaryCompatible ? candidate.embedding : candidate.fallback_embedding,
+      primaryCompatible ? queryVector : fallbackQueryVector
+    ));
+    const lexicalRank = Math.max(0, Number(candidate.lexical_rank || 0));
+    const contentTokens = new Set(String(candidate.content || "").toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
+    const overlap = queryTokens.size ? [...queryTokens].filter((token) => contentTokens.has(token)).length / queryTokens.size : 0;
+    const lexical = Math.min(1, lexicalRank * 5 + overlap * 0.6 + (String(candidate.content).toLowerCase().includes(sanitizedQuery.text.toLowerCase()) ? 0.4 : 0));
+    const lexicalPosition = lexicalRankById.get(candidate.chunk_id);
+    const semanticPosition = semanticRankById.get(candidate.chunk_id);
+    const reciprocalRank = normalizedMode === "keyword"
+      ? (lexicalPosition ? (1 / (60 + lexicalPosition)) / (1 / 61) : 0)
+      : ((lexicalPosition ? 1 / (60 + lexicalPosition) : 0) + (semanticPosition ? 1 / (60 + semanticPosition) : 0)) / (2 / 61);
+    const score = normalizedMode === "semantic"
+      ? semantic
+      : normalizedMode === "keyword"
+        ? lexical
+        : Math.min(1, reciprocalRank * 0.45 + semantic * 0.31 + lexical * 0.24);
+    const citationId = `K-${candidate.chunk_id}`;
+    return {
+      id: candidate.chunk_id,
+      chunk_id: candidate.chunk_id,
+      document_id: candidate.document_id,
+      source_id: candidate.source_id,
+      collection_ids: asArray(candidate.collection_ids),
+      title: candidate.title,
+      source_kind: candidate.source_kind,
+      source_ref_id: candidate.source_ref_id,
+      content: candidate.content,
+      excerpt: String(candidate.content || "").slice(0, 700),
+      score: Number(score.toFixed(6)),
+      lexical_score: Number(lexical.toFixed(6)),
+      semantic_score: Number(semantic.toFixed(6)),
+      reciprocal_rank_score: Number(reciprocalRank.toFixed(6)),
+      citation: {
+        id: citationId,
+        label: candidate.title,
+        source_id: candidate.source_id,
+        source_kind: candidate.source_kind,
+        source_ref_id: candidate.source_ref_id,
+        source_uri: candidate.source_kind === "url"
+          ? sanitizeSourceUri(candidate.source_uri)
+          : candidate.source_kind === "file" ? `/knowledge/sources/${candidate.source_id}/file` : null,
+        document_id: candidate.document_id,
+        chunk_id: candidate.chunk_id,
+        excerpt: String(candidate.content || "").slice(0, 700),
+        source_hash: candidate.source_hash || null,
+        version_hash: candidate.version_hash || null,
+        chunk_hash: fingerprint(candidate.content),
+        location: {
+          chunk_index: Number(candidate.chunk_index || 0),
+          heading: candidate.heading || null,
+          char_start: Number(candidate.char_start || 0),
+          char_end: Number(candidate.char_end || 0),
+          page: Number(candidate.metadata?.page || 0) || null
+        }
+      }
+    };
+  }).sort((left, right) => right.score - left.score);
+  const relevanceThreshold = normalizedMode === "keyword" ? 0.08 : normalizedMode === "semantic" ? 0.13 : MIN_RETRIEVAL_RELEVANCE;
+  const sourceCounts = new Map();
+  const scored = [];
+  for (const result of scoredAll) {
+    if (result.score < relevanceThreshold || Math.max(result.semantic_score, result.lexical_score) < relevanceThreshold) continue;
+    const currentCount = sourceCounts.get(result.source_id) || 0;
+    if (currentCount >= 3) continue;
+    sourceCounts.set(result.source_id, currentCount + 1);
+    scored.push(result);
+    if (scored.length >= normalizedLimit) break;
+  }
+
+  return {
+    project_id: normalizedProjectId,
+    query: sanitizedQuery.text,
+    mode: normalizedMode,
+    results: scored,
+    retrieval: {
+      candidate_count: candidates.length,
+      result_count: scored.length,
+      embedding_model: queryEmbeddingResult?.model || null,
+      vector_mode: vectorMode,
+      degraded: normalizedMode === "keyword" ? false : vectorMode.startsWith("degraded") || queryEmbeddingResult.model === LOCAL_EMBEDDING_MODEL,
+      ranking: normalizedMode === "keyword"
+        ? "PostgreSQL full-text lexical ranking (no embedding provider call)"
+        : "reciprocal-rank fusion of PostgreSQL full-text and dense retrieval",
+      relevance_threshold: relevanceThreshold,
+      filters: { collection_ids: collectionIds, source_kinds: requestedSourceKinds, app_type_id: appTypeId },
+      source_acl: {
+        enforced: true,
+        allowed_record_permissions: effectiveAllowedSourcePermissions
+      },
+      query_redaction_count: sanitizedQuery.redaction_count,
+      query_risk_flags: sanitizedQuery.risk_flags
+    },
+    guardrails: ASSISTANT_GUARDRAILS
+  };
+};
+
+const buildCollectionCountsSql = (allowedSourcePermissions) => {
+  const aclScoped = Array.isArray(allowedSourcePermissions);
+  const sourceAcl = !aclScoped
+    ? ""
+    : allowedSourcePermissions.length
+      ? `AND (sources.required_permission IS NULL OR sources.required_permission IN (${allowedSourcePermissions.map(() => "?").join(", ")}))`
+      : "AND sources.required_permission IS NULL";
+  return `
+  SELECT collections.*,
+    COUNT(DISTINCT sources.id)::INTEGER AS source_count,
+    COUNT(DISTINCT documents.id)::INTEGER AS document_count,
+    COUNT(DISTINCT chunks.id)::INTEGER AS chunk_count
+  FROM ai_knowledge_collections collections
+  LEFT JOIN ai_knowledge_collection_sources links ON links.collection_id = collections.id
+  LEFT JOIN ai_knowledge_sources sources ON sources.id = links.source_id ${sourceAcl}
+  LEFT JOIN ai_knowledge_documents documents ON documents.source_id = sources.id AND documents.is_active = TRUE
+  LEFT JOIN ai_knowledge_chunks chunks ON chunks.document_id = documents.id
+`;
+};
+
+const listCollections = async (projectId, { allowedSourcePermissions } = {}) => db.prepare(`${buildCollectionCountsSql(allowedSourcePermissions)}
+  WHERE collections.project_id = ?
+  GROUP BY collections.id
+  ORDER BY collections.updated_at DESC
+`).all(...(Array.isArray(allowedSourcePermissions) ? allowedSourcePermissions : []), projectId);
+
+const getCollection = async (id, { allowedSourcePermissions } = {}) => {
+  const collection = await db.prepare(`${buildCollectionCountsSql(allowedSourcePermissions)}
+    WHERE collections.id = ?
+    GROUP BY collections.id
+  `).get(...(Array.isArray(allowedSourcePermissions) ? allowedSourcePermissions : []), id);
+  if (!collection) throw createError("Knowledge collection not found.", 404);
+  return collection;
+};
+
+const createCollection = async ({ projectId, appTypeId, name, description, color, retrievalConfig, userId }) => {
+  const id = uuid();
+  const normalizedName = normalizeText(name, 240);
+  if (!projectId || !normalizedName) throw createError("project_id and name are required.");
+  await db.prepare(`
+    INSERT INTO ai_knowledge_collections (
+      id, project_id, app_type_id, name, description, color, retrieval_config, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, appTypeId || null, normalizedName, normalizeText(description, 4_000) || null, normalizeText(color, 40) || null, asObject(retrievalConfig), userId || null);
+  return getCollection(id);
+};
+
+const updateCollection = async (id, data) => {
+  const current = await getCollection(id);
+  const status = data.status === "archived" ? "archived" : data.status === "active" ? "active" : current.status;
+  await db.prepare(`
+    UPDATE ai_knowledge_collections SET app_type_id = ?, name = ?, description = ?, color = ?, status = ?,
+      retrieval_config = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(
+    Object.prototype.hasOwnProperty.call(data, "app_type_id") ? normalizeId(data.app_type_id) || null : current.app_type_id,
+    normalizeText(data.name, 240) || current.name,
+    Object.prototype.hasOwnProperty.call(data, "description") ? normalizeText(data.description, 4_000) || null : current.description,
+    Object.prototype.hasOwnProperty.call(data, "color") ? normalizeText(data.color, 40) || null : current.color,
+    status,
+    Object.prototype.hasOwnProperty.call(data, "retrieval_config") ? asObject(data.retrieval_config) : asObject(current.retrieval_config),
+    id
+  );
+  return getCollection(id);
+};
+
+const deleteCollection = async (id) => {
+  const collection = await getCollection(id);
+  await db.prepare("DELETE FROM ai_knowledge_collections WHERE id = ?").run(id);
+  return { deleted: true, id, project_id: collection.project_id, sources_retained: true };
+};
+
+const assertSourceRowsVisible = async (projectId, rows, user) => {
+  const requiredPermissions = [...new Set(rows.map((row) => row.required_permission).filter(Boolean))];
+  for (const permissionCode of requiredPermissions) {
+    if (!user || !await permissionService.hasPermission(user, permissionCode, projectId)) {
+      throw createError(`Permission required for selected knowledge source: ${permissionCode}`, 403, "KNOWLEDGE_SOURCE_PERMISSION_REQUIRED");
+    }
+  }
+};
+
+const linkCollectionSources = async (collectionId, sourceIds, user) => {
+  const collection = await getCollection(collectionId);
+  const ids = normalizeFilterIds(sourceIds, 500);
+  if (!ids.length) throw createError("source_ids must include at least one source.");
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = await db.prepare(`SELECT id, required_permission FROM ai_knowledge_sources WHERE project_id = ? AND id IN (${placeholders})`).all(collection.project_id, ...ids);
+  if (rows.length !== ids.length) throw createError("One or more knowledge sources do not belong to this project.", 403);
+  await assertSourceRowsVisible(collection.project_id, rows, user);
+  await db.transaction(async () => {
+    for (const id of ids) {
+      await db.prepare("INSERT INTO ai_knowledge_collection_sources (collection_id, source_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(collectionId, id);
+    }
+  })();
+  const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, collection.project_id);
+  return getCollection(collectionId, { allowedSourcePermissions });
+};
+
+const unlinkCollectionSources = async (collectionId, sourceIds, user) => {
+  const collection = await getCollection(collectionId);
+  const ids = normalizeFilterIds(sourceIds, 500);
+  if (ids.length) {
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = await db.prepare(`
+      SELECT sources.id, sources.required_permission
+      FROM ai_knowledge_collection_sources links
+      JOIN ai_knowledge_sources sources ON sources.id = links.source_id
+      WHERE links.collection_id = ? AND sources.project_id = ? AND sources.id IN (${placeholders})
+    `).all(collectionId, collection.project_id, ...ids);
+    if (rows.length !== ids.length) throw createError("One or more knowledge sources are not linked to this project collection.", 404);
+    await assertSourceRowsVisible(collection.project_id, rows, user);
+    await db.transaction(async () => {
+      await db.prepare(`DELETE FROM ai_knowledge_collection_sources WHERE collection_id = ? AND source_id IN (${placeholders})`).run(collectionId, ...ids);
+    })();
+  }
+  const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, collection.project_id);
+  return getCollection(collectionId, { allowedSourcePermissions });
+};
+
+const getOverview = async ({ projectId, userId, user }) => {
+  const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, projectId);
+  const sourceAcl = allowedSourcePermissions.length
+    ? `(required_permission IS NULL OR required_permission IN (${allowedSourcePermissions.map(() => "?").join(", ")}))`
+    : "required_permission IS NULL";
+  const counts = await db.prepare(`
+    WITH visible_sources AS (
+      SELECT id, extraction_status FROM ai_knowledge_sources
+      WHERE project_id = ? AND ${sourceAcl}
+    )
+    SELECT
+      (SELECT COUNT(*)::INTEGER FROM ai_knowledge_collections WHERE project_id = ?) AS collections,
+      (SELECT COUNT(*)::INTEGER FROM visible_sources) AS sources,
+      (SELECT COUNT(*)::INTEGER FROM ai_knowledge_documents documents JOIN visible_sources sources ON sources.id = documents.source_id WHERE documents.is_active = TRUE) AS documents,
+      (SELECT COUNT(*)::INTEGER FROM ai_knowledge_chunks chunks
+        JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id AND documents.is_active = TRUE
+        JOIN visible_sources sources ON sources.id = chunks.source_id) AS chunks,
+      (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status = 'ready') AS ready_sources,
+      (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status IN ('pending', 'processing', 'needs_extraction')) AS processing_sources,
+      (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status = 'failed') AS failed_sources
+  `).get(projectId, ...allowedSourcePermissions, projectId);
+  const recentJobs = isKnowledgeAdmin(user)
+    ? await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 10").all(projectId)
+    : await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE project_id = ? AND created_by = ? ORDER BY created_at DESC LIMIT 10").all(projectId, user?.id || "__no_user__");
+  const embedding = await resolveEmbeddingRuntime({ userId, projectId });
+  const pgvectorAvailable = await getVectorCapability();
+  return {
+    project_id: projectId,
+    counts,
+    recent_jobs: recentJobs.map((job) => toPublicIngestionJob(job)),
+    capabilities: {
+      hybrid_search: true,
+      vector_store: {
+        engine: "PostgreSQL",
+        pgvector_available: pgvectorAvailable,
+        mode: pgvectorAvailable ? "pgvector with JSONB fallback" : "JSONB cosine with PostgreSQL full-text search",
+        fallback: "PostgreSQL tsvector + deterministic local hash embeddings"
+      },
+      embedding: {
+        provider: embedding.provider,
+        model: embedding.model,
+        configured: embedding.configured,
+        mode: embedding.configured ? "configured_semantic_embedding" : "degraded_local_lexical_hash",
+        accuracy_note: embedding.configured
+          ? "Semantic quality depends on the configured embedding model and indexed model compatibility."
+          : "The local hash vector is a deterministic degraded retrieval fallback, not a semantic-accuracy substitute."
+      },
+      product_help: { version: HELLOTEST_PRODUCT_HELP_VERSION, source_id: "hellotest-product-help", citation_backed: true },
+      extraction: {
+        max_file_bytes: Math.min(Number(config.knowledge?.maxFileBytes || 50 * 1024 * 1024), Number(config.objectStorage.maxAttachmentBytes)),
+        max_extractable_bytes: Number(config.knowledge?.extractionMaxBytes || 20 * 1024 * 1024),
+        max_extracted_text_chars: MAX_EXTRACTED_TEXT_CHARS,
+        native_text_mime_types: [...NATIVE_TEXT_MIME_TYPES].sort(),
+        supported_mime_types: [...SUPPORTED_UPLOAD_MIME_TYPES].sort(),
+        tika_configured: Boolean(getTikaUrl()),
+        binary_requires_extracted_text: true,
+        tika_documents_can_be_extracted_server_side: Boolean(getTikaUrl()),
+        media_requires_caption_or_transcript: true
+      },
+      guardrails: ASSISTANT_GUARDRAILS
+    }
+  };
+};
+
+const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activationGuard } = {}) => {
+  if (item.is_active === false || !normalizeText(item.content)) {
+    await archiveLegacyKnowledgeSource(projectId, item.id);
+    return null;
+  }
+  const input = {
+    source_kind: "knowledge_item",
+    source_ref_id: item.id,
+    app_type_id: item.app_type_id || null,
+    title: item.title,
+    content: [item.description, item.content].filter(Boolean).join("\n\n"),
+    source_uri: item.source_uri || null,
+    extraction_strategy: "legacy_knowledge_item",
+    metadata: { content_type: item.content_type, legacy: true }
+  };
+  const source = await createSource({ projectId, input, userId });
+  if (source._reused) return { document: null, chunks: [], reused: true };
+  const runtime = await resolveEmbeddingRuntime({ userId, projectId });
+  const expectedHash = fingerprint(sanitizeKnowledgeText(input.content).text);
+  return persistDocument({
+    projectId,
+    source,
+    content: input.content,
+    chunking: {},
+    embeddingRuntime: runtime,
+    metadata: input.metadata,
+    signal,
+    activationGuard: async () => {
+      const current = await db.prepare(`
+        SELECT description, content, is_active
+        FROM ai_knowledge_repo WHERE id = ? AND project_id = ?
+        FOR SHARE
+      `).get(item.id, projectId);
+      const currentMatches = Boolean(current?.is_active)
+        && fingerprint(sanitizeKnowledgeText([current.description, current.content].filter(Boolean).join("\n\n")).text) === expectedHash;
+      return currentMatches && (!activationGuard || await activationGuard());
+    }
+  });
+};
+
+module.exports = {
+  ASSISTANT_GUARDRAILS,
+  assertLlmIntegrationProjectScope,
+  createCollection,
+  deleteCollection,
+  getCollection,
+  getIngestionJob,
+  getOverview,
+  getTikaUrl,
+  getVectorCapability,
+  ingest,
+  enqueueIngestion,
+  ingestUpload,
+  linkCollectionSources,
+  listCollections,
+  processQueuedIngestions,
+  processLegacyKnowledgeSyncOutbox,
+  queueLegacyKnowledgeSync,
+  archiveLegacyKnowledgeSource,
+  resolveAllowedSourcePermissions,
+  search,
+  syncLegacyKnowledgeItem,
+  unlinkCollectionSources,
+  updateCollection,
+  _internals: {
+    embedTexts,
+    extractWithTika,
+    loadApplicationRecord,
+    normalizeInput,
+    isApplicationRecordSnapshotCurrent,
+    stableSourceKey,
+    applicationSnapshotFingerprint,
+    normalizeProviderEmbeddingBatch,
+    validateEmbeddingVector,
+    sanitizeClientMetadata,
+    sanitizeExternalReferences,
+    normalizeSourceKind,
+    normalizeSelectedRecordInputs,
+    getRecordSourcePermissionCodes,
+    canReuseSourceVersion,
+    requiredPermissionForSourceKind,
+    usesEmbeddingsForMode,
+    resolveEmbeddingRuntime,
+    serializeBug,
+    serializeExecution,
+    serializeRequirement,
+    serializeTestCase
+  }
+};

@@ -176,6 +176,7 @@ export type AdminHealthStatus = "ready" | "degraded" | "blocked";
 export type AdminHealthCheck = {
   key: string;
   label: string;
+  critical?: boolean;
   status: AdminHealthStatus;
   summary?: string | null;
   detail?: string | null;
@@ -193,6 +194,28 @@ export type AdminHealthSnapshot = {
   storage?: Omit<AdminHealthCheck, "key" | "label">;
   attachments?: Omit<AdminHealthCheck, "key" | "label">;
   permissions?: Omit<AdminHealthCheck, "key" | "label">;
+};
+
+export type OpsTelemetryEvent = {
+  id?: string | null;
+  event_type?: string | null;
+  service_name?: string | null;
+  environment?: string | null;
+  status?: string | null;
+  summary?: string | null;
+  received_at?: string | null;
+  execution?: { id?: string | null; name?: string | null } | null;
+  test_case?: { id?: string | null; title?: string | null } | null;
+  suite?: { id?: string | null; name?: string | null } | null;
+  step?: { id?: string | null; action?: string | null } | null;
+  payload?: Record<string, unknown> | null;
+};
+
+export type OpsTelemetrySnapshot = {
+  checked_at: string;
+  project_id: string;
+  events: { items: OpsTelemetryEvent[]; total: number };
+  services: { items: Array<{ service_name?: string | null; count?: number | null }> };
 };
 
 export type AppNotification = {
@@ -2662,6 +2685,377 @@ export type AgenticAssistantSessionResponse = {
     input_fingerprint: string;
     requires_human_review: boolean;
   };
+};
+
+export type KnowledgeSourceKind =
+  | "requirement"
+  | "test_case"
+  | "execution"
+  | "bug"
+  | "file"
+  | "text"
+  | "chat"
+  | "url"
+  | "product_help"
+  | "knowledge_item";
+
+export type KnowledgeProcessingStatus =
+  | "draft"
+  | "queued"
+  | "extracting"
+  | "chunking"
+  | "embedding"
+  | "indexing"
+  | "ready"
+  | "partial"
+  | "failed";
+
+export type KnowledgeChunkingConfig = {
+  strategy: "semantic" | "recursive" | "fixed";
+  chunk_size: number;
+  chunk_overlap: number;
+};
+
+export type KnowledgeIngestionInput = {
+  kind: Extract<KnowledgeSourceKind, "text" | "chat" | "url">;
+  title: string;
+  content: string;
+  source_uri?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type KnowledgeSelectedRecords = {
+  requirements: string[];
+  test_cases: string[];
+  executions: string[];
+  bugs: string[];
+};
+
+export type KnowledgeIngestionRequest = {
+  project_id: string;
+  app_type_id?: string | null;
+  collection_id?: string | null;
+  title?: string;
+  chunking?: KnowledgeChunkingConfig;
+  inputs?: KnowledgeIngestionInput[];
+  selected_records?: KnowledgeSelectedRecords;
+};
+
+export type KnowledgeSource = {
+  id: string;
+  project_id: string;
+  app_type_id?: string | null;
+  source_kind: KnowledgeSourceKind | string;
+  source_ref_id?: string | null;
+  title: string;
+  source_uri?: string | null;
+  file_name?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  attachment_id?: string | null;
+  extraction_status: "pending" | "processing" | "ready" | "needs_extraction" | "failed" | "archived" | string;
+  extraction_strategy?: string | null;
+  metadata?: Record<string, unknown>;
+  risk_flags?: string[];
+  collection_ids?: string[];
+  document_count?: number;
+  chunk_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type KnowledgeProcessingNotice =
+  | string
+  | {
+      code?: string | null;
+      message?: string | null;
+      source_id?: string | null;
+      input_index?: number | null;
+    };
+
+export type KnowledgeIngestion = {
+  id: string;
+  project_id: string;
+  app_type_id?: string | null;
+  collection_id?: string | null;
+  title?: string | null;
+  status: KnowledgeProcessingStatus | string;
+  stage?: KnowledgeProcessingStatus | string;
+  progress?: number;
+  processed_sources?: number;
+  total_sources?: number;
+  input_count?: number;
+  processed_count?: number;
+  failed_count?: number;
+  document_count?: number;
+  chunk_count?: number;
+  embedding_count?: number;
+  sources?: KnowledgeSource[];
+  errors?: KnowledgeProcessingNotice[];
+  warnings?: KnowledgeProcessingNotice[];
+  config?: {
+    title?: string;
+    [key: string]: unknown;
+  };
+  created_at?: string;
+  started_at?: string | null;
+  updated_at?: string;
+  completed_at?: string | null;
+};
+
+export type KnowledgeDocument = {
+  id: string;
+  project_id: string;
+  source_id: string;
+  title: string;
+  version: number;
+  token_count?: number;
+  char_count?: number;
+  checksum_sha256?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type KnowledgeIngestionResponse = {
+  accepted?: boolean;
+  idempotent_replay?: boolean;
+  job: KnowledgeIngestion;
+  sources: KnowledgeSource[];
+  documents?: KnowledgeDocument[];
+  chunk_count?: number;
+  deduplicated_count?: number;
+  warnings?: KnowledgeProcessingNotice[];
+  status_url?: string;
+};
+
+export type KnowledgeCollection = {
+  id: string;
+  project_id: string;
+  app_type_id?: string | null;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  source_ids?: string[];
+  source_count?: number;
+  document_count?: number;
+  chunk_count?: number;
+  status?: string;
+  retrieval_config?: Record<string, unknown>;
+  is_active?: boolean;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type KnowledgeSearchMode = "hybrid" | "semantic" | "keyword";
+
+export type KnowledgeSearchFilters = {
+  app_type_id?: string | null;
+  collection_ids?: string[];
+  source_kinds?: string[];
+  source_ids?: string[];
+  statuses?: string[];
+};
+
+export type KnowledgeCitation = {
+  index?: number;
+  id: string;
+  chunk_id?: string | null;
+  document_id?: string | null;
+  source_id?: string | null;
+  source_kind?: KnowledgeSourceKind | string;
+  title?: string;
+  label?: string;
+  source_ref_id?: string | null;
+  excerpt?: string | null;
+  uri?: string | null;
+  source_uri?: string | null;
+  score?: number | null;
+  source_hash?: string | null;
+  version_hash?: string | null;
+  chunk_hash?: string | null;
+  location?: {
+    chunk_index?: number | null;
+    heading?: string | null;
+    char_start?: number | null;
+    char_end?: number | null;
+    page?: number | null;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+export type KnowledgeSearchHit = KnowledgeCitation & {
+  content?: string;
+  collection_ids?: string[];
+  source_ref_id?: string | null;
+  citation?: KnowledgeCitation;
+  keyword_score?: number | null;
+  lexical_score?: number | null;
+  semantic_score?: number | null;
+  rank?: number;
+};
+
+export type KnowledgeRetrievalSummary = {
+  mode?: KnowledgeSearchMode | string;
+  query?: string;
+  candidate_count?: number;
+  matched_count?: number;
+  returned_count?: number;
+  result_count?: number;
+  latency_ms?: number;
+  collection_ids?: string[];
+  source_kinds?: string[];
+  confidence?: number | null;
+  embedding_model?: string | null;
+  vector_mode?: string | null;
+  filters?: KnowledgeSearchFilters;
+};
+
+export type KnowledgeSearchResponse = {
+  project_id?: string;
+  query: string;
+  mode: KnowledgeSearchMode | string;
+  total?: number;
+  hits?: KnowledgeSearchHit[];
+  results?: KnowledgeSearchHit[];
+  retrieval?: KnowledgeRetrievalSummary;
+  guardrails?: string[];
+};
+
+export type KnowledgeAssistantGroundingStatus =
+  | "grounded"
+  | "partially_grounded"
+  | "insufficient_context"
+  | "provider_unavailable"
+  | "refused";
+
+export type KnowledgeAssistantIntegration = {
+  id: string;
+  name: string;
+  model: string | null;
+  scope: "project" | "workspace";
+  project_id?: string | null;
+  is_default?: boolean;
+};
+
+export type KnowledgeAssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status?: "pending" | "complete" | "failed" | "answered" | "insufficient_context" | "refused" | string;
+  grounding_status?: KnowledgeAssistantGroundingStatus | string;
+  citations: KnowledgeCitation[];
+  retrieval?: KnowledgeRetrievalSummary;
+  guardrails?: string[];
+  provenance?: {
+    provider?: string | null;
+    model?: string | null;
+    generation_mode?: string;
+    context_fingerprint?: string | null;
+    context_item_count?: number;
+  };
+  refusal_reason?: string | null;
+  safety?: {
+    status?: string;
+    reason?: string | null;
+    outside_scope?: boolean;
+    pii_redacted?: boolean;
+  };
+  provider?: string | null;
+  model?: string | null;
+  session_id?: string;
+  created_at?: string;
+};
+
+export type KnowledgeAssistantSession = {
+  id: string;
+  project_id: string;
+  app_type_id?: string | null;
+  title?: string | null;
+  status?: string;
+  filters?: KnowledgeSearchFilters;
+  messages?: KnowledgeAssistantMessage[];
+  message_count?: number;
+  last_message_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  client_turn_id?: string | null;
+};
+
+export type KnowledgeAssistantMessageResponse = {
+  pending?: boolean;
+  client_turn_id?: string | null;
+  idempotent_replay?: boolean;
+  retry_after_seconds?: number;
+  session?: KnowledgeAssistantSession;
+  user_message?: KnowledgeAssistantMessage;
+  assistant_message?: KnowledgeAssistantMessage;
+  message?: KnowledgeAssistantMessage;
+  citations?: KnowledgeCitation[];
+  retrieval?: KnowledgeRetrievalSummary;
+  guardrails?: string[];
+  provenance?: KnowledgeAssistantMessage["provenance"];
+};
+
+export type KnowledgeOverview = {
+  project_id: string;
+  counts?: {
+    collections?: number;
+    sources?: number;
+    documents?: number;
+    chunks?: number;
+    ready_sources?: number;
+    processing_sources?: number;
+    failed_sources?: number;
+  };
+  totals?: {
+    collections?: number;
+    sources?: number;
+    documents?: number;
+    chunks?: number;
+    ready?: number;
+    processing?: number;
+    failed?: number;
+  };
+  capabilities?: {
+    embedding_provider?: string | null;
+    embedding_model?: string | null;
+    llm_ready?: boolean;
+    ingestion_ready?: boolean;
+    max_file_bytes?: number;
+    max_files_per_ingestion?: number;
+    supported_mime_types?: string[];
+    supported_extensions?: string[];
+    search_modes?: KnowledgeSearchMode[];
+    hybrid_search?: boolean;
+    vector_store?: string | null | {
+      engine?: string | null;
+      pgvector_available?: boolean;
+      mode?: string | null;
+      fallback?: string | null;
+    };
+    embedding?: {
+      provider?: string | null;
+      model?: string | null;
+      configured?: boolean;
+    };
+    extraction?: {
+      max_file_bytes?: number;
+      max_extractable_bytes?: number;
+      extraction_max_bytes?: number;
+      max_extracted_text_chars?: number;
+      native_text_mime_types?: string[];
+      supported_mime_types?: string[];
+      supported_extensions?: string[];
+      tika_configured?: boolean;
+      binary_requires_extracted_text?: boolean;
+    };
+    guardrails?: string[];
+  };
+  recent_jobs?: KnowledgeIngestion[];
+  recent_ingestions?: KnowledgeIngestion[];
+  recent_collections?: KnowledgeCollection[];
 };
 
 export type ExecutionCaseSnapshot = {

@@ -1,6 +1,7 @@
 const obsDb = require("./index");
 
 let bootstrapPromise = null;
+const SCHEMA_LOCK_KEY = "hellotest:execution-runtime-schema:v1";
 
 const statements = [
   `
@@ -245,6 +246,8 @@ const statements = [
       project_id TEXT NOT NULL,
       app_type_id TEXT,
       app_type_kind TEXT NOT NULL DEFAULT 'web',
+      engine_class TEXT NOT NULL DEFAULT 'web',
+      engine_max_workers INTEGER NOT NULL DEFAULT 1,
       execution_id TEXT NOT NULL,
       test_case_id TEXT NOT NULL,
       test_case_title TEXT NOT NULL,
@@ -256,6 +259,7 @@ const statements = [
       attempts INTEGER NOT NULL DEFAULT 0,
       leased_by TEXT,
       lease_expires_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
       started_at TIMESTAMPTZ,
       completed_at TIMESTAMPTZ,
       last_error TEXT,
@@ -269,6 +273,8 @@ const statements = [
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS project_id TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS app_type_id TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS app_type_kind TEXT NOT NULL DEFAULT 'web'`,
+  `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS engine_class TEXT NOT NULL DEFAULT 'web'`,
+  `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS engine_max_workers INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS execution_id TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS test_case_id TEXT`,
   `ALTER TABLE test_engine_jobs ADD COLUMN IF NOT EXISTS test_case_title TEXT`,
@@ -290,32 +296,40 @@ const statements = [
   `UPDATE test_engine_jobs SET payload = '{}'::jsonb WHERE payload IS NULL`,
   `UPDATE test_engine_jobs SET runtime_state = '{}'::jsonb WHERE runtime_state IS NULL`,
   `UPDATE test_engine_jobs SET status = 'queued' WHERE status IS NULL OR BTRIM(status) = ''`,
+  `UPDATE test_engine_jobs SET status = 'leased' WHERE status = 'claimed'`,
+  `UPDATE test_engine_jobs SET engine_class = 'android' WHERE (engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')) AND app_type_kind = 'android'`,
+  `UPDATE test_engine_jobs SET engine_class = 'api' WHERE (engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')) AND app_type_kind = 'api'`,
+  `UPDATE test_engine_jobs SET engine_class = 'web' WHERE engine_class IS NULL OR BTRIM(engine_class) = '' OR engine_class NOT IN ('api', 'web', 'android')`,
+  `UPDATE test_engine_jobs SET engine_max_workers = 1 WHERE engine_max_workers IS NULL OR engine_max_workers < 1`,
   `ALTER TABLE test_engine_jobs ALTER COLUMN payload SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE test_engine_jobs ALTER COLUMN payload SET NOT NULL`,
   `ALTER TABLE test_engine_jobs ALTER COLUMN runtime_state SET DEFAULT '{}'::jsonb`,
   `ALTER TABLE test_engine_jobs ALTER COLUMN runtime_state SET NOT NULL`,
   `ALTER TABLE test_engine_jobs DROP CONSTRAINT IF EXISTS test_engine_jobs_status_check`,
-  `ALTER TABLE test_engine_jobs ADD CONSTRAINT test_engine_jobs_status_check CHECK (status IN ('queued', 'claimed', 'leased', 'running', 'completed', 'failed', 'aborted'))`,
+  `ALTER TABLE test_engine_jobs ADD CONSTRAINT test_engine_jobs_status_check CHECK (status IN ('queued', 'leased', 'running', 'completed', 'failed', 'aborted'))`,
+  `ALTER TABLE test_engine_jobs DROP CONSTRAINT IF EXISTS test_engine_jobs_engine_class_check`,
+  `ALTER TABLE test_engine_jobs ADD CONSTRAINT test_engine_jobs_engine_class_check CHECK (engine_class IN ('api', 'web', 'android'))`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_engine_jobs_engine_run_id ON test_engine_jobs (engine_run_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, app_type_kind, engine_host, created_at ASC)`,
-  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_exec ON test_engine_jobs (execution_id, created_at DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, engine_class, app_type_kind, engine_host, created_at ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case ON test_engine_jobs (execution_id, test_case_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_created_at ON test_engine_jobs (execution_id, created_at DESC)`,
+  `DROP INDEX IF EXISTS idx_test_engine_jobs_exec`
 ];
 
-const executeStatements = async () => {
+const executeStatements = () => obsDb.transaction(async () => {
+  await obsDb.query("SET LOCAL lock_timeout = '60s'");
+  await obsDb.query("SELECT pg_advisory_xact_lock(hashtext(?))", [SCHEMA_LOCK_KEY]);
   for (const statement of statements) {
-    try {
-      await obsDb.query(statement);
-    } catch (error) {
-      if (!error.message.includes("already exists") && !error.message.includes("does not exist")) {
-        throw error;
-      }
-    }
+    await obsDb.query(statement);
   }
-};
+})();
 
 const ensureRuntimeSchema = async () => {
   if (!bootstrapPromise) {
-    bootstrapPromise = executeStatements();
+    bootstrapPromise = executeStatements().catch((error) => {
+      bootstrapPromise = null;
+      throw error;
+    });
   }
 
   return bootstrapPromise;

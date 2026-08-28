@@ -9,7 +9,10 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 - Backend: Fastify on Node.js
 - Frontend: React + Vite
 - Database: PostgreSQL 16
+- Cache/coordination: Redis
 - Attachments: MinIO / S3-compatible object storage through the official JavaScript SDK
+- Rich document extraction: Apache Tika
+- Observability: OpenTelemetry, Prometheus, Loki, Jaeger, and Grafana
 - Containers: Docker Compose
 
 ## Repo layout
@@ -21,15 +24,18 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 - `docker-compose.full.yml`: full stack with PostgreSQL, MinIO, API, and frontend
 - `docker-compose.platform.yml`: full stack plus HAProxy, Prometheus, Grafana, Loki, Promtail, and OpenTelemetry Collector
 - `frontend`: React app
-- `testengine`: standalone Playwright worker plane
+- `testengine/backend`: the sole supported API, Web, and Android execution worker plane
+- `apps/hellotest-execution-engine`: archived source-only prototype; never deploy or release it
 - `openapi.yaml`: API contract
+- [`backend/ARCHITECTURE.md`](backend/ARCHITECTURE.md): module boundaries, provider contracts, health, queues, and change rules
+- [`PLATFORM_STACK.md`](PLATFORM_STACK.md): deployment topology and operator endpoints
 
 ## Quick Start
 
 Start everything from the repo root:
 
 ```bash
-TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --no-cache --stack local
+./hellotest.sh up --build --no-cache --stack local
 ```
 
 Open the apps:
@@ -72,7 +78,7 @@ For the cloud/edge stack, use:
 
 The edge route is `${HELLOTEST_PUBLIC_URL}/admin`; the API container also serves `/admin` directly whenever its port is exposed.
 
-`./hellotest.sh config` writes the resolved service contract to `.hellotest/<stack>.env`. Override any endpoint or image with environment variables or `--config <file>`:
+`./hellotest.sh config` writes the resolved service contract to `.hellotest/<stack>.env` with owner-only directory/file permissions and redacts secrets from terminal output. Use `--show-secrets` only in a private terminal when the raw resolved values are explicitly required. Override any endpoint or image with environment variables or `--config <file>`:
 
 ```bash
 HELLOTEST_PUBLIC_URL=https://hellotest.example.com \
@@ -97,7 +103,7 @@ Run the backend and PostgreSQL without the frontend:
 
 ```bash
 cd backend
-docker pull postgres:16-alpine
+docker pull pgvector/pgvector:0.8.6-pg16-bookworm
 docker compose up --build
 ```
 
@@ -119,7 +125,8 @@ From the repo root, target services through the same operator script:
 ```bash
 ./hellotest.sh up --stack full postgres api
 ./hellotest.sh up --stack full frontend
-./hellotest.sh up --stack testengine testengine
+./hellotest.sh up --stack testengine
+./hellotest.sh up --stack testengine testengine-web
 ```
 
 ## Platform stack
@@ -153,7 +160,7 @@ If you want to run Postgres yourself instead of using Compose, these are the exp
 1. Pull the image:
 
 ```bash
-docker pull postgres:16-alpine
+docker pull pgvector/pgvector:0.8.6-pg16-bookworm
 ```
 
 2. Start PostgreSQL:
@@ -164,7 +171,7 @@ docker run --name hellotest-postgres \
   -e POSTGRES_USER=hellotest \
   -e POSTGRES_PASSWORD=hellotest \
   -p 5432:5432 \
-  -d postgres:16-alpine
+  -d pgvector/pgvector:0.8.6-pg16-bookworm
 ```
 
 3. Load the schema:
@@ -187,6 +194,8 @@ npm install
 DATABASE_URL=postgresql://hellotest:hellotest@localhost:5432/hellotest npm start
 ```
 
+Execution and operational records use a separately owned adapter but the same PostgreSQL database in this release, so the command above is complete. `OBS_DATABASE_URL` is optional and, when supplied, must identify the same host and database (it may use a separate database user). A physically separate execution database is rejected at startup until domain joins have been replaced by service contracts.
+
 6. Run the frontend locally in another terminal:
 
 ```bash
@@ -202,7 +211,7 @@ cd frontend
 VITE_API_BASE_URL=http://localhost:3000 npm run dev:admin
 ```
 
-Vite opens the portal under `http://localhost:5174/admin/`; a locally running API also gateways it at `http://localhost:3000/admin`. In Docker, no extra npm process is needed: the admin bundle is included in the frontend image. For a new instance, sign in with `admin` / `admin`, then replace the bootstrap password from **Security**. Production deployments should disable bootstrap login after onboarding a permanent administrator with `ADMIN_BOOTSTRAP_ENABLED=false`, or provide `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` during first boot.
+Vite opens the portal under `http://localhost:5174/admin/`; a locally running API also gateways it at `http://localhost:3000/admin`. In Docker, no extra npm process is needed: the admin bundle is included in the frontend image. Local development can bootstrap with `admin` / `admin` and immediately requires password replacement. When `NODE_ENV=production`, bootstrap login is disabled by default; explicitly enabling it requires a non-default administrator identity and a strong one-time `ADMIN_BOOTSTRAP_PASSWORD`.
 
 ## Sample login
 
@@ -224,8 +233,13 @@ The seed file creates these users:
 - `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_USE_SSL`
 - `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_REGION`
 - `MAX_ATTACHMENT_BYTES` (defaults to 100 MiB)
+- `KNOWLEDGE_MAX_FILE_BYTES` (defaults to 50 MiB per Knowledge Repo upload)
+- `KNOWLEDGE_EXTRACTION_MAX_BYTES` (defaults to 20 MiB buffered for bounded document extraction)
+- `KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS` (defaults to 2,000,000 extracted characters per source)
+- `KNOWLEDGE_TIKA_URL` (fixed internal Apache Tika endpoint; the bundled stacks use `http://tika:9998`)
+- `KNOWLEDGE_TIKA_TIMEOUT_MS` (defaults to 30 seconds)
 
-Attachment uploads are streamed through the authenticated API. PostgreSQL stores the HelloTest entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Keep object-storage credentials on the API service only—never expose them through the frontend runtime config.
+Standard attachment uploads are streamed through the authenticated API. Knowledge source uploads are separately size-bounded and read once by the API for signature, extension, and unsafe Office-package checks before being persisted to object storage and queued for extraction. PostgreSQL stores the HelloTest entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Knowledge ingestion stores extracted, redacted chunks and retrieval provenance in PostgreSQL/pgvector while retaining source files in object storage. Keep object-storage and parser endpoints on the API network only—never expose them through the frontend runtime config. When an administrator configures an external embedding or chat endpoint, redacted project passages are sent to that provider; review its retention and data-handling terms before enabling it. Without that configuration, Knowledge search stays local and uses PostgreSQL full-text search plus the explicitly degraded deterministic fallback.
 
 ### PostgreSQL container
 
@@ -246,7 +260,8 @@ Attachment uploads are streamed through the authenticated API. PostgreSQL stores
 
 ## Database behavior
 
-- The official `postgres:16-alpine` image creates the database defined by `POSTGRES_DB`.
+- The bundled stacks use the pinned official `pgvector/pgvector` PostgreSQL 16 image and create the database defined by `POSTGRES_DB`.
+- Apache Tika runs on a separate internal-only network with a read-only filesystem and bounded temporary storage; its port is not published to the host.
 - The mounted SQL files in `backend/db` are executed only when the Postgres data directory is empty.
 - Sample data is inserted from `backend/db/seed.sql`, so the backend and frontend have working starter content immediately.
 

@@ -169,6 +169,17 @@ const sanitizeIntegration = (integration) => {
     };
   }
 
+  if (integration.type === "llm") {
+    return {
+      ...baseIntegration,
+      config: {
+        project_id: config.project_id || null,
+        embedding_model: config.embedding_model || null,
+        embedding_base_url: config.embedding_base_url || null
+      }
+    };
+  }
+
   return {
     ...baseIntegration,
     config: {}
@@ -430,4 +441,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     return service.deleteIntegration(req.params.id);
   });
+};
+
+module.exports._internals = {
+  sanitizeIntegration
 };

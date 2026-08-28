@@ -11,7 +11,8 @@ mkdir -p "${OUT_DIR}"
 API_IMAGE="${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}"
 FRONTEND_IMAGE="${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}"
 TESTENGINE_IMAGE="${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}"
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-pgvector/pgvector:0.8.6-pg16-bookworm}"
+TIKA_IMAGE="${TIKA_IMAGE:-apache/tika:3.3.0.0}"
 
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
 API_HOST_PORT="${API_HOST_PORT:-3000}"
@@ -51,6 +52,33 @@ services:
         aliases:
           - postgres
 
+  tika:
+    image: ${TIKA_IMAGE}
+    container_name: hellotest-tika-isolated
+    hostname: hellotest-tika
+    expose:
+      - "9998"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9998 && printf \"GET /version HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    networks:
+      hellotest-data:
+        aliases:
+          - tika
+
   api:
     image: ${API_IMAGE}
     container_name: hellotest-api-isolated
@@ -62,14 +90,26 @@ services:
       SESSION_SECRET: \${SESSION_SECRET:-hellotest-dev-secret}
       CORS_ORIGIN: \${CORS_ORIGIN:-http://localhost:${FRONTEND_HOST_PORT},http://127.0.0.1:${FRONTEND_HOST_PORT}}
       TESTENGINE_CALLBACK_SECRET: \${TESTENGINE_CALLBACK_SECRET:-hellotest-testengine-dev-secret}
+      KNOWLEDGE_MAX_FILE_BYTES: \${KNOWLEDGE_MAX_FILE_BYTES:-52428800}
+      KNOWLEDGE_EXTRACTION_MAX_BYTES: \${KNOWLEDGE_EXTRACTION_MAX_BYTES:-20971520}
+      KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS: \${KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS:-2000000}
+      KNOWLEDGE_TIKA_URL: \${KNOWLEDGE_TIKA_URL:-http://tika:9998}
+      KNOWLEDGE_TIKA_TIMEOUT_MS: \${KNOWLEDGE_TIKA_TIMEOUT_MS:-30000}
     depends_on:
       postgres:
+        condition: service_healthy
+      tika:
         condition: service_healthy
     networks:
       hellotest-data: {}
       hellotest-app:
         aliases:
           - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   frontend:
@@ -81,7 +121,8 @@ services:
     environment:
       HELLOTEST_API_BASE_URL: \${HELLOTEST_API_BASE_URL:-/api}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       hellotest-app:
         aliases:
@@ -122,8 +163,10 @@ services:
     volumes:
       - hellotest-isolated-artifacts:/artifacts
     depends_on:
-      - api
-      - selenium
+      api:
+        condition: service_healthy
+      selenium:
+        condition: service_started
     networks:
       hellotest-app: {}
       hellotest-engine:
@@ -226,6 +269,72 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: tika
+  namespace: hellotest-isolated
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tika
+  template:
+    metadata:
+      labels:
+        app: tika
+    spec:
+      containers:
+        - name: tika
+          image: ${TIKA_IMAGE}
+          ports:
+            - containerPort: 9998
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 35002
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /version
+              port: 9998
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /version
+              port: 9998
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: tika-tmp
+              mountPath: /tmp
+      volumes:
+        - name: tika-tmp
+          emptyDir:
+            sizeLimit: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tika
+  namespace: hellotest-isolated
+spec:
+  selector:
+    app: tika
+  ports:
+    - port: 9998
+      targetPort: 9998
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: api
   namespace: hellotest-isolated
 spec:
@@ -256,6 +365,16 @@ spec:
                 secretKeyRef:
                   name: hellotest-secrets
                   key: testengine-secret
+            - name: KNOWLEDGE_MAX_FILE_BYTES
+              value: "52428800"
+            - name: KNOWLEDGE_EXTRACTION_MAX_BYTES
+              value: "20971520"
+            - name: KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS
+              value: "2000000"
+            - name: KNOWLEDGE_TIKA_URL
+              value: http://tika:9998
+            - name: KNOWLEDGE_TIKA_TIMEOUT_MS
+              value: "30000"
 ---
 apiVersion: v1
 kind: Service

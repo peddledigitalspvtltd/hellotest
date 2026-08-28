@@ -43,6 +43,13 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     value: "Plan an impact-based execution run from release scope, changed stories, suite coverage, recent failures, and available case metadata."
   },
   {
+    key: "ai.knowledge.assistant",
+    label: "Knowledge assistant",
+    surface: "Project-grounded Ask HelloTest assistant",
+    maxLength: 4_000,
+    value: "Answer the user's HelloTest product or current-project question from the retrieved, citation-ready context. Give a concise direct answer, distinguish observed evidence from inference, cite supporting sources, and explicitly say when the available project context is insufficient."
+  },
+  {
     key: "ai.automation.keyword_generation",
     label: "Automation keyword generation",
     surface: "Automation builder",

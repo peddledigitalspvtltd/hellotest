@@ -1,5 +1,6 @@
 const db = require("../db");
-const { randomUUID: uuid } = require("crypto");
+const { createHash, randomUUID: uuid } = require("crypto");
+const { hostname } = require("os");
 const requirementDesignService = require("./requirementDesign.service");
 const testCaseService = require("./testCase.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -17,7 +18,9 @@ const AI_CAPACITY_RECOVERY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMI
 const MAX_JOB_ATTEMPTS = Math.max(1, Number(process.env.AI_GENERATION_MAX_JOB_ATTEMPTS || 5));
 const INTER_REQUIREMENT_COOLDOWN_MS = Math.max(0, Number(process.env.AI_GENERATION_INTER_REQUIREMENT_COOLDOWN_MS || process.env.AI_GENERATION_INTER_BATCH_COOLDOWN_MS || 5_000));
 const QUEUED_AI_JOB_LIMIT = Math.max(1, Number(process.env.AI_GENERATION_DUE_JOB_LIMIT || 1));
-const STALE_RUNNING_JOB_MS = Math.max(30 * 60 * 1000, Number(process.env.AI_GENERATION_STALE_RUNNING_MS || 2 * 60 * 60 * 1000));
+const JOB_LEASE_MS = Math.max(60_000, Number(process.env.AI_GENERATION_JOB_LEASE_MS || 5 * 60 * 1000));
+const JOB_HEARTBEAT_MS = Math.max(10_000, Math.min(Math.floor(JOB_LEASE_MS / 3), 60_000));
+const WORKER_ID = `${hostname()}:${process.pid}:${uuid()}`;
 
 const processingJobIds = new Set();
 let isQueueProcessing = false;
@@ -46,24 +49,36 @@ const selectJob = db.prepare(`
   WHERE id = ?
 `);
 
-const selectQueuedJobs = db.prepare(`
-  SELECT id
-  FROM ai_test_case_generation_jobs
-  WHERE status = 'queued'
-    AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
-  ORDER BY created_at ASC, id ASC
-  LIMIT ?
-`);
-
-const requeueStaleRunningJobs = db.prepare(`
-  UPDATE ai_test_case_generation_jobs
-  SET status = 'queued',
-      error = 'Recovered after the previous worker stopped before completing this AI generation job.',
-      next_run_at = CURRENT_TIMESTAMP,
+const claimQueuedJobs = db.transaction(async (workerId, limit, leaseMs) => db.prepare(`
+  WITH candidates AS (
+    SELECT id
+    FROM ai_test_case_generation_jobs
+    WHERE attempts < max_attempts
+      AND (
+        (status = 'queued' AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP))
+        OR (status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP))
+      )
+    ORDER BY COALESCE(next_run_at, created_at) ASC, created_at ASC, id ASC
+    LIMIT ?
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE ai_test_case_generation_jobs AS jobs
+  SET status = 'running',
+      attempts = jobs.attempts + 1,
+      error = CASE
+        WHEN jobs.status = 'running' THEN 'Recovered after the previous worker lease expired.'
+        ELSE NULL
+      END,
+      lease_owner = ?,
+      lease_expires_at = CURRENT_TIMESTAMP + (? * INTERVAL '1 millisecond'),
+      heartbeat_at = CURRENT_TIMESTAMP,
+      started_at = COALESCE(jobs.started_at, CURRENT_TIMESTAMP),
+      completed_at = NULL,
       updated_at = CURRENT_TIMESTAMP
-  WHERE status = 'running'
-    AND updated_at <= ?
-`);
+  FROM candidates
+  WHERE jobs.id = candidates.id
+  RETURNING jobs.*
+`).all(limit, workerId, leaseMs));
 
 const insertJob = db.prepare(`
   INSERT INTO ai_test_case_generation_jobs (
@@ -78,6 +93,8 @@ const insertJob = db.prepare(`
     external_links,
     images,
     authoring_mode,
+    idempotency_key,
+    request_fingerprint,
     status,
     total_requirements,
     processed_requirements,
@@ -85,18 +102,21 @@ const insertJob = db.prepare(`
     error,
     created_by
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, 0, NULL, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, 0, NULL, ?)
 `);
 
-const markJobRunning = db.prepare(`
+const selectJobByIdempotency = db.prepare(`
+  SELECT id, request_fingerprint
+  FROM ai_test_case_generation_jobs
+  WHERE project_id = ? AND created_by = ? AND idempotency_key = ?
+`);
+
+const renewJobLease = db.prepare(`
   UPDATE ai_test_case_generation_jobs
-  SET status = 'running',
-      attempts = attempts + 1,
-      error = NULL,
-      started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
-      completed_at = NULL,
+  SET lease_expires_at = CURRENT_TIMESTAMP + (? * INTERVAL '1 millisecond'),
+      heartbeat_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'running' AND lease_owner = ?
 `);
 
 const requeueJobForRetry = db.prepare(`
@@ -104,16 +124,20 @@ const requeueJobForRetry = db.prepare(`
   SET status = 'queued',
       error = ?,
       next_run_at = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'running' AND lease_owner = ?
 `);
 
 const updateJobProgress = db.prepare(`
   UPDATE ai_test_case_generation_jobs
   SET processed_requirements = ?,
       generated_cases_count = ?,
+      lease_expires_at = CURRENT_TIMESTAMP + (? * INTERVAL '1 millisecond'),
+      heartbeat_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'running' AND lease_owner = ?
 `);
 
 const finishJob = db.prepare(`
@@ -123,8 +147,10 @@ const finishJob = db.prepare(`
       generated_cases_count = ?,
       error = ?,
       completed_at = CURRENT_TIMESTAMP,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'running' AND lease_owner = ?
 `);
 
 const normalizeText = (value) => {
@@ -138,6 +164,69 @@ const normalizeText = (value) => {
 
 const normalizeTextList = (values = []) =>
   [...new Set((Array.isArray(values) ? values : [values]).map((value) => normalizeText(value)).filter(Boolean))];
+
+const normalizeIdempotencyKey = (value) => {
+  const key = normalizeText(value);
+  if (!key) return null;
+  if (key.length > 255) {
+    const error = new Error("Idempotency-Key must be 255 characters or fewer");
+    error.statusCode = 400;
+    throw error;
+  }
+  return key;
+};
+
+const leaseLostError = (jobId) => {
+  const error = new Error(`AI generation job ${jobId} is no longer owned by this worker`);
+  error.code = "JOB_LEASE_LOST";
+  error.retryable = true;
+  return error;
+};
+
+const assertLeaseMutation = (result, jobId) => {
+  if (result?.changes !== 1) throw leaseLostError(jobId);
+  return result;
+};
+
+const startJobHeartbeat = (jobId, workerId) => {
+  let stopped = false;
+  let heartbeatPromise = null;
+  let heartbeatError = null;
+  let lastSuccessfulHeartbeatAt = Date.now();
+
+  const heartbeat = () => {
+    if (stopped || heartbeatPromise) return heartbeatPromise;
+    heartbeatPromise = renewJobLease.run(JOB_LEASE_MS, jobId, workerId)
+      .then((result) => {
+        assertLeaseMutation(result, jobId);
+        heartbeatError = null;
+        lastSuccessfulHeartbeatAt = Date.now();
+      })
+      .catch((error) => {
+        heartbeatError = error;
+      })
+      .finally(() => {
+        heartbeatPromise = null;
+      });
+    return heartbeatPromise;
+  };
+
+  const timer = setInterval(() => void heartbeat(), JOB_HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    assertOwned() {
+      if (heartbeatError?.code === "JOB_LEASE_LOST" || (heartbeatError && Date.now() - lastSuccessfulHeartbeatAt >= JOB_LEASE_MS)) {
+        throw heartbeatError;
+      }
+    },
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      if (heartbeatPromise) await heartbeatPromise;
+    }
+  };
+};
 
 const normalizeImageAssets = (images = []) => {
   if (!Array.isArray(images)) {
@@ -242,8 +331,17 @@ async function hydrateJob(job) {
     return job;
   }
 
+  const {
+    lease_owner: _leaseOwner,
+    lease_expires_at: _leaseExpiresAt,
+    heartbeat_at: _heartbeatAt,
+    idempotency_key: _idempotencyKey,
+    request_fingerprint: _requestFingerprint,
+    ...publicJob
+  } = job;
+
   return {
-    ...job,
+    ...publicJob,
     requirement_ids: parseJsonValue(job.requirement_ids, []),
     external_links: parseJsonValue(job.external_links, []),
     images: parseJsonValue(job.images, []),
@@ -259,9 +357,9 @@ async function hydrateJob(job) {
   };
 }
 
-async function requeueAiJobAfterCapacityError({ job, jobId, linkedTransaction, error }) {
+async function requeueAiJobAfterCapacityError({ job, jobId, workerId, linkedTransaction, error }) {
   const message = error instanceof Error ? error.message : "AI provider capacity is temporarily unavailable";
-  const nextAttempt = Number(job.attempts || 0) + 1;
+  const nextAttempt = Number(job.attempts || 0);
   const maxAttempts = Number(job.max_attempts || MAX_JOB_ATTEMPTS);
 
   if (nextAttempt >= maxAttempts || !isRetryableLlmError(error)) {
@@ -271,7 +369,10 @@ async function requeueAiJobAfterCapacityError({ job, jobId, linkedTransaction, e
   const retryDelayMs = resolveRetryDelayMs(error, nextAttempt);
   const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
 
-  await requeueJobForRetry.run(message, nextRunAt, jobId);
+  assertLeaseMutation(
+    await requeueJobForRetry.run(message, nextRunAt, jobId, workerId),
+    jobId
+  );
 
   if (linkedTransaction) {
     await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
@@ -337,8 +438,10 @@ async function resolveScopedRequirements(requirementIds = [], projectId) {
 async function generateCasesForRequirement({
   job,
   requirement,
-  appType
+  appType,
+  assertLease
 }) {
+  assertLease?.();
   const preview = await requirementDesignService.previewRequirementTestCases({
     requirement,
     appType,
@@ -353,7 +456,8 @@ async function generateCasesForRequirement({
 
   let createdCount = 0;
 
-  for (const candidate of preview.cases || []) {
+  for (const [candidateIndex, candidate] of (preview.cases || []).entries()) {
+    assertLease?.();
     await testCaseService.createTestCase({
       app_type_id: appType.id,
       title: candidate.title,
@@ -369,6 +473,7 @@ async function generateCasesForRequirement({
       ai_generation_source: "scheduler",
       ai_generation_review_status: "pending",
       ai_generation_job_id: job.id,
+      source_idempotency_key: `ai-job:${job.id}:requirement:${requirement.id}:case:${candidateIndex}`,
       ai_generated_at: new Date().toISOString(),
       created_by: job.created_by
     });
@@ -378,14 +483,14 @@ async function generateCasesForRequirement({
   return createdCount;
 }
 
-async function generateCasesForRequirementWithRetry({ job, requirement, appType, onRetry }) {
+async function generateCasesForRequirementWithRetry({ job, requirement, appType, assertLease, onRetry }) {
   let attempt = 0;
 
   while (attempt < MAX_LLM_RETRY_ATTEMPTS) {
     attempt += 1;
 
     try {
-      return await generateCasesForRequirement({ job, requirement, appType });
+      return await generateCasesForRequirement({ job, requirement, appType, assertLease });
     } catch (error) {
       if (attempt >= MAX_LLM_RETRY_ATTEMPTS || !isRetryableLlmError(error)) {
         throw error;
@@ -404,28 +509,33 @@ async function generateCasesForRequirementWithRetry({ job, requirement, appType,
   return 0;
 }
 
-async function runJob(jobId) {
+async function runJob(claimedJob, workerId) {
+  const jobId = claimedJob?.id;
   if (!jobId || processingJobIds.has(jobId)) {
     return null;
   }
 
   processingJobIds.add(jobId);
+  const heartbeat = startJobHeartbeat(jobId, workerId);
 
   try {
-    const queuedJob = await exports.getJob(jobId);
+    const queuedJob = await hydrateJob(claimedJob);
     const linkedTransaction = await workspaceTransactionService.findTransactionByRelated({
       related_kind: "ai_test_case_generation_job",
       related_id: jobId
     });
 
-    if (!queuedJob || queuedJob.status !== "queued") {
+    if (!queuedJob || queuedJob.status !== "running" || claimedJob.lease_owner !== workerId) {
       return queuedJob;
     }
 
     const appType = await selectAppType.get(queuedJob.app_type_id);
 
     if (!appType) {
-      await finishJob.run("failed", 0, 0, "Selected app type no longer exists.", jobId);
+      assertLeaseMutation(
+        await finishJob.run("failed", 0, 0, "Selected app type no longer exists.", jobId, workerId),
+        jobId
+      );
       if (linkedTransaction) {
         await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
           status: "failed",
@@ -459,7 +569,6 @@ async function runJob(jobId) {
       })
     );
 
-    await markJobRunning.run(jobId);
     if (linkedTransaction) {
       await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
         status: "running",
@@ -536,6 +645,7 @@ async function runJob(jobId) {
                 job: queuedJob,
                 requirement,
                 appType,
+                assertLease: () => heartbeat.assertOwned(),
                 onRetry: linkedTransaction
                   ? async ({ attempt, delayMs, error }) => {
                       await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
@@ -587,7 +697,17 @@ async function runJob(jobId) {
               }
             } finally {
               processedRequirements += 1;
-              await updateJobProgress.run(processedRequirements, generatedCasesCount, jobId);
+              heartbeat.assertOwned();
+              assertLeaseMutation(
+                await updateJobProgress.run(
+                  processedRequirements,
+                  generatedCasesCount,
+                  JOB_LEASE_MS,
+                  jobId,
+                  workerId
+                ),
+                jobId
+              );
               if (linkedTransaction) {
                 await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
                   description: `Generated ${generatedCasesCount} AI test case${generatedCasesCount === 1 ? "" : "s"} after ${processedRequirements} of ${requirements.length} requirement${requirements.length === 1 ? "" : "s"}.`,
@@ -634,6 +754,7 @@ async function runJob(jobId) {
       const didRequeue = await requeueAiJobAfterCapacityError({
         job: queuedJob,
         jobId,
+        workerId,
         linkedTransaction,
         error: retryableJobError
       });
@@ -643,7 +764,18 @@ async function runJob(jobId) {
       }
     }
 
-    await finishJob.run(finalStatus, processedRequirements, generatedCasesCount, finalError, jobId);
+    heartbeat.assertOwned();
+    assertLeaseMutation(
+      await finishJob.run(
+        finalStatus,
+        processedRequirements,
+        generatedCasesCount,
+        finalError,
+        jobId,
+        workerId
+      ),
+      jobId
+    );
 
     if (linkedTransaction) {
       await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
@@ -687,6 +819,9 @@ async function runJob(jobId) {
 
     return exports.getJob(jobId);
   } catch (error) {
+    if (error?.code === "JOB_LEASE_LOST") {
+      return exports.getJob(jobId);
+    }
     const failedJob = await exports.getJob(jobId);
     const linkedTransaction = await workspaceTransactionService.findTransactionByRelated({
       related_kind: "ai_test_case_generation_job",
@@ -695,8 +830,9 @@ async function runJob(jobId) {
 
     if (failedJob && isRetryableLlmError(error)) {
       const didRequeue = await requeueAiJobAfterCapacityError({
-        job: { ...failedJob, attempts: Math.max(0, Number(failedJob.attempts || 0) - 1) },
+        job: failedJob,
         jobId,
+        workerId,
         linkedTransaction,
         error
       });
@@ -706,7 +842,17 @@ async function runJob(jobId) {
       }
     }
 
-    await finishJob.run("failed", 0, 0, error instanceof Error ? error.message : "Unable to process AI generation job", jobId);
+    assertLeaseMutation(
+      await finishJob.run(
+        "failed",
+        Number(failedJob?.processed_requirements || 0),
+        Number(failedJob?.generated_cases_count || 0),
+        error instanceof Error ? error.message : "Unable to process AI generation job",
+        jobId,
+        workerId
+      ),
+      jobId
+    );
 
     if (linkedTransaction) {
       await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
@@ -729,6 +875,7 @@ async function runJob(jobId) {
 
     return exports.getJob(jobId);
   } finally {
+    await heartbeat.stop();
     processingJobIds.delete(jobId);
   }
 }
@@ -743,6 +890,7 @@ exports.createJob = async ({
   external_links = [],
   images = [],
   authoring_mode = "structured",
+  idempotency_key,
   created_by
 }) => {
   const appType = await selectAppType.get(app_type_id);
@@ -764,30 +912,75 @@ exports.createJob = async ({
   const requirements = await resolveScopedRequirements(requirement_ids, appType.project_id);
   const id = uuid();
   const normalizedAuthoringMode = authoring_mode === "gherkin" ? "gherkin" : "structured";
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotency_key);
+  const normalizedMaxCases = clampInteger(max_cases_per_requirement, {
+    fallback: DEFAULT_CASES_PER_REQUIREMENT,
+    min: 1,
+    max: MAX_CASES_PER_REQUIREMENT
+  });
+  const normalizedParallelLimit = clampInteger(parallel_requirement_limit, {
+    fallback: DEFAULT_PARALLEL_REQUIREMENTS,
+    min: 1,
+    max: MAX_PARALLEL_REQUIREMENTS
+  });
+  const normalizedExternalLinks = normalizeTextList(external_links);
+  const normalizedImages = normalizeImageAssets(images);
+  const normalizedContext = normalizeText(additional_context);
+  const requestFingerprint = createHash("sha256").update(JSON.stringify({
+    app_type_id: appType.id,
+    requirement_ids: requirements.map((requirement) => requirement.id),
+    integration_id: normalizeText(integration_id),
+    max_cases_per_requirement: normalizedMaxCases,
+    parallel_requirement_limit: normalizedParallelLimit,
+    additional_context: normalizedContext,
+    external_links: normalizedExternalLinks,
+    images: normalizedImages,
+    authoring_mode: normalizedAuthoringMode
+  })).digest("hex");
 
-  await insertJob.run(
-    id,
-    appType.project_id,
-    appType.id,
-    normalizeText(integration_id),
-    requirements.map((requirement) => requirement.id),
-    clampInteger(max_cases_per_requirement, {
-      fallback: DEFAULT_CASES_PER_REQUIREMENT,
-      min: 1,
-      max: MAX_CASES_PER_REQUIREMENT
-    }),
-    clampInteger(parallel_requirement_limit, {
-      fallback: DEFAULT_PARALLEL_REQUIREMENTS,
-      min: 1,
-      max: MAX_PARALLEL_REQUIREMENTS
-    }),
-    normalizeText(additional_context),
-    normalizeTextList(external_links),
-    normalizeImageAssets(images),
-    normalizedAuthoringMode,
-    requirements.length,
-    created_by
-  );
+  const resolveIdempotentReplay = async () => {
+    if (!normalizedIdempotencyKey) return null;
+    const existing = await selectJobByIdempotency.get(
+      appType.project_id,
+      created_by,
+      normalizedIdempotencyKey
+    );
+    if (!existing) return null;
+    if (existing.request_fingerprint && existing.request_fingerprint !== requestFingerprint) {
+      const error = new Error("Idempotency-Key was already used with a different AI generation request");
+      error.statusCode = 409;
+      throw error;
+    }
+    return { id: existing.id, idempotent_replay: true };
+  };
+
+  const replay = await resolveIdempotentReplay();
+  if (replay) return replay;
+
+  try {
+    await insertJob.run(
+      id,
+      appType.project_id,
+      appType.id,
+      normalizeText(integration_id),
+      requirements.map((requirement) => requirement.id),
+      normalizedMaxCases,
+      normalizedParallelLimit,
+      normalizedContext,
+      normalizedExternalLinks,
+      normalizedImages,
+      normalizedAuthoringMode,
+      normalizedIdempotencyKey,
+      requestFingerprint,
+      requirements.length,
+      created_by
+    );
+  } catch (error) {
+    if (error?.code !== "23505" || !normalizedIdempotencyKey) throw error;
+    const concurrentReplay = await resolveIdempotentReplay();
+    if (concurrentReplay) return concurrentReplay;
+    throw error;
+  }
 
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: appType.project_id,
@@ -805,16 +998,8 @@ exports.createJob = async ({
       progress_percent: 0,
       current_phase: "queued",
       authoring_mode: normalizedAuthoringMode,
-      max_cases_per_requirement: clampInteger(max_cases_per_requirement, {
-        fallback: DEFAULT_CASES_PER_REQUIREMENT,
-        min: 1,
-        max: MAX_CASES_PER_REQUIREMENT
-      }),
-      parallel_requirement_limit: clampInteger(parallel_requirement_limit, {
-        fallback: DEFAULT_PARALLEL_REQUIREMENTS,
-        min: 1,
-        max: MAX_PARALLEL_REQUIREMENTS
-      }),
+      max_cases_per_requirement: normalizedMaxCases,
+      parallel_requirement_limit: normalizedParallelLimit,
       worker_count: 1,
       batch_size: 1,
       inter_requirement_cooldown_ms: INTER_REQUIREMENT_COOLDOWN_MS
@@ -835,10 +1020,10 @@ exports.createJob = async ({
     }
   });
 
-  return { id };
+  return { id, idempotent_replay: false };
 };
 
-exports.listJobs = async ({ app_type_id, status } = {}) => {
+exports.listJobs = async ({ app_type_id, status, limit = 100 } = {}) => {
   let query = `SELECT * FROM ai_test_case_generation_jobs WHERE 1=1`;
   const params = [];
 
@@ -852,7 +1037,9 @@ exports.listJobs = async ({ app_type_id, status } = {}) => {
     params.push(status);
   }
 
-  query += ` ORDER BY created_at DESC, id DESC`;
+  const boundedLimit = Math.max(1, Math.min(200, Number.parseInt(String(limit), 10) || 100));
+  query += ` ORDER BY created_at DESC, id DESC LIMIT ?`;
+  params.push(boundedLimit);
 
   const rows = await db.prepare(query).all(...params);
   return Promise.all(rows.map(hydrateJob));
@@ -876,12 +1063,12 @@ exports.processQueuedJobs = async () => {
   isQueueProcessing = true;
 
   try {
-    await requeueStaleRunningJobs.run(new Date(Date.now() - STALE_RUNNING_JOB_MS).toISOString());
-    const queuedJobs = await selectQueuedJobs.all(QUEUED_AI_JOB_LIMIT);
+    const queuedJobs = await claimQueuedJobs(WORKER_ID, QUEUED_AI_JOB_LIMIT, JOB_LEASE_MS);
 
     for (const row of queuedJobs) {
-      await runJob(row.id);
+      await runJob(row, WORKER_ID);
     }
+    return queuedJobs.length;
   } finally {
     isQueueProcessing = false;
   }

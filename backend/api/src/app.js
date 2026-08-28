@@ -1,24 +1,50 @@
 const Fastify = require("fastify");
 const { LogController } = Fastify;
+const { config } = require("./config");
+const { generateRequestId } = require("./utils/token");
 
 const fastify = Fastify({
   logger: {
-    level: process.env.LOG_LEVEL || "info"
+    level: process.env.LOG_LEVEL || "info",
+    redact: {
+      censor: "[REDACTED]",
+      paths: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "req.headers.x-api-key",
+        "request.headers.authorization",
+        "request.headers.cookie",
+        "request.headers.x-api-key",
+        "res.headers.set-cookie",
+        "response.headers.set-cookie",
+        "password",
+        "secret",
+        "token",
+        "apiKey",
+        "accessKey",
+        "refreshToken",
+        "err.config.headers.Authorization",
+        "error.config.headers.Authorization"
+      ]
+    }
   },
   logController: new LogController({
     requestIdLogLabel: "reqId",
-    disableRequestLogging: false
+    disableRequestLogging: true
   }),
-  requestTimeout: 120000,
-  bodyLimit: 128 * 1024 * 1024
+  genReqId: () => generateRequestId(),
+  requestTimeout: config.http.requestTimeoutMs,
+  connectionTimeout: config.http.connectionTimeoutMs,
+  keepAliveTimeout: config.http.keepAliveTimeoutMs,
+  maxRequestsPerSocket: config.http.maxRequestsPerSocket,
+  forceCloseConnections: "idle",
+  bodyLimit: config.http.bodyLimitBytes
 });
 
 const cors = require("@fastify/cors");
 const multipart = require("@fastify/multipart");
-const { config } = require("./config");
 const { ensureRuntimeSchema: ensureMainRuntimeSchema } = require("./db/bootstrap");
 const { ensureRuntimeSchema: ensureObsRuntimeSchema } = require("./obsDb/bootstrap");
-const { generateRequestId } = require("./utils/token");
 const adminPortalService = require("./services/adminPortal.service");
 
 // Add request ID to all requests
@@ -46,8 +72,8 @@ fastify.register(cors, {
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "traceparent", "tracestate"],
-  exposedHeaders: ["X-Request-ID", "X-Trace-ID", "traceparent"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "traceparent", "tracestate"],
+  exposedHeaders: ["X-Request-ID", "X-Trace-ID", "Location", "Retry-After", "traceparent"],
   credentials: true,
   maxAge: 86400
 });
@@ -61,6 +87,7 @@ fastify.register(multipart, {
 });
 
 fastify.register(require("./plugins/errorHandler"));
+fastify.register(require("./plugins/capacityGuard"));
 fastify.register(require("./plugins/observability"));
 fastify.register(require("./plugins/validator"));
 fastify.register(require("./plugins/accessControl"));

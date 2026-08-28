@@ -1,0 +1,7 @@
+extends:
+  - recommended
+
+rules:
+  # The Fastify admin gateway intentionally registers /admin/ as the document
+  # route in addition to /admin (redirect) and /admin/* (proxied assets).
+  no-path-trailing-slash: off

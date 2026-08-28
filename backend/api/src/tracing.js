@@ -1,41 +1,62 @@
-const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
-const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-const { resourceFromAttributes } = require('@opentelemetry/resources');
-const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
-const { config } = require('./config');
+const crypto = require("crypto");
+const { NodeSDK } = require("@opentelemetry/sdk-node");
+const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
+const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
+const { resourceFromAttributes } = require("@opentelemetry/resources");
+const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventions");
+const apiPackage = require("../package.json");
+const { config } = require("./config");
 
-if (!config.enableObservability) {
-  module.exports = null;
-  return;
+const state = {
+  enabled: config.enableObservability,
+  exporterConfigured: false,
+  started: false,
+  error: null,
+  endpoint: null
+};
+
+const resolveTraceExporterUrl = (endpoint) => {
+  const normalized = String(endpoint || "").trim().replace(/\/+$/, "");
+  if (!normalized) return null;
+  return normalized.endsWith("/v1/traces") ? normalized : `${normalized}/v1/traces`;
+};
+
+let sdk = null;
+
+if (config.enableObservability) {
+  const exporterUrl = resolveTraceExporterUrl(config.otelEndpoint);
+  state.endpoint = exporterUrl;
+  state.exporterConfigured = Boolean(exporterUrl);
+
+  try {
+    sdk = new NodeSDK({
+      resource: resourceFromAttributes({
+        [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "hellotest-api",
+        [SemanticResourceAttributes.SERVICE_NAMESPACE]: process.env.OTEL_SERVICE_NAMESPACE || "hellotest",
+        [SemanticResourceAttributes.SERVICE_VERSION]: apiPackage.version,
+        [SemanticResourceAttributes.SERVICE_INSTANCE_ID]: process.env.OTEL_SERVICE_INSTANCE_ID || crypto.randomUUID(),
+        [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.DEPLOYMENT_ENVIRONMENT || config.appMode
+      }),
+      traceExporter: exporterUrl ? new OTLPTraceExporter({ url: exporterUrl }) : undefined,
+      instrumentations: [getNodeAutoInstrumentations()]
+    });
+    sdk.start();
+    state.started = true;
+  } catch (error) {
+    state.error = error.message;
+    console.warn("Tracing disabled after startup error:", error.message);
+  }
 }
 
-const otelUrl = config.otelEndpoint
-  ? `${config.otelEndpoint.replace(/\/+$/, '')}/v1/traces`
-  : undefined;
+const shutdown = async () => {
+  if (!sdk || !state.started) return;
+  await sdk.shutdown();
+  state.started = false;
+};
 
-const traceExporter = otelUrl ? new OTLPTraceExporter({ url: otelUrl }) : undefined;
-
-const sdk = new NodeSDK({
-  resource: resourceFromAttributes({
-    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'hellotest-api',
-  }),
-  traceExporter,
-  instrumentations: [getNodeAutoInstrumentations()],
-});
-
-// Initialize the SDK and register with the global tracer provider
-try {
-  sdk.start();
-} catch (error) {
-  console.warn('Tracing disabled after startup error:', error.message);
-}
-
-process.on('SIGTERM', () => {
-  sdk.shutdown()
-    .then(() => console.log('Tracing terminated'))
-    .catch((error) => console.log('Error terminating tracing', error))
-    .finally(() => process.exit(0));
-});
-
-module.exports = sdk;
+module.exports = {
+  getState: () => ({ ...state }),
+  resolveTraceExporterUrl,
+  sdk,
+  shutdown
+};

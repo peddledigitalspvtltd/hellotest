@@ -13,6 +13,7 @@ import { BrandWordmark } from "./BrandWordmark";
 import { LoadingState } from "./LoadingState";
 import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
+import { GroundedAssistant } from "./GroundedAssistant";
 import "./module-navigation.css";
 import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
@@ -1117,6 +1118,7 @@ function ReadyAppShell() {
       </main>
 
       <UserProfileDialog isOpen={isProfileDialogOpen} onClose={() => setIsProfileDialogOpen(false)} />
+      <GroundedAssistant />
     </div>
   );
 }

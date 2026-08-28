@@ -2,6 +2,7 @@ const projectService = require("../services/project.service");
 const analytics = require("../services/qualityAnalytics.service");
 const dashboards = require("../services/qualityDashboard.service");
 const reports = require("../services/qualityDashboardReport.service");
+const { config } = require("../config");
 
 const requireProject = async (req, projectId) => {
   if (!projectId) {
@@ -56,9 +57,13 @@ module.exports = async function (fastify) {
     return reply.send(pdf);
   };
   fastify.get("/quality-dashboards/:id/report.pdf", downloadDashboardReport);
-  fastify.post("/quality-dashboards/:id/report.pdf", downloadDashboardReport);
+  fastify.post("/quality-dashboards/:id/report.pdf", {
+    bodyLimit: config.http.largeBodyLimitBytes
+  }, downloadDashboardReport);
 
-  fastify.post("/quality-dashboards/:id/share-report", async (req) => {
+  fastify.post("/quality-dashboards/:id/share-report", {
+    bodyLimit: config.http.largeBodyLimitBytes
+  }, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
     const dashboard = await dashboards.get(req.params.id);

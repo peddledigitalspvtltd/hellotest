@@ -2,6 +2,11 @@
 
 `testengine/` is a backend-only Playwright execution plane for HelloTest. HelloTest remains the only frontend, the only operator surface, and the system of record for authoring, runs, evidence history, and review.
 
+This is the sole supported HelloTest execution runtime. The older
+`apps/hellotest-execution-engine` package is an archived source-only prototype;
+its deployment manifests have been retired and it must not be published or
+restored as a second worker plane.
+
 There should not be a second UI here. The right split is:
 
 - HelloTest frontend and backend: control plane
@@ -191,11 +196,39 @@ Engine uses the same development fallback as the HelloTest API.
 If you do not want integration lookup, set `ENGINE_PUBLIC_URL` directly instead.
 When the stack is up, the Test Engine host serves:
 
-- `GET /health`
+- `GET /health/live` (process liveness only)
+- `GET /health/ready` (shared-secret and queue-worker readiness)
+- `GET /health` (legacy compatibility status)
 - `GET /api/v1/capabilities`
 - `GET /api/v1/events`
 - `POST /api/v1/events`
 - `GET /ops-telemetry`
+
+Every `/api/v1/runs` read, create, and retry route requires the Test Engine
+shared secret as `X-HelloTest-TestEngine-Secret`, `X-TestEngine-Secret`, or a
+Bearer token. The HelloTest API direct dispatcher sends this header
+automatically. Production requires a non-default secret of at least 32
+characters; local development retains the existing development fallback.
+Browser origins are denied by default in production and can be explicitly
+allowed with the comma-separated `TESTENGINE_CORS_ORIGINS` setting.
+
+The Mobile Engine is a separate trust boundary. Every `/api/v1/mobile/*` route
+requires `MOBILE_ENGINE_SHARED_SECRET` in
+`X-HelloTest-Mobile-Engine-Secret`; health and capabilities stay public. The
+Android worker adds that header automatically, and the standalone Compose stack
+starts the independently deployable Mobile Engine with the same generated
+operator secret. Production rejects missing, known-development, and
+shorter-than-32-character values.
+
+Before applying `testengine/k8s/testengine-workers.yaml`, create independent
+control-plane and Mobile Engine secrets (use a secret manager or sealed-secret
+workflow in production):
+
+```bash
+kubectl create secret generic hellotest-testengine-secret --from-literal=shared-secret="$(openssl rand -hex 32)"
+kubectl create secret generic hellotest-mobile-engine-secret --from-literal=shared-secret="$(openssl rand -hex 32)"
+kubectl apply -f testengine/k8s/testengine-workers.yaml
+```
 
 The `/ops-telemetry` board lets operators filter captured execution hierarchy
 events by `service_name`, status, event type, and execution identifiers.
@@ -207,6 +240,9 @@ into `TESTENGINE_POLL_INTERVAL_MINUTES` / `TESTENGINE_POLL_INTERVAL_MS` for the
 standalone worker. When the queue is empty, the worker does not emit job events.
 Worker startup, poll failures, execution crashes, and failure-reporting issues
 are captured on the local OPS telemetry board.
+`TESTENGINE_SHUTDOWN_TIMEOUT_MS` controls the bounded drain window (30 seconds
+by default), and `TESTENGINE_HELLOTEST_REQUEST_TIMEOUT_MS` bounds each queue API
+request (15 seconds by default).
 
 On Apple Silicon or other ARM64 hosts, HelloTest defaults the Selenium browser node to
 `selenium/node-chromium:4.22.0` because Selenium's official Chrome node images are

@@ -25,7 +25,7 @@ exports.claimRun = obsDb.transaction(async (engineId) => {
 
   await obsDb.prepare(`
     UPDATE test_engine_jobs
-    SET status = 'claimed', leased_by = ?, lease_expires_at = NOW() + INTERVAL '2 minutes', updated_at = NOW()
+    SET status = 'leased', leased_by = ?, lease_expires_at = NOW() + INTERVAL '2 minutes', updated_at = NOW()
     WHERE id = ?
   `).run(engineId, job.id);
 
@@ -57,44 +57,54 @@ exports.heartbeatRun = async (runId, engineId) => {
   return requireRow(result, `Run not found or heartbeat could not be stored for runId=${runId}`);
 };
 
-exports.getRunStatus = async (runId) => {
+exports.getRunScope = async (runId) => {
   const row = await obsDb.prepare(`
-    SELECT engine_run_id, status, leased_by, lease_expires_at, started_at, completed_at, heartbeat_at, last_error, updated_at
+    SELECT engine_run_id, project_id, execution_id, test_case_id
     FROM test_engine_jobs
     WHERE engine_run_id = ?
   `).get(runId);
+
+  return requireRow(row, `Run not found for runId=${runId}`);
+};
+
+exports.getRunStatus = async (runId, projectId) => {
+  const row = await obsDb.prepare(`
+    SELECT engine_run_id, status, leased_by, lease_expires_at, started_at, completed_at, heartbeat_at, last_error, updated_at
+    FROM test_engine_jobs
+    WHERE engine_run_id = ? AND project_id = ?
+  `).get(runId, projectId);
 
   return requireRow(row, `Run status not found for runId=${runId}`);
 };
 
-exports.getRunResults = async (runId) => {
+exports.getRunResults = async (runId, projectId) => {
   const row = await obsDb.prepare(`
     SELECT runtime_state
     FROM test_engine_jobs
-    WHERE engine_run_id = ?
-  `).get(runId);
+    WHERE engine_run_id = ? AND project_id = ?
+  `).get(runId, projectId);
 
   const data = requireRow(row, `Run results not found for runId=${runId}`);
   return data.runtime_state || {};
 };
 
-exports.getRunLogs = async (runId) => {
+exports.getRunLogs = async (runId, projectId) => {
   const row = await obsDb.prepare(`
     SELECT runtime_state
     FROM test_engine_jobs
-    WHERE engine_run_id = ?
-  `).get(runId);
+    WHERE engine_run_id = ? AND project_id = ?
+  `).get(runId, projectId);
 
   const data = requireRow(row, `Run logs not found for runId=${runId}`);
   return data.runtime_state?.logs || {};
 };
 
-exports.getRunArtifacts = async (runId) => {
+exports.getRunArtifacts = async (runId, projectId) => {
   const row = await obsDb.prepare(`
     SELECT runtime_state
     FROM test_engine_jobs
-    WHERE engine_run_id = ?
-  `).get(runId);
+    WHERE engine_run_id = ? AND project_id = ?
+  `).get(runId, projectId);
 
   const data = requireRow(row, `Run artifacts not found for runId=${runId}`);
   return data.runtime_state?.artifacts || [];

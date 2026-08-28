@@ -78,7 +78,7 @@ module.exports = async function (fastify) {
     return requirementWorkspaceService.previewGherkin(req.body);
   });
 
-  fastify.post("/requirements/ai-create-jobs", async (req) => {
+  fastify.post("/requirements/ai-create-jobs", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({
       project_id: { required: true, type: "string", maxLength: 255 },
@@ -92,7 +92,11 @@ module.exports = async function (fastify) {
     }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
-    return requirementWorkspaceService.createGenerationJob({ input: req.body, userId: req.user.id });
+    const job = await requirementWorkspaceService.createGenerationJob({ input: req.body, userId: req.user.id });
+    reply.code(202);
+    reply.header("Location", `/requirements/ai-create-jobs/${encodeURIComponent(job.id)}?project_id=${encodeURIComponent(job.project_id)}`);
+    reply.header("Retry-After", "2");
+    return job;
   });
 
   fastify.get("/requirements/ai-create-jobs/:jobId", async (req) => {

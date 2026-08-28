@@ -9,7 +9,11 @@ import {
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
-import { executeAndroidSteps, isMobileEngineConfigured } from "./mobileEngine.js";
+import {
+  executeAndroidSteps,
+  getMobileEngineConfigurationError,
+  isMobileEngineConfigured
+} from "./mobileEngine.js";
 import type { EngineQueuedJob, EngineRunStep } from "../contracts/hellotest.js";
 import { registerContextValue } from "./runtimeContext.js";
 
@@ -20,6 +24,43 @@ type Logger = {
 
 type OpsTelemetrySink = {
   captureLocalEvent: (payload: Record<string, unknown>) => unknown;
+};
+
+export type QueueWorkerHealthSnapshot = {
+  configured: boolean;
+  required: boolean;
+  ready: boolean;
+  status: "disabled" | "misconfigured" | "starting" | "ready" | "degraded" | "stopping" | "stopped";
+  accepting_work: boolean;
+  polling: boolean;
+  active_jobs: number;
+  poll_interval_ms: number;
+  poll_concurrency: number;
+  engine_class: string | null;
+  started_at: string;
+  last_poll_started_at: string | null;
+  last_poll_completed_at: string | null;
+  last_successful_poll_at: string | null;
+  last_error_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
+};
+
+export type QueueWorkerController = {
+  getHealthSnapshot: () => QueueWorkerHealthSnapshot;
+  pollNow: () => Promise<void>;
+  stop: (options?: { timeoutMs?: number }) => Promise<void>;
+};
+
+type QueueWorkerDependencies = {
+  isConfigured?: () => boolean;
+  leaseNextJob?: typeof leaseNextQueuedJob;
+  executeJob?: typeof executeQueuedJob;
+  pollIntervalMs?: number;
+  pollConcurrency?: number;
+  engineClass?: string | null;
+  queueRequired?: boolean;
+  now?: () => Date;
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
@@ -64,6 +105,20 @@ const POLL_CONCURRENCY = Math.max(
   Math.min(8, Math.trunc(normalizeNumber(process.env.TESTENGINE_POLL_CONCURRENCY) ?? 4))
 );
 const ENGINE_CLASS_VALUES = new Set(["api", "web", "android"]);
+
+const normalizeBoolean = (value: unknown, fallback: boolean) => {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
 
 const resolveWorkerEngineClass = () => {
   const normalized = String(process.env.TESTENGINE_WORKER_CLASS || process.env.TESTENGINE_ENGINE_CLASS || "")
@@ -383,7 +438,7 @@ async function executeQueuedJob(
 
     if (remainingAndroidSteps.length) {
       if (!isMobileEngineConfigured()) {
-        const message = `${job.test_case_title} requires Android execution, but MOBILE_ENGINE_URL is not configured.`;
+        const message = `${job.test_case_title} requires Android execution, but the Mobile Engine client is not ready: ${getMobileEngineConfigurationError() || "unknown configuration error"}.`;
         for (const step of remainingAndroidSteps) {
           androidResultsByStepId.set(step.id, { status: "blocked", note: message });
         }
@@ -660,88 +715,289 @@ async function executeQueuedJob(
   }
 }
 
-export function startQueueWorker(logger: Logger, telemetry?: OpsTelemetrySink) {
-  if (!isHelloTestQueueConfigured()) {
+export function startQueueWorker(
+  logger: Logger,
+  telemetry?: OpsTelemetrySink,
+  dependencies: QueueWorkerDependencies = {}
+): QueueWorkerController {
+  const workerStartedAt = (dependencies.now || (() => new Date()))().toISOString();
+  const pollIntervalMs = Math.max(1, dependencies.pollIntervalMs ?? POLL_INTERVAL_MS);
+  const pollConcurrency = Math.max(1, dependencies.pollConcurrency ?? POLL_CONCURRENCY);
+  const workerEngineClass = dependencies.engineClass === undefined
+    ? resolveWorkerEngineClass()
+    : dependencies.engineClass;
+  const queueConfigured = (dependencies.isConfigured || isHelloTestQueueConfigured)();
+  const queueRequired = dependencies.queueRequired ?? normalizeBoolean(
+    process.env.TESTENGINE_QUEUE_REQUIRED,
+    Boolean(process.env.TESTENGINE_WORKER_CLASS || process.env.TESTENGINE_ENGINE_CLASS)
+  );
+  const now = dependencies.now || (() => new Date());
+  const leaseJob = dependencies.leaseNextJob || leaseNextQueuedJob;
+  const executeJob = dependencies.executeJob || executeQueuedJob;
+
+  if (!queueConfigured) {
+    let stopped = false;
     logger.info("HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.");
     emitTelemetry(telemetry, {
       event_type: "testengine.queue.worker.disabled",
-      status: "disabled",
-      summary: "HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.",
+      status: queueRequired ? "failed" : "disabled",
+      summary: queueRequired
+        ? "HelloTest queue pull mode is required but is not configured."
+        : "HelloTest queue pull mode is disabled because HELLOTEST_API_BASE_URL is not configured.",
       configuration: {
+        queue_required: queueRequired,
         hellotest_api_base_url_configured: Boolean(process.env.HELLOTEST_API_BASE_URL),
         hellotest_testengine_secret_configured: Boolean(process.env.HELLOTEST_TESTENGINE_SECRET || process.env.TESTENGINE_SHARED_SECRET)
       }
     });
-    return;
+
+    return {
+      getHealthSnapshot: () => ({
+        configured: false,
+        required: queueRequired,
+        ready: !queueRequired && !stopped,
+        status: stopped ? "stopped" : queueRequired ? "misconfigured" : "disabled",
+        accepting_work: false,
+        polling: false,
+        active_jobs: 0,
+        poll_interval_ms: pollIntervalMs,
+        poll_concurrency: pollConcurrency,
+        engine_class: workerEngineClass,
+        started_at: workerStartedAt,
+        last_poll_started_at: null,
+        last_poll_completed_at: null,
+        last_successful_poll_at: null,
+        last_error_at: null,
+        last_error: queueRequired ? "Queue pull mode is required but is not configured" : null,
+        consecutive_failures: 0
+      }),
+      pollNow: async () => undefined,
+      stop: async () => {
+        stopped = true;
+      }
+    };
   }
 
   const activeJobs = new Set<string>();
+  const activeExecutions = new Set<Promise<void>>();
   let isPolling = false;
-  const workerEngineClass = resolveWorkerEngineClass();
+  let stopping = false;
+  let stopped = false;
+  let currentPoll: Promise<void> | null = null;
+  let intervalHandle: ReturnType<typeof setInterval> | null = null;
+  let stopPromise: Promise<void> | null = null;
+  let lastPollStartedAt: string | null = null;
+  let lastPollCompletedAt: string | null = null;
+  let lastSuccessfulPollAt: string | null = null;
+  let lastErrorAt: string | null = null;
+  let lastError: string | null = null;
+  let consecutiveFailures = 0;
+
+  const boundedErrorMessage = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || "");
+    const statusMatch = /HelloTest internal API returned (\d{3})\b/.exec(message);
+
+    if (statusMatch) {
+      return `HelloTest queue API returned HTTP ${statusMatch[1]}`;
+    }
+
+    if (error instanceof Error && (error.name === "AbortError" || /timed?\s*out/i.test(message))) {
+      return "HelloTest queue API request timed out";
+    }
+
+    return "Queue poll failed; inspect protected service logs for details";
+  };
 
   logger.info({
-    poll_interval_ms: POLL_INTERVAL_MS,
-    poll_concurrency: POLL_CONCURRENCY,
+    poll_interval_ms: pollIntervalMs,
+    poll_concurrency: pollConcurrency,
     engine_class: workerEngineClass || "any"
   }, "HelloTest queue pull worker started");
   emitTelemetry(telemetry, {
     event_type: "testengine.queue.worker.started",
     status: "running",
-    summary: `HelloTest ${workerEngineClass || "general"} queue pull worker started. Polling every ${POLL_INTERVAL_MS}ms.`,
+    summary: `HelloTest ${workerEngineClass || "general"} queue pull worker started. Polling every ${pollIntervalMs}ms.`,
     configuration: {
-      poll_interval_ms: POLL_INTERVAL_MS,
-      poll_concurrency: POLL_CONCURRENCY,
+      poll_interval_ms: pollIntervalMs,
+      poll_concurrency: pollConcurrency,
       engine_class: workerEngineClass || "any"
     }
   });
 
-  const poll = async () => {
-    if (isPolling) {
+  const trackExecution = (job: EngineQueuedJob, workerId: string) => {
+    activeJobs.add(job.id);
+    const execution = Promise.resolve()
+      .then(() => executeJob(job, workerId, logger, telemetry))
+      .catch((error) => {
+        logger.error({ error, jobId: job.id }, "Queued job execution crashed");
+        emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
+          event_type: "testengine.queue.job.crashed",
+          status: "failed",
+          summary: "Queued job execution crashed.",
+          error: serializeError(error)
+        }));
+      });
+
+    activeExecutions.add(execution);
+    void execution.finally(() => {
+      activeJobs.delete(job.id);
+      activeExecutions.delete(execution);
+    });
+  };
+
+  const poll = async (): Promise<void> => {
+    if (currentPoll) {
+      return currentPoll;
+    }
+
+    if (stopping || stopped) {
       return;
     }
 
-    isPolling = true;
+    currentPoll = (async () => {
+      isPolling = true;
+      lastPollStartedAt = now().toISOString();
 
-    try {
-      while (activeJobs.size < POLL_CONCURRENCY) {
-        const workerId = `${process.env.ENGINE_NAME || "hellotest-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
-        const job = await leaseNextQueuedJob(workerId, workerEngineClass);
+      try {
+        while (!stopping && activeJobs.size < pollConcurrency) {
+          const workerId = `${process.env.ENGINE_NAME || "hellotest-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
+          const job = await leaseJob(workerId, workerEngineClass);
 
-        if (!job || activeJobs.has(job.id)) {
-          break;
+          if (!job || activeJobs.has(job.id)) {
+            break;
+          }
+
+          trackExecution(job, workerId);
         }
 
-        activeJobs.add(job.id);
-
-        void executeQueuedJob(job, workerId, logger, telemetry)
-          .catch((error) => {
-            logger.error({ error, jobId: job.id }, "Queued job execution crashed");
-            emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
-              event_type: "testengine.queue.job.crashed",
-              status: "failed",
-              summary: "Queued job execution crashed.",
-              error: serializeError(error)
-            }));
-          })
-          .finally(() => {
-            activeJobs.delete(job.id);
-          });
+        consecutiveFailures = 0;
+        lastError = null;
+        lastSuccessfulPollAt = now().toISOString();
+      } catch (error) {
+        consecutiveFailures += 1;
+        lastErrorAt = now().toISOString();
+        lastError = boundedErrorMessage(error);
+        logger.error({ error }, "Unable to poll HelloTest queued jobs");
+        emitTelemetry(telemetry, {
+          event_type: "testengine.queue.poll.failed",
+          status: "failed",
+          summary: "Unable to poll HelloTest queued jobs.",
+          error: serializeError(error)
+        });
+      } finally {
+        lastPollCompletedAt = now().toISOString();
+        isPolling = false;
       }
-    } catch (error) {
-      logger.error({ error }, "Unable to poll HelloTest queued jobs");
-      emitTelemetry(telemetry, {
-        event_type: "testengine.queue.poll.failed",
-        status: "failed",
-        summary: "Unable to poll HelloTest queued jobs.",
-        error: serializeError(error)
-      });
+    })();
+
+    try {
+      await currentPoll;
     } finally {
-      isPolling = false;
+      currentPoll = null;
     }
   };
 
+  const getHealthSnapshot = (): QueueWorkerHealthSnapshot => {
+    const lastSuccessfulPollMs = lastSuccessfulPollAt ? Date.parse(lastSuccessfulPollAt) : Number.NaN;
+    const staleAfterMs = Math.max(30_000, pollIntervalMs * 3);
+    const pollIsStale = Number.isFinite(lastSuccessfulPollMs)
+      && now().getTime() - lastSuccessfulPollMs > staleAfterMs;
+    const ready = !stopping
+      && !stopped
+      && consecutiveFailures === 0
+      && Boolean(lastSuccessfulPollAt)
+      && !pollIsStale;
+    const status = stopped
+      ? "stopped"
+      : stopping
+        ? "stopping"
+        : consecutiveFailures > 0 || pollIsStale
+          ? "degraded"
+          : ready
+            ? "ready"
+            : "starting";
+
+    return {
+      configured: true,
+      required: queueRequired,
+      ready,
+      status,
+      accepting_work: !stopping && !stopped,
+      polling: isPolling,
+      active_jobs: activeJobs.size,
+      poll_interval_ms: pollIntervalMs,
+      poll_concurrency: pollConcurrency,
+      engine_class: workerEngineClass,
+      started_at: workerStartedAt,
+      last_poll_started_at: lastPollStartedAt,
+      last_poll_completed_at: lastPollCompletedAt,
+      last_successful_poll_at: lastSuccessfulPollAt,
+      last_error_at: lastErrorAt,
+      last_error: lastError,
+      consecutive_failures: consecutiveFailures
+    };
+  };
+
+  const stop = (options: { timeoutMs?: number } = {}) => {
+    if (stopPromise) {
+      return stopPromise;
+    }
+
+    stopping = true;
+    if (intervalHandle) {
+      clearInterval(intervalHandle);
+      intervalHandle = null;
+    }
+
+    stopPromise = (async () => {
+      const configuredTimeout = normalizeNumber(options.timeoutMs ?? process.env.TESTENGINE_SHUTDOWN_TIMEOUT_MS);
+      const timeoutMs = Math.max(1, Math.min(120_000, configuredTimeout ?? 30_000));
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let timedOut = false;
+      const drain = async () => {
+        if (currentPoll) {
+          await currentPoll;
+        }
+        await Promise.allSettled(Array.from(activeExecutions));
+      };
+
+      await Promise.race([
+        drain(),
+        new Promise<void>((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, timeoutMs);
+          timeoutHandle.unref?.();
+        })
+      ]);
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+
+      stopped = true;
+      stopping = false;
+
+      if (timedOut && activeJobs.size > 0) {
+        logger.error({ active_jobs: activeJobs.size, timeout_ms: timeoutMs }, "Queue worker shutdown timed out while jobs were still active");
+      } else {
+        logger.info({ active_jobs: activeJobs.size }, "HelloTest queue pull worker stopped");
+      }
+    })();
+
+    return stopPromise;
+  };
+
   void poll();
-  setInterval(() => {
+  intervalHandle = setInterval(() => {
     void poll();
-  }, POLL_INTERVAL_MS);
+  }, pollIntervalMs);
+  intervalHandle.unref?.();
+
+  return {
+    getHealthSnapshot,
+    pollNow: poll,
+    stop
+  };
 }

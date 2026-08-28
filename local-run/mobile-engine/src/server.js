@@ -2,23 +2,75 @@ import Fastify from "fastify";
 import { remote } from "webdriverio";
 import { randomUUID } from "crypto";
 import { readFile } from "fs/promises";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
+import {
+  createGracefulShutdown,
+  probeProviderReadiness,
+  remoteFileToBase64,
+  resolveOperationalLimits
+} from "./operational.js";
+import {
+  createMobileEngineRouteGuard,
+  digestRecorderSessionToken,
+  generateRecorderSessionToken,
+  MOBILE_SESSION_TOKEN_HEADER,
+  resolveMobileEngineSecurity
+} from "./security.js";
 
 const port = Number(process.env.PORT || 4312);
 const sessions = new Map();
+const lifecycleState = { shuttingDown: false };
+const requiresProviderReadiness = () => ["1", "true", "yes", "on"]
+  .includes(String(process.env.MOBILE_REQUIRE_PROVIDER_READY || "false").trim().toLowerCase());
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL || "info" } });
+const mobileEngineSecurity = resolveMobileEngineSecurity();
+const app = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL || "info",
+    serializers: {
+      req: (request) => ({
+        method: request.method,
+        url: String(request.url || "").split("?", 1)[0],
+        hostname: request.headers?.host,
+        remoteAddress: request.socket?.remoteAddress,
+        remotePort: request.socket?.remotePort
+      })
+    }
+  }
+});
 
 const normalizeText = (value) => String(value || "").trim();
 const nowIso = () => new Date().toISOString();
 const escapeUiSelectorText = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
-async function remoteFileToBase64(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Unable to download remote mobile file: ${response.status} ${response.statusText}`);
+const resolveRecorderSessionId = (request) => {
+  const configured = normalizeText(request.params?.id);
+  if (configured) return configured;
+  const path = String(request.raw?.url || request.url || "").split("?", 1)[0];
+  const match = path.match(/^\/api\/v1\/mobile\/recorder\/sessions\/([^/]+)/);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return "";
   }
-  return Buffer.from(await response.arrayBuffer()).toString("base64");
-}
+};
+
+app.addHook("onRequest", createMobileEngineRouteGuard({
+  security: mobileEngineSecurity,
+  resolveSessionTokenDigest: (request) => sessions.get(resolveRecorderSessionId(request))?.sessionTokenDigest
+}));
+
+const buildRecorderSessionResponse = (session, sessionToken = "") => {
+  const { driver, sessionTokenDigest, ...serializableSession } = session;
+  const tokenQuery = sessionToken ? `?session_token=${encodeURIComponent(sessionToken)}` : "";
+  return {
+    ...serializableSession,
+    status_url: `/api/v1/mobile/recorder/sessions/${encodeURIComponent(session.id)}${tokenQuery}`,
+    live_view_url: `/api/v1/mobile/recorder/sessions/${encodeURIComponent(session.id)}/live${tokenQuery}`
+  };
+};
 
 async function localFileToBase64(value) {
   const normalized = normalizeText(value);
@@ -92,7 +144,7 @@ function parseKeywordScript(source) {
 }
 
 function buildCapabilities(input = {}) {
-  const provider = normalizeText(input.provider || process.env.MOBILE_PROVIDER || "local-appium");
+  const provider = normalizeText(input.provider || process.env.MOBILE_PROVIDER || "local-appium").toLowerCase();
   const config = input.config && typeof input.config === "object" ? input.config : {};
   const appiumServerUrl = normalizeText(input.appium_server_url || config.appium_server_url || process.env.APPIUM_SERVER_URL || "http://host.docker.internal:4723");
   const deviceName = normalizeText(input.device_name || config.device_name || process.env.ANDROID_DEVICE_NAME || "Android Device");
@@ -516,11 +568,61 @@ function buildAndroidApi(driver, resolveSelector = (value) => value) {
   };
 }
 
-app.get("/health", async () => ({
+const compatibleHealth = () => ({
   ok: true,
   service: "hellotest-mobile-engine",
   runner: "webdriverio+appium"
-}));
+});
+
+app.get("/health", async (_request, reply) => {
+  reply.header("cache-control", "no-store");
+  return compatibleHealth();
+});
+
+app.get("/health/live", async (_request, reply) => {
+  reply.header("cache-control", "no-store");
+  return {
+    ...compatibleHealth(),
+    status: lifecycleState.shuttingDown ? "stopping" : "live"
+  };
+});
+
+app.get("/health/ready", async (_request, reply) => {
+  reply.header("cache-control", "no-store");
+  const { provider, appiumServerUrl } = buildCapabilities();
+  if (lifecycleState.shuttingDown) {
+    reply.code(503);
+    return {
+      ...compatibleHealth(),
+      ok: false,
+      status: "not_ready",
+      provider,
+      checks: {
+        lifecycle: { required: true, status: "stopping" }
+      }
+    };
+  }
+
+  const readiness = await probeProviderReadiness(
+    { provider, appiumServerUrl },
+    { timeoutMs: resolveOperationalLimits().readinessTimeoutMs }
+  );
+  const providerRequired = requiresProviderReadiness();
+  const serviceReady = readiness.ok || !providerRequired;
+  reply.code(serviceReady ? 200 : 503);
+  return {
+    ...compatibleHealth(),
+    ok: serviceReady,
+    status: readiness.ok ? "ready" : (serviceReady ? "degraded" : readiness.status),
+    provider: readiness.provider,
+    checks: {
+      provider: {
+        ...readiness.dependency,
+        required: providerRequired
+      }
+    }
+  };
+});
 
 app.get("/api/v1/capabilities", async () => ({
   runner: "mobile",
@@ -576,6 +678,7 @@ app.post("/api/v1/mobile/execute", async (request) => {
 app.post("/api/v1/mobile/recorder/sessions", async (request) => {
   const payload = request.body || {};
   const id = randomUUID();
+  const sessionToken = generateRecorderSessionToken();
   const mode = normalizeText(payload.recorder_mode) === "remote" ? "remote" : "local";
   const session = {
     id,
@@ -587,7 +690,7 @@ app.post("/api/v1/mobile/recorder/sessions", async (request) => {
     actions: [],
     started_at: nowIso(),
     last_activity_at: nowIso(),
-    live_view_url: `/api/v1/mobile/recorder/sessions/${id}/live`,
+    sessionTokenDigest: digestRecorderSessionToken(sessionToken),
     driver: null,
     driver_error: null
   };
@@ -609,7 +712,7 @@ app.post("/api/v1/mobile/recorder/sessions", async (request) => {
       current.last_activity_at = nowIso();
       sessions.set(id, current);
     });
-  return session;
+  return buildRecorderSessionResponse(session, sessionToken);
 });
 
 app.get("/api/v1/mobile/recorder/sessions/:id", async (request, reply) => {
@@ -618,8 +721,7 @@ app.get("/api/v1/mobile/recorder/sessions/:id", async (request, reply) => {
     reply.code(404);
     return { message: "Mobile recorder session not found" };
   }
-  const { driver, ...serializableSession } = session;
-  return serializableSession;
+  return buildRecorderSessionResponse(session, normalizeText(request.query?.session_token));
 });
 
 app.get("/api/v1/mobile/recorder/sessions/:id/live", async (request, reply) => {
@@ -628,15 +730,24 @@ app.get("/api/v1/mobile/recorder/sessions/:id/live", async (request, reply) => {
     reply.code(404);
     return "Mobile recorder session not found";
   }
-  reply.header("content-type", "text/html; charset=utf-8");
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>HelloTest Mobile Recorder</title><style>body{margin:0;background:#101827;color:#f8fafc;font-family:Inter,system-ui,sans-serif}.bar{padding:12px 14px;background:#172033;border-bottom:1px solid rgba(255,255,255,.14);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.stage{min-height:calc(100vh - 58px);display:grid;place-items:center;padding:18px}.device{width:min(390px,94vw);aspect-ratio:9/19.5;border:10px solid #263246;border-radius:34px;background:#0b1220;display:grid;place-items:center;box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden;position:relative}.device img{width:100%;height:100%;object-fit:contain;background:#000}.empty{padding:22px;text-align:center;color:#cbd5e1}.controls{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px;background:rgba(16,24,39,.92);border-top:1px solid rgba(255,255,255,.14)}input{flex:1;min-width:0;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#0b1220;color:#fff;padding:10px}button{border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#2563eb;color:#fff;padding:10px 12px;font-weight:700}code{color:#8bd3ff}</style></head><body><div class="bar"><strong>HelloTest Mobile Recorder</strong><span>${session.display_mode} · <code>${session.id}</code></span></div><div class="stage"><div class="device" id="device"><img id="screen" alt="" /><div class="empty" id="empty">Connecting to Appium/scrcpy-style browser view...</div></div></div><div class="controls"><input id="text" placeholder="Type text on focused field" /><button id="type">Type</button><button id="back">Back</button></div><script>
+  const sessionToken = normalizeText(
+    request.headers?.[MOBILE_SESSION_TOKEN_HEADER]
+    || request.query?.session_token
+  );
+  reply
+    .header("content-type", "text/html; charset=utf-8")
+    .header("cache-control", "no-store")
+    .header("referrer-policy", "no-referrer");
+  return `<!doctype html><html><head><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HelloTest Mobile Recorder</title><style>body{margin:0;background:#101827;color:#f8fafc;font-family:Inter,system-ui,sans-serif}.bar{padding:12px 14px;background:#172033;border-bottom:1px solid rgba(255,255,255,.14);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.stage{min-height:calc(100vh - 58px);display:grid;place-items:center;padding:18px}.device{width:min(390px,94vw);aspect-ratio:9/19.5;border:10px solid #263246;border-radius:34px;background:#0b1220;display:grid;place-items:center;box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden;position:relative}.device img{width:100%;height:100%;object-fit:contain;background:#000}.empty{padding:22px;text-align:center;color:#cbd5e1}.controls{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px;background:rgba(16,24,39,.92);border-top:1px solid rgba(255,255,255,.14)}input{flex:1;min-width:0;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#0b1220;color:#fff;padding:10px}button{border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#2563eb;color:#fff;padding:10px 12px;font-weight:700}code{color:#8bd3ff}</style></head><body><div class="bar"><strong>HelloTest Mobile Recorder</strong><span>${session.display_mode} · <code>${session.id}</code></span></div><div class="stage"><div class="device" id="device"><img id="screen" alt="" /><div class="empty" id="empty">Connecting to Appium/scrcpy-style browser view...</div></div></div><div class="controls"><input id="text" placeholder="Type text on focused field" /><button id="type">Type</button><button id="back">Back</button></div><script>
 const sessionId=${JSON.stringify(session.id)};
+const sessionToken=${JSON.stringify(sessionToken)};
+const sessionHeaders={"${MOBILE_SESSION_TOKEN_HEADER}":sessionToken};
 const screen=document.getElementById("screen");
 const empty=document.getElementById("empty");
 const device=document.getElementById("device");
 const withPath=(path)=>"/api/v1/mobile/recorder/sessions/"+encodeURIComponent(sessionId)+path;
-async function refresh(){try{const response=await fetch(withPath("/screenshot")+"?t="+Date.now(),{cache:"no-store"});if(!response.ok)throw new Error(await response.text());const blob=await response.blob();screen.src=URL.createObjectURL(blob);screen.style.display="block";empty.style.display="none";}catch(error){screen.style.display="none";empty.style.display="block";empty.textContent=String(error.message||error||"Waiting for device screenshot");}}
-async function send(payload){await fetch(withPath("/input"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});setTimeout(refresh,250);}
+async function refresh(){try{const response=await fetch(withPath("/screenshot")+"?t="+Date.now(),{cache:"no-store",headers:sessionHeaders});if(!response.ok)throw new Error(await response.text());const blob=await response.blob();screen.src=URL.createObjectURL(blob);screen.style.display="block";empty.style.display="none";}catch(error){screen.style.display="none";empty.style.display="block";empty.textContent=String(error.message||error||"Waiting for device screenshot");}}
+async function send(payload){await fetch(withPath("/input"),{method:"POST",headers:{"Content-Type":"application/json",...sessionHeaders},body:JSON.stringify(payload)});setTimeout(refresh,250);}
 device.addEventListener("click",(event)=>{const rect=device.getBoundingClientRect();send({type:"tap",x:Math.round(event.clientX-rect.left),y:Math.round(event.clientY-rect.top),width:Math.round(rect.width),height:Math.round(rect.height)});});
 document.getElementById("type").addEventListener("click",()=>{const value=document.getElementById("text").value;send({type:"type",value});});
 document.getElementById("back").addEventListener("click",()=>send({type:"pressBack"}));
@@ -710,11 +821,50 @@ app.post("/api/v1/mobile/recorder/sessions/:id/stop", async (request, reply) => 
   }
   session.status = "stopped";
   session.last_activity_at = nowIso();
+  session.sessionTokenDigest = null;
   await session.driver?.deleteSession().catch(() => undefined);
   session.driver = null;
   sessions.set(session.id, session);
-  const { driver, ...serializableSession } = session;
-  return serializableSession;
+  return buildRecorderSessionResponse(session);
 });
 
-app.listen({ port, host: "0.0.0.0" });
+export const shutdown = createGracefulShutdown({
+  app,
+  sessions,
+  state: lifecycleState,
+  timeoutMs: resolveOperationalLimits().shutdownTimeoutMs
+});
+
+let signalHandlersInstalled = false;
+export const installSignalHandlers = () => {
+  if (signalHandlersInstalled) return;
+  signalHandlersInstalled = true;
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.once(signal, () => {
+      shutdown(signal)
+        .then((result) => app.log.info(result, "Mobile engine stopped gracefully"))
+        .catch((error) => {
+          app.log.error({ error, signal }, "Mobile engine graceful shutdown failed");
+          process.exitCode = 1;
+          setImmediate(() => process.exit(1));
+        });
+    });
+  }
+};
+
+export const startMobileEngine = async () => {
+  installSignalHandlers();
+  return app.listen({ port, host: "0.0.0.0" });
+};
+
+export { app, buildCapabilities, lifecycleState, sessions };
+
+const isMainModule = process.argv[1]
+  && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+  startMobileEngine().catch((error) => {
+    app.log.error({ error }, "Unable to start mobile engine");
+    process.exitCode = 1;
+  });
+}

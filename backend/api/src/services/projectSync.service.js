@@ -4,6 +4,9 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const db = require("../db");
+const { readBoundedResponseText } = require("../utils/boundedResponse");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
+const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
 const obsDb = require("../obsDb");
 const integrationService = require("./integration.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -257,21 +260,54 @@ const getIntegrationToken = (integration) => {
 };
 
 async function requestJson(url, init = {}) {
-  const response = await fetch(url, {
+  const parsedUrl = new URL(url);
+  const dependency = parsedUrl.hostname.endsWith("googleapis.com") ? "google-drive" : "github";
+  const method = String(init.method || "GET").toUpperCase();
+  const response = await resilientHttpRequest(url, {
     ...init,
-    signal: AbortSignal.timeout(60000)
+    redirect: "error"
+  }, {
+    dependency,
+    operation: method === "GET" ? "sync.read" : method === "PATCH" ? "sync.update" : "sync.write",
+    deadlineMs: 60_000,
+    maxAttempts: 3,
+    maxResponseBytes: 4 * 1024 * 1024,
+    maxConcurrent: 6,
+    failureThreshold: 4,
+    resetTimeoutMs: 30_000
   });
 
-  const payload = await response.text();
+  const payload = await readBoundedResponseText(response, {
+    maxBytes: 4 * 1024 * 1024,
+    label: "Synchronization provider response"
+  });
   const isJson = response.headers.get("content-type")?.includes("application/json");
-  const parsed = isJson && payload ? JSON.parse(payload) : payload;
+  let parsed = payload;
+  if (isJson && payload) {
+    try {
+      parsed = JSON.parse(payload);
+    } catch (cause) {
+      throw serviceError(SERVICE_ERROR_CODES.INVALID_RESPONSE, {
+        dependency,
+        operation: "sync.response.parse",
+        statusCode: 502,
+        retryable: false,
+        cause
+      });
+    }
+  }
 
   if (!response.ok) {
-    const message =
-      (parsed && typeof parsed === "object" && parsed !== null && (parsed.error?.message || parsed.message)) ||
-      response.statusText ||
-      "Request failed";
-    throw new Error(message);
+    throw serviceError(
+      [401, 403].includes(response.status) ? SERVICE_ERROR_CODES.CONFIGURATION : SERVICE_ERROR_CODES.UPSTREAM_REJECTED,
+      {
+        dependency,
+        operation: "sync.request",
+        retryable: response.status === 429 || response.status >= 500,
+        statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+        upstreamStatus: response.status
+      }
+    );
   }
 
   return parsed;

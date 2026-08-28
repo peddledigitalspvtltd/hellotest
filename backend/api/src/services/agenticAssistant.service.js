@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
+const permissionService = require("./permission.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 
@@ -72,10 +73,18 @@ const safeRows = async (query, params = []) => {
   }
 };
 
-const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt }) => {
+const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, user }) => {
   const context = {};
+  const permissionCache = new Map();
+  const canView = async (permissionCode) => {
+    if (!user) return false;
+    if (!permissionCache.has(permissionCode)) {
+      permissionCache.set(permissionCode, permissionService.hasPermission(user, permissionCode, projectId));
+    }
+    return permissionCache.get(permissionCode);
+  };
 
-  if (scopes.includes("stories")) {
+  if (scopes.includes("stories") && await canView("requirement.view")) {
     context.stories = await safeRows(`
       SELECT id, display_id, title, status, priority, sprint, release, fix_version, created_at
       FROM requirements
@@ -85,7 +94,8 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt }) =>
     `, [projectId]);
   }
 
-  if (scopes.includes("test-cases") || scopes.includes("automation")) {
+  const canViewTestCases = await canView("testcase.view");
+  if ((scopes.includes("test-cases") || scopes.includes("automation")) && canViewTestCases) {
     const appTypeClause = appTypeId ? "AND test_cases.app_type_id = ?" : "";
     const params = appTypeId ? [projectId, appTypeId] : [projectId];
     const cases = await safeRows(`
@@ -102,7 +112,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt }) =>
     if (scopes.includes("automation")) context.automation_cases = cases.filter((item) => item.automated === "yes" || item.automation_status !== "not_automated");
   }
 
-  if (scopes.includes("runs")) {
+  if (scopes.includes("runs") && await canView("run.view")) {
     const appTypeClause = appTypeId ? "AND app_type_id = ?" : "";
     context.runs = await safeRows(`
       SELECT id, name, status, trigger, execution_mode, release, sprint, build,
@@ -114,7 +124,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt }) =>
     `, appTypeId ? [projectId, appTypeId] : [projectId]);
   }
 
-  if (scopes.includes("bugs")) {
+  if (scopes.includes("bugs") && await canView("feedback.view")) {
     context.bugs = await safeRows(`
       SELECT id, title, status, severity, priority, build, release, sprint, created_at
       FROM feedback
@@ -124,11 +134,12 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt }) =>
     `, [projectId]);
   }
 
-  if (scopes.includes("knowledge")) {
+  if (scopes.includes("knowledge") && await canView("knowledge.view")) {
     const packageResult = await aiKnowledgeService.buildKnowledgeContextPackage(projectId, {
       app_type_id: appTypeId || undefined,
       query: normalizeText(prompt, 500),
-      limit: 10
+      limit: 10,
+      user
     });
     context.knowledge = (packageResult.knowledge || []).slice(0, 10).map((item) => ({
       id: item.id,
@@ -296,7 +307,7 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       details: { agent_id: normalizedAgentId, mode: normalizedMode, prompt_fingerprint: fingerprint(normalizedPrompt), progress: 12 }
     });
 
-    const context = await loadWorkspaceContext({ projectId, appTypeId, scopes: requestedScopes, prompt: normalizedPrompt });
+    const context = await loadWorkspaceContext({ projectId, appTypeId, scopes: requestedScopes, prompt: normalizedPrompt, user });
     const contextCounts = countContext(context);
     const citations = buildCitations(context);
     await appendEvent(transactionId, {

@@ -1,11 +1,28 @@
 const { Readable } = require("stream");
+const { config } = require("../config");
 const service = require("../services/testEngineCallback.service");
+
+const payloadTooLarge = () => Object.assign(
+  new Error(`Test Engine callback payload exceeds ${config.http.largeBodyLimitBytes} bytes.`),
+  { statusCode: 413, code: "FST_ERR_CTP_BODY_TOO_LARGE" }
+);
 
 const captureRawCallbackBody = async (req, _reply, payload) => {
   const chunks = [];
+  let totalBytes = 0;
+
+  const declaredLength = Number(req.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > config.http.largeBodyLimitBytes) {
+    throw payloadTooLarge();
+  }
 
   for await (const chunk of payload) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > config.http.largeBodyLimitBytes) {
+      throw payloadTooLarge();
+    }
+    chunks.push(buffer);
   }
 
   const bodyBuffer = Buffer.concat(chunks);
@@ -17,7 +34,10 @@ const captureRawCallbackBody = async (req, _reply, payload) => {
 };
 
 module.exports = async function (fastify) {
-  fastify.post("/api/testengine/callbacks/runs", { preParsing: captureRawCallbackBody }, async (req) => {
+  fastify.post("/api/testengine/callbacks/runs", {
+    bodyLimit: config.http.largeBodyLimitBytes,
+    preParsing: captureRawCallbackBody
+  }, async (req) => {
     fastify.validate({
       engine_run_id: { required: true, type: "string" },
       hellotest_run_id: { required: false, type: "string" },
@@ -38,3 +58,5 @@ module.exports = async function (fastify) {
     });
   });
 };
+
+module.exports.captureRawCallbackBody = captureRawCallbackBody;

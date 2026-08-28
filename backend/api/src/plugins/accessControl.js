@@ -5,6 +5,7 @@ const permissionService = require("../services/permission.service");
 const apiKeyService = require("../services/apiKey.service");
 const featureFlagService = require("../services/featureFlag.service");
 const { ROUTE_PERMISSIONS } = require("../security/permissions.catalog");
+const { resolveTestEngineSecret } = require("../security/runtimeSecrets");
 const { verifyToken } = require("../utils/token");
 
 const createError = (message, statusCode) => {
@@ -253,10 +254,7 @@ async function accessControlPlugin(fastify) {
       || (typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ")
         ? req.headers.authorization.slice("Bearer ".length)
         : "");
-    const expected =
-      process.env.TESTENGINE_SHARED_SECRET
-      || process.env.HELLOTEST_TESTENGINE_SECRET
-      || "hellotest-testengine-dev-secret";
+    const expected = resolveTestEngineSecret();
 
     if (!engineSecretMatches(provided, expected)) {
       throw createError("Test Engine authentication failed", 401);

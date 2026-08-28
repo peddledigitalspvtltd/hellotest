@@ -733,12 +733,12 @@ VALUES
   'llm',
   'Open AI',
   'https://api.openai.com/v1',
-  '********',
+  NULL,
   'gpt-5.4-mini',
   NULL,
   NULL,
   '{}'::jsonb,
-  TRUE
+  FALSE
 ),
 (
   'df45e7d9-5167-4b30-a766-3c92a2a27a99',
@@ -764,12 +764,12 @@ VALUES
   'llm',
   'grok',
   'https://api.groq.com/openai/v1',
-  '********',
+  NULL,
   'openai/gpt-oss-20b',
   NULL,
   NULL,
   '{}'::jsonb,
-  TRUE
+  FALSE
 );
 
 WITH ordered_projects AS (

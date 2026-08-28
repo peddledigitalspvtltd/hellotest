@@ -205,12 +205,12 @@ test("AI Grooming successful provider responses expose hybrid provenance when re
   });
   global.fetch = async (_url, init) => {
     capturedRequests.push(JSON.parse(init.body));
-    return {
-      ok: true,
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(candidate) } }]
+    }), {
       status: 200,
-      headers: { get: () => null },
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(candidate) } }] })
-    };
+      headers: { "content-type": "application/json" }
+    });
   };
 
   const requirement = {

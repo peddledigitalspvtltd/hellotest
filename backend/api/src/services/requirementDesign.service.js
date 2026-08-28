@@ -510,7 +510,8 @@ exports.previewRequirementsTestCases = async ({
     app_type_id: appType.id,
     query: additionalContext,
     module_name: appType.module_name || null,
-    feature_name: appType.feature_name || null
+    feature_name: appType.feature_name || null,
+    user: user_id ? { id: user_id } : undefined
   });
   
   const generatedCases = await requestGeneratedCases({

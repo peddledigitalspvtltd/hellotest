@@ -1,11 +1,12 @@
 #!/bin/sh
 
 set -eu
+umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 . "$ROOT_DIR/scripts/docker-common.sh"
 
-ENV_DIR="$ROOT_DIR/.hellotest"
+ENV_DIR="${HELLOTEST_ENV_DIR:-$ROOT_DIR/.hellotest}"
 
 usage() {
   cat <<EOF
@@ -47,6 +48,7 @@ Options:
   --yes           Do not prompt before deploy.
   --follow        Follow logs.
   --tail <n>      Log line count. Default: 160.
+  --show-secrets  With config only, explicitly print unredacted secret values.
   --help          Show this message.
 
 High-value overrides:
@@ -96,6 +98,69 @@ origin_with_port() {
   fi
 }
 
+generated_env_value() {
+  key="$1"
+  generated_file="$ENV_DIR/${STACK}.env"
+  [ -f "$generated_file" ] || return 1
+
+  awk -v key="$key" '
+    index($0, key "=") == 1 {
+      print substr($0, length(key) + 2)
+      exit
+    }
+  ' "$generated_file"
+}
+
+random_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+    return
+  fi
+
+  od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+secure_default() {
+  key="$1"
+  development_value="$2"
+  persisted_value="$(generated_env_value "$key" || true)"
+
+  case "$STACK" in
+    platform|testengine)
+      case "$persisted_value" in
+        ""|admin|hellotest|hellotest-dev-secret|hellotest-local-dev-secret|hellotest-testengine-dev-secret|hellotest-mobile-engine-dev-secret|hellotest-minio-dev-secret)
+          random_secret
+          ;;
+        *)
+          if [ "${#persisted_value}" -ge 32 ]; then
+            printf '%s' "$persisted_value"
+          else
+            random_secret
+          fi
+          ;;
+      esac
+      ;;
+    *)
+      printf '%s' "$development_value"
+      ;;
+  esac
+}
+
+require_strong_secret() {
+  key="$1"
+  value="$2"
+  minimum_length="$3"
+
+  case "$value" in
+    ""|admin|hellotest|hellotest-dev-secret|hellotest-local-dev-secret|hellotest-testengine-dev-secret|hellotest-mobile-engine-dev-secret|hellotest-minio-dev-secret|change-me)
+      die "$key must not use a development/default credential for the $STACK stack"
+      ;;
+  esac
+
+  [ "${#value}" -ge "$minimum_length" ] \
+    || die "$key must contain at least $minimum_length characters for the $STACK stack"
+}
+
 load_config_file() {
   file="$1"
   [ -f "$file" ] || die "Config file not found: $file"
@@ -142,10 +207,11 @@ resolve_defaults() {
 
   POSTGRES_DB="${POSTGRES_DB:-hellotest}"
   POSTGRES_USER="${POSTGRES_USER:-hellotest}"
-  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-hellotest}"
-  SESSION_SECRET="${SESSION_SECRET:-hellotest-dev-secret}"
-  HELLOTEST_TESTENGINE_SECRET="${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}"
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(secure_default POSTGRES_PASSWORD hellotest)}"
+  SESSION_SECRET="${SESSION_SECRET:-$(secure_default SESSION_SECRET hellotest-dev-secret)}"
+  HELLOTEST_TESTENGINE_SECRET="${HELLOTEST_TESTENGINE_SECRET:-$(secure_default HELLOTEST_TESTENGINE_SECRET hellotest-testengine-dev-secret)}"
   TESTENGINE_SHARED_SECRET="${TESTENGINE_SHARED_SECRET:-$HELLOTEST_TESTENGINE_SECRET}"
+  MOBILE_ENGINE_SHARED_SECRET="${MOBILE_ENGINE_SHARED_SECRET:-$(secure_default MOBILE_ENGINE_SHARED_SECRET hellotest-mobile-engine-dev-secret)}"
 
   PUBLIC_SCHEME="${HELLOTEST_PUBLIC_SCHEME:-http}"
   PUBLIC_HOST="${HELLOTEST_PUBLIC_HOST:-localhost}"
@@ -161,12 +227,36 @@ resolve_defaults() {
   MINIO_PORT="${MINIO_PORT:-9000}"
   MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
   MINIO_ROOT_USER="${MINIO_ROOT_USER:-hellotest}"
-  MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}"
+  MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$(secure_default MINIO_ROOT_PASSWORD hellotest-minio-dev-secret)}"
   MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-$MINIO_ROOT_USER}"
   MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-$MINIO_ROOT_PASSWORD}"
   MINIO_BUCKET="${MINIO_BUCKET:-hellotest-attachments}"
   MINIO_REGION="${MINIO_REGION:-us-east-1}"
   MAX_ATTACHMENT_BYTES="${MAX_ATTACHMENT_BYTES:-104857600}"
+  GRAFANA_ADMIN_USER="${GRAFANA_ADMIN_USER:-admin}"
+  GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(secure_default GRAFANA_ADMIN_PASSWORD admin)}"
+  ADMIN_BOOTSTRAP_ENABLED="${ADMIN_BOOTSTRAP_ENABLED:-true}"
+  ADMIN_BOOTSTRAP_USERNAME="${ADMIN_BOOTSTRAP_USERNAME:-bootstrap-admin}"
+  ADMIN_BOOTSTRAP_PASSWORD="${ADMIN_BOOTSTRAP_PASSWORD:-$(secure_default ADMIN_BOOTSTRAP_PASSWORD admin)}"
+
+  case "$STACK" in
+    platform)
+      require_strong_secret POSTGRES_PASSWORD "$POSTGRES_PASSWORD" 16
+      require_strong_secret SESSION_SECRET "$SESSION_SECRET" 32
+      require_strong_secret HELLOTEST_TESTENGINE_SECRET "$HELLOTEST_TESTENGINE_SECRET" 32
+      require_strong_secret MOBILE_ENGINE_SHARED_SECRET "$MOBILE_ENGINE_SHARED_SECRET" 32
+      require_strong_secret MINIO_ROOT_PASSWORD "$MINIO_ROOT_PASSWORD" 16
+      require_strong_secret GRAFANA_ADMIN_PASSWORD "$GRAFANA_ADMIN_PASSWORD" 16
+      require_strong_secret ADMIN_BOOTSTRAP_PASSWORD "$ADMIN_BOOTSTRAP_PASSWORD" 16
+      [ "$(printf '%s' "$ADMIN_BOOTSTRAP_USERNAME" | tr '[:upper:]' '[:lower:]')" != "admin" ] \
+        || die "ADMIN_BOOTSTRAP_USERNAME must not use the default admin identity for the platform stack"
+      ;;
+    testengine)
+      require_strong_secret HELLOTEST_TESTENGINE_SECRET "$HELLOTEST_TESTENGINE_SECRET" 32
+      require_strong_secret TESTENGINE_SHARED_SECRET "$TESTENGINE_SHARED_SECRET" 32
+      require_strong_secret MOBILE_ENGINE_SHARED_SECRET "$MOBILE_ENGINE_SHARED_SECRET" 32
+      ;;
+  esac
 
   case "$STACK" in
     platform)
@@ -198,11 +288,10 @@ resolve_defaults() {
 
   ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-}"
   if [ -z "$ENABLE_OBSERVABILITY" ]; then
-    if [ "$STACK" = "platform" ]; then
-      ENABLE_OBSERVABILITY=true
-    else
-      ENABLE_OBSERVABILITY=false
-    fi
+    case "$STACK" in
+      local|full|platform) ENABLE_OBSERVABILITY=true ;;
+      *) ENABLE_OBSERVABILITY=false ;;
+    esac
   fi
 
   if [ "$STACK" = "testengine" ]; then
@@ -217,6 +306,7 @@ resolve_defaults() {
 
 write_env_file() {
   mkdir -p "$ENV_DIR"
+  chmod 700 "$ENV_DIR"
   RESOLVED_ENV_FILE="$ENV_DIR/${STACK}.env"
 
   {
@@ -241,6 +331,7 @@ write_env_file() {
     printf 'CORS_ORIGIN=%s\n' "$CORS_ORIGIN"
     printf 'HELLOTEST_TESTENGINE_SECRET=%s\n' "$HELLOTEST_TESTENGINE_SECRET"
     printf 'TESTENGINE_SHARED_SECRET=%s\n' "$TESTENGINE_SHARED_SECRET"
+    printf 'MOBILE_ENGINE_SHARED_SECRET=%s\n' "$MOBILE_ENGINE_SHARED_SECRET"
     printf 'ENABLE_OBSERVABILITY=%s\n' "$ENABLE_OBSERVABILITY"
     printf 'HELLOTEST_BACKEND_IMAGE=%s\n' "$HELLOTEST_BACKEND_IMAGE"
     printf 'HELLOTEST_FRONTEND_IMAGE=%s\n' "$HELLOTEST_FRONTEND_IMAGE"
@@ -264,6 +355,11 @@ write_env_file() {
     printf 'MINIO_BUCKET=%s\n' "$MINIO_BUCKET"
     printf 'MINIO_REGION=%s\n' "$MINIO_REGION"
     printf 'MAX_ATTACHMENT_BYTES=%s\n' "$MAX_ATTACHMENT_BYTES"
+    printf 'GRAFANA_ADMIN_USER=%s\n' "$GRAFANA_ADMIN_USER"
+    printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$GRAFANA_ADMIN_PASSWORD"
+    printf 'ADMIN_BOOTSTRAP_ENABLED=%s\n' "$ADMIN_BOOTSTRAP_ENABLED"
+    printf 'ADMIN_BOOTSTRAP_USERNAME=%s\n' "$ADMIN_BOOTSTRAP_USERNAME"
+    printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$ADMIN_BOOTSTRAP_PASSWORD"
     printf 'HELLOTEST_HTTP_PORT=%s\n' "$HELLOTEST_HTTP_PORT"
     printf 'HELLOTEST_HTTP_BIND=%s\n' "${HELLOTEST_HTTP_BIND:-0.0.0.0}"
     printf 'HELLOTEST_API_BIND=%s\n' "${HELLOTEST_API_BIND:-127.0.0.1}"
@@ -272,13 +368,33 @@ write_env_file() {
     printf 'HELLOTEST_PROMETHEUS_BIND=%s\n' "${HELLOTEST_PROMETHEUS_BIND:-127.0.0.1}"
     printf 'HELLOTEST_LOKI_BIND=%s\n' "${HELLOTEST_LOKI_BIND:-127.0.0.1}"
     printf 'HELLOTEST_GRAFANA_BIND=%s\n' "${HELLOTEST_GRAFANA_BIND:-127.0.0.1}"
+    printf 'HELLOTEST_JAEGER_BIND=%s\n' "${HELLOTEST_JAEGER_BIND:-127.0.0.1}"
     printf 'HELLOTEST_OTEL_GRPC_BIND=%s\n' "${HELLOTEST_OTEL_GRPC_BIND:-127.0.0.1}"
     printf 'HELLOTEST_OTEL_HTTP_BIND=%s\n' "${HELLOTEST_OTEL_HTTP_BIND:-127.0.0.1}"
     printf 'HELLOTEST_OTEL_METRICS_BIND=%s\n' "${HELLOTEST_OTEL_METRICS_BIND:-127.0.0.1}"
-    printf 'TESTENGINE_BIND=%s\n' "${TESTENGINE_BIND:-0.0.0.0}"
+    if [ "$STACK" = "testengine" ]; then
+      printf 'TESTENGINE_BIND=%s\n' "${TESTENGINE_BIND:-0.0.0.0}"
+    else
+      printf 'TESTENGINE_BIND=%s\n' "${TESTENGINE_BIND:-127.0.0.1}"
+    fi
+    printf 'MOBILE_ENGINE_BIND=%s\n' "${MOBILE_ENGINE_BIND:-127.0.0.1}"
     printf 'SELENIUM_GRID_BIND=%s\n' "${SELENIUM_GRID_BIND:-127.0.0.1}"
     printf 'SELENIUM_VNC_BIND=%s\n' "${SELENIUM_VNC_BIND:-127.0.0.1}"
   } > "$RESOLVED_ENV_FILE"
+  chmod 600 "$RESOLVED_ENV_FILE"
+}
+
+print_redacted_env_file() {
+  awk -F= '
+    {
+      key = $1
+      if (key ~ /DATABASE_URL$/ || key ~ /(PASSWORD|SECRET|TOKEN|API_KEY|ACCESS_KEY)/) {
+        print key "=[REDACTED]"
+      } else {
+        print
+      }
+    }
+  ' "$RESOLVED_ENV_FILE"
 }
 
 compose() {
@@ -420,6 +536,7 @@ BUILD_COMPOSE=0
 ASSUME_YES=0
 FOLLOW_LOGS=0
 TAIL_LINES=160
+SHOW_SECRETS=0
 BRANCH="${BRANCH:-}"
 
 while [ "$#" -gt 0 ]; do
@@ -475,6 +592,9 @@ while [ "$#" -gt 0 ]; do
       TAIL_LINES="$2"
       shift
       ;;
+    --show-secrets)
+      SHOW_SECRETS=1
+      ;;
     --help|-h)
       usage
       exit 0
@@ -489,6 +609,10 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+if [ "$SHOW_SECRETS" = "1" ] && [ "$COMMAND" != "config" ]; then
+  die "--show-secrets is supported only with the config command"
+fi
+
 [ -z "$CONFIG_FILE" ] || load_config_file "$CONFIG_FILE"
 resolve_stack
 resolve_defaults
@@ -497,7 +621,13 @@ write_env_file
 case "$COMMAND" in
   config)
     info "Resolved HelloTest service relation config: $RESOLVED_ENV_FILE"
-    cat "$RESOLVED_ENV_FILE"
+    if [ "$SHOW_SECRETS" = "1" ]; then
+      printf '%s\n' "Warning: printing unredacted deployment secrets by explicit request." >&2
+      cat "$RESOLVED_ENV_FILE"
+    else
+      print_redacted_env_file
+      info "Secret values are redacted. Re-run with --show-secrets only in a private terminal when the raw values are required."
+    fi
     ;;
   build)
     build_images

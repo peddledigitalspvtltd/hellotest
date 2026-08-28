@@ -3,6 +3,12 @@ const obsDb = require("../obsDb");
 const integrationService = require("./integration.service");
 const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { readBoundedResponseJson } = require("../utils/boundedResponse");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
+const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
+
+const OPS_READ_MAX_BYTES = 5 * 1024 * 1024;
+const OPS_READ_MAX_EVENTS = 250;
 
 const selectExecution = obsDb.prepare(`
   SELECT id, project_id, app_type_id, name, status, started_at, ended_at
@@ -80,7 +86,14 @@ const buildEventUrl = (baseUrl, eventsPath) => {
     throw new Error("OPS base URL is required");
   }
 
-  return new URL(normalizeText(eventsPath) || "/api/v1/events", base).toString();
+  const parsedBase = new URL(base);
+  const path = normalizeText(eventsPath) || "/api/v1/events";
+  if (!path.startsWith("/") || path.startsWith("//") || /[\r\n]/.test(path)) {
+    throw new Error("OPS events path must be a same-origin absolute path");
+  }
+  const target = new URL(path, parsedBase);
+  if (target.origin !== parsedBase.origin) throw new Error("OPS events path must remain on the configured service origin");
+  return target.toString();
 };
 
 const resolveOpsBaseUrl = async (integration, projectId) => {
@@ -110,6 +123,111 @@ const buildAuthHeaderValue = (headerPrefix, apiKey) => {
 
   const normalizedPrefix = normalizeText(headerPrefix);
   return normalizedPrefix ? `${normalizedPrefix} ${normalizedApiKey}` : normalizedApiKey;
+};
+
+const resolveActiveOpsIntegration = async (projectId) =>
+  await integrationService.getActiveIntegrationByTypeForProject("ops", projectId)
+  || {
+    type: "ops",
+    base_url: null,
+    api_key: null,
+    config: {
+      project_id: projectId,
+      events_path: "/api/v1/events",
+      api_key_header: "Authorization",
+      api_key_prefix: "Bearer",
+      timeout_ms: 4000
+    }
+  };
+
+const buildOpsHeaders = (integration) => {
+  const integrationConfig = isPlainObject(integration?.config) ? integration.config : {};
+  const headers = { accept: "application/json" };
+  const authHeaderName = normalizeText(integrationConfig.api_key_header) || "Authorization";
+  const authHeaderValue = buildAuthHeaderValue(integrationConfig.api_key_prefix, integration.api_key);
+  if (authHeaderValue) headers[authHeaderName] = authHeaderValue;
+  return headers;
+};
+
+const fetchOpsJson = async ({ url, integration, timeoutMs }) => {
+  const response = await resilientHttpRequest(url, {
+    headers: buildOpsHeaders(integration)
+  }, {
+    dependency: "ops-telemetry",
+    operation: "telemetry.read",
+    deadlineMs: timeoutMs,
+    maxAttempts: 3,
+    maxResponseBytes: OPS_READ_MAX_BYTES,
+    maxConcurrent: 20,
+    failureThreshold: 5,
+    resetTimeoutMs: 20_000
+  });
+  const payload = await readBoundedResponseJson(response, {
+    maxBytes: OPS_READ_MAX_BYTES,
+    label: "OPS response"
+  }).catch((error) => {
+    if (!response.ok) return null;
+    throw serviceError(SERVICE_ERROR_CODES.INVALID_RESPONSE, {
+      dependency: "ops-telemetry",
+      operation: "telemetry.parse",
+      retryable: false,
+      statusCode: 502,
+      cause: error
+    });
+  });
+  if (!response.ok) {
+    throw serviceError(SERVICE_ERROR_CODES.UPSTREAM_REJECTED, {
+      dependency: "ops-telemetry",
+      operation: "telemetry.read",
+      retryable: response.status === 429 || response.status >= 500,
+      statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+      upstreamStatus: response.status
+    });
+  }
+  return payload;
+};
+
+exports.getTelemetrySnapshot = async ({
+  project_id,
+  service_name,
+  event_type,
+  status,
+  execution_id,
+  search,
+  limit
+} = {}) => {
+  const projectId = normalizeText(project_id);
+  if (!projectId) throw new Error("project_id is required for OPS telemetry");
+
+  const integration = await resolveActiveOpsIntegration(projectId);
+  const integrationConfig = isPlainObject(integration?.config) ? integration.config : {};
+  const resolvedBaseUrl = await resolveOpsBaseUrl(integration, projectId);
+  const timeoutMs = Math.max(500, Math.min(30_000, normalizeInteger(integrationConfig.timeout_ms, 4000) || 4000));
+  const eventsUrl = new URL(normalizeText(integrationConfig.events_path) || "/api/v1/events", resolvedBaseUrl);
+  const servicesUrl = new URL("/api/v1/services", resolvedBaseUrl);
+  const filters = { service_name, event_type, status, execution_id, search };
+  for (const [key, value] of Object.entries(filters)) {
+    const normalized = normalizeText(value);
+    if (normalized) eventsUrl.searchParams.set(key, normalized.slice(0, 200));
+  }
+  eventsUrl.searchParams.set("limit", String(Math.max(1, Math.min(OPS_READ_MAX_EVENTS, normalizeInteger(limit, 100) || 100))));
+
+  const [eventsPayload, servicesPayload] = await Promise.all([
+    fetchOpsJson({ url: eventsUrl, integration, timeoutMs }),
+    fetchOpsJson({ url: servicesUrl, integration, timeoutMs })
+  ]);
+
+  return {
+    checked_at: new Date().toISOString(),
+    project_id: projectId,
+    events: {
+      items: Array.isArray(eventsPayload?.items) ? eventsPayload.items.slice(0, OPS_READ_MAX_EVENTS) : [],
+      total: Math.max(0, Number(eventsPayload?.total || 0))
+    },
+    services: {
+      items: Array.isArray(servicesPayload?.items) ? servicesPayload.items.slice(0, 100) : []
+    }
+  };
 };
 
 const deriveAggregateStatus = (statuses, expectedCount, fallback = "queued") => {
@@ -259,8 +377,6 @@ const postEvent = async (integration, payload) => {
   const config = isPlainObject(integration?.config) ? integration.config : {};
   const resolvedBaseUrl = await resolveOpsBaseUrl(integration, payload?.project_id);
   const timeoutMs = Math.max(500, normalizeInteger(config.timeout_ms, 4000) || 4000);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const headers = {
     "content-type": "application/json",
     "x-hellotest-source": "hellotest-ops-telemetry"
@@ -272,73 +388,69 @@ const postEvent = async (integration, payload) => {
     headers[authHeaderName] = authHeaderValue;
   }
 
-  try {
-    const response = await fetch(buildEventUrl(resolvedBaseUrl, config.events_path), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
+  const response = await resilientHttpRequest(buildEventUrl(resolvedBaseUrl, config.events_path), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  }, {
+    dependency: "ops-telemetry",
+    operation: "event.publish",
+    deadlineMs: timeoutMs,
+    maxAttempts: 1,
+    maxResponseBytes: 256 * 1024,
+    maxConcurrent: 32,
+    failureThreshold: 8,
+    resetTimeoutMs: 15_000
+  });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(text || `OPS endpoint returned ${response.status}`);
-    }
-  } finally {
-    clearTimeout(timer);
+  if (!response.ok) {
+    throw serviceError(SERVICE_ERROR_CODES.UPSTREAM_REJECTED, {
+      dependency: "ops-telemetry",
+      operation: "event.publish",
+      retryable: response.status === 429 || response.status >= 500,
+      statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+      upstreamStatus: response.status
+    });
   }
 };
 
 exports.clearTelemetryLogs = async ({ project_id } = {}) => {
-  const integration =
-    await integrationService.getActiveIntegrationByTypeForProject("ops", project_id)
-    || {
-      type: "ops",
-      base_url: null,
-      api_key: null,
-      config: {
-        project_id,
-        events_path: "/api/v1/events",
-        api_key_header: "Authorization",
-        api_key_prefix: "Bearer",
-        timeout_ms: 4000
-      }
-    };
+  const integration = await resolveActiveOpsIntegration(project_id);
   const config = isPlainObject(integration?.config) ? integration.config : {};
   const resolvedBaseUrl = await resolveOpsBaseUrl(integration, project_id);
   const timeoutMs = Math.max(500, normalizeInteger(config.timeout_ms, 4000) || 4000);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const headers = {
-    accept: "application/json"
-  };
-  const authHeaderName = normalizeText(config.api_key_header) || "Authorization";
-  const authHeaderValue = buildAuthHeaderValue(config.api_key_prefix, integration.api_key);
+  const headers = buildOpsHeaders(integration);
+  const response = await resilientHttpRequest(buildEventUrl(resolvedBaseUrl, config.events_path), {
+    method: "DELETE",
+    headers
+  }, {
+    dependency: "ops-telemetry",
+    operation: "events.clear",
+    deadlineMs: timeoutMs,
+    maxAttempts: 3,
+    maxResponseBytes: 256 * 1024,
+    maxConcurrent: 4
+  });
+  const payload = await readBoundedResponseJson(response, {
+    maxBytes: 256 * 1024,
+    label: "OPS clear response"
+  }).catch(() => null);
 
-  if (authHeaderValue) {
-    headers[authHeaderName] = authHeaderValue;
-  }
-
-  try {
-    const response = await fetch(buildEventUrl(resolvedBaseUrl, config.events_path), {
-      method: "DELETE",
-      headers,
-      signal: controller.signal
+  if (!response.ok) {
+    throw serviceError(SERVICE_ERROR_CODES.UPSTREAM_REJECTED, {
+      dependency: "ops-telemetry",
+      operation: "events.clear",
+      retryable: response.status === 429 || response.status >= 500,
+      statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+      upstreamStatus: response.status
     });
-    const payload = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      throw new Error(payload?.message || `OPS telemetry clear failed with status ${response.status}`);
-    }
-
-    return {
-      cleared: true,
-      deleted: Number(payload?.deleted || 0),
-      events_path: normalizeText(config.events_path) || "/api/v1/events"
-    };
-  } finally {
-    clearTimeout(timer);
   }
+
+  return {
+    cleared: true,
+    deleted: Number(payload?.deleted || 0),
+    events_path: normalizeText(config.events_path) || "/api/v1/events"
+  };
 };
 
 const emitSafe = async (integration, payload) => {

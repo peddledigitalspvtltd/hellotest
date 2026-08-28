@@ -2,70 +2,31 @@ import { useMemo, useState, FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject, useCurrentAppType } from "../hooks/useCurrentProject";
-import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
-import { canViewAutomationCode as resolveCanViewAutomationCode } from "../lib/automationAccess";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable } from "../components/DataTable";
-import { AddIcon, TrashIcon, OpenIcon, SparkIcon } from "../components/AppIcons";
+import { AddIcon, TrashIcon, OpenIcon } from "../components/AppIcons";
 import { ToastMessage } from "../components/ToastMessage";
 import { FormField } from "../components/FormField";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
-import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { DialogCloseButton } from "../components/DialogCloseButton";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import { isRovoIntegrationId } from "../lib/rovo";
-import "./KnowledgeRepoPage.rovo.css";
-
-const agentEducationTemplates = [
-  {
-    title: "Object repository naming rules",
-    description: "Teach HelloTest how your screens, fields, and business objects should be named.",
-    content_type: "markdown",
-    content: [
-      "# Object repository naming rules",
-      "- Screen names:",
-      "- Field naming convention:",
-      "- Preferred locator order:",
-      "- Labels that map to the same business field:",
-      "- Components that require special handling:"
-    ].join("\n")
-  },
-  {
-    title: "Auto-heal behavior",
-    description: "Describe acceptable locator fallbacks and when the local agent must stop.",
-    content_type: "markdown",
-    content: [
-      "# Auto-heal behavior",
-      "- Safe fallback locators:",
-      "- Labels/placeholders that are stable:",
-      "- Text that is dynamic and should not be used:",
-      "- Before retrying a click:",
-      "- Stop and ask for review when:"
-    ].join("\n")
-  },
-  {
-    title: "Application documents",
-    description: "Attach a URL, PDF reference, or release note that explains the app workflow.",
-    content_type: "url",
-    content: "https://"
-  }
-];
+import { hasPermission } from "../lib/permissions";
+import { KnowledgeContextStudio } from "../components/KnowledgeContextStudio";
 
 export function KnowledgeRepoPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
-  const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
+  const canManageKnowledge = hasPermission(session, "knowledge.manage", projectId);
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
 
   const [message, setMessage] = useState("");
@@ -82,41 +43,11 @@ export function KnowledgeRepoPage() {
     content: "",
     is_active: true
   });
-  const [contextSources, setContextSources] = useState({
-    requirements: true,
-    manualCases: true,
-    automatedCases: true,
-    objectRepository: true,
-    apiEndpoints: true,
-    documents: true
-  });
-  const [contextMessage, setContextMessage] = useState("");
-
   const knowledgeQuery = useQuery({
     queryKey: ["knowledge", projectId],
     queryFn: () => api.knowledgeRepo.list(projectId),
     enabled: Boolean(projectId)
   });
-  const requirementsQuery = useQuery({
-    queryKey: ["knowledge-context-requirements", projectId],
-    queryFn: () => api.requirements.list({ project_id: projectId }),
-    enabled: Boolean(projectId)
-  });
-  const testCasesQuery = useQuery({
-    queryKey: ["knowledge-context-test-cases", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
-    enabled: Boolean(appTypeId)
-  });
-  const objectRepositoryQuery = useQuery({
-    queryKey: ["knowledge-context-object-repository", projectId, appTypeId],
-    queryFn: () => api.testCases.learningCache({ project_id: projectId || undefined, app_type_id: appTypeId || undefined, limit: 200 }),
-    enabled: Boolean(projectId || appTypeId)
-  });
-  const integrationsQuery = useQuery({
-    queryKey: ["knowledge-context-llm-integrations"],
-    queryFn: () => api.integrations.list({ type: "llm", is_active: true })
-  });
-
   const createKnowledge = useMutation({
     mutationFn: (data: any) => api.knowledgeRepo.create(projectId, { ...data, app_type_id: appTypeId })
   });
@@ -151,13 +82,6 @@ export function KnowledgeRepoPage() {
       item.is_active ? "active" : "inactive"
     ].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch));
   }, [items, knowledgeSearch]);
-  const requirements = asArray(requirementsQuery.data);
-  const testCases = asArray(testCasesQuery.data);
-  const objectRepository = asArray(objectRepositoryQuery.data);
-  const llmIntegrations = (integrationsQuery.data || []).filter((integration) => !isRovoIntegrationId(integration.id));
-  const manualCases = useMemo(() => testCases.filter((testCase: any) => testCase.automated !== "yes"), [testCases]);
-  const automatedCases = useMemo(() => testCases.filter((testCase: any) => testCase.automated === "yes"), [testCases]);
-
   const showSuccess = (text: string) => {
     setMessageTone("success");
     setMessage(text);
@@ -171,18 +95,6 @@ export function KnowledgeRepoPage() {
   const handleOpenCreateModal = () => {
     setEditingId(null);
     setDraft({ title: "", description: "", content_type: "text", content: "", is_active: true });
-    setIsModalOpen(true);
-  };
-
-  const handleOpenTemplate = (template: typeof agentEducationTemplates[number]) => {
-    setEditingId(null);
-    setDraft({
-      title: template.title,
-      description: template.description,
-      content_type: template.content_type,
-      content: template.content,
-      is_active: true
-    });
     setIsModalOpen(true);
   };
 
@@ -217,129 +129,6 @@ export function KnowledgeRepoPage() {
       queryClient.invalidateQueries({ queryKey: ["knowledge", projectId] });
     } catch (error) {
       showError(error, "Failed to save knowledge item.");
-    }
-  };
-
-  const buildCaseContext = async (cases: any[], label: string) => {
-    const limitedCases = cases.slice(0, 60);
-    const lines = [`## ${label}`];
-
-    for (const testCase of limitedCases) {
-      const steps = await api.testSteps.list({ test_case_id: testCase.id }).catch(() => []);
-      lines.push(`### ${testCase.title}`);
-      lines.push(`- ID: ${testCase.display_id || testCase.id}`);
-      lines.push(`- Status: ${testCase.status || "unknown"}`);
-      lines.push(`- Automated: ${testCase.automated === "yes" ? "yes" : "no"}`);
-      if (testCase.description) {
-        lines.push(`- Description: ${testCase.description}`);
-      }
-      steps.slice(0, 30).forEach((step) => {
-        lines.push(`- Step ${step.step_order}: ${step.action || ""} => ${step.expected_result || ""}`);
-        if (canViewAutomationCode && step.automation_code) {
-          lines.push(`  - Keyword automation: ${step.automation_code}`);
-        }
-        if (canViewAutomationCode && step.api_request) {
-          lines.push(`  - API request: ${JSON.stringify(step.api_request)}`);
-        }
-      });
-      lines.push("");
-    }
-
-    return lines.join("\n");
-  };
-
-  const handleBuildContextPack = async () => {
-    if (!projectId) {
-      showError(null, "Select a project first.");
-      return;
-    }
-
-    setContextMessage("Building application context pack...");
-
-    try {
-      const sections = [
-        "# HelloTest Application Context Pack",
-        "",
-        "Use this as retrieval context for direct LLM/manual case generation, story maturation, automation generation, and locator repair.",
-        "",
-        "## RAG Agent Operating Model",
-        "- Stories define product intent and acceptance criteria.",
-        "- Manual cases describe business workflows and expected outcomes.",
-        "- Automated cases provide executable keyword steps, variables, APIs, and locator usage.",
-        "- Object repository records are execution-time locator truth; prefer target locator first, DOM/accessibility structure second, screenshot fallback last.",
-        "- PDF/manual/API documents should be added as separate active knowledge items and cross-referenced here.",
-        ""
-      ];
-
-      if (contextSources.requirements) {
-        sections.push("## Stories");
-        requirements.slice(0, 120).forEach((requirement: any) => {
-          sections.push(`### ${requirement.title}`);
-          sections.push(`- ID: ${requirement.display_id || requirement.id}`);
-          sections.push(`- Priority: P${requirement.priority ?? 3}`);
-          sections.push(`- Status: ${requirement.status || "open"}`);
-          sections.push(richTextToPlainText(requirement.description) || "No description recorded.");
-          sections.push("");
-        });
-      }
-
-      if (contextSources.manualCases) {
-        sections.push(await buildCaseContext(manualCases, "Manual Test Cases"));
-      }
-
-      if (contextSources.automatedCases) {
-        sections.push(await buildCaseContext(automatedCases, "Automated Cases And Keyword Steps"));
-      }
-
-      if (contextSources.objectRepository) {
-        sections.push("## Object Repository");
-        objectRepository.forEach((entry: any) => {
-          const metadata = entry.metadata || {};
-          sections.push(`### ${metadata.object_name || entry.locator_intent}`);
-          sections.push(`- Screen: ${metadata.screen_name || entry.page_key}`);
-          sections.push(`- Role: ${metadata.object_role || entry.locator_kind || entry.source}`);
-          sections.push(`- Target locator: ${entry.locator}`);
-          sections.push(`- DOM/accessibility structure: ${metadata.dom_structure || metadata.dom_path || "Not captured"}`);
-          sections.push(`- Screenshot fallback: ${metadata.screenshot_url || metadata.screenshot_path || "Not captured"}`);
-          sections.push(`- Fallback strategy: ${metadata.fallback_strategy || "Locator first; screenshot only after locator failure."}`);
-          sections.push("");
-        });
-      }
-
-      if (contextSources.apiEndpoints) {
-        sections.push("## API Endpoint Context");
-        sections.push("Add API payload/response knowledge items with content type Markdown. Include method, URL, headers, request body, response body, validation rules, and captured variables.");
-        sections.push("");
-      }
-
-      if (contextSources.documents) {
-        sections.push("## Document Context");
-        sections.push("Add PDF/manual/setup documents as separate knowledge items. For direct LLM quality, paste extracted text or structured summaries when PDF parsing is unavailable.");
-        sections.push("");
-      }
-
-      const response = await createKnowledge.mutateAsync({
-        title: `Application context pack ${new Date().toLocaleDateString()}`,
-        description: "Auto-built RAG context from stories, cases, automation, object repository, APIs, and documents.",
-        content_type: "markdown",
-        content: sections.join("\n"),
-        metadata: {
-          source: "context-pack-builder",
-          sources: contextSources,
-          requirement_count: requirements.length,
-          manual_case_count: manualCases.length,
-          automated_case_count: automatedCases.length,
-          object_repository_count: objectRepository.length
-        },
-        is_active: true
-      });
-
-      setContextMessage(`Context pack created: ${response.title || response.id}`);
-      showSuccess("Application context pack created and activated for AI generation.");
-      queryClient.invalidateQueries({ queryKey: ["knowledge", projectId] });
-    } catch (error) {
-      showError(error, "Unable to build context pack.");
-      setContextMessage("");
     }
   };
 
@@ -380,96 +169,19 @@ export function KnowledgeRepoPage() {
       
       <div className="workspace-main">
         <PageHeader
-          eyebrow="Administration"
+          eyebrow="AI knowledge plane"
           title="Knowledge Repo"
-          description="Educate HelloTest's local agent with app-specific locator rules, workflows, screenshots, and documents for stronger generation and auto-heal."
+          description="Build governed project context from HelloTest records, documents, media, notes, and conversations—then validate retrieval and power citation-grounded AI assistance."
         />
 
         <div className="workspace-content page-content--knowledge">
-          <section className="agent-education-panel">
-            <div>
-              <span className="eyebrow">Local agent education</span>
-              <h2>Give auto-heal the context it cannot infer from code alone</h2>
-              <p>Active knowledge is packed with object repository entries, test cases, recorder screenshots, and external documents when HelloTest builds or repairs automation.</p>
-            </div>
-            <div className="agent-context-cockpit">
-              <div>
-                <h2>Build an application-aware RAG pack</h2>
-                <p>Package selected stories, manual cases, automated keyword steps, object repository fields, API notes, and document guidance into one active knowledge item. Direct LLM integrations can then use the same context to mature stories, design manual cases, generate automation, and repair locators; Rovo remains a separate connected workspace conversation.</p>
-                <div className="agent-context-metrics metric-strip page-metric-strip" aria-label="Available application context" role="group">
-                  <div className="mini-card">
-                    <strong>{requirements.length}</strong>
-                    <span>Stories</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{manualCases.length}</strong>
-                    <span>Manual cases</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{automatedCases.length}</strong>
-                    <span>Automated cases</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{objectRepository.length}</strong>
-                    <span>OR fields</span>
-                  </div>
-                  <div className="mini-card">
-                    <strong>{llmIntegrations.length ? "Ready" : "Setup"}</strong>
-                    <span>Direct LLM</span>
-                  </div>
-                </div>
-                <RovoProviderStatus
-                  className="knowledge-rovo-provider"
-                  compact
-                  prompt={[
-                    "Open the HelloTest QA Agent in the connected workspace. This is a Rovo knowledge-design review, not a direct model invocation and must not create or update knowledge items.",
-                    `Review the knowledge context for project ${projectId || "not selected"} and app type ${appTypeId || "not selected"}.`,
-                    `Available evidence counts: ${requirements.length} Stories, ${manualCases.length} manual cases, ${automatedCases.length} automated cases, and ${objectRepository.length} object-repository records.`,
-                    `Selected context families: ${Object.entries(contextSources).filter(([, enabled]) => enabled).map(([key]) => key).join(", ") || "none"}.`,
-                    "Identify missing product knowledge, safe retrieval boundaries, stale-source risks, and the smallest useful additions. Clearly separate observed counts from recommendations."
-                  ].join("\n").slice(0, 3_800)}
-                />
-              </div>
-              <div className="agent-context-source-grid">
-                {([
-                  ["requirements", "Stories"],
-                  ["manualCases", "Manual cases and steps"],
-                  ["automatedCases", "Automated keyword steps"],
-                  ["objectRepository", "Object repository and locators"],
-                  ["apiEndpoints", "API endpoint guidance"],
-                  ["documents", "PDF/manual document guidance"]
-                ] as Array<[keyof typeof contextSources, string]>).map(([key, label]) => (
-                  <label className="checkbox-field" key={key}>
-                    <input
-                      checked={contextSources[key]}
-                      onChange={(event) => setContextSources((current) => ({ ...current, [key]: event.target.checked }))}
-                      type="checkbox"
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="action-row">
-                <button className="primary-button" disabled={!projectId || createKnowledge.isPending} onClick={() => void handleBuildContextPack()} type="button">
-                  <SparkIcon />
-                  {createKnowledge.isPending ? "Building…" : "Build context pack"}
-                </button>
-                <button className="ghost-button" onClick={() => handleOpenTemplate(agentEducationTemplates[2])} type="button">
-                  Add PDF/manual reference
-                </button>
-              </div>
-              {contextMessage ? <div className="empty-state compact">{contextMessage}</div> : null}
-            </div>
-            <div className="agent-education-grid">
-              {agentEducationTemplates.map((template) => (
-                <button className="agent-education-card" disabled={!projectId} key={template.title} onClick={() => handleOpenTemplate(template)} type="button">
-                  <strong>{template.title}</strong>
-                  <span>{template.description}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
+          <KnowledgeContextStudio
+            appTypeId={appTypeId}
+            canManage={canManageKnowledge}
+            onError={showError}
+            onSuccess={showSuccess}
+            projectId={projectId}
+          />
           <Panel title="Knowledge items" subtitle="Active entries are retrieved by AI generation, story completion, automation build, and locator repair flows.">
             <div className="design-list-toolbar catalog-command-toolbar resource-catalog-toolbar knowledge-repo-toolbar">
               <div className="catalog-toolbar-discovery" aria-label="Knowledge views and search">
@@ -492,7 +204,7 @@ export function KnowledgeRepoPage() {
                 </CatalogSearchFilter>
               </div>
               <div className="catalog-toolbar-actions" aria-label="Knowledge actions">
-                <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId} type="button">
+                <button className="primary-button" onClick={handleOpenCreateModal} disabled={!projectId || !canManageKnowledge} type="button">
                   <AddIcon />
                   <span>Add Knowledge</span>
                 </button>
@@ -503,26 +215,27 @@ export function KnowledgeRepoPage() {
               <div className="tile-browser-grid">
                 {filteredItems.map((item: any) => (
                   <article
-                    aria-label={`Open knowledge item ${item.title}`}
+                    aria-label={canManageKnowledge ? `Open knowledge item ${item.title}` : undefined}
                     className="record-card tile-card knowledge-catalog-card"
                     key={item.id}
-                    onClick={() => handleOpenEditModal(item)}
+                    onClick={canManageKnowledge ? () => handleOpenEditModal(item) : undefined}
                     onKeyDown={(event) => {
+                      if (!canManageKnowledge) return;
                       if (event.target !== event.currentTarget) return;
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         handleOpenEditModal(item);
                       }
                     }}
-                    role="button"
-                    tabIndex={0}
+                    role={canManageKnowledge ? "button" : undefined}
+                    tabIndex={canManageKnowledge ? 0 : undefined}
                   >
                     <div className="tile-card-main">
                       <div className="tile-card-select-row">
                         <span className="badge badge-neutral">{item.content_type || "text"}</span>
-                        <div onClick={(event) => event.stopPropagation()}>
+                        {canManageKnowledge ? <div onClick={(event) => event.stopPropagation()}>
                           <CatalogActionMenu actions={getKnowledgeActions(item)} label={`${item.title} actions`} />
-                        </div>
+                        </div> : null}
                       </div>
                       <div className="tile-card-header">
                         <div className="tile-card-title-group">
@@ -574,12 +287,12 @@ export function KnowledgeRepoPage() {
               enableColumnResize
               enableHeaderColumnReorder
               emptyMessage="No AI knowledge items found."
-              renderRowActions={(item: any) => (
+              renderRowActions={canManageKnowledge ? (item: any) => (
                 <CatalogActionMenu
                   actions={getKnowledgeActions(item)}
                   label={`${item.title} actions`}
                 />
-              )}
+              ) : undefined}
               storageKey="hellotest:knowledge:list-columns:v2"
             /> : null}
             {!knowledgeQuery.isPending && !filteredItems.length ? (

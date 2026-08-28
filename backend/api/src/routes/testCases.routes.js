@@ -10,9 +10,10 @@ const automationGeneratorService = require("../services/automationGenerator.serv
 const batchProcessService = require("../services/batchProcess.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
 const testCaseVersionService = require("../services/testCaseVersion.service");
+const testCaseVersionRestoreService = require("../services/testCaseVersionRestore.service");
 const testDataSetService = require("../services/testDataSet.service");
 const mobileFeatureService = require("../services/mobileFeature.service");
-const db = require("../db");
+const testCaseScopeService = require("../services/testCaseScope.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const { paginate, shouldPaginate } = require("../utils/pagination");
 const {
@@ -24,24 +25,7 @@ const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
-const resolveTestCaseListProjectId = async ({ project_id, app_type_id, suite_id, requirement_id, module_id } = {}) => {
-  if (project_id) return project_id;
-  if (app_type_id) return (await db.prepare("SELECT project_id FROM app_types WHERE id = ?").get(app_type_id))?.project_id || null;
-  if (suite_id) return (await db.prepare(`
-    SELECT app_types.project_id
-    FROM test_suites
-    JOIN app_types ON app_types.id = test_suites.app_type_id
-    WHERE test_suites.id = ?
-  `).get(suite_id))?.project_id || null;
-  if (requirement_id) return (await db.prepare("SELECT project_id FROM requirements WHERE id = ?").get(requirement_id))?.project_id || null;
-  if (module_id) return (await db.prepare(`
-    SELECT app_types.project_id
-    FROM test_case_modules
-    JOIN app_types ON app_types.id = test_case_modules.app_type_id
-    WHERE test_case_modules.id = ?
-  `).get(module_id))?.project_id || null;
-  return null;
-};
+const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;
 
 const resolveScopedRequirements = async (requirementIds = [], projectId) => {
   const ids = [...new Set((Array.isArray(requirementIds) ? requirementIds : []).filter(Boolean))];
@@ -67,38 +51,7 @@ const resolveScopedRequirements = async (requirementIds = [], projectId) => {
 
 const ensureTestCasePermission = async (fastify, req, permissionCode, testCase = null) => {
   const target = testCase || await service.getTestCase(req.params.id);
-  let projectIds = [];
-  if (target.app_type_id) {
-    projectIds = [(await appTypeService.getAppType(target.app_type_id)).project_id];
-  } else {
-    projectIds = (await db.prepare(`
-      SELECT DISTINCT project_id
-      FROM (
-        SELECT requirements.project_id
-        FROM requirement_test_cases
-        JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
-        WHERE requirement_test_cases.test_case_id = ?
-        UNION
-        SELECT requirements.project_id
-        FROM test_cases
-        JOIN requirements ON requirements.id = test_cases.requirement_id
-        WHERE test_cases.id = ?
-        UNION
-        SELECT app_types.project_id
-        FROM suite_test_cases
-        JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
-        JOIN app_types ON app_types.id = test_suites.app_type_id
-        WHERE suite_test_cases.test_case_id = ?
-        UNION
-        SELECT app_types.project_id
-        FROM test_cases
-        JOIN test_suites ON test_suites.id = test_cases.suite_id
-        JOIN app_types ON app_types.id = test_suites.app_type_id
-        WHERE test_cases.id = ?
-      ) AS test_case_scopes
-      WHERE project_id IS NOT NULL
-    `).all(target.id, target.id, target.id, target.id)).map((row) => row.project_id);
-  }
+  const projectIds = await testCaseScopeService.resolveTestCaseProjectIds(target.id);
   if (projectIds.length > 1) {
     const error = new Error("The Test Case has conflicting project relationships");
     error.statusCode = 409;
@@ -130,14 +83,11 @@ const ensureTestCaseDataSetAccess = async (fastify, req, projectId, dataSetId) =
 };
 
 const ensureSuiteAssignmentAccess = async (fastify, req, projectId, suiteIds = []) => {
-  const ids = [...new Set((Array.isArray(suiteIds) ? suiteIds : []).filter(Boolean))];
+  const ids = testCaseScopeService.uniqueIds(suiteIds);
+  const suites = await testCaseScopeService.resolveSuiteScopes(ids);
+  const suitesById = new Map(suites.map((suite) => [suite.id, suite]));
   for (const suiteId of ids) {
-    const suite = await db.prepare(`
-      SELECT test_suites.id, app_types.project_id
-      FROM test_suites
-      JOIN app_types ON app_types.id = test_suites.app_type_id
-      WHERE test_suites.id = ?
-    `).get(suiteId);
+    const suite = suitesById.get(suiteId);
     if (!suite) {
       const error = new Error(`Test Suite not found: ${suiteId}`);
       error.statusCode = 404;
@@ -213,17 +163,12 @@ module.exports = async function (fastify) {
       await projectService.getProject(appType.project_id, req.user.id);
     }
     if (!scopedProjectId && (req.body.suite_id || req.body.suite_ids?.[0])) {
-      const suiteScope = await db.prepare(`
-        SELECT app_types.id AS app_type_id, app_types.project_id
-        FROM test_suites
-        JOIN app_types ON app_types.id = test_suites.app_type_id
-        WHERE test_suites.id = ?
-      `).get(req.body.suite_id || req.body.suite_ids[0]);
+      const suiteScope = await testCaseScopeService.getSuiteScope(req.body.suite_id || req.body.suite_ids[0]);
       scopedProjectId = suiteScope?.project_id || null;
       scopedAppType = suiteScope?.app_type_id ? await appTypeService.getAppType(suiteScope.app_type_id) : null;
     }
     if (!scopedProjectId && (req.body.requirement_id || req.body.requirement_ids?.[0])) {
-      scopedProjectId = (await db.prepare("SELECT project_id FROM requirements WHERE id = ?").get(req.body.requirement_id || req.body.requirement_ids[0]))?.project_id || null;
+      scopedProjectId = (await testCaseScopeService.getRequirementScope(req.body.requirement_id || req.body.requirement_ids[0]))?.project_id || null;
     }
     if (!scopedProjectId && req.user.role !== "admin") {
       const error = new Error("A project-scoped app type, suite, or Story is required to create a Test Case");
@@ -920,7 +865,7 @@ module.exports = async function (fastify) {
       expected_revision: { required: false, type: "number" }
     }, req.body || {});
     await ensureTestCasePermission(fastify, req, "testcase.update");
-    return testCaseVersionService.restore({
+    return testCaseVersionRestoreService.restore({
       testCaseId: req.params.id,
       revision: Number(req.params.revision),
       userId: req.user.id,
@@ -1206,7 +1151,7 @@ module.exports = async function (fastify) {
   fastify.get("/test-cases/ai-generation-jobs", async (req) => {
     await fastify.authenticate(req);
 
-    const { app_type_id, status } = req.query;
+    const { app_type_id, status, limit } = req.query;
 
     if (!app_type_id) {
       throw new Error("app_type_id is required");
@@ -1215,7 +1160,7 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
 
-    return aiTestCaseGenerationService.listJobs({ app_type_id, status });
+    return aiTestCaseGenerationService.listJobs({ app_type_id, status, limit });
   });
 
   fastify.post("/test-cases/ai-generation-jobs", async (req) => {
@@ -1238,6 +1183,7 @@ module.exports = async function (fastify) {
 
     const response = await aiTestCaseGenerationService.createJob({
       ...req.body,
+      idempotency_key: req.headers["idempotency-key"],
       created_by: req.user.id
     });
 

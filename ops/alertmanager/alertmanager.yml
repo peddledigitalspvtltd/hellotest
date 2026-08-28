@@ -1,0 +1,22 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: operator-console
+  group_by: [alertname, job, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: [alertname, job]
+
+# The bundled receiver keeps alerts visible and grouped in Alertmanager without
+# sending data outside the installation. Production operators should replace or
+# extend this receiver through their reviewed notification configuration.
+receivers:
+  - name: operator-console

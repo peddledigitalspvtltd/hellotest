@@ -1,4 +1,5 @@
 const db = require("../db");
+const { readBoundedResponseJson, readBoundedResponseText } = require("../utils/boundedResponse");
 const { createHash, randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const requirementReleaseService = require("./requirementRelease.service");
@@ -11,6 +12,8 @@ const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { assertExpectedRevision } = require("../utils/revision");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
+const { resilientHttpRequest } = require("../utils/resilientHttpClient");
+const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
 
 const selectLinkedTestCases = db.prepare(`
   SELECT test_cases.id, test_cases.title, test_cases.description, test_cases.automated, test_cases.priority, test_cases.status
@@ -424,22 +427,49 @@ const jiraFetch = async (integration, path, options = {}) => {
     throw new Error("work-tracker integration is missing a base URL");
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  const method = String(options.method || "GET").toUpperCase();
+  const response = await resilientHttpRequest(`${baseUrl}${path}`, {
     ...options,
+    redirect: "error",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: buildJiraAuthHeader(integration),
       ...(options.headers || {})
     }
+  }, {
+    dependency: "connected-workspace",
+    operation: path.startsWith("/rest/api/3/search") ? "issues.search" : "issues.read",
+    deadlineMs: 30_000,
+    maxAttempts: 3,
+    maxResponseBytes: 4 * 1024 * 1024,
+    maxConcurrent: 12,
+    // Jira search POST is a read-only query; all other POST operations remain
+    // single-attempt to avoid replaying side effects.
+    idempotent: method === "POST" && path.startsWith("/rest/api/3/search")
   });
 
   if (!response.ok) {
-    const raw = await response.text();
-    throw new Error(`Connected workspace request failed (${response.status}): ${raw.slice(0, 500)}`);
+    await readBoundedResponseText(response, {
+      maxBytes: 4 * 1024 * 1024,
+      label: "Connected workspace response"
+    });
+    throw serviceError(
+      [401, 403].includes(response.status) ? SERVICE_ERROR_CODES.CONFIGURATION : SERVICE_ERROR_CODES.UPSTREAM_REJECTED,
+      {
+        dependency: "connected-workspace",
+        operation: path.startsWith("/rest/api/3/search") ? "issues.search" : "issues.read",
+        retryable: response.status === 429 || response.status >= 500,
+        statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
+        upstreamStatus: response.status
+      }
+    );
   }
 
-  return response.json();
+  return readBoundedResponseJson(response, {
+    maxBytes: 4 * 1024 * 1024,
+    label: "Connected workspace response"
+  });
 };
 
 const assertActiveJiraIntegration = async (integrationId) => {
@@ -1617,7 +1647,8 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, a
     app_type_id: requirement.app_type_id || null,
     query: requirement.description || requirement.title,
     module_name: requirement.module_name || null,
-    feature_name: requirement.feature_name || null
+    feature_name: requirement.feature_name || null,
+    user: user_id ? { id: user_id } : undefined
   });
   const evidence = buildStoryCompletionEvidence({
     requirement,
@@ -1814,7 +1845,10 @@ exports.previewRequirementCreation = async ({
   const externalLinks = normalizeTextList(external_links, 20, 2000);
   const safeImages = normalizeRequirementAiReferenceImages(images).slice(0, 4);
   const knowledgePackage = additionalContext
-    ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id)
+    ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id, {
+        query: additionalContext,
+        user: user_id ? { id: user_id } : undefined
+      })
     : { knowledge: [] };
   const knowledge = {
     ...knowledgePackage,

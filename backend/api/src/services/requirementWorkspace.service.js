@@ -943,7 +943,48 @@ exports.exportRequirements = async ({ projectId, requirementIds = [], userId, fo
   return { id: transaction.id, transaction_id: transaction.id, queued: false, status: "completed", count: selected.length, skipped, requirement_records: selected };
 };
 
-const shapeJob = (row) => ({ ...row, ...(row.result_payload && typeof row.result_payload === "object" ? row.result_payload : {}), job_id: row.id, queued: row.status === "queued", input_payload: row.input_payload || {} });
+const STORY_GENERATION_LEASE_SECONDS = Math.max(30, Math.min(15 * 60, Number.parseInt(process.env.STORY_GENERATION_LEASE_SECONDS || "180", 10) || 180));
+const STORY_GENERATION_QUEUE_LIMIT = Math.max(1, Math.min(10, Number.parseInt(process.env.STORY_GENERATION_QUEUE_LIMIT || "1", 10) || 1));
+const STORY_GENERATION_WORKER_ID = `story-generation-${process.pid}-${uuid()}`;
+let storyGenerationQueueRun = null;
+
+const parseGenerationJobPayload = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+// Deliberately project a public job shape. Lease owner/expiry/heartbeat are
+// worker coordination details and must never be disclosed through polling.
+const shapeJob = (row) => {
+  const resultPayload = parseGenerationJobPayload(row?.result_payload);
+  const publicResultPayload = { ...resultPayload };
+  delete publicResultPayload.lease_owner;
+  delete publicResultPayload.lease_expires_at;
+  delete publicResultPayload.heartbeat_at;
+  return {
+    ...publicResultPayload,
+    id: row.id,
+    job_id: row.id,
+    project_id: row.project_id,
+    status: row.status,
+    queued: row.status === "queued",
+    input_payload: parseGenerationJobPayload(row.input_payload),
+    result_payload: publicResultPayload,
+    last_error: row.last_error || null,
+    attempts: Number(row.attempts || 0),
+    created_by: row.created_by || null,
+    created_at: row.created_at,
+    started_at: row.started_at || null,
+    completed_at: row.completed_at || null,
+    updated_at: row.updated_at
+  };
+};
 
 const storyGenerationJobProcessing = (status, errorMessage = null) => {
   const stageIds = ["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"];
@@ -975,15 +1016,153 @@ const storyGenerationJobPayload = (status, errorMessage = null) => ({
   preview_only: true
 });
 
-const runGenerationJob = async ({ id, input, userId }) => {
+const claimGenerationJob = ({ workerId, leaseSeconds }) => db.transaction(async () => {
+  const candidate = await db.prepare(`
+    SELECT id
+    FROM ai_requirement_generation_jobs
+    WHERE status = 'queued'
+       OR (
+         status = 'running'
+         AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+       )
+    ORDER BY
+      CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+      created_at ASC,
+      id ASC
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+  `).get();
+  if (!candidate) return null;
+
+  return db.prepare(`
+    UPDATE ai_requirement_generation_jobs
+    SET status = 'running',
+        result_payload = ?,
+        last_error = NULL,
+        attempts = attempts + 1,
+        lease_owner = ?,
+        lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 second'),
+        heartbeat_at = CURRENT_TIMESTAMP,
+        started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+        completed_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+      AND (
+        status = 'queued'
+        OR (
+          status = 'running'
+          AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+        )
+      )
+    RETURNING *
+  `).get(storyGenerationJobPayload("running"), workerId, leaseSeconds, candidate.id);
+})();
+
+const renewGenerationJobLease = (id, workerId, leaseSeconds) => db.prepare(`
+  UPDATE ai_requirement_generation_jobs
+  SET lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 second'),
+      heartbeat_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+    AND status = 'running'
+    AND lease_owner = ?
+    AND lease_expires_at > CURRENT_TIMESTAMP
+`).run(leaseSeconds, id, workerId);
+
+const completeGenerationJob = (id, workerId, result) => db.prepare(`
+  UPDATE ai_requirement_generation_jobs
+  SET status = 'completed',
+      result_payload = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      heartbeat_at = NULL,
+      completed_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+    AND status = 'running'
+    AND lease_owner = ?
+    AND lease_expires_at > CURRENT_TIMESTAMP
+  RETURNING *
+`).get(result, id, workerId);
+
+const failGenerationJob = (id, workerId, message) => db.prepare(`
+  UPDATE ai_requirement_generation_jobs
+  SET status = 'failed',
+      result_payload = ?,
+      last_error = ?,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      heartbeat_at = NULL,
+      completed_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+    AND status = 'running'
+    AND lease_owner = ?
+    AND lease_expires_at > CURRENT_TIMESTAMP
+  RETURNING *
+`).get(storyGenerationJobPayload("failed", message), message, id, workerId);
+
+const runClaimedGenerationJob = async ({ job, workerId, leaseSeconds }) => {
+  const heartbeatIntervalMs = Math.max(5_000, Math.floor(leaseSeconds * 1000 / 3));
+  let heartbeatInFlight = false;
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    if (heartbeatInFlight || leaseLost) return;
+    heartbeatInFlight = true;
+    void renewGenerationJobLease(job.id, workerId, leaseSeconds)
+      .then((renewed) => {
+        if (!renewed.changes) leaseLost = true;
+      })
+      .catch(() => {
+        leaseLost = true;
+      })
+      .finally(() => {
+        heartbeatInFlight = false;
+      });
+  }, heartbeatIntervalMs);
+  heartbeat.unref?.();
+
   try {
-    await db.prepare(`UPDATE ai_requirement_generation_jobs SET status = 'running', result_payload = ?, started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'queued'`).run(storyGenerationJobPayload("running"), id);
-    const result = await requirementService.previewRequirementCreation({ ...input, user_id: userId });
-    await db.prepare(`UPDATE ai_requirement_generation_jobs SET status = 'completed', result_payload = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(result, id);
+    if (!job.created_by) throw new Error("The Story generation job creator is no longer available.");
+    const storedInput = parseGenerationJobPayload(job.input_payload);
+    const result = await requirementService.previewRequirementCreation({
+      ...storedInput,
+      project_id: job.project_id,
+      user_id: job.created_by
+    });
+    const completed = await completeGenerationJob(job.id, workerId, result);
+    return { id: job.id, status: completed ? "completed" : "ownership_lost" };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Story generation failed";
-    await db.prepare(`UPDATE ai_requirement_generation_jobs SET status = 'failed', result_payload = ?, last_error = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(storyGenerationJobPayload("failed", message), message, id);
+    const message = excerpt(error instanceof Error ? error.message : "Story generation failed", 1_000) || "Story generation failed";
+    const failed = await failGenerationJob(job.id, workerId, message);
+    return { id: job.id, status: failed ? "failed" : "ownership_lost" };
+  } finally {
+    clearInterval(heartbeat);
   }
+};
+
+const drainGenerationQueue = async ({
+  limit = STORY_GENERATION_QUEUE_LIMIT,
+  workerId = STORY_GENERATION_WORKER_ID,
+  leaseSeconds = STORY_GENERATION_LEASE_SECONDS
+} = {}) => {
+  const normalizedLimit = Math.max(1, Math.min(10, Number.parseInt(String(limit), 10) || STORY_GENERATION_QUEUE_LIMIT));
+  const normalizedLeaseSeconds = Math.max(30, Math.min(15 * 60, Number.parseInt(String(leaseSeconds), 10) || STORY_GENERATION_LEASE_SECONDS));
+  const outcomes = [];
+  for (let index = 0; index < normalizedLimit; index += 1) {
+    const job = await claimGenerationJob({ workerId, leaseSeconds: normalizedLeaseSeconds });
+    if (!job) break;
+    outcomes.push(await runClaimedGenerationJob({ job, workerId, leaseSeconds: normalizedLeaseSeconds }));
+  }
+  return outcomes;
+};
+
+exports.processQueuedGenerationJobs = (options = {}) => {
+  if (storyGenerationQueueRun) return storyGenerationQueueRun;
+  storyGenerationQueueRun = drainGenerationQueue(options).finally(() => {
+    storyGenerationQueueRun = null;
+  });
+  return storyGenerationQueueRun;
 };
 
 const scheduleGenerationJob = (task) => {
@@ -996,7 +1175,13 @@ exports.createGenerationJob = async ({ input, userId, schedule = scheduleGenerat
   const id = uuid();
   const queuedPayload = storyGenerationJobPayload("queued");
   const row = await db.prepare(`INSERT INTO ai_requirement_generation_jobs (id, project_id, status, input_payload, result_payload, created_by) VALUES (?, ?, 'queued', ?, ?, ?) RETURNING *`).get(id, input.project_id, input, queuedPayload, userId);
-  schedule(() => runGenerationJob({ id, input, userId }));
+  // This trigger only lowers latency. The recurring worker is the durable path,
+  // and always reloads the input and creator from PostgreSQL.
+  try {
+    schedule(() => exports.processQueuedGenerationJobs({ limit: 1 }));
+  } catch {
+    // The row is already durable; the recurring background worker will claim it.
+  }
   return shapeJob(row);
 };
 
@@ -1021,6 +1206,17 @@ if (process.env.NODE_ENV === "test") {
   });
   Object.defineProperty(exports, "__storyGenerationJobInternals", {
     enumerable: false,
-    value: { runGenerationJob, shapeJob, storyGenerationJobPayload, storyGenerationJobProcessing }
+    value: {
+      claimGenerationJob,
+      renewGenerationJobLease,
+      completeGenerationJob,
+      failGenerationJob,
+      runClaimedGenerationJob,
+      drainGenerationQueue,
+      parseGenerationJobPayload,
+      shapeJob,
+      storyGenerationJobPayload,
+      storyGenerationJobProcessing
+    }
   });
 }
