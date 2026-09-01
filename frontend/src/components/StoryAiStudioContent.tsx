@@ -14,6 +14,7 @@ import {
   IconTrash
 } from "@tabler/icons-react";
 import { AiEvidenceButton, AiEvidenceFlyout } from "./AgenticExperience";
+import { SelectionToggleIcon } from "./AppIcons";
 import type { AiStoryEvidenceSource } from "../lib/api";
 import "./StoryAiStudioContent.css";
 
@@ -102,7 +103,7 @@ export function StoryAiDraftQueue({
               <input checked={allSelected} onChange={(event) => onSelectAll?.(event.target.checked)} type="checkbox" />
               <span>{selectAllLabel}</span>
             </label>
-            {selectedDraftIds.length ? <button onClick={onClearSelection} type="button">Clear</button> : null}
+            {selectedDraftIds.length ? <button onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear</button> : null}
           </div>
         ) : null}
       </header>

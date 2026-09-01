@@ -2027,6 +2027,7 @@ paths:
                 entity_title: { type: string }
                 field_label: { type: string }
                 aria_label: { type: string }
+                additional_context: { type: string, maxLength: 12000, description: Human-reviewed untrusted Smart Context used only to preserve relevant terminology and constraints. }
       responses:
         "200":
           description: Sanitized allowlisted HTML plus integration and human-review provenance
@@ -2341,6 +2342,19 @@ paths:
     post:
       tags: [Quality Analytics]
       summary: Produce a review-only stakeholder dashboard design
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, stakeholder]
+              properties:
+                project_id: { type: string }
+                stakeholder: { type: string, enum: [executive, product, quality, automation] }
+                release: { type: string, maxLength: 120 }
+                prompt: { type: string, maxLength: 2000 }
+                additional_context: { type: string, maxLength: 12000, description: Human-reviewed untrusted Smart Context used to shape the dashboard proposal. }
       responses:
         "200": { description: Unsaved dashboard preview with provenance }
   /admin/health:
@@ -2455,6 +2469,20 @@ paths:
     post:
       tags: [Requirements]
       summary: Rephrase Story description content through the governed rich-text AI service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                integration_id: { type: string, maxLength: 255 }
+                description: { type: string, maxLength: 20000 }
+                description_html: { type: string, maxLength: 40000 }
+                additional_context: { type: string, maxLength: 12000 }
+                requirement: { type: object, additionalProperties: true }
       responses:
         "200": { description: Sanitized semantic HTML with AI provenance }
   /requirements/export:
@@ -2864,6 +2892,22 @@ paths:
     post:
       tags: [Test Data]
       summary: Generate bounded fictional synthetic rows for human review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, prompt]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                prompt: { type: string, minLength: 3, maxLength: 2000 }
+                field_context: { type: string }
+                sample_count: { type: integer, minimum: 2, maximum: 12 }
+                prompt_instruction: { type: string, maxLength: 4000 }
+                integration_id: { type: string, maxLength: 255 }
+                additional_context: { type: string, maxLength: 12000, description: Human-reviewed untrusted Smart Context used to infer safe data constraints. }
       responses:
         "200": { description: Synthetic columns and rows with safety and provenance disclosure }
   /executions/history:
@@ -3900,6 +3944,28 @@ paths:
     post:
       tags: [Automation]
       summary: Execute agentic assistant sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, prompt]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string, nullable: true }
+                mode: { type: string, enum: [chat, agent] }
+                agent_id: { type: string }
+                prompt: { type: string, maxLength: 8000 }
+                context_scopes: { type: array, items: { type: string } }
+                integration_id: { type: string, nullable: true }
+                smart_context:
+                  type: object
+                  properties:
+                    query: { type: string, maxLength: 2000 }
+                    source_ids: { type: array, maxItems: 100, items: { type: string } }
+                    source_kinds: { type: array, maxItems: 20, items: { type: string } }
+                    reviewed_context: { type: string, maxLength: 12000 }
       responses:
         "200": { description: Successful response }
   /agentic-workflows/{id}/runs:
@@ -4675,6 +4741,7 @@ components:
           properties:
             collection_ids: { type: array, items: { type: string } }
             source_kinds: { type: array, items: { type: string } }
+            source_ids: { type: array, maxItems: 100, items: { type: string } }
             app_type_id: { type: string }
     KnowledgeSearchResponse:
       type: object
@@ -4770,6 +4837,14 @@ components:
         integration_id: { type: string, maxLength: 255, description: Optional active LLM integration authorized for this project; overrides the session selection for this turn. }
         client_turn_id: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9._:-]+$" }
         filters: { type: object, additionalProperties: true }
+        smart_context:
+          type: object
+          description: Human-reviewed retrieval focus. Source IDs remain project/ACL scoped and reviewed text is untrusted guidance; answer claims still require retrieved citations.
+          properties:
+            query: { type: string, maxLength: 2000 }
+            source_ids: { type: array, maxItems: 100, items: { type: string } }
+            source_kinds: { type: array, maxItems: 20, items: { type: string } }
+            reviewed_context: { type: string, maxLength: 12000 }
     KnowledgeAssistantMessageResponse:
       type: object
       properties:
@@ -5779,7 +5854,7 @@ components:
         manual_test_case_id: { type: string, nullable: true, description: Primary manual test case linked to this independent automation case. }
         manual_test_case_ids: { type: array, items: { type: string }, description: All manual test cases linked to this automation case. }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. Table rows remain separate execution iterations. }
         author_id: { type: string, nullable: true, description: Selected Test Case author. Legacy records fall back to the immutable creator. }
         author:
@@ -5818,7 +5893,7 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. }
         author_id: { type: string, description: Project member recorded as the Test Case author. Defaults to the acting user. }
         gherkin_document: { type: string, nullable: true }
@@ -5847,7 +5922,7 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility] }
+        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Replaces the Test Case data link with zero or one reusable data set. }
         author_id: { type: string, description: Project member to record as the Test Case author. }
         gherkin_document: { type: string, nullable: true }

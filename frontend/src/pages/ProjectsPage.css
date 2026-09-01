@@ -120,6 +120,22 @@
   align-items: stretch;
 }
 
+.projects-page .projects-page-header {
+  width: 100%;
+  max-width: none;
+}
+
+.projects-page .projects-command-card--evidence {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0.9rem;
+}
+
+.projects-page .projects-command-card--evidence .projects-command-insight {
+  width: min(100%, 29rem);
+  max-width: 29rem;
+  justify-self: end;
+}
+
 .projects-page .projects-command-insight {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1663,9 +1679,17 @@
 /* Project catalog parity with Story tiles. Keep portfolio depth in the detail
    workspace while the catalog remains compact and comparable. */
 .projects-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14.75rem), 1fr));
+  grid-template-columns: repeat(3, minmax(18rem, 1fr));
   gap: 1rem;
   align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  .projects-grid { grid-template-columns: repeat(2, minmax(18rem, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .projects-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .project-catalog-card.project-portfolio-card {

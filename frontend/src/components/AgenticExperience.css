@@ -295,6 +295,7 @@
 .agent-command-select,
 .agent-command-context > summary,
 .agent-command-add,
+.agent-command-smart-context,
 .agent-command-provider,
 .agent-command-auto,
 .agent-command-send {
@@ -320,10 +321,24 @@
 
 .agent-command-select,
 .agent-command-context > summary,
-.agent-command-add {
+.agent-command-add,
+.agent-command-smart-context {
   border: 1px solid var(--line, #dcdfe4);
   border-radius: 7px;
   background: var(--panel-strong, #fff);
+}
+
+.agent-command-smart-context {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: #0c66e4;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .agent-command-select {

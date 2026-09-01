@@ -28,8 +28,11 @@ import type {
   AgenticAssistantResult,
   WorkspaceTransactionEvent
 } from "../types";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { replaceSmartContextPack } from "../lib/aiDesignStudio";
 import { DialogCloseButton } from "./DialogCloseButton";
+import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import "./AgenticExperience.css";
 
 export type AiEvidenceFact = {
@@ -255,6 +258,7 @@ export const AGENT_CONTEXT_OPTIONS = [
 ] as const;
 
 type AgenticCommandComposerProps = {
+  appTypeId?: string;
   mode: AgenticAssistantMode;
   onModeChange: (mode: AgenticAssistantMode) => void;
   agents?: HelloTestAgent[];
@@ -267,13 +271,17 @@ type AgenticCommandComposerProps = {
   onIntegrationChange?: (integrationId: string) => void;
   prompt: string;
   onPromptChange: (prompt: string) => void;
+  onSmartContextChange?: (selection: SmartContextSelection) => void;
   onSubmit: () => void;
+  projectId?: string;
   disabled?: boolean;
   running?: boolean;
   scopeLabel?: string;
+  smartContext?: SmartContextSelection | null;
 };
 
 export function AgenticCommandComposer({
+  appTypeId,
   mode,
   onModeChange,
   agents = HELLOTEST_AGENT_CATALOG,
@@ -286,10 +294,13 @@ export function AgenticCommandComposer({
   onIntegrationChange,
   prompt,
   onPromptChange,
+  onSmartContextChange,
   onSubmit,
+  projectId,
   disabled = false,
   running = false,
-  scopeLabel = "Current project"
+  scopeLabel = "Current project",
+  smartContext = null
 }: AgenticCommandComposerProps) {
   const selectedAgent = agents.find((agent) => agent.id === agentId) || agents[0];
   const contextDetailsRef = useRef<HTMLDetailsElement>(null);
@@ -366,6 +377,17 @@ export function AgenticCommandComposer({
             </div>
           </details>
           <button aria-label="Add context" className="agent-command-add" onClick={() => contextDetailsRef.current?.setAttribute("open", "")} title="Add workspace context" type="button"><IconPlus size={18} stroke={1.9} /></button>
+          {onSmartContextChange ? (
+            <SmartContextWorkbench
+              appTypeId={appTypeId}
+              buttonClassName="agent-command-smart-context"
+              buttonLabel={smartContext?.resultCount ? `Smart Context · ${smartContext.resultCount}` : "Smart Context"}
+              disabled={disabled || running}
+              initialQuery={prompt}
+              onApply={onSmartContextChange}
+              projectId={projectId}
+            />
+          ) : null}
         </div>
         <div className="agent-command-composer__submit-group">
           {onIntegrationChange ? (
@@ -416,6 +438,7 @@ export type AiFeatureComposerProps = {
   showIdentity?: boolean;
   showModeSwitcher?: boolean;
   showProviderSelector?: boolean;
+  enableSmartContext?: boolean;
 };
 
 export type AiFeatureBriefItem = {
@@ -505,8 +528,11 @@ export function AiFeatureComposer({
   embedded = false,
   showIdentity = true,
   showModeSwitcher = true,
-  showProviderSelector = true
+  showProviderSelector = true,
+  enableSmartContext = false
 }: AiFeatureComposerProps) {
+  const [projectId] = useCurrentProject();
+  const [appTypeId] = useCurrentAppType(projectId);
   const canSubmit = allowEmptyPrompt || Boolean(prompt.trim());
   const effectiveSubmitLabel = submitLabel || (mode === "chat" ? "Ask" : "Delegate");
   const submit = (event: FormEvent) => {
@@ -557,6 +583,16 @@ export function AiFeatureComposer({
             <IconDatabase aria-hidden="true" size={15} stroke={1.9} />
             <span>{contextLabel}</span>
           </button>
+          {enableSmartContext ? (
+            <SmartContextWorkbench
+              appTypeId={appTypeId}
+              buttonClassName="ai-feature-composer__context smart-context-trigger"
+              disabled={disabled || running}
+              initialQuery={[prompt, contextLabel].filter(Boolean).join(" ")}
+              onApply={(selection: SmartContextSelection) => onPromptChange(replaceSmartContextPack(prompt, selection.contextText))}
+              projectId={projectId}
+            />
+          ) : null}
           <span className="ai-feature-composer__shortcut">⌘ Enter</span>
         </div>
         <div className="ai-feature-composer__submit">
@@ -1005,6 +1041,9 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(result.recommendations.map((_, index) => index));
   const [accepted, setAccepted] = useState(false);
   const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  const groundedCitations = result.citation_ids?.length
+    ? citations.filter((citation) => result.citation_ids?.includes(citation.id))
+    : [];
 
   useEffect(() => {
     setDraftResponse(result.response);
@@ -1048,7 +1087,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       <div className="agent-outcome-evidence">
-        <span><IconDatabase size={16} stroke={1.9} /><strong>{citations.length}</strong> cited references</span>
+        <span><IconDatabase size={16} stroke={1.9} /><strong>{groundedCitations.length}</strong> cited references</span>
         <span><IconShieldCheck size={16} stroke={1.9} /><strong>{guardrails.length}</strong> guardrails</span>
         <AiEvidenceButton label="View outcome evidence" onClick={() => setIsEvidenceOpen(true)} />
       </div>
@@ -1070,7 +1109,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         description="Review the sources, guardrails, provider, and approval boundary behind this editable outcome."
         eyebrow="Agent outcome · Evidence"
         facts={[
-          { label: "References", value: citations.length },
+          { label: "References", value: groundedCitations.length },
           { label: "Guardrails", value: guardrails.length },
           { label: "Decision", value: provenance?.requires_human_review === false ? "Automated" : "Human owned" }
         ]}
@@ -1080,9 +1119,9 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       >
         <section className="ai-evidence-flyout__section">
           <header><span>Sources</span><strong>Citations used for this outcome</strong></header>
-          {citations.length ? (
+          {groundedCitations.length ? (
             <ul className="ai-evidence-flyout__source-list">
-              {citations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{citation.scope}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
+              {groundedCitations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{citation.source_kind || citation.scope}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
             </ul>
           ) : <p className="ai-evidence-flyout__empty">No citation was returned. Treat the outcome as ungrounded until a source is added.</p>}
         </section>

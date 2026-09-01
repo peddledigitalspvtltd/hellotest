@@ -24,6 +24,18 @@ export type GherkinDocumentSections = {
   scenarios: GherkinScenarioSection[];
 };
 
+export type StructuredGherkinStep = {
+  action: string;
+  expected_result: string;
+};
+
+export type StructuredGherkinDocument = {
+  preconditions: StructuredGherkinStep[];
+  steps: StructuredGherkinStep[];
+  exampleColumns: string[];
+  exampleRows: Record<string, string>[];
+};
+
 const GHERKIN_KEYWORD_PATTERN = /^(\s*)(Feature|Rule|Background|Scenario Outline|Scenario Template|Scenarios|Scenario|Examples|Example|Given|When|Then|And|But|\*)(:)?(.*)$/i;
 const GHERKIN_STEP_KEYWORDS = new Set(["given", "when", "then", "and", "but", "*"]);
 const GHERKIN_INLINE_PATTERN = /(@(?:(?:t|s|r)\.)?[A-Za-z][A-Za-z0-9_-]*|<\s*(?:(?:t|s|r)\.)?[A-Za-z][A-Za-z0-9_-]*\s*>|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/gi;
@@ -90,6 +102,94 @@ export function composeGherkinDocument(sections: GherkinDocumentSections) {
     normalizeGherkinBlock(sections.background),
     ...sections.scenarios.flatMap((item) => [normalizeGherkinBlock(item.scenario), normalizeGherkinBlock(item.examples)])
   ].filter((block) => block.trim()).join("\n\n");
+}
+
+const escapeTableCell = (value: unknown) => String(value ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
+
+/** Converts the complete structured case model to Gherkin without inventing
+ * behavior. Preconditions become Background, actions become When/And and
+ * expected results become Then/And. A table data set produces one outline. */
+export function structuredCaseToGherkin({
+  title,
+  preconditions = [],
+  steps = [],
+  columns = [],
+  rows = []
+}: {
+  title: string;
+  preconditions?: Array<{ action?: string | null; expected_result?: string | null }>;
+  steps?: Array<{ action?: string | null; expected_result?: string | null }>;
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+}) {
+  const featureTitle = title.trim() || "Describe the capability";
+  const meaningfulPreconditions = preconditions.filter((step) => String(step.action || step.expected_result || "").trim());
+  const meaningfulSteps = steps.filter((step) => String(step.action || step.expected_result || "").trim());
+  const exampleColumns = columns.map((column) => column.trim()).filter(Boolean);
+  const hasExamples = exampleColumns.length > 0 && rows.length > 0;
+  const lines = [`Feature: ${featureTitle}`];
+
+  if (meaningfulPreconditions.length) {
+    lines.push("", "  Background:");
+    meaningfulPreconditions.forEach((step, index) => {
+      const action = String(step.action || step.expected_result || "").trim();
+      lines.push(`    ${index === 0 ? "Given" : "And"} ${action}`);
+    });
+  }
+
+  lines.push("", `  ${hasExamples ? "Scenario Outline" : "Scenario"}: ${featureTitle}`);
+  meaningfulSteps.forEach((step) => {
+    const action = String(step.action || "").trim();
+    const expected = String(step.expected_result || "").trim();
+    if (action) lines.push(`    When ${action}`);
+    if (expected) lines.push(`    Then ${expected}`);
+  });
+
+  if (hasExamples) {
+    lines.push("", "    Examples:", `      | ${exampleColumns.map(escapeTableCell).join(" | ")} |`);
+    rows.forEach((row) => lines.push(`      | ${exampleColumns.map((column) => escapeTableCell(row[column])).join(" | ")} |`));
+  }
+
+  return lines.join("\n");
+}
+
+const parseTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|").replace(/\\\\/g, "\\"));
+
+/** Maps authored Gherkin back to the structured editor. Then/And outcomes are
+ * attached to the preceding action, and Background lines remain preconditions. */
+export function gherkinToStructuredCase(value: string): StructuredGherkinDocument {
+  const sections = splitGherkinDocument(value);
+  const parseBehavior = (block: string, background = false) => {
+    const result: StructuredGherkinStep[] = [];
+    let phase: "action" | "expected" = background ? "action" : "action";
+    block.split("\n").forEach((line) => {
+      const match = line.match(/^\s*(Given|When|Then|And|But|\*)\s+(.+?)\s*$/i);
+      if (!match) return;
+      const keyword = match[1].toLowerCase();
+      const text = match[2].trim();
+      if (background) {
+        result.push({ action: text, expected_result: "" });
+        return;
+      }
+      if (keyword === "then") phase = "expected";
+      else if (keyword === "when" || keyword === "given") phase = "action";
+      if (phase === "expected" && result.length) {
+        const current = result[result.length - 1];
+        current.expected_result = current.expected_result ? `${current.expected_result}\n${text}` : text;
+      } else {
+        result.push({ action: text, expected_result: "" });
+      }
+    });
+    return result;
+  };
+
+  const preconditions = parseBehavior(sections.background, true);
+  const steps = sections.scenarios.flatMap((section) => parseBehavior(section.scenario));
+  const firstExamples = sections.scenarios.map((section) => section.examples).find(Boolean) || "";
+  const table = firstExamples.split("\n").filter((line) => /^\s*\|.*\|\s*$/.test(line)).map(parseTableRow);
+  const exampleColumns = table[0] || [];
+  const exampleRows = table.slice(1).map((cells) => Object.fromEntries(exampleColumns.map((column, index) => [column, cells[index] || ""])));
+  return { preconditions, steps, exampleColumns, exampleRows };
 }
 
 export function replaceGherkinBackground(sections: GherkinDocumentSections, background: string): GherkinDocumentSections {

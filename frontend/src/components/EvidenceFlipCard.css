@@ -22,3 +22,22 @@
   background: color-mix(in srgb, currentColor 10%, transparent);
   color: var(--risk-card-accent, var(--primary, #0758c9));
 }
+
+.evidence-flip-card-action-button {
+  min-height: 1.8rem;
+  justify-self: start;
+  padding: 0.25rem 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--primary, #0c66e4) 30%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary, #0c66e4) 8%, var(--shell-panel));
+  color: var(--primary-strong, var(--primary, #0c66e4));
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.evidence-flip-card-action-button:focus-visible {
+  outline: 2px solid var(--primary, #0c66e4);
+  outline-offset: 2px;
+}

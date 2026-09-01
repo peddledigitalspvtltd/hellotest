@@ -2,6 +2,8 @@ import type { AiDesignImageInput, AiDesignedTestCaseCandidate } from "../types";
 import type { Requirement } from "../types";
 
 export const AI_CONTEXT_PACK_LIMIT = 18_000;
+export const SMART_CONTEXT_START = "[HELLOTEST_SMART_CONTEXT_START]";
+export const SMART_CONTEXT_END = "[HELLOTEST_SMART_CONTEXT_END]";
 const REQUIREMENT_CONTEXT_LIMIT = 7_000;
 const KNOWLEDGE_CONTEXT_LIMIT = 6_000;
 const FILE_CONTEXT_LIMIT = 4_000;
@@ -207,6 +209,17 @@ export const mergeAiContextPack = (current: string, sections: string[]) => {
   }
 
   return trimToBudget([compactText(current), contextPack].filter(Boolean).join("\n\n---\n\n"), AI_CONTEXT_PACK_LIMIT);
+};
+
+export const stripSmartContextPack = (value: string) => compactText(value)
+  .replace(/\[HELLOTEST_SMART_CONTEXT_START\][\s\S]*?\[HELLOTEST_SMART_CONTEXT_END\]/g, "")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
+
+export const replaceSmartContextPack = (current: string, smartContext: string) => {
+  const base = stripSmartContextPack(current);
+  const reviewedPack = compactText(smartContext);
+  return trimToBudget([base, reviewedPack].filter(Boolean).join("\n\n---\n\n"), AI_CONTEXT_PACK_LIMIT);
 };
 
 export const parseExternalLinks = (value: string) =>

@@ -16,7 +16,8 @@ module.exports = async function (fastify) {
       entity_type: { required: false, type: "string" },
       entity_title: { required: false, type: "string" },
       field_label: { required: false, type: "string" },
-      aria_label: { required: false, type: "string" }
+      aria_label: { required: false, type: "string" },
+      additional_context: { required: false, type: "string", maxLength: 12000 }
     }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     return richTextAi.rephrase({
@@ -27,7 +28,8 @@ module.exports = async function (fastify) {
       entityType: req.body.entity_type,
       entityTitle: req.body.entity_title,
       fieldLabel: req.body.field_label,
-      ariaLabel: req.body.aria_label
+      ariaLabel: req.body.aria_label,
+      additionalContext: req.body.additional_context
     });
   });
 

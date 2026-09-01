@@ -8,6 +8,7 @@ const attachments = require("../src/services/attachment.service");
 const executions = require("../src/services/execution.service");
 const featureFlags = require("../src/services/featureFlag.service");
 const richTextAi = require("../src/services/richTextAi.service");
+const aiTestDataGeneration = require("../src/services/aiTestDataGeneration.service");
 const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 
 const context = (overrides = {}) => ({
@@ -109,6 +110,17 @@ test("rich-text AI output is reduced to the supported authoring HTML contract", 
     richTextAi.ensureBulletListHtml("<ol><li>First outcome</li><li>Second outcome</li></ol>"),
     "<ul><li>First outcome</li><li>Second outcome</li></ul>"
   );
+});
+
+test("AI test-data generation keeps deterministic fallback and LLM values synthetic", () => {
+  const emails = aiTestDataGeneration._internals.deterministicValues({ prompt: "customer emails", fieldContext: "checkout", count: 4 });
+  assert.equal(emails.length, 4);
+  assert.ok(emails.every((value) => value.endsWith("@example.test")));
+  assert.equal(aiTestDataGeneration._internals.isSafeSyntheticValue("synthetic.user@example.test"), true);
+  assert.equal(aiTestDataGeneration._internals.isSafeSyntheticValue("real.person@company.example"), false);
+  assert.equal(aiTestDataGeneration._internals.isSafeSyntheticValue("api_key=live-secret-value"), false);
+  assert.equal(aiTestDataGeneration._internals.isSafeSyntheticValue("+1-202-555-0118"), true);
+  assert.equal(aiTestDataGeneration._internals.isSafeSyntheticValue("+1-212-867-5309"), false);
 });
 
 test("execution assignments inherit from run through suite and module to case", () => {

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TestSuiteIcon } from "./AppIcons";
 
 export type TileCardTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -223,13 +224,7 @@ function TileCardIconShell({ children }: { children: ReactNode }) {
 }
 
 export function TileCardSuiteIcon() {
-  return (
-    <TileCardIconShell>
-      <path d="m12 4 8 4-8 4-8-4Z" />
-      <path d="m4 12 8 4 8-4" />
-      <path d="m4 16 8 4 8-4" />
-    </TileCardIconShell>
-  );
+  return <TestSuiteIcon size={18} />;
 }
 
 export function TileCardCaseIcon() {

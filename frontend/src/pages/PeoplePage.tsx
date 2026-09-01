@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { AddIcon, CollapseExpandIcon, ExportIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CollapseExpandIcon, ExportIcon, SelectionToggleIcon, TrashIcon } from "../components/AppIcons";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -654,9 +654,11 @@ export function PeoplePage({
           </div>
           <div className="permission-designer-actions">
             <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
-              Add All
+              <SelectionToggleIcon checked />
+              Select all
             </button>
             <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
+              <SelectionToggleIcon checked={false} />
               Clear
             </button>
           </div>

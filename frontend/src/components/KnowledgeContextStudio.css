@@ -507,7 +507,17 @@
 .knowledge-pipeline-preview small { color: var(--text-secondary); font-size: 0.72rem; }
 .knowledge-pipeline-preview svg { color: #a5b4fc; }
 .knowledge-build-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.4rem; padding: 0.5rem; border: 1px solid rgba(245, 158, 11, 0.24); border-radius: 8px; background: rgba(254, 243, 199, 0.55); color: #92400e; font-size: 0.72rem; line-height: 1.4; }
-.knowledge-build-submit { justify-content: center; width: 100%; }
+.knowledge-build-submit { position: relative; justify-content: center; width: 100%; }
+.knowledge-processing-spinner {
+  display: block;
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: currentColor;
+  transform-origin: center;
+  animation: knowledge-context-spin 800ms linear infinite;
+}
+.knowledge-job-status-icon .knowledge-processing-spinner { width: 0.95rem; height: 0.95rem; }
 .knowledge-build-empty-note { color: var(--text-secondary); font-size: 0.72rem; line-height: 1.35; text-align: center; }
 
 .knowledge-search-form { display: grid; gap: 0.7rem; padding: 0.75rem; }
@@ -718,4 +728,9 @@
 @media (prefers-reduced-motion: reduce) {
   .knowledge-job-progress > span,
   .knowledge-advanced-toggle svg:last-child { transition: none; }
+  .knowledge-processing-spinner { animation-duration: 1.8s; }
+}
+
+@keyframes knowledge-context-spin {
+  to { transform: rotate(360deg); }
 }

@@ -6,12 +6,13 @@ const test = require("node:test");
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
 test("test case metadata and data set links are durable and scope checked", async () => {
-  const [schema, bootstrap, service, routes, versionRestore] = await Promise.all([
+  const [schema, bootstrap, service, routes, versionRestore, openapi] = await Promise.all([
     readSource("../../db/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../src/services/testCase.service.js"),
     readSource("../src/routes/testCases.routes.js"),
-    readSource("../src/services/testCaseVersionRestore.service.js")
+    readSource("../src/services/testCaseVersionRestore.service.js"),
+    readSource("../../../openapi.yaml")
   ]);
 
   assert.match(schema, /test_case_type TEXT NOT NULL DEFAULT 'functional'/);
@@ -29,6 +30,11 @@ test("test case metadata and data set links are durable and scope checked", asyn
   assert.match(service, /test_data_set_ids:/);
   assert.match(service, /author:/);
   assert.match(routes, /test_case_type:/);
+  assert.match(schema, /test_case_type[^\n]*'accessibility','ios'/);
+  assert.match(bootstrap, /test_cases_test_case_type_check[^\n]*[\s\S]{0,220}'accessibility', 'ios'/);
+  assert.match(service, /TEST_CASE_TYPE_VALUES = \[[^\]]*"accessibility", "ios"/);
+  assert.match(routes, /TEST_CASE_TYPE_VALUES = \[[^\]]*"accessibility", "ios"/);
+  assert.equal((openapi.match(/test_case_type: \{ type: string, enum: \[[^\]]*accessibility, ios\] \}/g) || []).length, 3);
   assert.equal((routes.match(/test_data_set_ids: \{ required: false, type: "array", items: "string", maxItems: 1 \}/g) || []).length, 2);
   assert.match(versionRestore, /version\.content\.test_data_set_ids\.slice\(0, 1\)/);
 });

@@ -13,6 +13,7 @@ module.exports = async function (fastify) {
       agent_id: { required: false, type: "string" },
       prompt: { required: true, type: "string" },
       context_scopes: { required: false, type: "array" },
+      smart_context: { required: false, type: "object" },
       integration_id: { required: false, type: "string" },
       history: { required: false, type: "array" }
     }, req.body || {});

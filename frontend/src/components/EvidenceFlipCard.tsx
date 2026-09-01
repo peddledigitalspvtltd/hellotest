@@ -3,14 +3,17 @@ import type { ReactNode } from "react";
 import "./EvidenceFlipCard.css";
 
 type EvidenceFlipCardProps = {
+  actionDisabled?: boolean;
+  actionLabel?: string;
   autoResetMs?: number;
   caption: string;
   className?: string;
-  evidence: string[];
+  evidence: ReactNode[];
   frontAccessory?: ReactNode;
   frontIcon?: ReactNode;
   label: string;
   maxEvidenceItems?: number;
+  onAction?: () => void;
   tone?: "danger" | "warning" | "success" | "info";
   value: ReactNode;
 };
@@ -23,6 +26,8 @@ type EvidenceFlipCardProps = {
  * their evidence is revealed.
  */
 export function EvidenceFlipCard({
+  actionDisabled = false,
+  actionLabel,
   autoResetMs = 10_000,
   caption,
   className,
@@ -31,6 +36,7 @@ export function EvidenceFlipCard({
   frontIcon,
   label,
   maxEvidenceItems = 4,
+  onAction,
   tone,
   value
 }: EvidenceFlipCardProps) {
@@ -124,9 +130,20 @@ export function EvidenceFlipCard({
             <strong>Evidence</strong>
           </div>
           <ul aria-label={`${label} evidence`} className="project-stat-evidence">
-            {evidence.slice(0, maxEvidenceItems).map((item) => <li key={item}>{item}</li>)}
+            {evidence.slice(0, maxEvidenceItems).map((item, index) => <li key={`${label}-evidence-${index}`}>{item}</li>)}
             {evidence.length > maxEvidenceItems ? <li>{evidence.length - maxEvidenceItems} more evidence signal{evidence.length - maxEvidenceItems === 1 ? "" : "s"}</li> : null}
           </ul>
+          {onAction ? (
+            <button
+              className="evidence-flip-card-action-button"
+              disabled={actionDisabled}
+              onClick={onAction}
+              tabIndex={isFlipped ? 0 : -1}
+              type="button"
+            >
+              {actionLabel || "Open details"}
+            </button>
+          ) : null}
         </div>
       </div>
     </article>

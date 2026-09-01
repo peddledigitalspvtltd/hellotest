@@ -21,7 +21,7 @@ const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
 const DEFAULT_AUTOMATED = DOMAIN_METADATA.test_cases.default_automated || "no";
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const REVIEW_STATUS_VALUES = ["not_requested", "pending", "accepted", "changes_requested"];
-const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
+const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility", "ios"];
 const IMPORT_SOURCE_LABELS = {
   csv: "CSV",
   junit_xml: "JUnit XML",

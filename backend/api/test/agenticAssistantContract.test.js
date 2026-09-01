@@ -3,6 +3,7 @@ const { readFile } = require("node:fs/promises");
 const path = require("node:path");
 const test = require("node:test");
 const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
+const agenticAssistant = require("../src/services/agenticAssistant.service");
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
@@ -27,6 +28,33 @@ test("agent assistant maturity evaluation remains bounded", async () => {
   }
   assert.match(source, /Math\.max\(0, Math\.min\(100/);
   assert.match(source, /Do not reveal hidden reasoning or chain of thought/);
+});
+
+test("agent assistant accepts only exact supplied citation ids", () => {
+  const fallback = {
+    response: "fallback",
+    activity_summary: "fallback",
+    recommendations: [],
+    assumptions: [],
+    suggested_handoffs: [],
+    citation_ids: ["K-real"],
+    grounding_status: "grounded",
+    evaluation: { grounding: 80, completeness: 80, traceability: 80, risk_control: 90, maturity_score: 82, rationale: "fallback" }
+  };
+  const candidate = {
+    response: "Supported result [K-real]",
+    activity_summary: "reviewed",
+    recommendations: ["Review it"],
+    assumptions: [],
+    suggested_handoffs: [],
+    citation_ids: ["K-real"],
+    evaluation: fallback.evaluation
+  };
+  const citations = [{ id: "K-real", scope: "knowledge", label: "Real evidence" }];
+
+  assert.deepEqual(agenticAssistant._internals.normalizeResult(candidate, fallback, citations).citation_ids, ["K-real"]);
+  assert.equal(agenticAssistant._internals.normalizeResult({ ...candidate, citation_ids: ["K-invented"] }, fallback, citations), fallback);
+  assert.equal(agenticAssistant._internals.normalizeResult({ ...candidate, citation_ids: [] }, fallback, citations), fallback);
 });
 
 test("run analysis accepts a bounded reviewer focus without weakening evidence rules", async () => {

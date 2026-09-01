@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { BugIcon, ChevronRightIcon, ExportIcon, SearchIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { BugIcon, ChevronRightIcon, ExportIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
 import { AiAuthoringDialogHeader } from "../components/AiAuthoringDialogHeader";
 import {
   AiAuthoringContextPaneResizer,
@@ -39,6 +39,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
+import { BUG_TO_TEST_CASE_STORAGE_KEY, buildBugToTestCaseDraft } from "../lib/bugToTestCaseConversion";
 import { isJiraCoreFieldRequired } from "../lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
@@ -397,6 +398,7 @@ function ImpactCheckboxPicker({
             onClick={() => onChange([...new Set([...selectedIds, ...visibleIds])])}
             type="button"
           >
+            <SelectionToggleIcon checked />
             Select all
           </button>
           <span aria-hidden="true">|</span>
@@ -406,6 +408,7 @@ function ImpactCheckboxPicker({
             onClick={() => onChange([])}
             type="button"
           >
+            <SelectionToggleIcon checked={false} />
             Clear
           </button>
         </div>
@@ -448,6 +451,7 @@ function ImpactCheckboxPicker({
 }
 
 function IssueEditorSurface({
+  actions,
   backLabel,
   children,
   closeDisabled,
@@ -456,6 +460,7 @@ function IssueEditorSurface({
   subtitle,
   title
 }: {
+  actions?: ReactNode;
   backLabel: string;
   children: ReactNode;
   closeDisabled: boolean;
@@ -491,6 +496,7 @@ function IssueEditorSurface({
           <h2>{title}</h2>
           <p>{subtitle}</p>
         </div>
+        {actions ? <div className="issue-detail-header-actions">{actions}</div> : null}
       </header>
       {children}
     </Panel>
@@ -1942,6 +1948,7 @@ export function IssuesPage() {
                 <div className="ai-bug-feature-composer">
                   <AiFeatureComposer
                     agentName="Bug Reporter"
+                    enableSmartContext
                     briefItems={[
                       {
                         id: "context",
@@ -2253,41 +2260,40 @@ export function IssuesPage() {
           </div>
         </div>
       ) : null}
+      <PageHeader
+        className={isCreating || selectedItem ? "page-header--workspace-context" : ""}
+        eyebrow="Defect Management"
+        title="Bugs"
+        description="Capture, reproduce, triage, and resolve Bugs with delivery context, ownership, linked quality evidence, and end-to-end traceability."
+      />
       {!(isCreating || selectedItem) ? (
-        <>
-          <PageHeader
-            eyebrow="Bugs"
-            title="Bugs"
-            description="Capture HelloTest Bugs with reproduction details, run context, ownership, and root cause."
-          />
-          <QualityMetricStrip
-            ariaLabel="Bug catalog quality metrics"
-            metrics={[
-              {
-                label: "Total bugs",
-                value: issues.isLoading ? "—" : bugCatalogMetrics.total,
-                detail: issues.isLoading ? "Loading catalog" : "Current catalog scope"
-              },
-              {
-                label: "Open bugs",
-                value: issues.isLoading ? "—" : openIssueCount,
-                detail: issues.isLoading ? "Loading workflow status" : `${Math.max(0, bugCatalogMetrics.total - openIssueCount)} resolved`
-              },
-              {
-                label: "Priority risks",
-                value: issues.isLoading ? "—" : bugCatalogMetrics.priorityRisks,
-                detail: issues.isLoading ? "Loading priorities" : "Open Highest or High",
-                tone: !issues.isLoading && bugCatalogMetrics.priorityRisks ? "danger" : "neutral"
-              },
-              {
-                label: "Unassigned",
-                value: issues.isLoading ? "—" : bugCatalogMetrics.unassigned,
-                detail: issues.isLoading ? "Loading ownership" : "Open bugs without owner",
-                tone: !issues.isLoading && bugCatalogMetrics.unassigned ? "danger" : "neutral"
-              }
-            ]}
-          />
-        </>
+        <QualityMetricStrip
+          ariaLabel="Bug catalog quality metrics"
+          metrics={[
+            {
+              label: "Total bugs",
+              value: issues.isLoading ? "—" : bugCatalogMetrics.total,
+              detail: issues.isLoading ? "Loading catalog" : "Current catalog scope"
+            },
+            {
+              label: "Open bugs",
+              value: issues.isLoading ? "—" : openIssueCount,
+              detail: issues.isLoading ? "Loading workflow status" : `${Math.max(0, bugCatalogMetrics.total - openIssueCount)} resolved`
+            },
+            {
+              label: "Priority risks",
+              value: issues.isLoading ? "—" : bugCatalogMetrics.priorityRisks,
+              detail: issues.isLoading ? "Loading priorities" : "Open Highest or High",
+              tone: !issues.isLoading && bugCatalogMetrics.priorityRisks ? "danger" : "neutral"
+            },
+            {
+              label: "Unassigned",
+              value: issues.isLoading ? "—" : bugCatalogMetrics.unassigned,
+              detail: issues.isLoading ? "Loading ownership" : "Open bugs without owner",
+              tone: !issues.isLoading && bugCatalogMetrics.unassigned ? "danger" : "neutral"
+            }
+          ]}
+        />
       ) : null}
 
       {message && !isCreating ? <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p> : null}
@@ -2544,6 +2550,22 @@ export function IssuesPage() {
         )}
         detailView={(
           <IssueEditorSurface
+            actions={!isCreating && selectedItem ? (
+              <button
+                className="issue-detail-convert-button"
+                onClick={() => {
+                  sessionStorage.setItem(
+                    BUG_TO_TEST_CASE_STORAGE_KEY,
+                    JSON.stringify(buildBugToTestCaseDraft(selectedItem))
+                  );
+                  navigate("/test-cases?create=1&source=bug");
+                }}
+                type="button"
+              >
+                <TestCaseIcon size={15} />
+                <span>Convert to Test Case</span>
+              </button>
+            ) : null}
             backLabel={bugReturnTo ? `Back to ${bugReturnLabel}` : "Back to bug tiles"}
             closeDisabled={createIssue.isPending}
             isCreating={isCreating}

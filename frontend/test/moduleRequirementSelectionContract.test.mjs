@@ -4,7 +4,7 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("Create Module places a mature Requirement picker below Description in the left column", async () => {
+test("Create Module places the Requirement picker above Test Case selection in the right column", async () => {
   const [page, styles] = await Promise.all([
     readSource("../src/pages/TestCasesPage.tsx"),
     readSource("../src/components/create-module-modal.css")
@@ -17,27 +17,30 @@ test("Create Module places a mature Requirement picker below Description in the 
   const modal = page.slice(modalStart, modalEnd);
   const leftColumnStart = modal.indexOf('className="test-case-create-module-details"');
   const rightColumnStart = modal.indexOf('className="test-case-create-module-picker"', leftColumnStart);
-  const leftColumn = modal.slice(leftColumnStart, rightColumnStart);
+  const rightColumn = modal.slice(rightColumnStart);
 
   assert.ok(requirementPickerStart >= 0 && modalStart > requirementPickerStart && modalEnd > modalStart);
   assert.ok(leftColumnStart >= 0 && rightColumnStart > leftColumnStart);
-  assert.ok(leftColumn.indexOf('label="Description"') < leftColumn.indexOf("<ModuleRequirementPicker"));
-  assert.match(leftColumn, /<ModuleRequirementPicker[\s\S]*candidateRequirements=\{candidateRequirements\}/);
+  assert.ok(rightColumn.indexOf("<ModuleRequirementPicker") < rightColumn.indexOf('id="module-test-cases-heading"'));
+  assert.match(rightColumn, /<ModuleRequirementPicker[\s\S]*candidateRequirements=\{candidateRequirements\}/);
 
   assert.match(requirementPicker, /Requirement Selection/);
   assert.match(requirementPicker, /test-case-create-module-picker-panel test-case-create-module-requirement-panel/);
   assert.match(requirementPicker, /Search Requirements by ID or title/);
   assert.match(requirementPicker, /Filter Requirements/);
-  assert.match(requirementPicker, /Select visible/);
+  assert.match(requirementPicker, /Select all visible/);
   assert.match(requirementPicker, /Clear selected Requirements/);
   assert.match(requirementPicker, /Select all visible Requirements/);
   assert.match(requirementPicker, /Loading Requirements/);
   assert.match(requirementPicker, /Load more Requirements/);
   assert.match(requirementPicker, /<span role="columnheader">Requirement<\/span>[\s\S]*<span role="columnheader">Priority<\/span>[\s\S]*<span role="columnheader">Status<\/span>/);
 
-  assert.match(styles, /\.test-case-create-module-requirement-panel\s*\{[^}]*height:\s*276px/);
+  assert.match(styles, /\.test-case-create-module-requirement-panel\s*\{[^}]*height:\s*clamp\(340px, 43vh, 430px\)/);
+  assert.match(styles, /\.test-case-create-module-requirement-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 42px auto/);
   assert.match(styles, /\.test-case-create-module-requirement-table-head,[\s\S]*\.test-case-create-module-requirement-option\s*\{[^}]*grid-template-columns:/);
   assert.match(styles, /@media \(max-width: 960px\)[\s\S]*\.test-case-create-module-requirement-panel/);
+  assert.match(styles, /width:\s*min\(1480px, calc\(100vw - 32px\)\)/);
+  assert.match(styles, /grid-template-columns:\s*clamp\(320px, 25vw, 380px\) minmax\(0, 1fr\)/);
 });
 
 test("Create Module loads project Requirements and persists their selected ids", async () => {
@@ -89,9 +92,13 @@ test("selecting Requirements auto-selects every app-scoped linked Test Case with
 
   assert.match(modal, /const isResolvingRequirementCases/);
   assert.match(modal, /aria-busy=\{isLoadingCases \|\| isLoadingMoreCases \|\| isResolvingRequirementCases\}/);
-  assert.match(modal, /Linked cases are selected automatically/);
+  assert.doesNotMatch(modal, /Linked cases are selected automatically/);
+  assert.doesNotMatch(page, /onWheel(?:Capture)?=/);
+  assert.doesNotMatch(page, /scrollModuleRecordList/);
   assert.match(modal, /disabled=\{isSaving[\s\S]*isResolvingRequirementCases[\s\S]*hasRequirementCaseResolutionError\}/);
   assert.match(modal, /testCaseIds: canAssignCases \? selectedIds : \[\]/);
   assert.match(styles, /\.test-case-create-module-auto-link-status\s*\{/);
   assert.match(styles, /\.test-case-create-module-auto-link-status\.is-error/);
+  assert.match(styles, /\.test-case-create-module-options\s*\{[^}]*overscroll-behavior-y:\s*auto/);
+  assert.match(styles, /\.test-case-create-module-picker\s*\{[^}]*overflow-y:\s*auto !important;[^}]*overscroll-behavior:\s*auto/);
 });

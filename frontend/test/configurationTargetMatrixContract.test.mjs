@@ -51,6 +51,11 @@ test("Configuration authoring uses a semantic, operable target-row matrix", asyn
   assert.match(form, /data-label="Mobile OS"/);
   assert.match(form, /data-label="Version"/);
   assert.match(form, /configuration-matrix-default/);
+  assert.match(form, /targetRowRefs/);
+  assert.match(form, /pendingTargetFocusId/);
+  assert.match(form, /scrollIntoView\(\{ behavior: "smooth", block: "nearest", inline: "nearest" \}\)/);
+  assert.match(form, /resource-form--configuration/);
+  assert.match(page, /resource-table-shell--key-value/);
 });
 
 test("Configuration search and save payloads include every target row", async () => {
@@ -88,4 +93,21 @@ test("Configuration matrix and cards remain responsive, accessible, and theme-aw
   assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.configuration-matrix-table td\[data-label\]::before[\s\S]*content:\s*attr\(data-label\)/);
   assert.match(styles, /\.configuration-card-open\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*text-align:\s*left;/);
   assert.match(styles, /\.configuration-card-open:focus-visible/);
+  assert.match(styles, /\.resource-modal-card\.resource-modal-card--configuration\s*\{[^}]*width:\s*min\(96rem,/);
+  assert.match(styles, /\.resource-modal-card--configuration \.configuration-matrix-table-wrap\s*\{[^}]*max-height:[^}]*overflow:\s*auto/);
+});
+
+test("Configuration runtime pairs render, scroll, and focus after insertion", async () => {
+  const page = await readSource("../src/pages/TestEnvironmentPage.tsx");
+  const editorStart = page.indexOf("function KeyValueEditor");
+  const editorEnd = page.indexOf("function DataTableEditor", editorStart);
+  const editor = page.slice(editorStart, editorEnd);
+
+  assert.ok(editorStart >= 0 && editorEnd > editorStart);
+  assert.match(editor, /const addEntry = \(\) =>/);
+  assert.match(editor, /onChange\(\[\.\.\.entries, entry\]\)/);
+  assert.match(editor, /setPendingEntryFocusId/);
+  assert.match(editor, /input\.scrollIntoView\(\{ behavior: "smooth", block: "nearest", inline: "nearest" \}\)/);
+  assert.match(editor, /input\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(editor, /resource-table-shell--key-value/);
 });

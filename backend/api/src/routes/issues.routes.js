@@ -30,7 +30,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       project_id: { required: true, type: "string" },
       issue_ids: { required: true, type: "array", items: "string", maxItems: aiBugTriageService.MAX_TRIAGE_ITEMS },
       integration_id: { required: false, type: "string" },
-      prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
+      prompt_guidance: { required: false, type: "string", maxLength: 4_000 },
+      smart_context: { required: false, type: "object" }
     }, req.body || {});
     if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
       const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
@@ -44,7 +45,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       issueIds: req.body.issue_ids,
       user: req.user,
       integrationId: req.body.integration_id,
-      promptGuidance: req.body.prompt_guidance
+      promptGuidance: req.body.prompt_guidance,
+      smartContext: req.body.smart_context
     });
   });
 

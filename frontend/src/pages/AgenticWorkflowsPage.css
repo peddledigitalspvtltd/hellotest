@@ -217,6 +217,11 @@
   stroke-width: 1.9;
 }
 
+.ai-agent-specialist-card__icon img {
+  width: 30px;
+  height: 30px;
+}
+
 .ai-agent-specialist-card__type {
   color: #0c66e4;
   font-size: 0.63rem;
@@ -555,3 +560,19 @@
 @media (prefers-reduced-motion: reduce) {
   .ai-agent-specialist-card { transition: none; }
 }
+.agentic-smart-context-node-control {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line, #d0d7de);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel-strong, #fff) 92%, #e9f2ff 8%);
+}
+
+.agentic-smart-context-node-control > div { display: grid; min-width: 0; gap: 2px; }
+.agentic-smart-context-node-control strong { font-size: 0.74rem; }
+.agentic-smart-context-node-control span { color: var(--text-secondary, #626f86); font-size: 0.66rem; line-height: 1.4; }
+.agentic-smart-context-node-control > button { flex: 0 0 auto; }

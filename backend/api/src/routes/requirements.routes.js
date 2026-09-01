@@ -53,12 +53,12 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/ai-description-rephrase", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string" }, description: { required: false, type: "string" }, description_html: { required: false, type: "string" }, requirement: { required: false, type: "object" } }, req.body || {});
+    fastify.validate({ project_id: { required: true, type: "string" }, description: { required: false, type: "string" }, description_html: { required: false, type: "string" }, additional_context: { required: false, type: "string", maxLength: 12000 }, requirement: { required: false, type: "object" } }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
     const content = String(req.body.description || req.body.description_html || "").trim();
     if (!content) throw Object.assign(new Error("A Story description is required for AI rephrase"), { statusCode: 400 });
-    const result = await richTextAiService.rephrase({ user: req.user, projectId: req.body.project_id, content: req.body.description || content, contentHtml: req.body.description_html, entityType: "requirement", entityTitle: req.body.requirement?.title, fieldLabel: "Description" });
+    const result = await richTextAiService.rephrase({ user: req.user, projectId: req.body.project_id, content: req.body.description || content, contentHtml: req.body.description_html, entityType: "requirement", entityTitle: req.body.requirement?.title, fieldLabel: "Description", additionalContext: req.body.additional_context });
     return { integration: result.integration, requirement: { id: req.body.requirement?.id || null, display_id: req.body.requirement?.display_id || null, title: req.body.requirement?.title || null }, description: result.content, provenance: result.provenance };
   });
 

@@ -7,6 +7,7 @@ import {
   resolveGherkinParameterText,
   splitGherkinDocument,
   tokenizeGherkinInlineText,
+  structuredCaseToGherkin,
   type GherkinDocumentSections
 } from "../lib/gherkin";
 
@@ -48,22 +49,7 @@ export const buildGherkinFromSteps = (
   featureTitle: string,
   preconditions: Array<{ action?: string | null }>,
   steps: Array<{ action?: string | null; expected_result?: string | null }>
-) => {
-  const lines = [`Feature: ${featureTitle.trim() || "Describe the capability"}`];
-  if (preconditions.length) {
-    lines.push("", "  Background:");
-    preconditions.forEach((step, index) => {
-      lines.push(`    ${index === 0 ? "Given" : "And"} ${String(step.action || "Complete setup").trim()}`);
-    });
-  }
-  lines.push("", `  Scenario: ${featureTitle.trim() || "Verify expected behavior"}`);
-  steps.forEach((step, index) => {
-    const action = String(step.action || "Perform the next action").trim();
-    lines.push(`    ${index === 0 ? "When" : "And"} ${action}`);
-    if (String(step.expected_result || "").trim()) lines.push(`    Then ${String(step.expected_result).trim()}`);
-  });
-  return lines.join("\n");
-};
+) => structuredCaseToGherkin({ title: featureTitle, preconditions, steps });
 
 const validateGherkin = (value: string) => {
   const lines = value.split("\n");

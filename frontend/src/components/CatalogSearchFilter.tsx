@@ -15,6 +15,8 @@ export function CatalogSearchFilter({
   activeFilterCount = 0,
   title = "Filters",
   subtitle,
+  filterIcon,
+  disabled = false,
   children
 }: {
   value: string;
@@ -25,6 +27,8 @@ export function CatalogSearchFilter({
   activeFilterCount?: number;
   title?: string;
   subtitle?: string;
+  filterIcon?: ReactNode;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -168,6 +172,7 @@ export function CatalogSearchFilter({
         </span>
         <input
           aria-label={ariaLabel || placeholder}
+          disabled={disabled}
           id={inputId}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
@@ -180,12 +185,13 @@ export function CatalogSearchFilter({
           aria-haspopup="dialog"
           aria-label={activeFilterCount ? `Open filters (${activeFilterCount} active)` : "Open filters"}
           className={activeFilterCount ? "catalog-filter-button is-active" : "catalog-filter-button"}
+          disabled={disabled}
           onClick={() => setIsOpen((current) => !current)}
           ref={buttonRef}
           title={activeFilterCount ? `${title} (${activeFilterCount} active)` : title}
           type="button"
         >
-          <CatalogFilterIcon />
+          {filterIcon || <CatalogFilterIcon />}
           {activeFilterCount ? <span className="catalog-filter-badge">{activeFilterCount}</span> : null}
         </button>
       </div>

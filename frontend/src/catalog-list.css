@@ -2580,6 +2580,33 @@ h6,
   margin: 0 0 16px;
 }
 
+/* Page metrics use the same evidence card dimensions and interaction as the
+   Projects portfolio. Legacy metric rules remain for embedded static views. */
+.quality-metric-strip > .evidence-flip-card.quality-metric-card {
+  display: block;
+  height: 100%;
+  min-height: 10.5rem;
+  padding: 0;
+  overflow: hidden;
+  border-left-width: 1px;
+  perspective: 70rem;
+  isolation: isolate;
+}
+
+.quality-metric-strip > .evidence-flip-card.quality-metric-card .evidence-flip-card-inner {
+  min-height: 10.5rem;
+}
+
+.quality-metric-strip > .evidence-flip-card.quality-metric-card .project-stat-card-trigger {
+  width: 100%;
+  height: 100%;
+  text-align: left;
+}
+
+.quality-metric-strip > .evidence-flip-card.quality-metric-card .evidence-flip-card-back {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
 .test-case-entity-icon {
   align-items: center;
   block-size: var(--test-case-entity-icon-size, 16px);
@@ -2710,6 +2737,35 @@ h6,
   opacity: 1;
 }
 
+.quality-metric-face {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.quality-metric-face--back { display: none; }
+.quality-metric-card.is-flipped .quality-metric-face--front { display: none; }
+.quality-metric-card.is-flipped .quality-metric-face--back { display: grid; }
+
+.quality-metric-face--back > strong,
+.quality-metric-flip-hint {
+  color: var(--catalog-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.quality-metric-flip-hint { color: var(--catalog-blue); }
+
+.quality-metric-supporting-copy {
+  display: block;
+  color: var(--catalog-ink);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 15px;
+}
+
 .quality-metric-card.tone-danger {
   border-left: 3px solid var(--catalog-danger);
   padding-left: 10px;
@@ -2810,17 +2866,6 @@ h6,
 .quality-metric-card.tone-danger .quality-metric-badge {
   background: var(--catalog-danger-bg);
   color: var(--catalog-danger);
-}
-
-.quality-metric-detail {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--catalog-muted);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Catalog command order: discovery → Select all / Clear → divider → actions. */
@@ -3391,9 +3436,9 @@ h6,
   }
 }
 
-/* Keep module selection ahead of the case count and defer pagination to the group footer. */
+/* Keep module controls ahead of the metrics so common actions stay predictable. */
 .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) {
-  grid-template-columns: auto auto auto minmax(8rem, 0.72fr) auto minmax(25rem, 1.6fr) auto !important;
+  grid-template-columns: auto auto auto minmax(8rem, 0.72fr) auto auto minmax(25rem, 1.6fr) !important;
 }
 
 .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-case-selection-button {
@@ -3402,11 +3447,11 @@ h6,
 
 .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .hierarchy-quick-insights,
 .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-deferred-summary {
-  grid-column: 6;
+  grid-column: 7;
 }
 
 .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .action-row {
-  grid-column: 7;
+  grid-column: 6;
 }
 
 .module-case-selection-button {
@@ -3415,9 +3460,9 @@ h6,
   min-width: 0;
   min-height: 28px;
   align-items: center;
-  gap: 5px;
+  gap: 0;
   justify-self: end;
-  padding: 0 7px !important;
+  padding: 0 6px !important;
   border-color: transparent !important;
   background: transparent !important;
   color: var(--catalog-muted) !important;

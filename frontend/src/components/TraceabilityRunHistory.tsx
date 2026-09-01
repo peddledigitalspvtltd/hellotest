@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ActivityIcon, ClearSelectionIcon, OpenIcon, SearchIcon } from "./AppIcons";
+import { ActivityIcon, OpenIcon, SearchIcon } from "./AppIcons";
 import { CatalogActionMenu } from "./CatalogActionMenu";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { DisplayIdBadge } from "./DisplayIdBadge";
@@ -284,7 +284,6 @@ export function TraceabilityRunHistory({
           }}
           type="button"
         >
-          <ClearSelectionIcon />
           <span>Clear filters</span>
         </button>
       </div>

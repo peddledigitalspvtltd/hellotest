@@ -37,6 +37,18 @@ test("masked display values are never usable LLM credentials", async () => {
   );
 });
 
+test("an LLM created without an optional Base URL uses the catalog default", () => {
+  const validated = integrationService._internals.validatePayload({
+    type: "llm",
+    name: "Default OpenAI-compatible provider",
+    api_key: "sk-live-test-value",
+    model: "gpt-test",
+    is_active: true
+  });
+
+  assert.equal(validated.base_url, "https://api.openai.com/v1");
+});
+
 test("an update cannot preserve a legacy placeholder as an LLM credential", async () => {
   const originalGetIntegration = integrationService.getIntegration;
   integrationService.getIntegration = async () => ({

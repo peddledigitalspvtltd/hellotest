@@ -78,7 +78,8 @@ test("Shared Step Group tiles lead with definition and terminal-run health while
   assert.match(page, /isFinalized: \(current\?\.isFinalized \?\? true\) && result\.status !== "running"/);
   assert.match(page, /selectLatestExecutionResultInstances\(executionResults\)\.forEach/);
   assert.match(card, /filter\(\(result\) => result\.isFinalized\)/);
-  assert.match(card, /stepHasAutomation\(step\)/);
+  assert.match(card, /steps include both an action and expected result/);
+  assert.doesNotMatch(card, /executable automation/);
   assert.match(card, /aria-label=\{`Select Shared Step Group \$\{group\.name\}`\}/);
   assert.match(card, /aria-current=\{isActive \? "page" : undefined\}/);
   assert.doesNotMatch(card, /aria-pressed/);

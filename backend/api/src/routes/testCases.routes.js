@@ -22,7 +22,7 @@ const {
   isMobileRecorderTarget
 } = require("../utils/mobileFeature");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
-const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility"];
+const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility", "ios"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;

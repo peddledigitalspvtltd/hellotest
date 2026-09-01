@@ -13,11 +13,49 @@ import {
 } from "@tabler/icons-react";
 import backlogIcon from "../assets/backlog-icon.png";
 import releaseNotesIcon from "../assets/release-notes-icon.png";
+import testSuiteIcon from "../assets/test-suite-icon.png";
+import moduleIcon from "../assets/module-icon.png";
+import aiAgentsIcon from "../assets/ai-agents-icon.png";
 
 type IconProps = {
   size?: number;
   strokeWidth?: number;
 };
+
+function AssetMaskIcon({ source, size = 16 }: { source: string; size?: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        backgroundColor: "currentColor",
+        display: "inline-block",
+        flex: "0 0 auto",
+        height: size,
+        maskImage: `url(${source})`,
+        maskPosition: "center",
+        maskRepeat: "no-repeat",
+        maskSize: "contain",
+        WebkitMaskImage: `url(${source})`,
+        WebkitMaskPosition: "center",
+        WebkitMaskRepeat: "no-repeat",
+        WebkitMaskSize: "contain",
+        width: size
+      }}
+    />
+  );
+}
+
+export function TestSuiteIcon({ size = 16 }: IconProps) {
+  return <AssetMaskIcon size={size} source={testSuiteIcon} />;
+}
+
+export function ModuleIcon({ size = 16 }: IconProps) {
+  return <AssetMaskIcon size={size} source={moduleIcon} />;
+}
+
+export function AiAgentsIcon({ size = 18 }: IconProps) {
+  return <img alt="" aria-hidden="true" height={size} src={aiAgentsIcon} style={{ display: "inline-block", flex: "0 0 auto", objectFit: "contain" }} width={size} />;
+}
 
 function IconFrame({
   children,
@@ -180,30 +218,13 @@ export function AddIcon({ size, strokeWidth }: IconProps) {
   );
 }
 
-export function SelectAllIcon({ size, strokeWidth }: IconProps) {
+/** One selection language everywhere: checked selects, the same empty mark clears. */
+export function SelectionToggleIcon({ checked, size = 18, strokeWidth = 1.9 }: IconProps & { checked: boolean }) {
   return (
     <IconFrame size={size} strokeWidth={strokeWidth}>
-      <rect height="7" rx="1.5" width="7" x="4" y="4" />
-      <path d="m6 7.4 1.2 1.2L9.4 6" />
-      <rect height="7" rx="1.5" width="7" x="13" y="4" />
-      <path d="m15 7.4 1.2 1.2L18.4 6" />
-      <rect height="7" rx="1.5" width="7" x="4" y="13" />
-      <path d="m6 16.4 1.2 1.2L9.4 15" />
-      <rect height="7" rx="1.5" width="7" x="13" y="13" />
-      <path d="m15 16.4 1.2 1.2L18.4 15" />
-    </IconFrame>
-  );
-}
-
-export function ClearSelectionIcon({ size, strokeWidth }: IconProps) {
-  return (
-    <IconFrame size={size} strokeWidth={strokeWidth}>
-      <rect height="7" rx="1.5" width="7" x="4" y="4" />
-      <rect height="7" rx="1.5" width="7" x="13" y="4" />
-      <rect height="7" rx="1.5" width="7" x="4" y="13" />
-      <rect height="7" rx="1.5" width="7" x="13" y="13" />
-      <path d="M8 8 16 16" />
-      <path d="m16 8-8 8" />
+      <path d="M6.5 5H5.75A2.75 2.75 0 0 0 3 7.75v9.5A2.75 2.75 0 0 0 5.75 20h9.5A2.75 2.75 0 0 0 18 17.25v-.75" opacity="0.55" />
+      <rect height="14" rx="2.75" width="14" x="6" y="4" />
+      {checked ? <path d="m9.25 10.8 2.35 2.4 5.2-5.35" strokeWidth="2.35" /> : null}
     </IconFrame>
   );
 }

@@ -229,7 +229,8 @@ test("manual test-case details place mature automation cards beside Details", as
 test("Story-linked test-case creation enters the standard new-case workspace with coherent scope", async () => {
   const page = await readSource("../src/pages/TestCasesPage.tsx");
 
-  assert.match(page, /beginCreateCase\(requestedSuiteId, requestedRequirementId, \{[\s\S]*release: deliveryPrefill\.release,[\s\S]*sprint: deliveryPrefill\.sprint/);
+  assert.match(page, /const primaryRequirementId = bugDraft\?\.requirementIds\[0\] \|\| requestedRequirementId/);
+  assert.match(page, /beginCreateCase\(primarySuiteId, primaryRequirementId, \{[\s\S]*bugDraft\?\.release \|\| deliveryPrefill\.release,[\s\S]*bugDraft\?\.sprint \|\| deliveryPrefill\.sprint/);
   assert.match(page, /resolveDeliveryScopePrefill/);
   assert.match(page, /setProjectId\(requestedProjectId\)/);
   assert.match(page, /requirement_id: requirementId/);
@@ -344,6 +345,7 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
 
   assert.match(api, /portfolioAnalytics: \(\) => request<ProjectPortfolioAnalytics>\("\/projects\/portfolio-analytics"\)/);
   assert.match(page, /label="Projects need attention"/);
+  assert.match(styles, /\.projects-command-card--evidence \.projects-command-insight \{[\s\S]*width: min\(100%, 29rem\);[\s\S]*max-width: 29rem;[\s\S]*justify-self: end;/);
   assert.match(page, /label="Execution failure cases"/);
   assert.match(page, /label="Evidence Missing"/);
   assert.match(page, /label="Bugs"/);
@@ -474,7 +476,8 @@ test("test data authoring uses an iteration grid and module health loads before 
   assert.match(testCases, /const moduleMetricHeaders = useMemo/);
   assert.match(testCases, /moduleMetricHeaders\.flatMap/);
   assert.doesNotMatch(testCases, /isCollapsed \|\| !modulePageState \|\| isInitialLoading/);
-  assert.equal((testCases.match(/\{renderModuleMetrics\(moduleHealth\.unassigned\)\}/g) || []).length, 2);
+  assert.match(testCases, /const hasCompleteModuleMetrics = \(moduleId: string\)/);
+  assert.equal((testCases.match(/\? renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)\s*: renderModuleMetrics\(moduleHealth\.unassigned\)/g) || []).length, 2);
   assert.doesNotMatch(testCases, /isUnassignedModuleExpanded[\s\S]{0,120}renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)/);
   assert.match(styles, /\.resource-sheet/);
   assert.match(modalStyles, /\.test-data-set-picker-dialog/);

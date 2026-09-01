@@ -5,9 +5,10 @@
   bottom: 1.35rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0;
   min-height: 3.25rem;
-  padding: 0.45rem 1rem 0.45rem 0.48rem;
+  width: 3.25rem;
+  padding: 0.45rem;
   border: 1px solid rgba(99, 102, 241, 0.4);
   border-radius: 999px;
   background: linear-gradient(135deg, #172554, #3730a3 58%, #6d28d9);
@@ -18,12 +19,29 @@
   font-size: 0.84rem;
   font-weight: 800;
   letter-spacing: -0.01em;
-  transition: transform 160ms ease, box-shadow 160ms ease;
+  overflow: hidden;
+  transition: width 180ms ease, gap 180ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
 .grounded-assistant-trigger:hover {
+  width: 10.25rem;
+  gap: 0.55rem;
   box-shadow: 0 20px 50px rgba(30, 41, 96, 0.34), 0 5px 18px rgba(49, 46, 129, 0.3);
   transform: translateY(-2px);
+}
+
+.grounded-assistant-trigger-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width 180ms ease, opacity 140ms ease;
+}
+
+.grounded-assistant-trigger:hover .grounded-assistant-trigger-label,
+.grounded-assistant-trigger:focus-visible .grounded-assistant-trigger-label {
+  max-width: 7rem;
+  opacity: 1;
 }
 
 .grounded-assistant-trigger:focus-visible {
@@ -544,6 +562,47 @@
 }
 
 .grounded-assistant-context-control input { width: 0.78rem; height: 0.78rem; }
+
+.grounded-assistant-context-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.grounded-assistant-context-row .grounded-assistant-context-control { min-width: 0; flex: 1 1 auto; }
+
+.grounded-assistant-smart-context {
+  display: inline-flex;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 65%, #6366f1 35%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, #eef2ff 12%);
+  color: #4f46e5;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.grounded-assistant-context-clear {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.grounded-assistant-context-clear:hover { background: var(--surface-muted, #f1f5f9); }
 
 .grounded-assistant-composer {
   display: grid;

@@ -1971,7 +1971,7 @@ export type TestCase = {
   manual_test_case_id?: string | null;
   manual_test_case_ids?: string[];
   authoring_mode?: "structured" | "gherkin";
-  test_case_type?: "functional" | "regression" | "smoke" | "integration" | "acceptance" | "exploratory" | "performance" | "security" | "accessibility";
+  test_case_type?: "functional" | "regression" | "smoke" | "integration" | "acceptance" | "exploratory" | "performance" | "security" | "accessibility" | "ios";
   gherkin_document?: string | null;
   test_data_set_ids?: string[];
   test_data_sets?: Array<Pick<TestDataSet, "id" | "app_type_id" | "name" | "description" | "mode" | "columns" | "rows">>;
@@ -2316,6 +2316,8 @@ export type SharedStepGroup = {
   app_type_id: string;
   name: string;
   description: string | null;
+  authoring_mode?: "structured" | "gherkin";
+  gherkin_document?: string | null;
   steps: SharedStepGroupStep[];
   parameter_values?: Record<string, string>;
   step_count?: number;
@@ -2386,12 +2388,14 @@ export type AiTestDataGenerationPreviewResponse = {
   suggestions: Array<{ id: string; value: string }>;
   randomized_template: string;
   randomization_strategy: "reviewed-value-pool";
-  runtime_llm_invocation: false;
+  runtime_llm_invocation: boolean;
   generation_mode: "llm" | "deterministic";
+  integration?: { id: string; name: string; model?: string | null } | null;
   fallback_used: boolean;
   fallback_reason?: string | null;
   generated_at: string;
   requires_human_review: boolean;
+  provenance?: Record<string, unknown>;
 };
 
 export type TestDataSet = {
@@ -2651,6 +2655,10 @@ export type AgenticAssistantCitation = {
   scope: string;
   id: string;
   label: string;
+  source_id?: string;
+  source_kind?: string;
+  chunk_id?: string;
+  score?: number;
 };
 
 export type AgenticAssistantEvaluation = {
@@ -2668,6 +2676,8 @@ export type AgenticAssistantResult = {
   recommendations: string[];
   assumptions: string[];
   suggested_handoffs: string[];
+  citation_ids?: string[];
+  grounding_status?: "grounded" | "insufficient_context";
   evaluation: AgenticAssistantEvaluation;
 };
 

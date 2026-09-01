@@ -325,7 +325,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({
       message: { required: true, type: "string" },
-      integration_id: { required: false, type: "string", maxLength: 255 }
+      integration_id: { required: false, type: "string", maxLength: 255 },
+      smart_context: { required: false, type: "object" }
     }, req.body || {});
     const session = await knowledgeAssistantService.getSession({ id: req.params.id, user: req.user, includeMessages: false });
     await ensureProjectAccess(req, session.project_id, "knowledge.view");
@@ -339,6 +340,7 @@ module.exports = async function (fastify) {
       sessionId: req.params.id,
       message: req.body.message,
       filters: req.body.filters,
+      smartContext: req.body.smart_context,
       integrationId: req.body.integration_id,
       clientTurnId: clientTurnId || null,
       user: req.user

@@ -235,7 +235,7 @@ const redactSensitiveData = (value) => {
 };
 
 const PROMPT_INJECTION_PATTERNS = [
-  { code: "ignore_instructions", expression: /^\s*(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above|system|developer)(?:\s+(?:system|developer))?\s+(?:instructions?|messages?)/gim },
+  { code: "ignore_instructions", expression: /^\s*(?:ignore|disregard|forget)\s+(?:all\s+)?(?:(?:previous|prior|earlier|preceding|above)\s+)?(?:(?:system|developer)\s+)?(?:instructions?|messages?)/gim },
   { code: "system_prompt_request", expression: /\b(?:reveal|show|print|repeat|expose)\s+(?:the\s+)?(?:hidden\s+)?(?:system|developer)\s+(?:prompt|message|instructions?)\b/gi },
   { code: "role_override", expression: /^\s*(?:system|developer)\s*:\s*|\b(?:jailbreak|developer mode|do anything now)\b/gim },
   { code: "tool_override", expression: /\b(?:call|invoke|execute)\s+(?:an?\s+)?(?:hidden\s+)?tool\b|\bexfiltrat(?:e|ion)\b/gi }

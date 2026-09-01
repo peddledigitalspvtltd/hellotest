@@ -1,9 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { findAiMetricCriteriaByLabel } from "../lib/aiPromptRegistry";
-import { InfoTooltip } from "./InfoTooltip";
+import { EvidenceFlipCard } from "./EvidenceFlipCard";
 
-export type QualityMetricTone = "neutral" | "info" | "success" | "danger";
+export type QualityMetricTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export type QualityMetric = {
   badge?: ReactNode;
@@ -33,16 +33,12 @@ export function QualityMetricStrip({
   metrics
 }: QualityMetricStripProps) {
   const { getMetricCriteria } = useAiPromptRegistry();
-  const layoutStyle = {
-    "--quality-metric-columns": Math.max(1, Math.min(metrics.length, 5))
-  } as CSSProperties;
 
   return (
     <section
       aria-label={ariaLabel}
-      className={["quality-metric-strip", className].filter(Boolean).join(" ")}
+      className={["quality-metric-strip", "metric-strip", "page-metric-strip", className].filter(Boolean).join(" ")}
       role="group"
-      style={layoutStyle}
     >
       {metrics.map((metric) => {
         const progress = typeof metric.progress === "number" ? clampPercent(metric.progress) : null;
@@ -56,54 +52,28 @@ export function QualityMetricStrip({
             <span><strong>Organization criteria:</strong> {getMetricCriteria(governedMetric.key)}</span>
           </span>
         ) : null);
-        const content = (
-          <>
-            <span className="quality-metric-label-row">
-              <span className="quality-metric-label">{metric.label}</span>
-              {methodology ? (
-                <InfoTooltip
-                  content={methodology}
-                  label={`${metric.label} calculation`}
-                  title={`${metric.label} methodology`}
-                  trigger={metric.onClick ? "span" : "button"}
-                />
-              ) : null}
-            </span>
-            <div className="quality-metric-value-row">
-              <strong className="quality-metric-value">{metric.value}</strong>
-              {progress !== null ? (
-                <span
-                  aria-label={`${metric.label}: ${progress}%`}
-                  aria-valuemax={100}
-                  aria-valuemin={0}
-                  aria-valuenow={progress}
-                  className="quality-metric-progress"
-                  role="progressbar"
-                >
-                  <span style={{ width: `${progress}%` }} />
-                </span>
-              ) : null}
-              {metric.badge ? <span className="quality-metric-badge">{metric.badge}</span> : null}
-              {metric.detail ? <span className="quality-metric-detail">{metric.detail}</span> : null}
-            </div>
-          </>
-        );
+        const evidence = [metric.detail, methodology]
+          .filter((item, index, items): item is ReactNode => Boolean(item) && items.indexOf(item) === index);
+        const caption = progress !== null
+          ? `${progress}% measured`
+          : typeof metric.badge === "string" || typeof metric.badge === "number"
+            ? String(metric.badge)
+            : "Open for evidence";
 
-        return metric.onClick ? (
-          <button
-            className={`quality-metric-card tone-${tone}`}
-            disabled={metric.disabled}
+        return (
+          <EvidenceFlipCard
+            actionDisabled={metric.disabled}
+            actionLabel={metric.onClick ? "Open metric details" : undefined}
+            caption={caption}
+            className="quality-metric-card quality-metric-flip-card"
+            evidence={evidence.length ? evidence : [metric.title || "No additional evidence is available for this metric."]}
             key={metric.label}
-            onClick={metric.onClick}
-            title={metric.title}
-            type="button"
-          >
-            {content}
-          </button>
-        ) : (
-          <article className={`quality-metric-card tone-${tone}`} key={metric.label}>
-            {content}
-          </article>
+            label={metric.label}
+            maxEvidenceItems={3}
+            onAction={metric.onClick}
+            tone={tone === "neutral" ? undefined : tone}
+            value={metric.value}
+          />
         );
       })}
     </section>

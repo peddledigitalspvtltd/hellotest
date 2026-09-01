@@ -24,6 +24,7 @@ import type {
   ProjectActivationSiteSnapshot
 } from "../types";
 import { BrandWordmark } from "./BrandWordmark";
+import { SelectionToggleIcon } from "./AppIcons";
 import { LoadingState } from "./LoadingState";
 import {
   durableActivationProgress,
@@ -767,7 +768,7 @@ export function ProjectActivationAdminScreen({
                   onClick={toggleAllEligible}
                   type="button"
                 >
-                  <IconCheck aria-hidden="true" size={16} />
+                  <SelectionToggleIcon checked={!allEligibleSelected} />
                   {allEligibleSelected ? "Clear selection" : `Select all eligible (${eligibleProjects.length})`}
                 </button>
                 {failedProjects.length ? (

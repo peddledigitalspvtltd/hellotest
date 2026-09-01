@@ -361,6 +361,10 @@ const buildNodeToolPolicy = (nodeData) => ({
   credential_id: normalizeText(nodeData.credentialId) || null,
   llm_integration_id: normalizeText(nodeData.llmIntegrationId) || null,
   knowledge_scope: normalizeText(nodeData.knowledgeScope) || null,
+  knowledge_query: normalizeText(nodeData.knowledgeQuery) || null,
+  knowledge_source_ids: normalizeArray(nodeData.knowledgeSourceIds).map(normalizeText).filter(Boolean).slice(0, 100),
+  knowledge_source_kinds: normalizeArray(nodeData.knowledgeSourceKinds).map(normalizeText).filter(Boolean).slice(0, 20),
+  reviewed_context_fingerprint: normalizeText(nodeData.reviewedContextFingerprint) || null,
   repository_scope: normalizeText(nodeData.repositoryScope) || null,
   testops_action: normalizeText(nodeData.testOpsAction) || null,
   api: {

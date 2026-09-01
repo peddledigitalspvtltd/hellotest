@@ -2,7 +2,7 @@ import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboa
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconArrowsMaximize, IconArrowsMinimize, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { AiAssurancePanel } from "../components/AiAssurancePanel";
 import { AgenticProcessRail, AiFeatureComposer } from "../components/AgenticExperience";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
@@ -2971,7 +2971,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const response = await api.testCases.rephraseStep({
         app_type_id: appTypeId,
         requirement_id: activeCase.requirement_id || undefined,
-        additional_context: getPrompt("ai.automation.step_rephrase"),
+        additional_context: [getPrompt("ai.automation.step_rephrase"), agentMission].filter(Boolean).join("\n\n"),
         test_case: {
           title: activeCase.title,
           description: activeCase.description || "",
@@ -4106,12 +4106,24 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
   }, []);
 
+  const automationPageHeader = view === "repository"
+    ? {
+        eyebrow: "Automation assets",
+        title: "Object Repository",
+        description: "Capture, review, and maintain reusable page objects and selectors for stable automated Test Cases."
+      }
+    : {
+        eyebrow: "Automation",
+        title: "Automation",
+        description: "Maintain automated Test Cases, keyword steps, reusable objects, and local Playwright capture in one governed workspace."
+      };
+
   return (
     <div className="page-content page-content--automation">
       <PageHeader
-        eyebrow="Automation"
-        title="Automation workspace"
-        description="Maintain automated cases, keyword steps, object repository learning, and local Playwright capture in one governed workspace."
+        eyebrow={automationPageHeader.eyebrow}
+        title={automationPageHeader.title}
+        description={automationPageHeader.description}
         meta={[
           { label: "Automation cases", value: automatedCases.length },
           { label: "Manual link candidates", value: manualCases.length },
@@ -4818,7 +4830,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                      <div className="automation-create-card">
 	                        <div className="automation-section-heading">
 	                          <div><strong>Group selected steps</strong><span>{selectedAutomationStepIds.length} selected · create a local flow or reusable Shared Step Group.</span></div>
-	                          <button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button">Clear</button>
+	                          <button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button"><SelectionToggleIcon checked={false} />Clear</button>
 	                        </div>
 	                        <div className="record-grid automation-builder-form">
 	                          <label className="form-field"><span>Group name</span><input onChange={(event) => setAutomationGroupName(event.target.value)} placeholder="Checkout flow" value={automationGroupName} /></label>
@@ -6075,7 +6087,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <strong>Captured from browser <span className="selection-count">{browserInspectFields.length}</span></strong>
                               <small>These are the controls you clicked in inspect mode. Select the ones to save.</small>
                             </div>
-                            <button className="ghost-button compact" onClick={selectAllBrowserInspectFields} type="button">Select all captured</button>
+                            <button className="ghost-button compact" onClick={selectAllBrowserInspectFields} type="button"><SelectionToggleIcon checked />Select all captured</button>
                           </div>
                           {browserInspectFields.map((field) => (
                             <article className="object-repository-inspector-candidate is-browser-candidate" key={`browser-${field.locator}`}>

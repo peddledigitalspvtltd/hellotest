@@ -689,7 +689,9 @@ const validatePayload = (payload) => {
   const type = normalizeText(payload.type);
   const name = normalizeText(payload.name);
   const rawBaseUrl = normalizeText(payload.base_url);
-  const base_url = rawBaseUrl ? normalizeAbsoluteBaseUrl(rawBaseUrl, `${name || type || "Integration"} base URL`) : null;
+  const defaultBaseUrl = normalizeText(INTEGRATION_TYPE_OPTIONS.find((option) => option.value === type)?.defaults?.base_url);
+  const resolvedBaseUrl = rawBaseUrl || defaultBaseUrl;
+  const base_url = resolvedBaseUrl ? normalizeAbsoluteBaseUrl(resolvedBaseUrl, `${name || type || "Integration"} base URL`) : null;
   const api_key = normalizeText(payload.api_key);
   const model = normalizeText(payload.model);
   const project_key = normalizeText(payload.project_key);

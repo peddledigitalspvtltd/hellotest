@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchIcon } from "./AppIcons";
 import { DisplayIdBadge } from "./DisplayIdBadge";
+import { EvidenceFlipCard } from "./EvidenceFlipCard";
 import type { AppType, Issue, Requirement, RequirementIteration, TestCase, TestCaseModule } from "../types";
 
 type NodeKind = "requirement" | "module" | "case" | "bug";
@@ -237,12 +238,12 @@ export function ProjectTraceabilityMap({
       </div>
 
       <div className="project-traceability-health metric-strip page-metric-strip" aria-label="Traceability health metrics" role="group">
-        <span><strong>{sprintGroups.filter((group) => group.sprint.id !== "__backlog__").length}</strong> Sprints</span>
-        <span><strong>{linkedRequirementCount}/{requirements.length}</strong> Stories covered</span>
-        <span><strong>{scopedModules.length}</strong> Modules</span>
-        <span><strong>{linkedCaseCount}/{scopedCases.length}</strong> fully traced cases</span>
-        <span><strong>{connectedBugIds.size}</strong> linked Bugs</span>
-        <button aria-pressed={view === "gaps"} className={view === "gaps" ? "project-traceability-gap-filter is-active" : "project-traceability-gap-filter"} onClick={() => setView((current) => current === "gaps" ? "all" : "gaps")} type="button"><strong>{gapCount}</strong> mapping gaps</button>
+        <EvidenceFlipCard caption="Delivery windows" evidence={["Sprints represented by the currently selected application scope; Backlog is excluded."]} label="Sprints" value={sprintGroups.filter((group) => group.sprint.id !== "__backlog__").length} />
+        <EvidenceFlipCard caption="Story traceability" evidence={[`${linkedRequirementCount} of ${requirements.length} Stories connect to downstream Test Case evidence.`]} label="Stories covered" tone={linkedRequirementCount === requirements.length ? "success" : "warning"} value={`${linkedRequirementCount}/${requirements.length}`} />
+        <EvidenceFlipCard caption="Coverage structure" evidence={[`${scopedModules.length} modules organize the selected application's Test Case scope.`]} label="Modules" value={scopedModules.length} />
+        <EvidenceFlipCard caption="End-to-end paths" evidence={[`${linkedCaseCount} of ${scopedCases.length} Test Cases connect to a Story and traceability path.`]} label="Fully traced cases" tone={linkedCaseCount === scopedCases.length ? "success" : "warning"} value={`${linkedCaseCount}/${scopedCases.length}`} />
+        <EvidenceFlipCard caption="Defect evidence" evidence={[`${connectedBugIds.size} distinct Bugs are linked into the visible Story-to-Test Case paths.`]} label="Linked Bugs" tone={connectedBugIds.size ? "warning" : "success"} value={connectedBugIds.size} />
+        <EvidenceFlipCard actionLabel={view === "gaps" ? "Show all paths" : "Show mapping gaps"} caption="Open filter from evidence" evidence={[`${gapCount} visible paths are missing a downstream Story, module, Test Case, or Bug mapping.`]} label="Mapping gaps" onAction={() => setView((current) => current === "gaps" ? "all" : "gaps")} tone={gapCount ? "danger" : "success"} value={gapCount} />
       </div>
 
       <div className="project-traceability-sprints" aria-label="Sprint traceability paths">

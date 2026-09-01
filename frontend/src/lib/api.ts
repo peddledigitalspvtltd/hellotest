@@ -772,6 +772,7 @@ export const api = {
       requirement_id?: string;
       module_id?: string;
       aria_label?: string;
+      additional_context?: string;
     }) => request<AiRichTextRephraseResponse>("/ai/rich-text-rephrase", {
       method: "POST",
       body: JSON.stringify(input)
@@ -782,7 +783,7 @@ export const api = {
       request<QualityDashboardGadgetResult>("/analytics/jql", { method: "POST", body: JSON.stringify(input) }),
     queryBatch: (input: { project_id: string; gadgets: QualityDashboardGadget[]; limit?: number }) =>
       request<QualityDashboardBatchResponse>("/analytics/jql-batch", { method: "POST", body: JSON.stringify(input) }),
-    designDashboard: (input: { project_id: string; stakeholder: "executive" | "product" | "quality" | "automation"; release?: string; goal?: string; prompt?: string; name?: string }) =>
+    designDashboard: (input: { project_id: string; stakeholder: "executive" | "product" | "quality" | "automation"; release?: string; goal?: string; prompt?: string; name?: string; additional_context?: string }) =>
       request<QualityDashboardDesignPreviewResponse>("/analytics/dashboard-design-preview", { method: "POST", body: JSON.stringify(input) })
   },
   qualityDashboards: {
@@ -1088,6 +1089,7 @@ export const api = {
       integration_id?: string;
       description?: string;
       description_html?: string;
+      additional_context?: string;
       requirement?: {
         id?: string | null;
         display_id?: string | null;
@@ -1339,7 +1341,7 @@ export const api = {
           signal: options?.signal
         }),
       getSession: (id: string) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`),
-      sendMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string }, options?: { signal?: AbortSignal }) =>
+      sendMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal }) =>
         request<KnowledgeAssistantMessageResponse>(`/knowledge/assistant/sessions/${id}/messages`, {
           method: "POST",
           body: JSON.stringify(input),
@@ -1376,7 +1378,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input)
     }),
-    previewAiTriage: (input: { project_id: string; issue_ids: string[]; integration_id?: string; prompt_guidance?: string }) =>
+    previewAiTriage: (input: {
+      project_id: string;
+      issue_ids: string[];
+      integration_id?: string;
+      prompt_guidance?: string;
+      smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string };
+    }) =>
       request<import("../types").AiBugTriagePreview>("/feedback/ai-triage-preview", {
         method: "POST",
         body: JSON.stringify(input)
@@ -1933,9 +1941,9 @@ export const api = {
       request<SharedStepGroup[]>(`/shared-step-groups${toQueryString(query)}`),
     get: (id: string) =>
       request<SharedStepGroup>(`/shared-step-groups/${id}`),
-    create: (input: { app_type_id: string; name: string; description?: string; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }) =>
+    create: (input: { app_type_id: string; name: string; description?: string; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }) =>
       request<{ id: string }>("/shared-step-groups", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ app_type_id: string; name: string; description: string; parameter_values: Record<string, string>; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; name: string; description: string; authoring_mode: "structured" | "gherkin"; gherkin_document: string; parameter_values: Record<string, string>; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }>) =>
       request<SharedStepGroup>(`/shared-step-groups/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/shared-step-groups/${id}`, { method: "DELETE" })
   },
@@ -1964,7 +1972,7 @@ export const api = {
       request<{ id: string }>("/test-data-sets", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ project_id: string; app_type_id: string; name: string; description: string; mode: TestDataSetMode; columns: string[]; rows: Array<Record<string, string>> }>) =>
       request<TestDataSet>(`/test-data-sets/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    previewAiData: (input: { project_id: string; app_type_id?: string; prompt: string; field_context?: string; sample_count?: number; prompt_instruction?: string; integration_id?: string }) =>
+    previewAiData: (input: { project_id: string; app_type_id?: string; prompt: string; field_context?: string; sample_count?: number; prompt_instruction?: string; integration_id?: string; additional_context?: string }) =>
       request<AiTestDataGenerationPreviewResponse>("/test-data-sets/ai-generate-preview", { method: "POST", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-data-sets/${id}`, { method: "DELETE" })
   },
@@ -2068,6 +2076,12 @@ export const api = {
       agent_id: string;
       prompt: string;
       context_scopes: string[];
+      smart_context?: {
+        query: string;
+        source_ids?: string[];
+        source_kinds?: string[];
+        reviewed_context?: string;
+      };
       integration_id?: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
     }) => request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {

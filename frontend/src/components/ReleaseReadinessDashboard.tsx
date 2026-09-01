@@ -38,6 +38,7 @@ import {
 } from "../lib/releaseReadiness";
 import type { ExecutionResult } from "../types";
 import { AiInsightPreviewDialog, type AiPreviewFinding } from "./AiInsightPreviewDialog";
+import { EvidenceFlipCard } from "./EvidenceFlipCard";
 import { ReleaseReadinessIcon } from "./AppIcons";
 import { LoadingState } from "./LoadingState";
 import { MetricMethodologyInfo } from "./MetricMethodologyInfo";
@@ -125,18 +126,18 @@ function MetricCard({
   progress?: number;
   methodology?: ReactNode;
 }) {
+  const mappedTone = tone === "green" ? "success" : tone === "amber" ? "warning" : tone === "red" ? "danger" : "info";
   return (
-    <article className={`readiness-metric-card is-${tone}`}>
-      <span className="readiness-metric-icon" aria-hidden="true">{icon}</span>
-      <div>
-        <span className="readiness-metric-label-row"><span className="readiness-metric-label">{label}</span>{methodology}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-        {typeof progress === "number"
-          ? <progress aria-label={`${label}: ${progress}%`} max={100} value={Math.max(0, Math.min(100, progress))} />
-          : null}
-      </div>
-    </article>
+    <EvidenceFlipCard
+      caption={typeof progress === "number" ? `${Math.max(0, Math.min(100, Math.round(progress)))}% measured` : "Open for evidence"}
+      className={`readiness-metric-flip-card is-${tone}`}
+      evidence={[detail, methodology].filter(Boolean) as ReactNode[]}
+      frontIcon={icon}
+      label={label}
+      maxEvidenceItems={3}
+      tone={mappedTone}
+      value={value}
+    />
   );
 }
 

@@ -8,7 +8,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
 import { AppTypeInlineValue } from "./AppTypeDropdown";
 import { AppErrorBoundary } from "./AppErrorBoundary";
-import { BacklogIcon, RefreshIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
+import { AiAgentsIcon, BacklogIcon, RefreshIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
 import { LoadingState } from "./LoadingState";
 import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
@@ -102,7 +102,7 @@ const navigation = [
         to: WORKSPACE_ROUTES.agenticWorkflows,
         label: "Agentic Workflows",
         shortLabel: "Agents",
-        icon: WorkflowIcon,
+        icon: AiAgentsIcon,
         featureKeys: ["hellotest.ai.agentic_workflows"],
         disabledWhenNoProjects: true
       },
@@ -1226,13 +1226,13 @@ function getWorkspaceSubItemIcon(icon?: string) {
     case "shared":
       return SharedStepsIcon;
     case "suites":
-      return LayersIcon;
+      return TestSuiteIcon;
     case "executions":
       return RunIcon;
     case "automation":
       return AutomationIcon;
     case "agents":
-      return WorkflowIcon;
+      return AiAgentsIcon;
     case "repository":
       return LayersIcon;
     case "playwright":
@@ -1268,19 +1268,6 @@ function RunIcon() {
 
 function ActivityIcon() {
   return <IconFrame><path d="M4 12h3l2-6 4 12 2-6h5" /></IconFrame>;
-}
-
-function WorkflowIcon() {
-  return (
-    <IconFrame>
-      <circle cx="6" cy="7" r="2.5" />
-      <circle cx="18" cy="7" r="2.5" />
-      <circle cx="12" cy="18" r="2.5" />
-      <path d="M8.3 8.5 11 15.7" />
-      <path d="M15.7 8.5 13 15.7" />
-      <path d="M8.5 7h7" />
-    </IconFrame>
-  );
 }
 
 function AutomationIcon() {

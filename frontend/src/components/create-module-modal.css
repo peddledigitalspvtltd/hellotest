@@ -13,16 +13,16 @@
   --create-module-surface: var(--hellotest-dialog-surface, #ffffff);
   --create-module-subtle: var(--hellotest-dialog-surface-subtle, #f7f8f9);
   align-items: center !important;
-  padding: 24px !important;
+  padding: 16px !important;
   overflow: hidden !important;
 }
 
 .modal-backdrop > .test-case-create-module-modal {
   display: grid !important;
-  width: min(1280px, calc(100vw - 48px)) !important;
-  height: min(820px, calc(100dvh - 48px)) !important;
-  max-width: 1280px !important;
-  max-height: calc(100dvh - 48px) !important;
+  width: min(1480px, calc(100vw - 32px)) !important;
+  height: min(880px, calc(100dvh - 32px)) !important;
+  max-width: 1480px !important;
+  max-height: calc(100dvh - 32px) !important;
   grid-template-rows: 72px minmax(0, 1fr) 76px;
   flex: none !important;
   margin: auto !important;
@@ -109,7 +109,7 @@
   display: grid !important;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: clamp(360px, 31vw, 410px) minmax(0, 1fr) !important;
+  grid-template-columns: clamp(320px, 25vw, 380px) minmax(0, 1fr) !important;
   gap: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
@@ -140,8 +140,11 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 28px !important;
-  overflow: hidden !important;
+  padding: 24px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: auto;
+  scrollbar-gutter: stable;
   background: var(--create-module-subtle) !important;
   border: 0 !important;
 }
@@ -301,7 +304,8 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  flex: 1 1 auto;
+  min-height: clamp(330px, 46vh, 480px);
+  flex: 0 0 auto;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0 !important;
   overflow: hidden;
@@ -467,7 +471,8 @@
   padding: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
   background: var(--create-module-surface);
   border: 0;
   border-radius: 0 0 10px 10px;
@@ -670,7 +675,7 @@
 .test-case-create-module-modal .test-case-create-module-requirements {
   display: grid;
   min-width: 0;
-  gap: 12px;
+  gap: 6px;
 }
 
 .test-case-create-module-modal .test-case-create-module-requirement-heading {
@@ -689,14 +694,14 @@
 }
 
 .test-case-create-module-modal .test-case-create-module-requirement-panel {
-  height: 276px;
-  min-height: 276px;
+  height: clamp(340px, 43vh, 430px);
+  min-height: 340px;
   flex: none;
   border-radius: 9px;
 }
 
 .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 42px auto;
   gap: 8px;
   padding: 10px;
 }
@@ -715,11 +720,11 @@
 }
 
 .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
-  grid-column: 1 / -1;
+  grid-column: auto;
   justify-content: flex-end;
-  padding: 7px 0 0;
-  border-top: 1px solid var(--create-module-border);
-  border-left: 0;
+  padding: 0 0 0 8px;
+  border-top: 0;
+  border-left: 1px solid var(--create-module-border);
 }
 
 .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions .ghost-button {
@@ -927,7 +932,7 @@
 
 @media (max-width: 1180px) and (min-width: 961px) {
   .test-case-create-module-modal .test-case-create-module-body {
-    grid-template-columns: clamp(340px, 35vw, 380px) minmax(0, 1fr) !important;
+    grid-template-columns: clamp(300px, 29vw, 340px) minmax(0, 1fr) !important;
   }
 
   .test-case-create-module-modal .test-case-create-module-details,
@@ -1281,12 +1286,12 @@
   }
 
   .test-case-create-module-modal .test-case-create-module-requirement-panel {
-    height: 300px;
-    min-height: 300px;
+    height: 360px;
+    min-height: 360px;
   }
 
   .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
-    grid-template-columns: minmax(0, 1fr) 42px;
+    grid-template-columns: minmax(0, 1fr) 42px auto;
   }
 
   .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-filter-wrap {
@@ -1294,7 +1299,7 @@
   }
 
   .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
-    grid-column: 1 / -1;
+    grid-column: auto;
     justify-content: flex-end;
   }
 
@@ -1352,6 +1357,21 @@
 
 :root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-selection-actions .ghost-button:hover:not(:disabled) {
   background: #17345f;
+}
+
+/* Final narrow-pane authority; the tablet rules occur earlier in this file. */
+@media (max-width: 640px) {
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding: 7px 0 0;
+    border-top: 1px solid var(--create-module-border);
+    border-left: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

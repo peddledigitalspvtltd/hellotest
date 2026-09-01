@@ -23,13 +23,13 @@ const selectSharedStepGroup = db.prepare(`
 `);
 
 const insertSharedStepGroup = db.prepare(`
-  INSERT INTO shared_step_groups (id, display_id, app_type_id, name, description, steps, parameter_values, created_by, updated_by)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO shared_step_groups (id, display_id, app_type_id, name, description, authoring_mode, gherkin_document, steps, parameter_values, created_by, updated_by)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateSharedStepGroup = db.prepare(`
   UPDATE shared_step_groups
-  SET app_type_id = ?, name = ?, description = ?, steps = ?, parameter_values = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, name = ?, description = ?, authoring_mode = ?, gherkin_document = ?, steps = ?, parameter_values = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -60,6 +60,8 @@ const normalizeText = (value) => {
   const normalized = value.trim();
   return normalized ? normalized : null;
 };
+
+const normalizeAuthoringMode = (value) => value === "gherkin" ? "gherkin" : "structured";
 
 const normalizeSteps = (steps = []) => {
   if (!Array.isArray(steps)) {
@@ -124,6 +126,8 @@ const hydrateSharedStepGroup = (group, usageMap = {}) => {
 
   return {
     ...group,
+    authoring_mode: normalizeAuthoringMode(group.authoring_mode),
+    gherkin_document: typeof group.gherkin_document === "string" ? group.gherkin_document : null,
     steps,
     parameter_values: parameterValues,
     step_count: steps.length,
@@ -187,7 +191,7 @@ exports.getSharedStepGroup = async (id) => {
   return hydrateSharedStepGroup(group, usageMap);
 };
 
-exports.createSharedStepGroup = async ({ app_type_id, name, description, steps = [], parameter_values = {}, created_by }) => {
+exports.createSharedStepGroup = async ({ app_type_id, name, description, authoring_mode, gherkin_document, steps = [], parameter_values = {}, created_by }) => {
   const appType = await ensureAppTypeExists(app_type_id);
   await mobileFeatureService.assertAuthoringMobileFeatureEnabled({ app_type_id: appType.id, payload: steps });
   const resolvedName = normalizeText(name);
@@ -206,6 +210,8 @@ exports.createSharedStepGroup = async ({ app_type_id, name, description, steps =
     appType.id,
     resolvedName,
     normalizeText(description),
+    normalizeAuthoringMode(authoring_mode),
+    normalizeText(gherkin_document),
     normalizedSteps,
     normalizeParameterValues(parameter_values),
     normalizeText(created_by),
@@ -232,6 +238,8 @@ exports.updateSharedStepGroup = async (id, data = {}) => {
     resolvedAppType.id,
     resolvedName,
     data.description !== undefined ? normalizeText(data.description) : existing.description,
+    data.authoring_mode !== undefined ? normalizeAuthoringMode(data.authoring_mode) : normalizeAuthoringMode(existing.authoring_mode),
+    data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : existing.gherkin_document,
     data.steps !== undefined ? normalizeSteps(data.steps) : existing.steps,
     data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : existing.parameter_values,
     normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,

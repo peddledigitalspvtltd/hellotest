@@ -71,7 +71,10 @@ test("Context Studio builds exact application-record scopes and distinguishes st
 });
 
 test("Context Studio exposes hybrid retrieval, citations, reusable collections, exact job states, and source readiness", async () => {
-  const studio = await readSource("../src/components/KnowledgeContextStudio.tsx");
+  const [studio, styles] = await Promise.all([
+    readSource("../src/components/KnowledgeContextStudio.tsx"),
+    readSource("../src/components/KnowledgeContextStudio.css")
+  ]);
 
   assert.match(studio, /"hybrid"/);
   assert.match(studio, /Search & validate/);
@@ -93,6 +96,9 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /max_extractable_bytes/);
   assert.match(studio, /result\.source_kind !== "product_help"/);
   assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\)/);
+  assert.match(studio, /IconLoader2[\s\S]*knowledge-processing-spinner/);
+  assert.doesNotMatch(studio, /loading-state-spinner/);
+  assert.match(styles, /\.knowledge-processing-spinner \{[\s\S]*width: 1rem;[\s\S]*height: 1rem;/);
   assert.doesNotMatch(studio, /job\.error(?!s)/);
 });
 
@@ -107,10 +113,13 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
   assert.match(assistant, /Current project only/);
   assert.match(assistant, /all project sources \+ HelloTest help/);
-  assert.match(assistant, /const apiSourceKinds = requestSourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
+  assert.match(assistant, /const apiSourceKinds = useMemo\(\(\) => sourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
+  assert.match(assistant, /const requestApiSourceKinds = requestSourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
   assert.match(assistant, /"product_help"/);
-  assert.match(assistant, /requestSourceKinds\.includes\("text"\) \? \["knowledge_item"\]/);
-  assert.match(assistant, /source_kinds: apiSourceKinds/);
+  assert.match(assistant, /sourceKinds\.includes\("text"\) \? \["knowledge_item"\]/);
+  assert.match(assistant, /source_kinds: requestApiSourceKinds/);
+  assert.doesNotMatch(assistant, /<SmartContextWorkbench/);
+  assert.doesNotMatch(assistant, /Smart Context/);
   assert.match(assistant, /api\.knowledgeRepo\.assistant\.listIntegrations\(projectId\)/);
   assert.match(assistant, /integration\.scope === "workspace"/);
   assert.match(assistant, /integration\.scope === "project" && integration\.project_id === projectId/);
@@ -139,6 +148,56 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /Retry this turn/);
   assert.match(assistant, /grounded-assistant-agent-status/);
   assert.match(shell, /<GroundedAssistant \/>/);
+});
+
+test("Smart Context is reviewable, project-governed, and restricted to approved AI and agentic workflows", async () => {
+  const [workbench, promptPanel, experience, workflows, sharedSteps, richText, testData, dashboard, issues, storyStudio, executions, api, designStudio] = await Promise.all([
+    readSource("../src/components/SmartContextWorkbench.tsx"),
+    readSource("../src/components/AiPromptContextPanel.tsx"),
+    readSource("../src/components/AgenticExperience.tsx"),
+    readSource("../src/pages/AgenticWorkflowsPage.tsx"),
+    readSource("../src/pages/SharedStepsPage.tsx"),
+    readSource("../src/components/RichTextEditor.tsx"),
+    readSource("../src/pages/TestEnvironmentPage.tsx"),
+    readSource("../src/components/CustomQualityDashboard.tsx"),
+    readSource("../src/pages/IssuesPage.tsx"),
+    readSource("../src/components/StoryAiStudioShell.tsx"),
+    readSource("../src/pages/ExecutionsPage.tsx"),
+    readSource("../src/lib/api.ts"),
+    readSource("../src/lib/aiDesignStudio.ts")
+  ]);
+
+  assert.match(workbench, /hasPermission\(session, "knowledge\.view", projectId/);
+  assert.match(workbench, /areFeatureFlagsEnabled\(featureFlagsQuery\.data, \["hellotest\.ai\.knowledge"\]\)/);
+  assert.match(workbench, /api\.knowledgeRepo\.search\(\{[\s\S]*mode: "hybrid"/);
+  assert.match(workbench, /Project ACL enforced/);
+  assert.match(workbench, /Retrieved evidence/);
+  assert.match(workbench, /type="checkbox"/);
+  assert.match(workbench, /Select all/);
+  assert.match(workbench, /aria-label="Editable Smart Context"/);
+  assert.match(workbench, /Only this reviewed pack is applied/);
+  assert.match(workbench, /HELLOTEST_SMART_CONTEXT_START/);
+  assert.match(workbench, /sourceIds, sourceKinds, chunkIds/);
+
+  assert.match(promptPanel, /<SmartContextWorkbench/);
+  assert.match(experience, /enableSmartContext \? \([\s\S]*<SmartContextWorkbench/);
+  assert.match(issues, /agentName="Bug Reporter"[\s\S]*enableSmartContext/);
+  assert.doesNotMatch(issues, /<SmartContextWorkbench/);
+  assert.doesNotMatch(issues, /aiBugTriageSmartContext/);
+  assert.match(storyStudio, /agentName=\{agentName\}[\s\S]*enableSmartContext/);
+  assert.match(executions, /agentName="Smart Run Planner"[\s\S]*enableSmartContext/);
+  assert.doesNotMatch(sharedSteps, /<SmartContextWorkbench/);
+  assert.doesNotMatch(richText, /<SmartContextWorkbench/);
+  assert.doesNotMatch(testData, /<SmartContextWorkbench/);
+  assert.doesNotMatch(dashboard, /<SmartContextWorkbench/);
+  assert.match(workflows, /smart_context: assistantSmartContext \?/);
+  assert.match(workflows, /source_ids: assistantSmartContext\.sourceIds/);
+  assert.match(workflows, /reviewed_context: assistantSmartContext\.contextText/);
+  assert.match(workflows, /knowledgeQuery: selection\.query/);
+  assert.match(api, /smart_context\?: \{[\s\S]*source_ids\?: string\[\][\s\S]*reviewed_context\?: string/);
+  assert.match(api, /sendMessage:[\s\S]*smart_context\?:/);
+  assert.match(designStudio, /export const replaceSmartContextPack/);
+  assert.match(designStudio, /const base = stripSmartContextPack\(current\)/);
 });
 
 test("Knowledge embeddings and governed assistant prompt are configurable without moving secrets", async () => {

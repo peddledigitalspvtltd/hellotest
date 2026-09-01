@@ -369,39 +369,25 @@
   margin: 0 0 14px;
 }
 
-.suite-authoring-modal .suite-reference-picker-search {
-  display: flex;
+.suite-authoring-modal .suite-reference-picker-toolbar .catalog-search-filter {
+  width: 100%;
   min-width: 0;
-  height: 42px;
-  align-items: center;
-  gap: 9px;
-  margin: 0;
-  padding: 0 12px;
-  color: var(--create-suite-muted);
+}
+
+.suite-authoring-modal .suite-reference-picker-toolbar .catalog-search-field input {
+  min-height: 42px;
+  padding-left: 38px;
+  padding-right: 50px;
+  color: var(--create-suite-ink);
   background: var(--create-suite-surface);
   border: 1px solid var(--create-suite-border);
   border-radius: 7px;
 }
 
-.suite-authoring-modal .suite-reference-picker-search:focus-within {
-  color: #0c66e4;
+.suite-authoring-modal .suite-reference-picker-toolbar .catalog-search-field:focus-within input {
   border-color: #0c66e4;
   outline: 2px solid rgba(12, 102, 228, 0.22);
   outline-offset: 0;
-}
-
-.suite-authoring-modal .suite-reference-picker-search input {
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  color: var(--create-suite-ink);
-  font-size: 13px;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  box-shadow: none;
 }
 
 .suite-authoring-modal .suite-reference-picker-selection-actions {
@@ -884,7 +870,7 @@
   .suite-authoring-modal .suite-create-header,
   .suite-authoring-modal .suite-reference-config,
   .suite-authoring-modal .suite-modal-picker-shell,
-  .suite-authoring-modal .suite-reference-picker-search,
+  .suite-authoring-modal .suite-reference-picker-toolbar .catalog-search-field input,
   .suite-authoring-modal .suite-reference-case-table,
   .suite-authoring-modal .suite-reference-case-row,
   .suite-authoring-modal .suite-reference-pro-tip,

@@ -25,7 +25,7 @@ import {
 import { toJpeg } from "html-to-image";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, SelectionToggleIcon, TrashIcon } from "../components/AppIcons";
 import { AppTypeDropdown, AppTypeIcon, AppTypeInlineValue, normalizeAppTypeKind } from "../components/AppTypeDropdown";
 import { api } from "../lib/api";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
@@ -38,6 +38,7 @@ import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { DialogCloseButton } from "../components/DialogCloseButton";
 import { EvidenceFlipCard } from "../components/EvidenceFlipCard";
 import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
+import { PageHeader } from "../components/PageHeader";
 import { FormField } from "../components/FormField";
 import { LoadingState } from "../components/LoadingState";
 import { JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
@@ -2340,12 +2341,16 @@ export function ProjectsPage() {
         tone={messageTone}
       />
 
+      <PageHeader
+        className={["projects-page-header", focusedProject ? "page-header--workspace-context" : ""].filter(Boolean).join(" ")}
+        eyebrow="Portfolio"
+        title="Projects"
+        description="Create and govern project workspaces, application scope, membership, traceability, and portfolio quality from one place."
+      />
+
       {!focusedProject ? (
         <>
-          <section className="projects-command-card">
-            <div className="projects-command-copy">
-              <h2 className="page-header-title">Projects</h2>
-            </div>
+          <section className="projects-command-card projects-command-card--evidence" aria-label="Portfolio health evidence">
             <div className="projects-command-insight">
               <EvidenceFlipCard
                 autoResetMs={12_000}
@@ -3473,6 +3478,7 @@ export function ProjectsPage() {
                         onClick={selectAllProjectDraftMembers}
                         type="button"
                       >
+                        <SelectionToggleIcon checked />
                         Select all
                       </button>
                       <button
@@ -3481,6 +3487,7 @@ export function ProjectsPage() {
                         onClick={clearProjectDraftMembers}
                         type="button"
                       >
+                        <SelectionToggleIcon checked={false} />
                         Clear
                       </button>
                     </div>

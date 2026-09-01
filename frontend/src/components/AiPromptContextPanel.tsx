@@ -1,13 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { IconPhotoPlus } from "@tabler/icons-react";
-import { FileAddIcon, SparkIcon, TrashIcon, UploadIcon } from "./AppIcons";
+import { FileAddIcon, TrashIcon, UploadIcon } from "./AppIcons";
 import { AiPromptTemplatePicker, type AiPromptScope } from "./AiPromptTemplatePicker";
 import { FormField } from "./FormField";
+import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import {
   buildFileContextSection,
-  buildKnowledgeContextSection,
   buildRequirementContextSection,
-  mergeAiContextPack
+  replaceSmartContextPack,
+  stripSmartContextPack
 } from "../lib/aiDesignStudio";
 import type { AiDesignImageInput, Requirement } from "../types";
 import "./AiPromptContextPanel.css";
@@ -97,37 +98,33 @@ export function AiPromptContextPanel({
     return () => onBusyChange?.(false);
   }, [isBuildingContext, onBusyChange]);
 
-  const buildSmartContext = async () => {
+  const applySmartContext = async (selection: SmartContextSelection) => {
     setIsBuildingContext(true);
     setContextMessage("");
     setContextMessageTone("info");
 
     try {
-      const query = requirements.slice(0, 8).map((item) => item.title).filter(Boolean).join(" ");
-      const knowledgePackage = projectId
-        ? await (await import("../lib/api")).api.knowledgeRepo.contextPackage(projectId, { app_type_id: appTypeId, query })
-        : { knowledge: [] };
       const fileContext = await buildFileContextSection(contextFiles);
       if (fileContext.overLimit) {
         setContextMessageTone("warning");
         setContextMessage(`Attachment limit exceeded. ${fileContext.blocked.join(" ")}`);
-        return;
+        throw new Error(`Attachment limit exceeded. ${fileContext.blocked.join(" ")}`);
       }
-      onAdditionalContextChange(mergeAiContextPack(additionalContext, [
-        "HelloTest smart context pack: use this material as supporting evidence and preserve human review before applying changes.",
+      onAdditionalContextChange(replaceSmartContextPack(additionalContext, [
         buildRequirementContextSection(requirements),
-        buildKnowledgeContextSection(knowledgePackage.knowledge || []),
+        selection.contextText,
         fileContext.section
-      ]));
+      ].filter(Boolean).join("\n\n")));
       setContextMessage([
         requirements.length ? `${requirements.length} ${requirements.length === 1 ? "story" : "stories"}` : "",
-        `${(knowledgePackage.knowledge || []).length} knowledge item${(knowledgePackage.knowledge || []).length === 1 ? "" : "s"}`,
+        `${selection.resultCount} reviewed Knowledge Repo source${selection.resultCount === 1 ? "" : "s"}`,
         fileContext.section ? `file context compressed ${fileContext.totalOriginalChars.toLocaleString()}→${fileContext.totalPackedChars.toLocaleString()} chars` : "",
         fileContext.skipped.length ? `Skipped ${fileContext.skipped.length}` : ""
       ].filter(Boolean).join(" · "));
     } catch (error) {
       setContextMessageTone("warning");
       setContextMessage(error instanceof Error ? error.message : "Unable to build smart context.");
+      throw error;
     } finally {
       setIsBuildingContext(false);
     }
@@ -137,13 +134,27 @@ export function AiPromptContextPanel({
     <section className="ai-studio-panel ai-prompt-context-panel">
       <div aria-label="Additional context" className="ai-prompt-context-head">
         <span>Context engine</span>
-        <AiPromptTemplatePicker
-          appTypeId={appTypeId}
-          disabled={disabled}
-          onApply={onAdditionalContextChange}
-          projectId={projectId}
-          scope={promptScope}
-        />
+        <div className="ai-prompt-context-head-actions">
+          <AiPromptTemplatePicker
+            appTypeId={appTypeId}
+            disabled={disabled}
+            onApply={onAdditionalContextChange}
+            projectId={projectId}
+            scope={promptScope}
+          />
+          <SmartContextWorkbench
+            appTypeId={appTypeId}
+            buttonClassName="primary-button compact ai-smart-context-button"
+            buttonLabel={isBuildingContext ? "Applying…" : "Smart Context"}
+            disabled={disabled || isBuildingContext}
+            initialQuery={[
+              requirements.slice(0, 8).map((item) => `${item.title} ${item.description || ""}`).join(" "),
+              stripSmartContextPack(additionalContext)
+            ].filter(Boolean).join(" ")}
+            onApply={applySmartContext}
+            projectId={projectId}
+          />
+        </div>
       </div>
 
       <div aria-label="Context types" className="ai-prompt-context-tabs" role="tablist">
@@ -231,15 +242,6 @@ export function AiPromptContextPanel({
               <UploadIcon />
               <span>{contextFiles.length ? `${contextFiles.length} file${contextFiles.length === 1 ? "" : "s"}` : "Add files"}</span>
             </label>
-            <button
-              className="primary-button compact ai-smart-context-button"
-              disabled={disabled || isBuildingContext}
-              onClick={() => void buildSmartContext()}
-              type="button"
-            >
-              <SparkIcon />
-              <span>{isBuildingContext ? "Packing..." : "Build context"}</span>
-            </button>
           </div>
           {contextMessage ? <span className={contextMessageTone === "warning" ? "ai-smart-context-note is-warning" : "ai-smart-context-note"}>{contextMessage}</span> : null}
         </div>

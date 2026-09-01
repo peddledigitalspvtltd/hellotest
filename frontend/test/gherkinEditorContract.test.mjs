@@ -3,12 +3,14 @@ import test from "node:test";
 
 import {
   composeGherkinDocument,
+  gherkinToStructuredCase,
   matchGherkinKeyword,
   replaceGherkinBackground,
   replaceGherkinExamples,
   replaceGherkinScenarios,
   resolveGherkinParameterText,
   splitGherkinDocument,
+  structuredCaseToGherkin,
   tokenizeGherkinInlineText
 } from "../src/lib/gherkin.ts";
 import { readFile } from "node:fs/promises";
@@ -102,8 +104,12 @@ test("shared Gherkin editor supports accessible preview and edit presentations",
   assert.match(editor, /role=\{readOnly \? "region" : undefined\}/);
   assert.match(styles, /--gherkin-section:/);
   assert.match(styles, /--gherkin-code-bg:\s*#ffffff/);
-  assert.match(styles, /--gherkin-code-text:\s*#101214/);
-  assert.match(styles, /--gherkin-step:\s*#8f3f71/);
+  assert.match(styles, /--gherkin-code-text:\s*#15181d/);
+  assert.match(styles, /--gherkin-step:\s*#7a1f5c/);
+  assert.match(styles, /--gherkin-tag:\s*#5b35a8/);
+  assert.match(styles, /--gherkin-comment:\s*#4f5d6b/);
+  assert.match(styles, /--gherkin-code-font-size:\s*0\.92rem/);
+  assert.match(styles, /--gherkin-code-line-size:\s*1\.65rem/);
   assert.match(styles, /:root\[data-theme="dark"\] \.gherkin-editor \{[\s\S]*?--gherkin-code-text:\s*#f0f3f6;[\s\S]*?--gherkin-code-bg:\s*#14171c;/);
   assert.match(styles, /--speckit-code-bg:\s*#ffffff/);
   assert.match(styles, /--speckit-code-text:\s*#101214/);
@@ -113,6 +119,10 @@ test("shared Gherkin editor supports accessible preview and edit presentations",
   assert.match(styles, /\.gherkin-editor\.is-compact/);
   assert.match(styles, /\.gherkin-section-card\.is-scenarios/);
   assert.match(styles, /\.gherkin-active-line/);
+  assert.match(styles, /\.gherkin-highlight \.is-section-keyword \{[^}]*font-weight:\s*850;/);
+  assert.match(styles, /\.gherkin-highlight \.is-step-keyword \{[^}]*font-weight:\s*850;/);
+  assert.match(styles, /\.shared-gherkin-keyword select \{[\s\S]*?font-size:\s*0\.88rem;/);
+  assert.match(styles, /:root\[data-theme="dark"\] \.shared-gherkin-keyword\.is-given select/);
   assert.match(styles, /\.gherkin-scenario-region/);
   assert.match(styles, /@media \(forced-colors: active\)/);
   assert.match(styles, /\.test-case-workspace-shell \.test-case-details-form \.gherkin-code-shell textarea \{[\s\S]*?background:\s*transparent !important;[\s\S]*?-webkit-text-fill-color:\s*transparent !important;/);
@@ -216,6 +226,34 @@ test("Gherkin draft composition preserves an editable trailing keyword space", (
   const sections = splitGherkinDocument("Feature: Login\n\nScenario: Sign in\n  Given an account");
   const next = replaceGherkinBackground(sections, "Background:\n  Given ");
   assert.match(composeGherkinDocument(next), /Background:\n  Given \n\nScenario:/);
+});
+
+test("structured and Gherkin test cases preserve preconditions, actions, outcomes, and data rows", () => {
+  const gherkin = structuredCaseToGherkin({
+    title: "Customer sign in",
+    preconditions: [{ action: "a customer account exists", expected_result: "" }],
+    steps: [
+      { action: "the customer submits credentials", expected_result: "access is granted" },
+      { action: "the customer opens the profile", expected_result: "the profile is displayed" }
+    ],
+    columns: ["email", "role"],
+    rows: [{ email: "qa@example.test", role: "owner" }]
+  });
+
+  assert.match(gherkin, /Background:\n\s+Given a customer account exists/);
+  assert.match(gherkin, /Scenario Outline: Customer sign in/);
+  assert.equal((gherkin.match(/^\s+When /gm) || []).length, 2);
+  assert.equal((gherkin.match(/^\s+Then /gm) || []).length, 2);
+  assert.match(gherkin, /Examples:[\s\S]*\| email \| role \|[\s\S]*\| qa@example\.test \| owner \|/);
+
+  const structured = gherkinToStructuredCase(gherkin);
+  assert.deepEqual(structured.preconditions, [{ action: "a customer account exists", expected_result: "" }]);
+  assert.deepEqual(structured.steps, [
+    { action: "the customer submits credentials", expected_result: "access is granted" },
+    { action: "the customer opens the profile", expected_result: "the profile is displayed" }
+  ]);
+  assert.deepEqual(structured.exampleColumns, ["email", "role"]);
+  assert.deepEqual(structured.exampleRows, [{ email: "qa@example.test", role: "owner" }]);
 });
 
 test("Story and Test Case surfaces share the editor without destructive format switching", async () => {

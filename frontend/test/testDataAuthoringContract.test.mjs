@@ -48,7 +48,7 @@ test("Test Case tiles keep every detail while progress bars lead modern metric c
   const card = page.slice(cardStart, cardEnd);
 
   assert.ok(cardStart >= 0 && cardEnd > cardStart);
-  for (const detail of ["Story", "Steps", "Type", "Test Quality", "Failed", "Automation readiness", "Stability", "test-case-ai-note"]) {
+  for (const detail of ["Story", "Steps", "Defect density", "Test Quality", "Failed", "Automation readiness", "Stability", "test-case-ai-note"]) {
     assert.match(card, new RegExp(detail));
   }
   assert.ok(card.indexOf("test-case-readiness-grid") < card.indexOf("test-case-tile-metrics"));

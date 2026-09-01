@@ -401,7 +401,9 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       restriction_reason: !knowledgeFeatureEnabled ? "feature_disabled" : "permission_denied"
     };
   }
-  const legacyKnowledge = await exports.searchKnowledge(projectId, {
+  const hasExplicitRagScope = [options.source_ids, options.collection_ids, options.source_kinds]
+    .some((value) => Array.isArray(value) && value.length);
+  const legacyKnowledge = hasExplicitRagScope ? [] : await exports.searchKnowledge(projectId, {
     app_type_id: options.app_type_id,
     asset_type: options.asset_type,
     module_name: options.module_name,
@@ -413,17 +415,24 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
   });
   const sanitizedLegacyKnowledge = legacyKnowledge.map(sanitizeLegacyKnowledgeForContext);
   let ragKnowledge = [];
+  let retrievalSummary = null;
+  let retrievalGuardrails = knowledgeRagService.ASSISTANT_GUARDRAILS;
   if (normalizeSearchText(options.query)) {
     const retrieval = await knowledgeRagService.search({
       projectId,
       query: options.query,
       limit: Math.min(12, Number(options.limit || 12)),
       filters: {
-        app_type_id: options.app_type_id || undefined
+        app_type_id: options.app_type_id || undefined,
+        collection_ids: options.collection_ids,
+        source_ids: options.source_ids,
+        source_kinds: options.source_kinds
       },
       user: options.user,
       allowedSourcePermissions: options.allowed_source_permissions
     });
+    retrievalSummary = retrieval.retrieval;
+    retrievalGuardrails = retrieval.guardrails;
     ragKnowledge = retrieval.results.map((hit) => ({
       id: hit.source_id,
       project_id: projectId,
@@ -485,7 +494,14 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       priority: options.priority || null
     },
     knowledge,
-    related_context: relatedContexts
+    related_context: relatedContexts,
+    retrieval: retrievalSummary,
+    guardrails: retrievalGuardrails,
+    context_fingerprint: fingerprint(knowledge.map((item) => ({
+      id: item.id,
+      chunk_id: item.metadata?.chunk_id || null,
+      version_hash: item.metadata?.citation?.version_hash || null
+    })))
   };
 };
 

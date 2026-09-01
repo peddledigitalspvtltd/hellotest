@@ -16,6 +16,14 @@
   font-weight: 650;
 }
 
+.ai-prompt-context-head-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .ai-prompt-context-tabs {
   display: grid;
   grid-auto-columns: minmax(0, 1fr);

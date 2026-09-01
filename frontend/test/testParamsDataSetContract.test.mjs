@@ -117,6 +117,12 @@ test("Test Case authoring names case-level values Test Params and merges linked 
   assert.match(dialog, /Inherited from \$\{parameter\.sourceLabel\}/);
   assert.match(dialog, /Resolved preview/);
   assert.match(dialog, /Reset to Data Set value/);
+  assert.match(dialog, /<TestDataIcon size=\{17\}/);
+  assert.match(dialog, /aria-label=\{`Data utility for \$\{parameter\.token\}`\}/);
+  assert.match(dialog, /<optgroup label="Data utilities">/);
+  assert.match(dialog, /Create custom utility…/);
+  assert.doesNotMatch(dialog, /StepParameterUtilityIcon/);
+  assert.match(dialog, /scopeLabels\?\.\[parameter\.scope\] \|\| parameter\.scopeLabel/);
   assert.match(linkedModal, /buildDataSetParameterValues/);
   assert.match(linkedModal, /title="Test Params"/);
   assert.match(linkedModal, /parameterValues=\{resolvedParameterValues\}/);

@@ -70,6 +70,8 @@ test("accumulated author, dataset, execution snapshot, and Module scope changes 
     assert.match(source, /data_set_row_snapshot JSONB/);
     assert.match(source, /CREATE TABLE IF NOT EXISTS test_case_module_requirements/);
     assert.match(source, /idx_test_case_module_requirements_module_sort/);
+    assert.match(source, /authoring_mode TEXT NOT NULL DEFAULT 'structured'/);
+    assert.match(source, /gherkin_document TEXT/);
   }
 
   assert.match(bootstrap, /INSERT INTO test_case_data_set_link_archive/);
@@ -79,6 +81,9 @@ test("accumulated author, dataset, execution snapshot, and Module scope changes 
   assert.match(testCaseService, /syncDataSetMappings\(id, payload\.test_data_set_ids\)/);
   assert.match(moduleService, /test_case_module_requirements/);
   assert.match(moduleService, /requirement_ids = \[\]/);
+  const sharedStepGroupService = await readSource("../src/services/sharedStepGroup.service.js");
+  assert.match(sharedStepGroupService, /normalizeAuthoringMode/);
+  assert.match(sharedStepGroupService, /authoring_mode, gherkin_document, steps/);
   assert.match(executionService, /test_data_set_snapshot/);
   assert.match(executionService, /data_set_source/);
 

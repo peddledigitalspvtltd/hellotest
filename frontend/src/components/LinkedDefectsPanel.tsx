@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { BugIcon, ClearSelectionIcon, SearchIcon, SelectAllIcon } from "./AppIcons";
+import { BugIcon, SearchIcon, SelectionToggleIcon } from "./AppIcons";
 import { LoadingState } from "./LoadingState";
 import { StatusBadge } from "./StatusBadge";
 import { api } from "../lib/api";
@@ -127,7 +127,7 @@ export function LinkedDefectsPanel({
           onClick={() => setSelectedIds((current) => [...new Set([...current, ...visibleDefectIds])])}
           type="button"
         >
-          <SelectAllIcon />
+          <SelectionToggleIcon checked />
           <span>Select all</span>
         </button>
         <button
@@ -136,7 +136,7 @@ export function LinkedDefectsPanel({
           onClick={() => setSelectedIds([])}
           type="button"
         >
-          <ClearSelectionIcon />
+          <SelectionToggleIcon checked={false} />
           <span>Clear</span>
         </button>
         <button
@@ -149,7 +149,6 @@ export function LinkedDefectsPanel({
           }}
           type="button"
         >
-          <ClearSelectionIcon />
           <span>Clear filters</span>
         </button>
         <button

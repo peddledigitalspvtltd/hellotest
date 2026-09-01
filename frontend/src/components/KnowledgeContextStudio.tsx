@@ -14,6 +14,7 @@ import {
   IconFileText,
   IconFolders,
   IconInfoCircle,
+  IconLoader2,
   IconMessageCircle,
   IconPlayerPlay,
   IconSearch,
@@ -26,6 +27,7 @@ import {
   IconX
 } from "@tabler/icons-react";
 import { api } from "../lib/api";
+import { SelectionToggleIcon } from "./AppIcons";
 import { asArray } from "../lib/collectionGuards";
 import type {
   Execution,
@@ -667,6 +669,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     }))}
                     type="button"
                   >
+                    <SelectionToggleIcon checked={!(visibleRecords.every((item) => selectedRecords[activeRecordKind].includes(item.id)) && visibleRecords.length > 0)} />
                     {visibleRecords.every((item) => selectedRecords[activeRecordKind].includes(item.id)) && visibleRecords.length ? "Clear visible" : "Select visible"}
                   </button>
                 </div>
@@ -806,7 +809,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 ))}
               </div>
               <button className="primary-button knowledge-build-submit" disabled={!canManage || !sourceCount || buildMutation.isPending} onClick={() => buildMutation.mutate()} type="button">
-                {buildMutation.isPending ? <span className="loading-state-spinner" /> : <IconSparkles size={17} />}
+                {buildMutation.isPending ? <IconLoader2 aria-hidden="true" className="knowledge-processing-spinner" size={16} stroke={2.1} /> : <IconSparkles size={17} />}
                 {buildMutation.isPending ? "Starting processing…" : "Process context"}
               </button>
               {!sourceCount ? <small className="knowledge-build-empty-note">Select at least one record, valid pasted input, or file with an extraction path.</small> : null}
@@ -965,7 +968,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               const errorMessages = (job.errors || []).map(processingNoticeText);
               return (
                 <article className={`knowledge-job-card is-${status}`} key={job.id}>
-                  <div className="knowledge-job-status-icon">{status === "completed" ? <IconCheck size={18} /> : status === "completed_with_warnings" || status === "failed" ? <IconAlertTriangle size={18} /> : <span className="loading-state-spinner" />}</div>
+                  <div className="knowledge-job-status-icon">{status === "completed" ? <IconCheck size={18} /> : status === "completed_with_warnings" || status === "failed" ? <IconAlertTriangle size={18} /> : <IconLoader2 aria-hidden="true" className="knowledge-processing-spinner" size={15} stroke={2.1} />}</div>
                   <div className="knowledge-job-body">
                     <div className="knowledge-job-head"><div><span>{submittedHere ? "Just submitted" : humanize(status)}</span><h4>{job.config?.title || `Context build ${job.id.slice(0, 8)}`}</h4></div><code>{job.id.slice(0, 12)}</code></div>
                     <div className="knowledge-job-progress" aria-label={`${progress}% complete`} role="progressbar" aria-valuemax={100} aria-valuemin={0} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>

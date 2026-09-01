@@ -36,7 +36,7 @@ import {
 } from "@tabler/icons-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ActivityIcon, AddIcon, ArchiveIcon, CalendarIcon, ClearSelectionIcon, CollapseExpandIcon, EyeIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, LayersIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SelectAllIcon, SparkIcon, TestCaseIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
+import { ActivityIcon, AddIcon, ArchiveIcon, CalendarIcon, CollapseExpandIcon, EyeIcon, ExportIcon, GithubIcon, GoogleDriveIcon, ImportIcon, LayersIcon, MailIcon, OpenIcon, PlayIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TestSuiteIcon, TrashIcon, UsersIcon } from "../components/AppIcons";
 import { AppTypeDropdown } from "../components/AppTypeDropdown";
 import { AiAssurancePanel } from "../components/AiAssurancePanel";
 import { AiInsightPreviewDialog, type AiPreviewFinding } from "../components/AiInsightPreviewDialog";
@@ -79,7 +79,7 @@ import { RunTypeSelector } from "../components/RunTypeSelector";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
-import { SuiteScopePicker } from "../components/SuiteCasePicker";
+import { SuiteScopePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
 import { TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -1768,6 +1768,16 @@ export function ExecutionsPage() {
     queryFn: () => api.requirements.list({ project_id: projectId }),
     enabled: Boolean(projectId)
   });
+  const executionModulesQuery = useQuery({
+    queryKey: ["test-case-modules", "execution-builder", appTypeId],
+    queryFn: () => api.testCaseModules.list({ app_type_id: appTypeId }),
+    enabled: Boolean(appTypeId && (isCreateExecutionModalOpen || isCreateScheduleModalOpen))
+  });
+  const executionSharedGroupsQuery = useQuery({
+    queryKey: ["shared-step-groups", "execution-builder", appTypeId],
+    queryFn: () => api.sharedStepGroups.list({ app_type_id: appTypeId }),
+    enabled: Boolean(appTypeId && (isCreateExecutionModalOpen || isCreateScheduleModalOpen))
+  });
   const shouldLoadExecutionDeliveryScope = Boolean(
     projectId
     && (isCreateExecutionModalOpen || isCreateScheduleModalOpen || hasCreateExecutionDeepLink)
@@ -1959,6 +1969,39 @@ export function ExecutionsPage() {
   const bugs = asArray<Issue>(bugsQuery.data);
   const smartExecutionLibraryCases = asArray(smartExecutionCasesQuery.data);
   const scopeSuites = asArray(scopedSuitesQuery.data);
+  const executionModules = asArray(executionModulesQuery.data);
+  const executionSharedGroups = asArray(executionSharedGroupsQuery.data);
+  const executionPickerMetadataByCaseId = useMemo<SuitePickerMetadataByCaseId>(() => {
+    const metadata: SuitePickerMetadataByCaseId = {};
+    const ensure = (testCaseId: string) => (metadata[testCaseId] ||= { modules: [], requirements: [], suites: [], sharedStepGroups: [] });
+    const moduleById = new Map(executionModules.map((module) => [module.id, module]));
+    const addModuleMetadata = (testCaseId: string, moduleId: string) => {
+      const module = moduleById.get(moduleId);
+      if (module) ensure(testCaseId).modules?.push(module.display_id ? `${module.display_id} · ${module.name}` : module.name);
+    };
+    executionModules.forEach((module) => (module.test_case_ids || []).forEach((testCaseId) => addModuleMetadata(testCaseId, module.id)));
+    smartExecutionLibraryCases.forEach((testCase) => (testCase.module_ids || []).forEach((moduleId) => addModuleMetadata(testCase.id, moduleId)));
+    requirements.forEach((requirement) => (requirement.test_case_ids || []).forEach((testCaseId) => ensure(testCaseId).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title)));
+    smartExecutionLibraryCases.forEach((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).filter(Boolean).forEach((requirementId) => {
+      const requirement = requirements.find((item) => item.id === requirementId);
+      if (requirement) ensure(testCase.id).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title);
+    }));
+    executionSharedGroups.forEach((group) => (group.used_test_cases || []).forEach((testCase) => ensure(testCase.id).sharedStepGroups?.push(group.display_id ? `${group.display_id} · ${group.name}` : group.name)));
+    const suiteById = new Map(scopeSuites.map((suite) => [suite.id, suite]));
+    const addSuiteMetadata = (testCaseId: string, suiteId: string) => {
+      const suite = suiteById.get(suiteId);
+      if (suite) ensure(testCaseId).suites?.push(suite.display_id ? `${suite.display_id} · ${suite.name}` : suite.name);
+    };
+    scopeSuites.forEach((suite) => (suite.test_case_ids || []).forEach((testCaseId) => addSuiteMetadata(testCaseId, suite.id)));
+    smartExecutionLibraryCases.forEach((testCase) => (testCase.suite_ids || [testCase.suite_id]).filter((suiteId): suiteId is string => Boolean(suiteId)).forEach((suiteId) => addSuiteMetadata(testCase.id, suiteId)));
+    Object.values(metadata).forEach((entry) => {
+      entry.modules = Array.from(new Set(entry.modules));
+      entry.requirements = Array.from(new Set(entry.requirements));
+      entry.suites = Array.from(new Set(entry.suites));
+      entry.sharedStepGroups = Array.from(new Set(entry.sharedStepGroups));
+    });
+    return metadata;
+  }, [executionModules, executionSharedGroups, requirements, scopeSuites, smartExecutionLibraryCases]);
   const executionResults = asArray(executionResultsQuery.data);
   const allExecutionResults = asArray(allExecutionResultsQuery.data);
   const integrations = useMemo(
@@ -10050,6 +10093,7 @@ export function ExecutionsPage() {
           isPreviewingSmartExecution={previewSmartExecution.isPending}
           isSubmitting={createExecution.isPending}
           libraryCases={smartExecutionLibraryCases}
+          metadataByCaseId={executionPickerMetadataByCaseId}
           onAssigneeChange={setSelectedExecutionAssigneeIds}
           onConfigurationChange={handleExecutionConfigurationChange}
           onDataSetChange={handleExecutionDataSetChange}
@@ -10148,6 +10192,8 @@ export function ExecutionsPage() {
           projectId={projectId}
           projectName={selectedProject?.name || ""}
           scopeSuites={scopeSuites}
+          testCases={smartExecutionLibraryCases}
+          metadataByCaseId={executionPickerMetadataByCaseId}
           selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
           selectedDataSetId={selectedExecutionDataSetId}
@@ -11385,13 +11431,7 @@ function TestCaseBoardIcon() {
 }
 
 function ExecutionSuiteIcon() {
-  return (
-    <ExecutionIconShell>
-      <path d="m12 4 8 4-8 4-8-4Z" />
-      <path d="m4 12 8 4 8-4" />
-      <path d="m4 16 8 4 8-4" />
-    </ExecutionIconShell>
-  );
+  return <TestSuiteIcon size={14} />;
 }
 
 function ExecutionScopeIcon() {
@@ -12781,6 +12821,7 @@ export function ExecutionCreateModal({
   integrations,
   executionHookDraft,
   libraryCases,
+  metadataByCaseId = {},
   smartExecutionIntegrationId,
   smartExecutionReleaseScope,
   smartExecutionAdditionalContext,
@@ -12855,6 +12896,7 @@ export function ExecutionCreateModal({
   integrations: Integration[];
   executionHookDraft: ExecutionHookDraft;
   libraryCases: TestCase[];
+  metadataByCaseId?: SuitePickerMetadataByCaseId;
   smartExecutionIntegrationId: string;
   smartExecutionReleaseScope: string;
   smartExecutionAdditionalContext: string;
@@ -12900,7 +12942,6 @@ export function ExecutionCreateModal({
     closeDisabled: isSubmitting || isPreviewingSmartExecution,
     onClose
   });
-  const [suiteSearch, setSuiteSearch] = useState("");
   const [smartEvidenceView, setSmartEvidenceView] = useState<{ kind: "plan" } | { kind: "case"; caseId: string } | null>(null);
   const [areSmartHooksOpen, setAreSmartHooksOpen] = useState(Boolean(executionHookDraft.length));
   const isSmartMode = canUseRunAi && executionCreateMode === "smart";
@@ -12968,20 +13009,7 @@ export function ExecutionCreateModal({
       : "Impacted Stories: none explicitly selected.",
     "Discuss risk signals, missing scope evidence, prioritization questions, and candidate coverage. Clearly separate delivery evidence from recommendations."
   ].filter(Boolean).join("\n").slice(0, 3_800);
-  const normalizedSuiteSearch = suiteSearch.trim().toLowerCase();
-  const filteredScopeSuites = normalizedSuiteSearch
-    ? scopeSuites.filter((suite) =>
-        [
-          suite.display_id || "",
-          suite.name,
-          ...(suite.labels || [])
-        ].some((value) => value.toLowerCase().includes(normalizedSuiteSearch))
-      )
-    : scopeSuites;
   const selectedSuiteIdSet = new Set(selectedSuiteIds);
-  const areAllVisibleSuitesSelected =
-    Boolean(filteredScopeSuites.length)
-    && filteredScopeSuites.every((suite) => selectedSuiteIdSet.has(suite.id));
   const selectedSuiteCaseIds = new Set(
     scopeSuites
       .filter((suite) => selectedSuiteIdSet.has(suite.id))
@@ -13005,16 +13033,6 @@ export function ExecutionCreateModal({
   const estimatedDurationLabel = estimatedDurationSampleCount
     ? formatDuration(estimatedDurationMs, "Not estimated")
     : "Not estimated";
-  const toggleSuiteSelection = (suiteId: string) => {
-    onSuiteSelectionChange(
-      selectedSuiteIdSet.has(suiteId)
-        ? selectedSuiteIds.filter((id) => id !== suiteId)
-        : [...selectedSuiteIds, suiteId]
-    );
-  };
-  const selectAllVisibleSuites = () => {
-    onSuiteSelectionChange(Array.from(new Set([...selectedSuiteIds, ...filteredScopeSuites.map((suite) => suite.id)])));
-  };
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && !isPreviewingSmartExecution && onClose()} role="presentation">
       <div
@@ -13248,6 +13266,7 @@ export function ExecutionCreateModal({
               <div className="execution-smart-agent-workspace">
                 <AiFeatureComposer
                   agentName="Smart Run Planner"
+                  enableSmartContext
                   allowEmptyPrompt
                   briefItems={[
                     {
@@ -13349,6 +13368,7 @@ export function ExecutionCreateModal({
                             onClick={() => onSelectAllSmartExecutionRequirements(filteredSmartRequirementOptions.map((requirement) => requirement.id))}
                             type="button"
                           >
+                            <SelectionToggleIcon checked />
                             Select visible
                           </button>
                           <button
@@ -13357,6 +13377,7 @@ export function ExecutionCreateModal({
                             onClick={onClearSmartExecutionRequirements}
                             type="button"
                           >
+                            <SelectionToggleIcon checked={false} />
                             Clear
                           </button>
                         </div>
@@ -13497,6 +13518,7 @@ export function ExecutionCreateModal({
                       onClick={onSelectAllSmartExecutionCases}
                       type="button"
                     >
+                      <SelectionToggleIcon checked />
                       Select all
                     </button>
                     <button
@@ -13505,6 +13527,7 @@ export function ExecutionCreateModal({
                       onClick={onClearSmartExecutionCases}
                       type="button"
                     >
+                      <SelectionToggleIcon checked={false} />
                       Clear
                     </button>
                   </div>
@@ -13637,78 +13660,16 @@ export function ExecutionCreateModal({
               </div>
             ) : (
               <section className="execution-suite-selection" aria-label="Available suites">
-                <div className="execution-suite-selection-toolbar">
-                  <label className="execution-suite-search">
-                    <IconSearch aria-hidden="true" size={19} stroke={1.8} />
-                    <input
-                      aria-label="Filter available suites"
-                      placeholder="Filter available suites by title or tag..."
-                      value={suiteSearch}
-                      onChange={(event) => setSuiteSearch(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    className="ghost-button execution-suite-selection-action"
-                    disabled={!filteredScopeSuites.length || areAllVisibleSuitesSelected}
-                    onClick={selectAllVisibleSuites}
-                    type="button"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    className="ghost-button execution-suite-selection-action"
-                    disabled={!selectedSuiteIds.length}
-                    onClick={() => onSuiteSelectionChange([])}
-                    type="button"
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <div className="execution-suite-card-list">
-                  {filteredScopeSuites.map((suite) => {
-                    const isSelected = selectedSuiteIdSet.has(suite.id);
-                    const suiteCaseCount = suite.test_case_ids?.length || 0;
-
-                    return (
-                      <label className={isSelected ? "execution-suite-card is-selected" : "execution-suite-card"} key={suite.id}>
-                        <input
-                          checked={isSelected}
-                          onChange={() => toggleSuiteSelection(suite.id)}
-                          type="checkbox"
-                        />
-                        <div className="execution-suite-card-copy">
-                          <strong>{suite.name}</strong>
-                          <span>
-                            {suite.labels?.length
-                              ? `Reusable coverage tagged ${suite.labels.join(", ")}.`
-                              : "Reusable suite captured as a stable execution snapshot."}
-                          </span>
-                          <div className="execution-suite-card-metrics">
-                            <span>
-                              <IconCheckbox aria-hidden="true" size={14} stroke={1.8} />
-                              {suiteCaseCount} test{suiteCaseCount === 1 ? "" : "s"}
-                            </span>
-                            {suite.display_id ? <span>{suite.display_id}</span> : null}
-                          </div>
-                        </div>
-                        {suite.labels?.length ? (
-                          <span className="execution-suite-tag">{suite.labels[0]}</span>
-                        ) : null}
-                      </label>
-                    );
-                  })}
-
-                  {!scopeSuites.length && appTypeId ? (
-                    <div className="empty-state compact">No suites are available for this app type. Create a suite first.</div>
-                  ) : null}
-                  {scopeSuites.length && !filteredScopeSuites.length ? (
-                    <div className="empty-state compact">No suites match this search.</div>
-                  ) : null}
-                  {!appTypeId ? (
-                    <div className="empty-state compact">Select an application type to load reusable suites.</div>
-                  ) : null}
-                </div>
+                <SuiteScopePicker
+                  description="Filter the run scope by test case, module, requirement, label, suite, or Shared Step Group metadata. Search is scoped to the selected metadata type."
+                  emptyMessage={appTypeId ? "No suites are available for this app type. Create a suite first." : "Select an application type to load reusable suites."}
+                  heading="Available run scope"
+                  metadataByCaseId={metadataByCaseId}
+                  onChange={onSuiteSelectionChange}
+                  selectedSuiteIds={selectedSuiteIds}
+                  suites={scopeSuites}
+                  testCases={libraryCases}
+                />
               </section>
             )}
 
@@ -13886,6 +13847,8 @@ function CreateExecutionScheduleModal({
   appTypeId,
   appTypeName,
   scopeSuites,
+  testCases,
+  metadataByCaseId,
   selectedSuiteIds,
   executionName,
   selectedEnvironmentId,
@@ -13923,6 +13886,8 @@ function CreateExecutionScheduleModal({
   appTypeId: string;
   appTypeName: string;
   scopeSuites: TestSuite[];
+  testCases: TestCase[];
+  metadataByCaseId: SuitePickerMetadataByCaseId;
   selectedSuiteIds: string[];
   executionName: string;
   selectedEnvironmentId: string;
@@ -14082,6 +14047,8 @@ function CreateExecutionScheduleModal({
                 onChange={onSuiteSelectionChange}
                 selectedSuiteIds={selectedSuiteIds}
                 suites={scopeSuites}
+                testCases={testCases}
+                metadataByCaseId={metadataByCaseId}
               />
             </FormField>
           </div>

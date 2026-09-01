@@ -298,6 +298,7 @@ export function StoryAiStudioShell({
           <div className="story-studio-agent-composer">
             <AiFeatureComposer
               agentName={agentName}
+              enableSmartContext
               allowEmptyPrompt
               briefCollapsible
               briefItems={[

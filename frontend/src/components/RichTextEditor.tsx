@@ -23,7 +23,7 @@ type RichTextEditorProps = {
   className?: string;
   appearance?: "standard" | "canonical";
   toolbarPreset?: "default" | "sprint-goal";
-  onAiRephrase?: (html: string, plainText: string) => Promise<string | void> | string | void;
+  onAiRephrase?: (html: string, plainText: string, smartContext?: string) => Promise<string | void> | string | void;
   onAttachmentRequest?: () => void;
   aiRephraseTitle?: string;
   aiRephraseContext?: {

@@ -2,7 +2,7 @@ import { DragEvent, FormEvent, useEffect, useId, useMemo, useRef, useState, type
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AddIcon, CollapseExpandIcon, EyeIcon, LayersIcon, TagIcon, TestCaseIcon, TestDataIcon } from "../components/AppIcons";
+import { AddIcon, CollapseExpandIcon, EyeIcon, LayersIcon, ModuleIcon, TagIcon, TestCaseIcon, TestDataIcon } from "../components/AppIcons";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { CreateRunActionButton } from "../components/CreateRunActionButton";
@@ -33,7 +33,7 @@ import {
 } from "../components/TileCardPrimitives";
 import { RunHooksBuilder, type RunHookSelection } from "../components/RunHooksBuilder";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
-import { SuiteCasePicker, SuiteScopePicker } from "../components/SuiteCasePicker";
+import { SuiteCasePicker, SuiteScopePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -666,6 +666,37 @@ export function DesignPage() {
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
   const sharedGroups = asArray(sharedGroupsQuery.data);
+  const suitePickerMetadataByCaseId = useMemo<SuitePickerMetadataByCaseId>(() => {
+    const metadata: SuitePickerMetadataByCaseId = {};
+    const ensure = (testCaseId: string) => (metadata[testCaseId] ||= { modules: [], requirements: [], suites: [], sharedStepGroups: [] });
+    const moduleById = new Map(testCaseModules.map((module) => [module.id, module]));
+    const addModuleMetadata = (testCaseId: string, moduleId: string) => {
+      const module = moduleById.get(moduleId);
+      if (module) ensure(testCaseId).modules?.push(module.display_id ? `${module.display_id} · ${module.name}` : module.name);
+    };
+    testCaseModules.forEach((module) => (module.test_case_ids || []).forEach((testCaseId) => addModuleMetadata(testCaseId, module.id)));
+    allTestCases.forEach((testCase) => (testCase.module_ids || []).forEach((moduleId) => addModuleMetadata(testCase.id, moduleId)));
+    requirements.forEach((requirement) => (requirement.test_case_ids || []).forEach((testCaseId) => ensure(testCaseId).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title)));
+    allTestCases.forEach((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).filter(Boolean).forEach((requirementId) => {
+      const requirement = requirements.find((item) => item.id === requirementId);
+      if (requirement) ensure(testCase.id).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title);
+    }));
+    sharedGroups.forEach((group) => (group.used_test_cases || []).forEach((testCase) => ensure(testCase.id).sharedStepGroups?.push(group.display_id ? `${group.display_id} · ${group.name}` : group.name)));
+    const suiteById = new Map(suites.map((suite) => [suite.id, suite]));
+    const addSuiteMetadata = (testCaseId: string, suiteId: string) => {
+      const suite = suiteById.get(suiteId);
+      if (suite) ensure(testCaseId).suites?.push(suite.display_id ? `${suite.display_id} · ${suite.name}` : suite.name);
+    };
+    suites.forEach((suite) => (suite.test_case_ids || []).forEach((testCaseId) => addSuiteMetadata(testCaseId, suite.id)));
+    allTestCases.forEach((testCase) => (testCase.suite_ids || [testCase.suite_id]).filter((suiteId): suiteId is string => Boolean(suiteId)).forEach((suiteId) => addSuiteMetadata(testCase.id, suiteId)));
+    Object.values(metadata).forEach((entry) => {
+      entry.modules = Array.from(new Set(entry.modules));
+      entry.requirements = Array.from(new Set(entry.requirements));
+      entry.suites = Array.from(new Set(entry.suites));
+      entry.sharedStepGroups = Array.from(new Set(entry.sharedStepGroups));
+    });
+    return metadata;
+  }, [allTestCases, requirements, sharedGroups, suites, testCaseModules]);
   const selectedSuite = suites.find((suite) => suite.id === selectedSuiteId) || null;
   const syncSuiteSearchParams = (suiteId?: string | null) => {
     const currentSuiteId = searchParams.get("suite") || "";
@@ -1831,23 +1862,20 @@ export function DesignPage() {
       totalSteps
     };
   }, [appTypeCases, historyByCaseId, stepCountByCaseId, suites.length]);
-  const showSuiteTilesHeader = !selectedSuiteId;
-
   return (
     <div className="page-content page-content--library-full">
       {confirmationDialog}
-      {showSuiteTilesHeader ? (
-        <PageHeader
-          eyebrow="Test Design"
-          title="Test Suites"
-          description="Shape suite structure, assign reusable cases, and keep executable design tidy enough for fast run handoff."
-          meta={[
-            { label: "Suites", value: designMetrics.totalSuites },
-            { label: "Cases", value: designMetrics.totalCases },
-            { label: "Steps", value: designMetrics.totalSteps }
-          ]}
-        />
-      ) : null}
+      <PageHeader
+        className={selectedSuiteId ? "page-header--workspace-context" : ""}
+        eyebrow="Test Authoring"
+        title="Test Suites"
+        description="Organize executable coverage into reusable Suites, manage linked Test Cases, and keep run handoff governed and ready."
+        meta={[
+          { label: "Suites", value: designMetrics.totalSuites },
+          { label: "Cases", value: designMetrics.totalCases },
+          { label: "Steps", value: designMetrics.totalSteps }
+        ]}
+      />
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
@@ -2045,6 +2073,7 @@ export function DesignPage() {
           scopeSuites={suites}
           selectedSuiteIds={selectedSuiteActionIds}
           testCases={allTestCases}
+          metadataByCaseId={suitePickerMetadataByCaseId}
         />
       ) : null}
 
@@ -2057,6 +2086,7 @@ export function DesignPage() {
           availableLabels={existingSuiteLabels}
           canConfigureParallelAutomation={canConfigureParallelAutomation}
           moduleLabelByCaseId={suitePickerModuleLabelByCaseId}
+          metadataByCaseId={suitePickerMetadataByCaseId}
           selectedCaseIds={suiteModalMode === "edit" ? orderedSuiteCases.map((testCase) => testCase.id) : []}
           onClose={() => setIsSuiteModalOpen(false)}
           onSubmit={handleSuiteSave}
@@ -2630,7 +2660,7 @@ function TestCaseList({
         >
           <CollapseExpandIcon isExpanded={isExpanded} />
         </button>
-        <span className="suite-module-group-icon"><LayersIcon /></span>
+        <span className="suite-module-group-icon"><ModuleIcon /></span>
         <span className="suite-module-group-copy">
           <strong>{module.name}</strong>
           <small>{module.count} cases · {module.automated} automated · {module.withRequirements} traced</small>
@@ -3053,7 +3083,7 @@ function TestCaseList({
 	                          <StatusBadge value={caseStatusLabel} />
 	                        </div>
 	                      </div>
-	                      <div className="suite-case-module-label"><LayersIcon /><span>{moduleLabel}</span></div>
+	                      <div className="suite-case-module-label"><ModuleIcon /><span>{moduleLabel}</span></div>
 	                      <div className="test-case-requirement-block">
 	                        <span className="test-case-requirement-label">
 	                          <TileCardLinkIcon />
@@ -3754,6 +3784,7 @@ function SuiteExecutionModal({
   canRunRemoteAutomation,
   executionHookDraft,
   testCases,
+  metadataByCaseId,
   canCreateExecution,
   isSubmitting,
   onAssigneeChange,
@@ -3797,6 +3828,7 @@ function SuiteExecutionModal({
   canRunRemoteAutomation: boolean;
   executionHookDraft: RunHookSelection[];
   testCases: TestCase[];
+  metadataByCaseId: SuitePickerMetadataByCaseId;
   canCreateExecution: boolean;
   isSubmitting: boolean;
   onAssigneeChange: (value: string[]) => void;
@@ -3964,6 +3996,8 @@ function SuiteExecutionModal({
                   onChange={onSuiteSelectionChange}
                   selectedSuiteIds={selectedSuiteIds}
                   suites={scopeSuites}
+                  testCases={testCases}
+                  metadataByCaseId={metadataByCaseId}
                 />
               </div>
             </FormField>
@@ -4115,6 +4149,7 @@ function SuiteModal({
   availableLabels,
   canConfigureParallelAutomation,
   moduleLabelByCaseId,
+  metadataByCaseId,
   selectedCaseIds,
   onClose,
   onSubmit,
@@ -4126,6 +4161,7 @@ function SuiteModal({
   availableLabels: string[];
   canConfigureParallelAutomation: boolean;
   moduleLabelByCaseId: Record<string, string>;
+  metadataByCaseId: SuitePickerMetadataByCaseId;
   selectedCaseIds: string[];
   onClose: () => void;
   onSubmit: (input: { name: string; description: string; labels: string[]; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => void;
@@ -4281,6 +4317,7 @@ function SuiteModal({
                 emptyMessage="No test cases available in this app type yet."
                 heading="Reusable test cases"
                 moduleLabelByCaseId={moduleLabelByCaseId}
+                metadataByCaseId={metadataByCaseId}
                 onChange={setLocalSelectedIds}
                 selectedCaseIds={localSelectedIds}
               />

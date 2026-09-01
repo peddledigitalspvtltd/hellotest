@@ -2142,15 +2142,20 @@ const search = async ({
   const normalizedMode = ["hybrid", "semantic", "keyword"].includes(mode) ? mode : "hybrid";
   const normalizedFilters = asObject(filters);
   const collectionIds = normalizeFilterIds(normalizedFilters.collection_ids || normalizedFilters.collections);
+  const requestedSourceIds = normalizeFilterIds(normalizedFilters.source_ids, 100);
+  const includeProductHelpBySource = !requestedSourceIds.length || requestedSourceIds.includes("hellotest-product-help");
+  const sourceIds = requestedSourceIds.filter((sourceId) => sourceId !== "hellotest-product-help");
   const requestedSourceKinds = [...new Set(asArray(normalizedFilters.source_kinds || normalizedFilters.source_types)
     .map((value) => String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_"))
     .filter(Boolean))].slice(0, 20);
   const normalizedRequestedSourceKinds = requestedSourceKinds
     .map((kind) => kind === "product_help" ? kind : normalizeSourceKind(kind, { fallback: null }))
     .filter(Boolean);
-  const includeProductHelp = !requestedSourceKinds.length || normalizedRequestedSourceKinds.includes("product_help");
+  const includeProductHelp = includeProductHelpBySource
+    && (!requestedSourceKinds.length || normalizedRequestedSourceKinds.includes("product_help"));
   const sourceKinds = [...new Set(normalizedRequestedSourceKinds.filter((kind) => kind !== "product_help"))];
-  const includePersistedSources = !requestedSourceKinds.length || sourceKinds.length > 0;
+  const includePersistedSources = (!requestedSourceKinds.length || sourceKinds.length > 0)
+    && (!requestedSourceIds.length || sourceIds.length > 0);
   const appTypeId = normalizeId(normalizedFilters.app_type_id) || null;
   const effectiveAllowedSourcePermissions = Array.isArray(allowedSourcePermissions)
     ? [...new Set(allowedSourcePermissions.filter((permissionCode) => Object.values(SOURCE_PERMISSION_BY_KIND).includes(permissionCode)))]
@@ -2176,6 +2181,10 @@ const search = async ({
   if (sourceKinds.length) {
     clauses.push(`sources.source_kind IN (${sourceKinds.map(() => "?").join(", ")})`);
     filterParams.push(...sourceKinds);
+  }
+  if (sourceIds.length) {
+    clauses.push(`sources.id IN (${sourceIds.map(() => "?").join(", ")})`);
+    filterParams.push(...sourceIds);
   }
   if (collectionIds.length) {
     clauses.push(`EXISTS (
@@ -2352,7 +2361,7 @@ const search = async ({
         ? "PostgreSQL full-text lexical ranking (no embedding provider call)"
         : "reciprocal-rank fusion of PostgreSQL full-text and dense retrieval",
       relevance_threshold: relevanceThreshold,
-      filters: { collection_ids: collectionIds, source_kinds: requestedSourceKinds, app_type_id: appTypeId },
+      filters: { collection_ids: collectionIds, source_kinds: requestedSourceKinds, source_ids: requestedSourceIds, app_type_id: appTypeId },
       source_acl: {
         enforced: true,
         allowed_record_permissions: effectiveAllowedSourcePermissions

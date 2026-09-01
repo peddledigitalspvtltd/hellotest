@@ -100,6 +100,7 @@ module.exports = async function (fastify) {
       stakeholder: req.body.stakeholder,
       release: req.body.release,
       prompt: req.body.prompt,
+      additionalContext: req.body.additional_context,
       userId: req.user.id
     });
   });

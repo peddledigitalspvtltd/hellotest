@@ -263,6 +263,10 @@
 .readiness-metric-card.is-red { --metric-color: var(--readiness-red); }
 .readiness-metric-card.is-blue { --metric-color: var(--readiness-blue); }
 
+.readiness-metric-grid > .readiness-metric-flip-card {
+  min-height: 10.5rem;
+}
+
 .readiness-metric-icon {
   width: 2.8rem;
   height: 2.8rem;

@@ -20,7 +20,7 @@ import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { AddIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, AiAgentsIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import {
   AgentActivityTimeline,
   AgenticCommandComposer,
@@ -34,6 +34,7 @@ import { Panel } from "../components/Panel";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
+import { SmartContextWorkbench, type SmartContextSelection } from "../components/SmartContextWorkbench";
 import { ToastMessage } from "../components/ToastMessage";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
@@ -682,6 +683,7 @@ export function AgenticWorkflowsPage() {
   const [assistantAgentId, setAssistantAgentId] = useState("quality-orchestrator");
   const [assistantPrompt, setAssistantPrompt] = useState(HELLOTEST_AGENT_CATALOG[0].prompt);
   const [assistantContextScopes, setAssistantContextScopes] = useState<string[]>(["stories", "test-cases", "automation", "runs", "bugs", "knowledge"]);
+  const [assistantSmartContext, setAssistantSmartContext] = useState<SmartContextSelection | null>(null);
   const [assistantIntegrationId, setAssistantIntegrationId] = useState("");
   const [selectedAssistantSessionId, setSelectedAssistantSessionId] = useState("");
   const [toastMessage, setToastMessage] = useState("");
@@ -696,7 +698,12 @@ export function AgenticWorkflowsPage() {
     if (!requestedAgent || requestedAgent.id === assistantAgentId) return;
     setAssistantAgentId(requestedAgent.id);
     setAssistantPrompt(requestedAgent.prompt);
+    setAssistantSmartContext(null);
   }, [activeSurface, assistantAgentId, searchParams]);
+
+  useEffect(() => {
+    setAssistantSmartContext(null);
+  }, [appTypeId, projectId]);
 
   useEffect(() => {
     const handoff = window.sessionStorage.getItem("hellotest.agentic.handoff");
@@ -923,6 +930,12 @@ export function AgenticWorkflowsPage() {
         agent_id: assistantAgentId,
         prompt: assistantPrompt,
         context_scopes: assistantContextScopes,
+        smart_context: assistantSmartContext ? {
+          query: assistantSmartContext.query,
+          source_ids: assistantSmartContext.sourceIds,
+          source_kinds: assistantSmartContext.sourceKinds,
+          reviewed_context: assistantSmartContext.contextText
+        } : undefined,
         integration_id: assistantIntegrationId || undefined
       });
     },
@@ -1168,6 +1181,7 @@ export function AgenticWorkflowsPage() {
   const selectAssistantAgent = (agent: HelloTestAgent) => {
     setAssistantAgentId(agent.id);
     setAssistantPrompt(agent.prompt);
+    setAssistantSmartContext(null);
   };
 
   const openAgentWorkbench = (agent: HelloTestAgent) => {
@@ -1218,6 +1232,9 @@ export function AgenticWorkflowsPage() {
           prompt: assistantPrompt,
           model: "Default workspace LLM",
           knowledgeScope: assistantContextScopes.join(","),
+          knowledgeQuery: assistantSmartContext?.query || assistantPrompt,
+          knowledgeSourceIds: assistantSmartContext?.sourceIds || [],
+          reviewedContextFingerprint: assistantSmartContext?.contextText ? `reviewed:${assistantSmartContext.chunkIds.join(",")}` : "",
           toolPolicy: "approved-tools-only",
           timeoutMs: "45000",
           retryCount: "1",
@@ -1283,7 +1300,13 @@ export function AgenticWorkflowsPage() {
         execution_mode: "sequential",
         snapshot_runs: true,
         human_approval_required: true,
-        context_scopes: assistantContextScopes
+        context_scopes: assistantContextScopes,
+        smart_context: assistantSmartContext ? {
+          query: assistantSmartContext.query,
+          source_ids: assistantSmartContext.sourceIds,
+          source_kinds: assistantSmartContext.sourceKinds,
+          chunk_ids: assistantSmartContext.chunkIds
+        } : null
       }
     };
     setSelectedAssistantSessionId("");
@@ -1656,7 +1679,7 @@ export function AgenticWorkflowsPage() {
             <div className="ai-agent-marketing-banner__visual" aria-hidden="true">
               <span className="ai-agent-orbit ai-agent-orbit--outer" />
               <span className="ai-agent-orbit ai-agent-orbit--inner" />
-              <span className="ai-agent-core"><SparkIcon size={28} /></span>
+              <span className="ai-agent-core"><AiAgentsIcon size={46} /></span>
               <span className="ai-agent-pulse ai-agent-pulse--one" />
               <span className="ai-agent-pulse ai-agent-pulse--two" />
               <span className="ai-agent-pulse ai-agent-pulse--three" />
@@ -1672,7 +1695,7 @@ export function AgenticWorkflowsPage() {
               {HELLOTEST_AGENT_CATALOG.map((agent) => (
                 <article className="ai-agent-specialist-card" data-agent={agent.id} key={agent.id}>
                   <header>
-                    <span className="ai-agent-specialist-card__icon">{agent.icon}</span>
+                    <span className="ai-agent-specialist-card__icon"><AiAgentsIcon size={30} /></span>
                     <span className="ai-agent-specialist-card__type">AI Specialist</span>
                   </header>
                   <div className="ai-agent-specialist-card__copy">
@@ -1713,6 +1736,7 @@ export function AgenticWorkflowsPage() {
             </div>
             <AgenticCommandComposer
               agentId={assistantAgentId}
+              appTypeId={appTypeId}
               contextScopes={assistantContextScopes}
               disabled={!projectId || !canRunAgenticWorkflows}
               integrationId={assistantIntegrationId}
@@ -1734,10 +1758,16 @@ export function AgenticWorkflowsPage() {
               onIntegrationChange={setAssistantIntegrationId}
               onModeChange={setAssistantMode}
               onPromptChange={setAssistantPrompt}
+              onSmartContextChange={(selection) => {
+                setAssistantSmartContext(selection);
+                setAssistantContextScopes((current) => current.includes("knowledge") ? current : [...current, "knowledge"]);
+              }}
               onSubmit={() => assistantMutation.mutate()}
               prompt={assistantPrompt}
+              projectId={projectId}
               running={assistantMutation.isPending}
               scopeLabel={selectedAppType?.name || selectedProject?.name || "Select a project"}
+              smartContext={assistantSmartContext}
             />
             <AgenticProcessRail
               agentName={activeAssistantName}
@@ -2274,6 +2304,31 @@ export function AgenticWorkflowsPage() {
                       <span>Prompt</span>
                       <textarea onChange={(event) => updateSelectedNode("prompt", event.target.value)} value={String(selectedNode.data.prompt || "")} />
                     </label>
+                    {isAgentNodeSelected || selectedNodeKind === "knowledgeTool" ? (
+                      <div className="agentic-smart-context-node-control">
+                        <div>
+                          <strong>Knowledge Repo grounding</strong>
+                          <span>Retrieve, inspect, and pin the permitted sources this node may use.</span>
+                        </div>
+                        <SmartContextWorkbench
+                          appTypeId={appTypeId}
+                          buttonClassName="ghost-button compact"
+                          buttonLabel={Array.isArray(selectedNode.data.knowledgeSourceIds) && selectedNode.data.knowledgeSourceIds.length ? `Smart Context · ${selectedNode.data.knowledgeSourceIds.length}` : "Smart Context"}
+                          initialQuery={[selectedNode.data.intent, selectedNode.data.prompt, selectedNode.data.summary]
+                            .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+                            .join(" ")}
+                          onApply={(selection) => updateSelectedNodeFields({
+                            knowledgeQuery: selection.query,
+                            knowledgeSourceIds: selection.sourceIds,
+                            knowledgeSourceKinds: selection.sourceKinds,
+                            reviewedContext: selection.contextText,
+                            reviewedContextFingerprint: `reviewed:${selection.chunkIds.join(",")}`,
+                            knowledgeScope: persistKnowledgeScope(`${String(selectedNode.data.knowledgeScope || "requirements,test-cases,test-runs")},knowledge`)
+                          })}
+                          projectId={projectId}
+                        />
+                      </div>
+                    ) : null}
                     {isAgentNodeSelected ? (
                       <div className="agentic-agent-contract-panel">
                         <div className="agentic-section-heading">

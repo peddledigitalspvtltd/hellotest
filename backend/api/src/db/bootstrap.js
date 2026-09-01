@@ -826,7 +826,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_test_data_sets_catalog_order ON test_data_sets (project_id, (app_type_id IS NOT NULL), name ASC, created_at DESC)`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS test_case_type TEXT NOT NULL DEFAULT 'functional'`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_test_case_type_check`,
-  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_test_case_type_check CHECK (test_case_type IN ('functional', 'regression', 'smoke', 'integration', 'acceptance', 'exploratory', 'performance', 'security', 'accessibility'))`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_test_case_type_check CHECK (test_case_type IN ('functional', 'regression', 'smoke', 'integration', 'acceptance', 'exploratory', 'performance', 'security', 'accessibility', 'ios'))`,
   `
     CREATE TABLE IF NOT EXISTS test_case_data_sets (
       test_case_id TEXT NOT NULL,
@@ -1309,6 +1309,8 @@ const statements = [
       app_type_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      authoring_mode TEXT NOT NULL DEFAULT 'structured',
+      gherkin_document TEXT,
       steps JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -1317,6 +1319,9 @@ const statements = [
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS app_type_id TEXT`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS name TEXT`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS authoring_mode TEXT NOT NULL DEFAULT 'structured'`,
+  `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS gherkin_document TEXT`,
+  `UPDATE shared_step_groups SET authoring_mode = 'structured' WHERE authoring_mode IS NULL OR authoring_mode NOT IN ('structured', 'gherkin')`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS steps JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS parameter_values JSONB`,
   `UPDATE shared_step_groups SET parameter_values = '{}'::jsonb WHERE parameter_values IS NULL`,

@@ -1,4 +1,4 @@
-import { ChangeEvent, CSSProperties, Dispatch, DragEvent as ReactDragEvent, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, Dispatch, DragEvent as ReactDragEvent, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   IconBug as InsightBugIcon,
@@ -34,7 +34,7 @@ import {
   type StoryAiStudioFieldSelection
 } from "../components/StoryAiStudioContent";
 import { StoryAiSettingsGroup, StoryAiStudioShell, type StoryAiStudioNavKey } from "../components/StoryAiStudioShell";
-import { ActivityIcon, AddIcon, BacklogIcon, BugIcon, ChevronDownIcon, ChevronRightIcon, ClearSelectionIcon, ExportIcon, ImportIcon, LayersIcon, OpenIcon, PencilIcon, SearchIcon, SelectAllIcon, SparkIcon, SprintIcon, StoryIcon, TagIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
+import { ActivityIcon, AddIcon, BacklogIcon, BugIcon, ChevronDownIcon, ChevronRightIcon, ExportIcon, ImportIcon, LayersIcon, OpenIcon, PencilIcon, SearchIcon, SelectionToggleIcon, SparkIcon, SprintIcon, StoryIcon, TagIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -60,6 +60,7 @@ import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { QualityMetricStrip } from "../components/QualityMetricStrip";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { SpecKitEditor } from "../components/SpecKitEditor";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
@@ -796,6 +797,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [requirementReleaseFilter, setRequirementReleaseFilter] = useState("all");
   const [requirementCoverageFilter, setRequirementCoverageFilter] = useState<RequirementCoverageFilter>("all");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [isCatalogViewPending, startCatalogViewTransition] = useTransition();
   const [activeTraceabilityTab, setActiveTraceabilityTab] = useState<RequirementTraceabilityTab>("details");
   const [storyGroomingByRequirementId, setStoryGroomingByRequirementId] = useState<Record<string, StoryGroomingPreviewResponse>>({});
   const [storyGroomingContextChangedByRequirementId, setStoryGroomingContextChangedByRequirementId] = useState<Record<string, boolean>>({});
@@ -4483,7 +4485,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
   };
 
-  const rephraseRequirementDescriptionWithAi = async (html: string, plainText: string, scope: "create" | "detail") => {
+  const rephraseRequirementDescriptionWithAi = async (html: string, plainText: string, scope: "create" | "detail", smartContext?: string) => {
     if (!projectId || !canUseRequirementAi) {
       showError(null, canUseRequirementAi ? "Select a project before using AI rephrase." : "Permission required to use Story AI.");
       return undefined;
@@ -4497,6 +4499,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         integration_id: integrationId || undefined,
         description: plainText,
         description_html: html,
+        additional_context: smartContext,
         requirement: {
           id: source?.id,
           display_id: source?.display_id,
@@ -5941,102 +5944,51 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   return (
     <div className="page-content page-content--library-full">
       {confirmationDialog}
+      <PageHeader
+        className={isRequirementWorkspaceOpen ? "page-header--workspace-context" : ""}
+        eyebrow="Product Management"
+        title={workspaceMode === "stories" ? "Stories" : workspaceMode === "backlog" ? "Backlog" : "Sprints"}
+        description={workspaceMode === "stories"
+          ? "Review every Story in the project across Backlog, Sprint, and Release scope from one delivery catalog."
+          : workspaceMode === "backlog"
+            ? "Refine unscheduled Stories into groomed, testable delivery scope without Sprint noise."
+            : "Plan delivery windows, monitor slippage and quality, and create Stories directly in Sprint context."}
+        meta={workspaceMode === "stories" ? [
+          { label: "All Stories", value: metrics.total },
+          { label: "Sprint committed", value: metrics.sprintCommitted },
+          { label: "Release scoped", value: metrics.releaseScoped }
+        ] : workspaceMode === "backlog" ? [
+            { label: "Backlog", value: metrics.total },
+            { label: "Groomed", value: metrics.groomed },
+            { label: "Not groomed", value: metrics.notGroomed }
+          ] : [
+            { label: "Sprint Stories", value: metrics.total },
+            { label: "Slipped", value: metrics.slipped },
+            { label: "On course", value: metrics.onCourse }
+          ]}
+      />
       {!isRequirementWorkspaceOpen ? (
         <>
-          <PageHeader
-            eyebrow="Product Management"
-            title={workspaceMode === "stories" ? "Stories" : workspaceMode === "backlog" ? "Backlog" : "Sprints"}
-            description={workspaceMode === "stories"
-              ? "Review every Story in the project across Backlog, Sprint, and Release scope from one delivery catalog."
-              : workspaceMode === "backlog"
-                ? "Refine unscheduled Stories into groomed, testable delivery scope without Sprint noise."
-                : "Plan delivery windows, monitor slippage and quality, and create Stories directly in Sprint context."}
-            meta={workspaceMode === "stories" ? [
-              { label: "All Stories", value: metrics.total },
-              { label: "Sprint committed", value: metrics.sprintCommitted },
-              { label: "Release scoped", value: metrics.releaseScoped }
-            ] : workspaceMode === "backlog" ? [
-                { label: "Backlog", value: metrics.total },
-                { label: "Groomed", value: metrics.groomed },
-                { label: "Not groomed", value: metrics.notGroomed }
-              ] : [
-                { label: "Sprint Stories", value: metrics.total },
-                { label: "Slipped", value: metrics.slipped },
-                { label: "On course", value: metrics.onCourse }
-              ]}
+          <QualityMetricStrip
+            ariaLabel="Story health metrics"
+            className={`requirements-health-strip is-${workspaceMode}`}
+            metrics={workspaceMode === "backlog" ? [
+              { label: "Grooming readiness", value: `${metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%`, progress: metrics.total ? (metrics.groomed / metrics.total) * 100 : 0, detail: `${metrics.groomed} of ${metrics.total} Stories have description, priority, status, and reviewable specification.`, tone: "info" },
+              { label: "Specification ready", value: metrics.specified, progress: metrics.total ? (metrics.specified / metrics.total) * 100 : 0, detail: `${metrics.specified} of ${metrics.total} Stories have Gherkin or Spec Kit acceptance intent ready for refinement.`, tone: "success" },
+              { label: "High-priority demand", value: metrics.highPriority, progress: metrics.total ? (metrics.highPriority / metrics.total) * 100 : 0, detail: "P1 and P2 Stories requiring Product Owner sequencing before Sprint commitment.", tone: metrics.highPriority ? "danger" : "success" },
+              { label: "Team ownership", value: metrics.teamAssigned, progress: metrics.total ? (metrics.teamAssigned / metrics.total) * 100 : 0, detail: `${Math.max(metrics.total - metrics.teamAssigned, 0)} Stories still need a Scrum team before planning.`, tone: "info" }
+            ] : workspaceMode === "stories" ? [
+              { label: "Backlog inventory", value: metrics.backlog, progress: metrics.total ? (metrics.backlog / metrics.total) * 100 : 0, detail: `${metrics.backlog} of ${metrics.total} Stories remain available for Product Owner refinement and Sprint planning.`, tone: "info" },
+              { label: "Sprint commitment", value: metrics.sprintCommitted, progress: metrics.total ? (metrics.sprintCommitted / metrics.total) * 100 : 0, detail: `${metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.`, tone: "success" },
+              { label: "Release scope", value: metrics.releaseScoped, progress: metrics.total ? (metrics.releaseScoped / metrics.total) * 100 : 0, detail: `${metrics.releaseScoped} Stories carry a Release or Fix Version for versioned delivery governance.`, tone: "info" },
+              { label: "QA completion", value: `${metrics.completionPercent}%`, progress: metrics.completionPercent, detail: `${metrics.completed} of ${metrics.qaTotal} Sprint ${metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.`, tone: "success" }
+            ] : [
+              { label: "Completion Status", value: `${metrics.completionPercent}%`, progress: metrics.completionPercent, detail: `${metrics.completed} of ${metrics.total} ${metrics.total === 1 ? "Story" : "Stories"} reached QA Done.`, tone: "info" },
+              { label: "Test Coverage", value: `${metrics.coveragePercent}%`, progress: metrics.coveragePercent, detail: `${metrics.mapped} ${metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.`, tone: "success" },
+              { label: "Bug Density", value: metrics.defectDensity.toFixed(1), progress: Math.min(100, metrics.defectDensity * 25), detail: `${metrics.totalDefects} linked bug${metrics.totalDefects === 1 ? "" : "s"} across ${metrics.total || 0} ${metrics.total === 1 ? "Story" : "Stories"}.`, tone: metrics.totalDefects ? "danger" : "success" },
+              { label: "Slippage", value: metrics.slipped, progress: metrics.total ? (metrics.slipped / metrics.total) * 100 : 0, detail: `${metrics.onCourse} of ${metrics.total} Sprint Stories are on course or complete.`, tone: metrics.slipped ? "danger" : "success" }
+            ]}
           />
-          <section className={`requirements-health-strip metric-strip page-metric-strip is-${workspaceMode}`} aria-label="Story health metrics" role="group">
-            {workspaceMode === "backlog" ? (
-              <>
-                <article className="requirements-health-card metric-ribbon-card tone-progress">
-                  <div><span>Grooming readiness</span><strong>{metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%</strong></div>
-                  <p>{metrics.groomed} of {metrics.total} Stories have description, priority, status, and reviewable specification.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                  <div><span>Specification ready</span><strong>{metrics.specified}</strong></div>
-                  <p>{metrics.specified} of {metrics.total} Stories have Gherkin or Spec Kit acceptance intent ready for refinement.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.specified / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-defects">
-                  <div><span>High-priority demand</span><strong>{metrics.highPriority}</strong></div>
-                  <p>P1 and P2 Stories requiring Product Owner sequencing before Sprint commitment.</p>
-                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.highPriority / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-progress">
-                  <div><span>Team ownership</span><strong>{metrics.teamAssigned}</strong></div>
-                  <p>{Math.max(metrics.total - metrics.teamAssigned, 0)} Stories still need a Scrum team before planning.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.teamAssigned / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-              </>
-            ) : workspaceMode === "stories" ? (
-              <>
-                <article className="requirements-health-card metric-ribbon-card tone-progress">
-                  <div><span>Backlog inventory</span><strong>{metrics.backlog}</strong></div>
-                  <p>{metrics.backlog} of {metrics.total} Stories remain available for Product Owner refinement and Sprint planning.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.backlog / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                  <div><span>Sprint commitment</span><strong>{metrics.sprintCommitted}</strong></div>
-                  <p>{metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.sprintCommitted / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-progress">
-                  <div><span>Release scope</span><strong>{metrics.releaseScoped}</strong></div>
-                  <p>{metrics.releaseScoped} Stories carry a Release or Fix Version for versioned delivery governance.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.releaseScoped / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                  <div><span>QA completion</span><strong>{metrics.completionPercent}%</strong></div>
-                  <p>{metrics.completed} of {metrics.qaTotal} Sprint {metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.completionPercent}%` }} /></div>
-                </article>
-              </>
-            ) : (
-              <>
-                <article className="requirements-health-card metric-ribbon-card tone-progress">
-                  <div><span>Completion Status</span><strong>{metrics.completionPercent}%</strong></div>
-                  <p>{metrics.completed} of {metrics.total} {metrics.total === 1 ? "Story" : "Stories"} reached QA Done.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.completionPercent}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                  <div><span>Test Coverage</span><strong>{metrics.coveragePercent}%</strong></div>
-                  <p>{metrics.mapped} {metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.</p>
-                  <div className="requirements-health-meter" aria-hidden="true"><span style={{ width: `${metrics.coveragePercent}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-defects">
-                  <div><span>Bug Density</span><strong>{metrics.defectDensity.toFixed(1)}</strong></div>
-                  <p>{metrics.totalDefects} linked bug{metrics.totalDefects === 1 ? "" : "s"} across {metrics.total || 0} {metrics.total === 1 ? "Story" : "Stories"}.</p>
-                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round(metrics.defectDensity * 25))}%` }} /></div>
-                </article>
-                <article className="requirements-health-card metric-ribbon-card tone-defects">
-                  <div><span>Slippage</span><strong>{metrics.slipped}</strong></div>
-                  <p>{metrics.onCourse} of {metrics.total} Sprint Stories are on course or complete.</p>
-                  <div className="requirements-health-meter is-density" aria-hidden="true"><span style={{ width: `${metrics.total ? Math.round((metrics.slipped / metrics.total) * 100) : 0}%` }} /></div>
-                </article>
-              </>
-            )}
-          </section>
         </>
       ) : null}
 
@@ -6051,7 +6003,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           >
             <div className="design-list-toolbar catalog-command-toolbar requirement-catalog-toolbar">
               <div className="catalog-toolbar-discovery requirement-toolbar-discovery" aria-label="Story views, search, and selection">
-                <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
+                <div aria-busy={isCatalogViewPending}><CatalogViewToggle onChange={(value) => startCatalogViewTransition(() => setCatalogViewMode(value))} value={catalogViewMode} /></div>
                 <CatalogSearchFilter
                   activeFilterCount={activeRequirementFilterCount}
                   ariaLabel="Search Stories"
@@ -6166,7 +6118,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     title={areAllFilteredRequirementsSelected ? "All visible Stories and Sprints are already selected" : "Select all visible Stories and Sprints"}
                     type="button"
                   >
-                    <SelectAllIcon />
+                    <SelectionToggleIcon checked />
                     <span>Select all</span>
                   </button>
                   <button
@@ -6176,7 +6128,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     onClick={clearRequirementCatalogState}
                     type="button"
                   >
-                    <ClearSelectionIcon />
+                    <SelectionToggleIcon checked={false} />
                     <span>Clear</span>
                   </button>
                 </div>
@@ -6753,68 +6705,57 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 />
                 {activeTraceabilityTab === "details" ? (
                   <div className="detail-section-panel">
-                {selectedRequirementHasSprint ? <section className="requirements-health-strip metric-strip page-metric-strip requirement-metric-strip" aria-label="Selected Story health metrics" role="group">
-                  <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                    <div>
-                      <span>Test coverage</span>
-                      <strong>{selectedRequirementTestCoverage}%</strong>
-                    </div>
-                    <p>{selectedTestCaseIds.length
-                      ? `${selectedTestCaseIds.length} test case${selectedTestCaseIds.length === 1 ? " is" : "s are"} linked to this Story.`
-                      : "No test cases are linked to this Story."}</p>
-                    <div className="requirements-health-meter" aria-hidden="true">
-                      <span style={{ width: `${selectedRequirementTestCoverage}%` }} />
-                    </div>
-                  </article>
-                  <article className="requirements-health-card metric-ribbon-card tone-progress">
-                    <div>
-                      <span>Pass rate</span>
-                      <strong>{selectedRequirementPassCoverage.total ? `${selectedRequirementPassCoverage.percent}%` : "—"}</strong>
-                    </div>
-                    <p>{selectedRequirementPassCoverage.total
-                      ? `${selectedRequirementPassCoverage.covered} of ${selectedRequirementPassCoverage.total} linked test cases passed.`
-                      : "No linked test cases have a pass result yet."}</p>
-                    <div className="requirements-health-meter" aria-hidden="true">
-                      <span style={{ width: `${selectedRequirementPassCoverage.percent}%` }} />
-                    </div>
-                  </article>
-                  <article className="requirements-health-card metric-ribbon-card tone-coverage">
-                    <div>
-                      <span>Automation progress</span>
-                      <strong>{selectedRequirementAutomationCoverage.complete === false ? "—" : `${selectedRequirementAutomationCoverage.percent}%`}</strong>
-                    </div>
-                    <p>{selectedRequirementAutomationCoverage.complete === false
-                      ? `${selectedRequirementAutomationCoverage.known || 0} of ${selectedRequirementAutomationCoverage.total} linked case summaries loaded.`
-                      : selectedRequirementAutomationCoverage.total
-                        ? `${selectedRequirementAutomationCoverage.covered} of ${selectedRequirementAutomationCoverage.total} linked test cases automated.`
-                        : "No linked test cases to measure automation."} Automation is informational and is not part of readiness.</p>
-                    <div className="requirements-health-meter" aria-hidden="true">
-                      <span style={{ width: `${selectedRequirementAutomationCoverage.complete === false ? 0 : selectedRequirementAutomationCoverage.percent}%` }} />
-                    </div>
-                  </article>
-                  <article className="requirements-health-card metric-ribbon-card tone-defects">
-                    <div>
-                      <span>Bug resolution</span>
-                      <strong>{selectedRequirementBugResolution.total ? `${selectedRequirementBugResolution.percent}%` : "—"}</strong>
-                    </div>
-                    <p>{selectedRequirementBugResolution.total
-                      ? `${selectedRequirementBugResolution.covered} of ${selectedRequirementBugResolution.total} linked bugs resolved.`
-                      : "No linked bugs are recorded for this Story."}</p>
-                    <div className="requirements-health-meter" aria-hidden="true">
-                      <span style={{ width: `${selectedRequirementBugResolution.percent}%` }} />
-                    </div>
-                  </article>
-                  <article className="requirements-health-card metric-ribbon-card tone-progress">
-                    <div>
-                      <span>Release readiness</span>
-                      <strong>{selectedRequirementReadiness}%</strong>
-                    </div>
-                    <p>30% test coverage + 50% latest pass rate + 20% open-Bug health.</p>
-                    <div className="requirements-health-meter" aria-hidden="true">
-                      <span style={{ width: `${selectedRequirementReadiness}%` }} />
-                    </div>
-                  </article>
-                </section> : null}
+                {selectedRequirementHasSprint ? <QualityMetricStrip
+                  ariaLabel="Selected Story health metrics"
+                  className="requirements-health-strip requirement-metric-strip"
+                  metrics={[
+                    {
+                      label: "Test coverage",
+                      value: `${selectedRequirementTestCoverage}%`,
+                      progress: selectedRequirementTestCoverage,
+                      detail: selectedTestCaseIds.length
+                        ? `${selectedTestCaseIds.length} test case${selectedTestCaseIds.length === 1 ? " is" : "s are"} linked to this Story.`
+                        : "No test cases are linked to this Story.",
+                      tone: "success"
+                    },
+                    {
+                      label: "Pass rate",
+                      value: selectedRequirementPassCoverage.total ? `${selectedRequirementPassCoverage.percent}%` : "—",
+                      progress: selectedRequirementPassCoverage.total ? selectedRequirementPassCoverage.percent : null,
+                      detail: selectedRequirementPassCoverage.total
+                        ? `${selectedRequirementPassCoverage.covered} of ${selectedRequirementPassCoverage.total} linked test cases passed.`
+                        : "No linked test cases have a pass result yet.",
+                      tone: "info"
+                    },
+                    {
+                      label: "Automation progress",
+                      value: selectedRequirementAutomationCoverage.complete === false ? "—" : `${selectedRequirementAutomationCoverage.percent}%`,
+                      progress: selectedRequirementAutomationCoverage.complete === false ? null : selectedRequirementAutomationCoverage.percent,
+                      detail: `${selectedRequirementAutomationCoverage.complete === false
+                        ? `${selectedRequirementAutomationCoverage.known || 0} of ${selectedRequirementAutomationCoverage.total} linked case summaries are available.`
+                        : selectedRequirementAutomationCoverage.total
+                          ? `${selectedRequirementAutomationCoverage.covered} of ${selectedRequirementAutomationCoverage.total} linked test cases are automated.`
+                          : "No linked test cases to measure automation."} Automation is informational and is not part of readiness.`,
+                      tone: "success"
+                    },
+                    {
+                      label: "Bug resolution",
+                      value: selectedRequirementBugResolution.total ? `${selectedRequirementBugResolution.percent}%` : "—",
+                      progress: selectedRequirementBugResolution.total ? selectedRequirementBugResolution.percent : null,
+                      detail: selectedRequirementBugResolution.total
+                        ? `${selectedRequirementBugResolution.covered} of ${selectedRequirementBugResolution.total} linked bugs resolved.`
+                        : "No linked bugs are recorded for this Story.",
+                      tone: selectedRequirementBugResolution.total && selectedRequirementBugResolution.percent < 100 ? "warning" : "success"
+                    },
+                    {
+                      label: "Release readiness",
+                      value: `${selectedRequirementReadiness}%`,
+                      progress: selectedRequirementReadiness,
+                      detail: "30% test coverage + 50% latest pass rate + 20% open-Bug health.",
+                      tone: selectedRequirementReadiness >= 80 ? "success" : selectedRequirementReadiness >= 60 ? "warning" : "danger"
+                    }
+                  ]}
+                /> : null}
                 <section aria-labelledby="story-details-heading" className="story-detail-section">
                   <header className="story-detail-section-header">
                     <h2 id="story-details-heading">Story details</h2>
@@ -6878,7 +6819,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           appearance="canonical"
                           className="story-detail-description-editor story-create-description-editor"
                           aiRephraseTitle="Rephrase Story description with AI"
-                          onAiRephrase={(html, plainText) => rephraseRequirementDescriptionWithAi(html, plainText, "detail")}
+                          onAiRephrase={(html, plainText, smartContext) => rephraseRequirementDescriptionWithAi(html, plainText, "detail", smartContext)}
                           required={jiraRequirementEditCoreRequired.description}
                           rows={4}
                           value={draft.description}
@@ -7195,7 +7136,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       className="story-create-description-editor"
                       id="create-requirement-description-input"
                       aiRephraseTitle="Rephrase Story description with AI"
-                      onAiRephrase={(html, plainText) => rephraseRequirementDescriptionWithAi(html, plainText, "create")}
+                      onAiRephrase={(html, plainText, smartContext) => rephraseRequirementDescriptionWithAi(html, plainText, "create", smartContext)}
                       placeholder="Describe the story details, acceptance criteria, etc..."
                       required={jiraRequirementCoreRequired.description}
                       rows={4}
@@ -7540,6 +7481,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                                 : "Select every backlog Story matching this search"}
                             type="button"
                           >
+                            <SelectionToggleIcon checked />
                             {areAllIterationRequirementsSelected
                               ? "All selected"
                               : isSprintBacklogPickerAutoLoading ? "Loading Stories…" : sprintBacklogPickerQuery.hasNextPage ? "Select Loaded" : "Select All"}
@@ -7553,6 +7495,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             title="Clear selected Stories"
                             type="button"
                           >
+                            <SelectionToggleIcon checked={false} />
                             Clear
                           </button>
                         </div>
@@ -8424,6 +8367,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           onClick={() => setSelectedRequirementCreationDraftIds([])}
                           type="button"
                         >
+                          <SelectionToggleIcon checked={false} />
                           Clear
                         </button>
                       </div>
@@ -9641,7 +9585,7 @@ function RequirementTestCasePicker({
           })}
           type="button"
         >
-          <SelectAllIcon />
+          <SelectionToggleIcon checked />
           <span>Select all</span>
         </button>
         <button
@@ -9650,7 +9594,7 @@ function RequirementTestCasePicker({
           onClick={() => selectedIds.forEach((testCaseId) => onToggle(testCaseId, false))}
           type="button"
         >
-          <ClearSelectionIcon />
+          <SelectionToggleIcon checked={false} />
           <span>Clear</span>
         </button>
         <button
@@ -9664,7 +9608,6 @@ function RequirementTestCasePicker({
           }}
           type="button"
         >
-          <ClearSelectionIcon />
           <span>Clear filters</span>
         </button>
 	      </div>

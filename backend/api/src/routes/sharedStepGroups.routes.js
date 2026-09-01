@@ -25,6 +25,8 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       name: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      authoring_mode: { required: false, type: "string" },
+      gherkin_document: { required: false, type: "string" },
       steps: { required: false, type: "array" },
       parameter_values: { required: false, type: "object" }
     }, req.body);
@@ -74,6 +76,8 @@ module.exports = async function (fastify) {
       app_type_id: { required: false, type: "string" },
       name: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      authoring_mode: { required: false, type: "string" },
+      gherkin_document: { required: false, type: "string" },
       steps: { required: false, type: "array" },
       parameter_values: { required: false, type: "object" }
     }, req.body);

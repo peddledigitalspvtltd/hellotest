@@ -805,13 +805,37 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     setBuilderMessage(`${deleted} selected batch process log${deleted === 1 ? "" : "s"} deleted.`);
   };
 
+  const testOpsPageHeader = view === "ops-telemetry"
+    ? {
+        eyebrow: "Quality operations",
+        title: "OPS Telemetry",
+        description: "Inspect operational events, integration health, and Test Engine signals from the active workspace context."
+      }
+    : view === "traces"
+      ? {
+          eyebrow: "Quality operations",
+          title: "Traces",
+          description: "Follow distributed execution traces and correlated runtime evidence across HelloTest services."
+        }
+      : view === "automation-builder"
+        ? {
+            eyebrow: "Quality operations",
+            title: "Automation Builder",
+            description: "Turn selected manual Test Cases into reviewable automation builds with visible processing evidence."
+          }
+        : {
+            eyebrow: "Quality operations",
+            title: "Batch Process",
+            description: "Monitor background automation builds, imports, exports, reports, and Test Engine jobs without leaving HelloTest."
+          };
+
   return (
     <div className="page-content page-content--testops">
       {confirmationDialog}
       <PageHeader
-        eyebrow="Quality operations"
-        title="TestOps"
-        description="Monitor background automation builds, imports, exports, reports, Test Engine jobs, and OPS telemetry without leaving HelloTest."
+        eyebrow={testOpsPageHeader.eyebrow}
+        title={testOpsPageHeader.title}
+        description={testOpsPageHeader.description}
         meta={[
           { label: "Batch records", value: batchTransactions.length },
           { label: "Running", value: runningCount },

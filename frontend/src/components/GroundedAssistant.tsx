@@ -166,6 +166,13 @@ export function GroundedAssistant() {
   const activeRequestIntegration = assistantIntegrations.find((integration) => integration.id === activeRequestIntegrationId)
     || assistantIntegrations.find((integration) => integration.id === selectedIntegrationId)
     || null;
+  const apiSourceKinds = useMemo(() => sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length
+    ? undefined
+    : Array.from(new Set([
+        ...sourceKinds,
+        "product_help",
+        ...(sourceKinds.includes("text") ? ["knowledge_item"] : [])
+      ])), [sourceKinds]);
 
   const createSessionMutation = useMutation({
     mutationFn: ({ appId, integrationId, project, signal }: { appId: string; integrationId: string; project: string; signal: AbortSignal }) =>
@@ -177,12 +184,13 @@ export function GroundedAssistant() {
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, signal }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; signal: AbortSignal }) =>
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, signal }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; signal: AbortSignal }) =>
       api.knowledgeRepo.assistant.sendMessage(id, {
         message,
         client_turn_id: clientTurnId,
         integration_id: integrationId,
-        filters
+        filters,
+        smart_context: smartContext
       }, { signal })
   });
   const downloadCitationMutation = useMutation({
@@ -282,13 +290,9 @@ export function GroundedAssistant() {
     const requestProjectId = projectId;
     const requestAppTypeId = appTypeId;
     const requestSourceKinds = [...sourceKinds];
-    const apiSourceKinds = requestSourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length
+    const requestApiSourceKinds = requestSourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length
       ? undefined
-      : Array.from(new Set([
-          ...requestSourceKinds,
-          "product_help",
-          ...(requestSourceKinds.includes("text") ? ["knowledge_item"] : [])
-        ]));
+      : apiSourceKinds;
     const clientTurnId = retry?.clientTurnId || createClientTurnId();
     const controller = new AbortController();
     requestControllerRef.current?.abort();
@@ -341,7 +345,7 @@ export function GroundedAssistant() {
         message: normalizedPrompt,
         filters: {
           app_type_id: requestAppTypeId || null,
-          source_kinds: apiSourceKinds
+          source_kinds: requestApiSourceKinds
         },
         signal: controller.signal
       });
@@ -546,29 +550,33 @@ export function GroundedAssistant() {
           </div>
 
           <footer className="grounded-assistant-composer-shell">
-            <details className="grounded-assistant-context-control">
-              <summary>Search scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "all project sources + HelloTest help" : `${sourceKinds.length} project source types + HelloTest help`}</summary>
-              <div>
-                {[
-                  ["requirement", "Stories"],
-                  ["test_case", "Test Cases"],
-                  ["execution", "Test Runs"],
-                  ["bug", "Bugs"],
-                  ["file", "Files"],
-                  ["text", "Notes"],
-                  ["chat", "Chats"]
-                ].map(([value, label]) => (
-                  <label key={value}>
-                    <input
-                      checked={sourceKinds.includes(value)}
-                      onChange={(event) => setSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((item) => item !== value))}
-                      type="checkbox"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </details>
+            <div className="grounded-assistant-context-row">
+              <details className="grounded-assistant-context-control">
+                <summary>Search scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "all project sources + HelloTest help" : `${sourceKinds.length} project source types + HelloTest help`}</summary>
+                <div>
+                  {[
+                    ["requirement", "Stories"],
+                    ["test_case", "Test Cases"],
+                    ["execution", "Test Runs"],
+                    ["bug", "Bugs"],
+                    ["file", "Files"],
+                    ["text", "Notes"],
+                    ["chat", "Chats"]
+                  ].map(([value, label]) => (
+                    <label key={value}>
+                      <input
+                        checked={sourceKinds.includes(value)}
+                        onChange={(event) => {
+                          setSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((item) => item !== value));
+                        }}
+                        type="checkbox"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </details>
+            </div>
             <form className="grounded-assistant-composer" onSubmit={(event) => void submitPrompt(event)}>
               <label className="sr-only" htmlFor="grounded-assistant-input">Ask about this HelloTest project</label>
               <textarea
