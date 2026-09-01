@@ -5,6 +5,7 @@ const test = require("node:test");
 const processing = require("../src/services/knowledgeProcessing.service");
 const assistant = require("../src/services/knowledgeAssistant.service");
 const agenticAssistant = require("../src/services/agenticAssistant.service");
+const contextOrchestrator = require("../src/services/aiContextOrchestrator.service");
 const rag = require("../src/services/knowledgeRag.service");
 const legacyKnowledge = require("../src/services/aiKnowledge.service");
 const integrationService = require("../src/services/integration.service");
@@ -48,6 +49,28 @@ test("knowledge processing redacts the supported sensitive-identifier taxonomy",
   for (const type of ["labeled_name", "username", "address", "date_of_birth", "national_identifier", "network_identifier", "cloud_access_key", "jwt", "private_key"]) {
     assert.ok(sanitized.redactions[type] >= 1, type);
   }
+});
+
+test("knowledge redaction preserves project identifiers and ISO timestamps", () => {
+  const sanitized = processing.sanitizeKnowledgeText(
+    "record a40b2cb0-1779-4846-b706-cf4cecee8e6c created 2026-08-28T13:37:40.441Z; call +1 (415) 555-0188"
+  );
+  assert.match(sanitized.text, /a40b2cb0-1779-4846-b706-cf4cecee8e6c/);
+  assert.match(sanitized.text, /2026-08-28T13:37:40\.441Z/);
+  assert.match(sanitized.text, /\[REDACTED_PHONE\]/);
+});
+
+test("assistant fallback turns authoritative project snapshots into readable facts", () => {
+  const summary = assistant._internals.summarizeLiveEvidence({
+    source_kind: "live_project",
+    content: JSON.stringify({
+      evidence_type: "authoritative_live_bug_snapshot",
+      total_records: 18,
+      open_records: 7,
+      critical_or_high: 2
+    })
+  });
+  assert.equal(summary, "18 Bugs; 7 open and 2 critical or high severity/priority.");
 });
 
 test("chunk controls accept the token-facing contract and preserve structural boundaries", () => {
@@ -182,6 +205,16 @@ test("grounded assistant builds bounded follow-up queries and fuses project evid
   assert.equal(fused.find((item) => item.chunk_id === "shared").retrieval_query_match_count, 2);
   assert.ok(fused.filter((item) => item.source_id === "story-1").length <= 3);
   assert.ok(fused.some((item) => item.source_id === "run-1"));
+});
+
+test("Ask HelloTest combines intent routing, live project facts, and indexed retrieval", async () => {
+  const source = await readSource("../src/services/knowledgeAssistant.service.js");
+  assert.match(source, /aiContextOrchestrator\.planContext/);
+  assert.match(source, /buildLiveProjectEvidence/);
+  assert.match(source, /authoritative live project context/);
+  assert.match(source, /live_context_count/);
+  assert.match(source, /Evidence marked authoritative_live_/);
+  assert.match(source, /context_route: contextRoute/);
 });
 
 test("reviewed Smart Context stays bounded, sanitized, source-pinned, and citation-preserving", () => {
@@ -336,6 +369,40 @@ test("assistant extractive fallback remains citation-grounded when synthesis is 
   assert.match(fallback.content, /\[K-run\]/);
   assert.deepEqual(fallback.citations, [hits[0].citation]);
   assert.equal(fallback.safety.extractive_grounded_fallback, true);
+});
+
+test("assistant answers live Story coverage questions directly when the configured model is unavailable", () => {
+  const route = contextOrchestrator.planContext({ prompt: "Which Stories do not have enough test coverage?" });
+  const hit = contextOrchestrator._internals.makeLiveHit({
+    projectId: "project-a",
+    scope: "stories",
+    title: "Live Story coverage",
+    content: JSON.stringify({
+      evidence_type: "authoritative_live_story_snapshot",
+      total_records: 3,
+      covered_records: 1,
+      uncovered_records: 2,
+      thin_coverage_records: 1,
+      coverage_gaps: [
+        { display_id: "ST-1", title: "Login", status: "active", priority: "high", linked_test_case_count: 0 },
+        { display_id: "ST-2", title: "Checkout", status: "active", priority: "medium", linked_test_case_count: 0 }
+      ],
+      thin_coverage_examples: [{ display_id: "ST-3", title: "Refund", linked_test_case_count: 1 }]
+    })
+  });
+  const fallback = assistant._internals.createGroundedExtractiveFallback({
+    hits: [hit],
+    question: "Which Stories do not have enough test coverage?",
+    contextRoute: route,
+    reason: "provider unavailable"
+  });
+
+  assert.equal(fallback.status, "answered");
+  assert.match(fallback.content, /ST-1 — Login/);
+  assert.match(fallback.content, /2 have no linked Test Cases/);
+  assert.match(fallback.content, /one link is a review signal/i);
+  assert.deepEqual(fallback.citations.map((citation) => citation.id), [hit.citation.id]);
+  assert.equal(fallback.safety.deterministic_live_answer, true);
 });
 
 test("assistant scope checks allow project policy questions but reject actual sensitive disclosure", () => {
@@ -533,7 +600,7 @@ test("Knowledge Repo RAG routes are explicitly permissioned", () => {
 });
 
 test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay aligned", async () => {
-  const [schema, bootstrap, rag, routes, legacy, openapi, features, app, backgroundTasks, agentic, attachments, sourceLifecycle] = await Promise.all([
+  const [schema, bootstrap, rag, routes, legacy, openapi, features, app, backgroundTasks, agentic, contextOrchestrator, attachments, sourceLifecycle] = await Promise.all([
     readSource("../../db/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../src/services/knowledgeRag.service.js"),
@@ -544,6 +611,7 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
     readSource("../src/app.js"),
     readSource("../src/plugins/backgroundTasks.js"),
     readSource("../src/services/agenticAssistant.service.js"),
+    readSource("../src/services/aiContextOrchestrator.service.js"),
     readSource("../src/services/attachment.service.js"),
     readSource("../src/services/knowledgeSourceLifecycle.service.js")
   ]);
@@ -619,7 +687,7 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(backgroundTasks, /if \(running \|\| !acceptingWork\) return/);
   assert.doesNotMatch(rag, /SELECT id, role, is_workspace_admin FROM users/);
   for (const permission of ["requirement.view", "testcase.view", "run.view", "feedback.view", "knowledge.view"]) {
-    assert.match(agentic, new RegExp(permission.replace(".", "\\.")));
+    assert.match(`${agentic}\n${contextOrchestrator}`, new RegExp(permission.replace(".", "\\.")));
   }
   assert.match(attachments, /Managed Knowledge Repo files are available only through Knowledge endpoints/);
   assert.match(app, /Idempotency-Key/);

@@ -34,6 +34,8 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
   assert.match(page, /<AgentActivityTimeline/);
   assert.match(page, /<AgenticOutcomePanel/);
   assert.match(page, /Turn into workflow/);
+  assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
+  assert.match(component, /contextScopes: \["stories", "test-cases", "knowledge"\]/);
 });
 
 test("AI Agents has a dedicated sidebar catalog and opens a focused specialist Workbench", async () => {
@@ -65,6 +67,11 @@ test("agent traces expose evidence and evaluation without hidden reasoning", asy
   }
 
   assert.match(component, /Human decision/);
+  assert.match(component, /Decision summary/);
+  assert.match(component, /Evidence-backed findings/);
+  assert.match(component, /Specialist deliverables/);
+  assert.match(component, /Evidence gaps/);
+  assert.match(component, /Why this evidence was selected/);
   assert.doesNotMatch(component, /chain.of.thought/i);
 });
 

@@ -120,6 +120,10 @@ function groundingLabel(value?: string) {
   return "Insufficient context";
 }
 
+function contextRouteLabel(value?: string) {
+  return String(value || "project question").replace(/_/g, " ");
+}
+
 export function GroundedAssistant() {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
@@ -449,16 +453,16 @@ export function GroundedAssistant() {
             {isSending ? (
               <div className="grounded-assistant-agent-status" role="status">
                 <span aria-hidden="true" className="grounded-assistant-agent-status-icon"><IconSparkles size={13} stroke={2} /></span>
-                <strong>{createSessionMutation.isPending ? "Preparing grounded session" : "Grounding answer"}</strong>
-                <small>{activeRequestIntegration?.model || activeRequestIntegration?.name || "Selected model"}</small>
+                <strong>{createSessionMutation.isPending ? "Preparing grounded session" : "Routing and grounding answer"}</strong>
+                <small>{createSessionMutation.isPending ? "Current project" : "Live data + Knowledge Repo"}</small>
                 <span aria-hidden="true" className="grounded-assistant-agent-status-dots"><i /><i /><i /></span>
               </div>
             ) : null}
             {!messages.length ? (
               <div className="grounded-assistant-welcome">
                 <span className="grounded-assistant-welcome-icon"><IconBook2 size={26} /></span>
-                <h3>Answers backed by your project evidence</h3>
-                <p>I search indexed Stories, Test Cases, Runs, Bugs, conversations, and files. If the evidence is missing, I will say so instead of inventing an answer.</p>
+                <h3>Current answers, grounded in your project</h3>
+                <p>I distinguish project questions from product help, read permitted live project records, retrieve matching Knowledge Repository context, and ask the configured LLM to answer only from cited evidence.</p>
                 <div className="grounded-assistant-starters">
                   {starterPrompts.map((item) => (
                     <button key={item} onClick={() => setPrompt(item)} type="button">
@@ -538,7 +542,9 @@ export function GroundedAssistant() {
                   ) : null}
                   {isAssistant && message.retrieval ? (
                     <div className="grounded-assistant-retrieval-note">
-                      {message.retrieval.returned_count ?? citations.length} retrieved · {message.retrieval.mode || "hybrid"} search
+                      <span>{contextRouteLabel(message.retrieval.context_route?.input_type)}</span>
+                      <span>{message.retrieval.live_context_count || 0} live project snapshot{message.retrieval.live_context_count === 1 ? "" : "s"}</span>
+                      <span>{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0))} Knowledge Repository result{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0)) === 1 ? "" : "s"}</span>
                     </div>
                   ) : null}
                 </article>
@@ -552,7 +558,7 @@ export function GroundedAssistant() {
           <footer className="grounded-assistant-composer-shell">
             <div className="grounded-assistant-context-row">
               <details className="grounded-assistant-context-control">
-                <summary>Search scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "all project sources + HelloTest help" : `${sourceKinds.length} project source types + HelloTest help`}</summary>
+                <summary>Context scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "live project + all Knowledge Repository sources" : `live matching records + ${sourceKinds.length} Knowledge Repository source types`}</summary>
                 <div>
                   {[
                     ["requirement", "Stories"],

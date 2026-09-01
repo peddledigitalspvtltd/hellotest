@@ -151,6 +151,7 @@ export type HelloTestAgent = {
   shortName: string;
   description: string;
   capabilities: string[];
+  contextScopes: string[];
   prompt: string;
   icon: ReactNode;
 };
@@ -162,6 +163,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Orchestrator",
     description: "Coordinates specialists, evidence, guardrails, handoffs, and the final review gate.",
     capabilities: ["Plan", "Coordinate", "Evaluate"],
+    contextScopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"],
     prompt: "Build a release quality plan, identify the highest-risk gaps, and show which specialist should handle each one.",
     icon: <IconRoute />
   },
@@ -171,6 +173,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Story",
     description: "Creates and completes testable Stories with acceptance boundaries, examples, and Gherkin.",
     capabilities: ["Create", "Complete", "Groom"],
+    contextScopes: ["stories", "test-cases", "knowledge"],
     prompt: "Review the current Stories for ambiguity, missing acceptance boundaries, risks, and testability gaps.",
     icon: <IconSparkles />
   },
@@ -180,6 +183,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Test design",
     description: "Generates and improves traceable manual, Gherkin, and automation-ready Test Cases.",
     capabilities: ["Generate", "Improve", "Trace"],
+    contextScopes: ["stories", "test-cases", "runs", "bugs", "knowledge"],
     prompt: "Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries.",
     icon: <IconTargetArrow />
   },
@@ -189,6 +193,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Automation",
     description: "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up.",
     capabilities: ["Build", "Review", "Repair"],
+    contextScopes: ["automation", "test-cases", "runs", "bugs", "knowledge"],
     prompt: "Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan.",
     icon: <IconRobot />
   },
@@ -198,6 +203,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Smart run",
     description: "Selects impacted tests using release scope, Story traceability, risk, and execution history.",
     capabilities: ["Impact", "Select", "Prioritize"],
+    contextScopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
     prompt: "Plan a Smart Run for the current delivery scope and explain why every selected Test Case matters.",
     icon: <IconPlayerPlay />
   },
@@ -207,6 +213,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Run analysis",
     description: "Explains failed and blocked evidence, clusters symptoms, and separates facts from hypotheses.",
     capabilities: ["Analyze", "Cluster", "Explain"],
+    contextScopes: ["runs", "bugs", "test-cases", "knowledge"],
     prompt: "Analyze recent failed and blocked runs, separate product risk from environment noise, and cite the evidence.",
     icon: <IconActivity />
   },
@@ -216,6 +223,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Bug draft",
     description: "Turns run, case, Story, and observed evidence into a concise review-ready Bug draft.",
     capabilities: ["Draft", "Link", "Evidence"],
+    contextScopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
     prompt: "Find the strongest recent failure evidence and prepare a review-ready Bug outline without creating it.",
     icon: <IconMessageCircle />
   },
@@ -225,6 +233,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Bug triage",
     description: "Classifies, prioritizes, and sequences Bugs while leaving the final decision with a person.",
     capabilities: ["Classify", "Prioritize", "Sequence"],
+    contextScopes: ["bugs", "runs", "test-cases", "stories", "knowledge"],
     prompt: "Triage open Bugs using severity, execution evidence, release scope, and traceability; explain every recommendation.",
     icon: <IconUserCheck />
   },
@@ -234,6 +243,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Evaluator",
     description: "Scores grounding, completeness, traceability, risk control, and outcome maturity.",
     capabilities: ["Score", "Challenge", "Guard"],
+    contextScopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"],
     prompt: "Evaluate current AI-assisted artifacts for grounding, completeness, traceability, and review readiness.",
     icon: <IconShieldCheck />
   },
@@ -243,6 +253,7 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
     shortName: "Repository",
     description: "Reviews locator intent, reuse, stability, healing evidence, and approval-ready repository changes.",
     capabilities: ["Inspect", "Reuse", "Heal"],
+    contextScopes: ["automation", "test-cases", "runs", "knowledge"],
     prompt: "Review repository stability and duplication, then prioritize approval-ready locator improvements.",
     icon: <IconDatabase />
   }
@@ -1033,7 +1044,22 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   result: AgenticAssistantResult;
   citations?: AgenticAssistantCitation[];
   guardrails?: string[];
-  provenance?: { provider?: string; model?: string | null; generation_mode?: string; requires_human_review?: boolean };
+  provenance?: {
+    provider?: string;
+    model?: string | null;
+    generation_mode?: string;
+    fallback_reason?: string | null;
+    requires_human_review?: boolean;
+    context_route?: {
+      input_type?: string;
+      priority_scopes?: string[];
+      retrieval_focus?: string;
+      resolved_query?: string;
+      conversation_reference_used?: boolean;
+      decision_question?: string;
+      deliverable_contract?: string;
+    } | null;
+  };
   onAccept?: (proposal: { response: string; recommendations: string[] }) => void;
 }) {
   const [draftResponse, setDraftResponse] = useState(result.response);
@@ -1044,6 +1070,10 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const groundedCitations = result.citation_ids?.length
     ? citations.filter((citation) => result.citation_ids?.includes(citation.id))
     : [];
+  const findings = result.findings || [];
+  const deliverables = result.deliverables || [];
+  const evidenceGaps = result.evidence_gaps || [];
+  const contextRouteLabel = provenance?.context_route?.input_type?.replace(/_/g, " ") || "specialist task";
 
   useEffect(() => {
     setDraftResponse(result.response);
@@ -1061,11 +1091,41 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   return (
     <section className="agent-outcome-panel">
       <header>
-        <div><span>Agent outcome</span><strong>Ready for human review</strong></div>
+        <div><span>Agent outcome · {contextRouteLabel}</span><strong>{result.headline || "Ready for human review"}</strong></div>
         <div className="agent-outcome-maturity" data-tone={scoreTone(result.evaluation.maturity_score)}><b>{result.evaluation.maturity_score}</b><span>maturity</span></div>
       </header>
+      {result.executive_summary ? (
+        <section className="agent-outcome-executive-summary">
+          <span>Decision summary</span>
+          <p>{result.executive_summary}</p>
+        </section>
+      ) : null}
+      {findings.length ? (
+        <section className="agent-outcome-findings" aria-label="Agent findings">
+          <header><span>Evidence-backed findings</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
+          <div>{findings.map((finding, index) => (
+            <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
+              <header><strong>{finding.title}</strong><span>{finding.priority || "info"}</span></header>
+              <p>{finding.detail}</p>
+              {finding.citation_ids?.length ? <small>{finding.citation_ids.length} supporting reference{finding.citation_ids.length === 1 ? "" : "s"}</small> : <small>Evidence gap · verify before use</small>}
+            </article>
+          ))}</div>
+        </section>
+      ) : null}
+      {deliverables.length ? (
+        <section className="agent-outcome-deliverables" aria-label="Specialist deliverables">
+          <header><span>Specialist deliverables</span><strong>Use as a reviewable starting point</strong></header>
+          <div>{deliverables.map((deliverable, index) => (
+            <article key={`${deliverable.title}:${index}`}>
+              <span>{deliverable.type?.replace(/_/g, " ") || "deliverable"}</span>
+              <strong>{deliverable.title}</strong>
+              <p>{deliverable.detail}</p>
+            </article>
+          ))}</div>
+        </section>
+      ) : null}
       <div className="agent-outcome-response-editor">
-        <label htmlFor="agent-outcome-response"><span>Editable response</span><em>{accepted ? "Accepted" : "Review required"}</em></label>
+        <label htmlFor="agent-outcome-response"><span>Detailed specialist output</span><em>{accepted ? "Accepted" : "Editable · review required"}</em></label>
         <textarea id="agent-outcome-response" onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={7} value={draftResponse} />
       </div>
       <div className="agent-outcome-scores">
@@ -1086,9 +1146,11 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         </div>
       ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
+      {evidenceGaps.length ? <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       <div className="agent-outcome-evidence">
         <span><IconDatabase size={16} stroke={1.9} /><strong>{groundedCitations.length}</strong> cited references</span>
         <span><IconShieldCheck size={16} stroke={1.9} /><strong>{guardrails.length}</strong> guardrails</span>
+        <span><IconRoute size={16} stroke={1.9} /><strong>{contextRouteLabel}</strong> route</span>
         <AiEvidenceButton label="View outcome evidence" onClick={() => setIsEvidenceOpen(true)} />
       </div>
       <footer className="agent-outcome-review-actions">
@@ -1111,12 +1173,23 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         facts={[
           { label: "References", value: groundedCitations.length },
           { label: "Guardrails", value: guardrails.length },
-          { label: "Decision", value: provenance?.requires_human_review === false ? "Automated" : "Human owned" }
+          { label: "Route", value: contextRouteLabel }
         ]}
         onClose={() => setIsEvidenceOpen(false)}
         open={isEvidenceOpen}
         title="Outcome evidence"
       >
+        <section className="ai-evidence-flyout__section">
+          <header><span>Context route</span><strong>Why this evidence was selected</strong></header>
+          <dl className="ai-evidence-flyout__record-list">
+            <div><dt>Input</dt><dd>{contextRouteLabel}</dd></div>
+            <div><dt>Decision</dt><dd>{provenance?.context_route?.decision_question || "What conclusion is supported by the selected project evidence?"}</dd></div>
+            <div><dt>Deliverable</dt><dd>{provenance?.context_route?.deliverable_contract || "A reviewable evidence-backed specialist outcome"}</dd></div>
+            <div><dt>Priority scopes</dt><dd>{provenance?.context_route?.priority_scopes?.join(", ") || "Selected project context"}</dd></div>
+            <div><dt>Retrieval focus</dt><dd>{provenance?.context_route?.retrieval_focus || "The submitted specialist task"}</dd></div>
+            {provenance?.context_route?.conversation_reference_used ? <div><dt>Resolved follow-up</dt><dd>{provenance.context_route.resolved_query || "Previous conversation context was used to resolve this request."}</dd></div> : null}
+          </dl>
+        </section>
         <section className="ai-evidence-flyout__section">
           <header><span>Sources</span><strong>Citations used for this outcome</strong></header>
           {groundedCitations.length ? (
@@ -1135,6 +1208,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
             <div><dt>Provider</dt><dd>{provenance?.provider || "HelloTest evidence engine"}</dd></div>
             <div><dt>Model</dt><dd>{provenance?.model || "Deterministic"}</dd></div>
             <div><dt>Mode</dt><dd>{provenance?.generation_mode || "Evidence assisted"}</dd></div>
+            {provenance?.fallback_reason ? <div><dt>Model fallback</dt><dd>The configured model was unavailable or its output failed the citation contract, so HelloTest retained the deterministic evidence brief.</dd></div> : null}
           </dl>
         </section>
       </AiEvidenceFlyout>

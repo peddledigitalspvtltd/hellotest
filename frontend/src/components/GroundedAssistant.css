@@ -455,8 +455,33 @@
 }
 
 .grounded-assistant-retrieval-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem 0.5rem;
   color: var(--text-secondary);
   font-size: 0.68rem;
+}
+
+.grounded-assistant-retrieval-note span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.grounded-assistant-retrieval-note span:not(:last-child)::after {
+  width: 3px;
+  height: 3px;
+  margin-left: 0.25rem;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  opacity: 0.55;
+}
+
+.grounded-assistant-retrieval-note span:first-child {
+  color: #4f46e5;
+  font-weight: 800;
+  text-transform: capitalize;
 }
 
 .grounded-assistant-agent-status {

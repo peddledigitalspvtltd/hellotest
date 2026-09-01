@@ -180,6 +180,7 @@ const normalizeText = (value, max = MAX_EXTRACTED_TEXT_CHARS) => String(value ||
 const fingerprint = (value) => crypto.createHash("sha256").update(String(value || "")).digest("hex");
 
 const countMatches = (text, expression) => (String(text || "").match(expression) || []).length;
+const PHONE_PATTERN = /(?<![A-Za-z0-9])(?<![A-Fa-f0-9]-)(?!(?:\d{4}-\d{2}-\d{2})(?:\b|T))(?:\+?\d[\d .()-]{7,}\d)(?![A-Za-z0-9])/g;
 
 const redactSensitiveData = (value) => {
   let text = normalizeText(value);
@@ -197,7 +198,7 @@ const redactSensitiveData = (value) => {
     bearer_token: countMatches(text, /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi),
     secret_assignment: countMatches(text, /\b(?:api[_-]?key|access[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi),
     card_number: countMatches(text, /\b(?:\d[ -]*?){13,19}\b/g),
-    phone: countMatches(text, /(?:\+?\d[\d .()-]{7,}\d)/g),
+    phone: countMatches(text, PHONE_PATTERN),
     government_id: countMatches(text, /\b\d{3}-\d{2}-\d{4}\b/g),
     private_key: countMatches(text, privateKeyPattern),
     jwt: countMatches(text, jwtPattern),
@@ -224,7 +225,7 @@ const redactSensitiveData = (value) => {
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [REDACTED_TOKEN]")
     .replace(/\b(api[_-]?key|access[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi, "$1=[REDACTED_SECRET]")
     .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[REDACTED_NUMBER]")
-    .replace(/(?:\+?\d[\d .()-]{7,}\d)/g, "[REDACTED_PHONE]")
+    .replace(PHONE_PATTERN, "[REDACTED_PHONE]")
     .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_ID]");
 
   return {
@@ -235,7 +236,7 @@ const redactSensitiveData = (value) => {
 };
 
 const PROMPT_INJECTION_PATTERNS = [
-  { code: "ignore_instructions", expression: /^\s*(?:ignore|disregard|forget)\s+(?:all\s+)?(?:(?:previous|prior|earlier|preceding|above)\s+)?(?:(?:system|developer)\s+)?(?:instructions?|messages?)/gim },
+  { code: "ignore_instructions", expression: /\b(?:ignore|disregard|forget)\s+(?:all\s+)?(?:(?:previous|prior|earlier|preceding|above)\s+)?(?:(?:system|developer)\s+)?(?:instructions?|messages?)/gi },
   { code: "system_prompt_request", expression: /\b(?:reveal|show|print|repeat|expose)\s+(?:the\s+)?(?:hidden\s+)?(?:system|developer)\s+(?:prompt|message|instructions?)\b/gi },
   { code: "role_override", expression: /^\s*(?:system|developer)\s*:\s*|\b(?:jailbreak|developer mode|do anything now)\b/gim },
   { code: "tool_override", expression: /\b(?:call|invoke|execute)\s+(?:an?\s+)?(?:hidden\s+)?tool\b|\bexfiltrat(?:e|ion)\b/gi }

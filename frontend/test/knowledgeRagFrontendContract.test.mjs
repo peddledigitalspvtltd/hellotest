@@ -112,7 +112,11 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /areFeatureFlagsEnabled\(featureFlagsQuery\.data, \["hellotest\.ai\.knowledge"\]\)/);
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
   assert.match(assistant, /Current project only/);
-  assert.match(assistant, /all project sources \+ HelloTest help/);
+  assert.match(assistant, /live project \+ all Knowledge Repository sources/);
+  assert.match(assistant, /Live data \+ Knowledge Repo/);
+  assert.match(assistant, /message\.retrieval\.context_route\?\.input_type/);
+  assert.match(assistant, /message\.retrieval\.live_context_count/);
+  assert.match(assistant, /distinguish project questions from product help/);
   assert.match(assistant, /const apiSourceKinds = useMemo\(\(\) => sourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
   assert.match(assistant, /const requestApiSourceKinds = requestSourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
   assert.match(assistant, /"product_help"/);

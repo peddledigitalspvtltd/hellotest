@@ -2671,10 +2671,25 @@ export type AgenticAssistantEvaluation = {
 };
 
 export type AgenticAssistantResult = {
+  headline?: string;
+  executive_summary?: string;
   response: string;
   activity_summary: string;
+  findings?: Array<{
+    title: string;
+    detail: string;
+    priority?: "critical" | "high" | "medium" | "low" | "info" | string;
+    citation_ids?: string[];
+  }>;
+  deliverables?: Array<{
+    type?: string;
+    title: string;
+    detail: string;
+    citation_ids?: string[];
+  }>;
   recommendations: string[];
   assumptions: string[];
+  evidence_gaps?: string[];
   suggested_handoffs: string[];
   citation_ids?: string[];
   grounding_status?: "grounded" | "insufficient_context";
@@ -2692,6 +2707,21 @@ export type AgenticAssistantSessionResponse = {
     model?: string | null;
     generation_mode: string;
     fallback_reason?: string | null;
+    context_route?: {
+      agent_id?: string | null;
+      input_type?: string;
+      matched_intents?: string[];
+      mode?: "chat" | "agent" | string;
+      priority_scopes?: string[];
+      effective_scopes?: string[];
+      live_scopes?: string[];
+      retrieval_focus?: string;
+      outcome_sections?: string[];
+      resolved_query?: string;
+      conversation_reference_used?: boolean;
+      decision_question?: string;
+      deliverable_contract?: string;
+    } | null;
     input_fingerprint: string;
     requires_human_review: boolean;
   };
@@ -2920,6 +2950,23 @@ export type KnowledgeRetrievalSummary = {
   embedding_model?: string | null;
   vector_mode?: string | null;
   filters?: KnowledgeSearchFilters;
+  live_context_count?: number;
+  live_context_counts?: Record<string, number>;
+  context_route?: {
+    agent_id?: string | null;
+    input_type?: string;
+    matched_intents?: string[];
+    mode?: "chat" | "agent" | string;
+    priority_scopes?: string[];
+    effective_scopes?: string[];
+    live_scopes?: string[];
+    retrieval_focus?: string;
+    outcome_sections?: string[];
+    resolved_query?: string;
+    conversation_reference_used?: boolean;
+    decision_question?: string;
+    deliverable_contract?: string;
+  } | null;
 };
 
 export type KnowledgeSearchResponse = {
@@ -2964,6 +3011,7 @@ export type KnowledgeAssistantMessage = {
     generation_mode?: string;
     context_fingerprint?: string | null;
     context_item_count?: number;
+    context_route?: KnowledgeRetrievalSummary["context_route"];
   };
   refusal_reason?: string | null;
   safety?: {

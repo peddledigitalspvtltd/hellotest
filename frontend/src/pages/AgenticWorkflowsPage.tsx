@@ -48,6 +48,7 @@ import type {
   AgenticWorkflow,
   AgenticAssistantMode,
   AgenticAssistantResult,
+  AgenticAssistantSessionResponse,
   AgenticWorkflowEdge,
   AgenticWorkflowNode,
   AgenticWorkflowNodeData,
@@ -1181,6 +1182,7 @@ export function AgenticWorkflowsPage() {
   const selectAssistantAgent = (agent: HelloTestAgent) => {
     setAssistantAgentId(agent.id);
     setAssistantPrompt(agent.prompt);
+    setAssistantContextScopes(agent.contextScopes);
     setAssistantSmartContext(null);
   };
 
@@ -1625,6 +1627,7 @@ export function AgenticWorkflowsPage() {
         provider: String(selectedSessionMetadata.provider || "HelloTest evidence engine"),
         model: selectedSessionMetadata.model ? String(selectedSessionMetadata.model) : null,
         generation_mode: String(selectedSessionMetadata.generation_mode || "deterministic"),
+        context_route: (selectedSessionMetadata.context_route || null) as AgenticAssistantSessionResponse["provenance"]["context_route"],
         requires_human_review: true
       };
   const activeAssistantName = mutationSessionIsSelected
