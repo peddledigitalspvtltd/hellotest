@@ -2224,16 +2224,17 @@ export function DataSetForm({
 
         {draft.mode === "key_value" ? (
           <KeyValueEditor
-            entries={draft.rows.map((row) => ({ key: String(row.key ?? ""), value: String(row.value ?? "") }))}
+            entries={draft.rows.map((row) => ({ id: String(row.__editor_id ?? "") || createKeyValueEntry().id, key: String(row.key ?? ""), value: String(row.value ?? ""), is_secret: String(row.is_secret) === "true", has_stored_value: String(row.has_stored_value) === "true" }))}
             heading="Test data pairs"
             emptyMessage="No test data pairs added yet."
             multilineValue
             utilityOptions={utilityOptions}
+            allowSecret
             onChange={(entries) =>
               onChange({
                 ...draft,
                 columns: ["key", "value"],
-                rows: entries.map((entry) => ({ key: entry.key, value: entry.value }))
+                rows: entries.map((entry, index) => ({ __editor_id: entry.id || `key-value-row-${index}`, key: entry.key, value: entry.value, is_secret: entry.is_secret ? "true" : "", has_stored_value: entry.has_stored_value ? "true" : "" }))
               })
             }
           />
@@ -2578,7 +2579,7 @@ function KeyValueEditor({
           </thead>
           <tbody>
             {entries.map((entry, index) => (
-              <tr key={entry.id || `${entry.key}-${index}`}>
+              <tr key={entry.id || `key-value-row-${index}`}>
                 <td>
                   <input
                     ref={(node) => {
@@ -2875,7 +2876,7 @@ function DataTableEditor({
                 {columns.map((column, columnIndex) => (
                   <th
                     className={dragState?.type === "column" && dragState.index === columnIndex ? "resource-sheet-column is-dragging" : "resource-sheet-column"}
-                    key={`${column}-${columnIndex}`}
+                    key={`test-data-column-${columnIndex}`}
                     onDragOver={(event) => {
                       if (dragState?.type === "column") {
                         event.preventDefault();

@@ -20,7 +20,8 @@ const ISSUE_DETAIL_FIELDS = [
   "fix_version",
   "release",
   "assignee_id",
-  "root_cause"
+  "root_cause",
+  "bug_type"
 ];
 
 const ISSUE_SELECT_COLUMNS = `
@@ -49,6 +50,8 @@ const ISSUE_SELECT_COLUMNS = `
   feedback.release,
   feedback.assignee_id,
   feedback.root_cause,
+  feedback.bug_type,
+  feedback.regression,
   feedback.status,
   feedback.created_at,
   feedback.updated_at
@@ -172,7 +175,7 @@ const syncIssueLinks = async (issueId, { linked_test_case_ids = [], linked_requi
   await transaction();
 };
 
-exports.createIssue = async ({ project_id, user_id, title, message, status, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
+exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
   if (!project_id || !user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
@@ -216,9 +219,11 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
 	      release,
 	      assignee_id,
 	      root_cause,
-	      status
+	      bug_type,
+	      status,
+	      regression
 	    )
-	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     display_id,
@@ -233,7 +238,8 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, link
     resolvedRequirementIds,
     normalizeList(labels),
     ...buildDetailValues(details).slice(9),
-    normalizeStatus(status)
+    normalizeStatus(status),
+    Boolean(regression)
   );
 
   await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids: resolvedRequirementIds });
@@ -347,7 +353,9 @@ exports.updateIssue = async (id, data) => {
 	        release = ?,
 	        assignee_id = ?,
 	        root_cause = ?,
+	        bug_type = ?,
 	        status = ?,
+	        regression = ?,
 	        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
@@ -363,6 +371,7 @@ exports.updateIssue = async (id, data) => {
     Object.prototype.hasOwnProperty.call(data, "labels") ? normalizeList(data.labels) : normalizeList(existing.labels),
     ...buildDetailValues(data, existing).slice(9),
     data.status !== undefined ? normalizeStatus(data.status) : existing.status,
+    data.regression !== undefined ? Boolean(data.regression) : Boolean(existing.regression),
     id
   );
 

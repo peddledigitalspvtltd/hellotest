@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { LoadingState } from "./LoadingState";
@@ -48,8 +48,7 @@ export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, c
     }
   });
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = () => {
     if (!draft.trim() || createComment.isPending) return;
     void createComment.mutateAsync();
   };
@@ -64,7 +63,7 @@ export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, c
       </div>
 
       {canComment ? (
-        <form className="jira-comment-composer" onSubmit={handleSubmit}>
+        <div className="jira-comment-composer">
           <textarea
             aria-label="Add a HelloTest comment"
             maxLength={5_000}
@@ -75,11 +74,11 @@ export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, c
           />
           <div>
             <span>{draft.length.toLocaleString()}/5,000</span>
-            <button className="primary-button compact" disabled={!draft.trim() || createComment.isPending} type="submit">
+            <button className="primary-button compact" disabled={!draft.trim() || createComment.isPending} onClick={handleSubmit} type="button">
               {createComment.isPending ? "Posting…" : "Comment"}
             </button>
           </div>
-        </form>
+        </div>
       ) : null}
 
       {comments.isLoading ? <LoadingState label="Loading HelloTest comments" /> : null}

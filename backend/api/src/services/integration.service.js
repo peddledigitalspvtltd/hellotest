@@ -444,16 +444,7 @@ const normalizeConfig = (type, input, username) => {
 
   if (type === "llm") {
     const project_id = normalizeLimitedText(raw.project_id, "LLM project ID", 255);
-    const embedding_model = normalizeLimitedText(raw.embedding_model, "Embedding model", 255);
-    const embeddingBaseUrlInput = normalizeLimitedText(raw.embedding_base_url, "Embedding base URL", 2_048);
-
-    return {
-      project_id,
-      embedding_model,
-      embedding_base_url: embeddingBaseUrlInput
-        ? normalizeEmbeddingBaseUrl(embeddingBaseUrlInput)
-        : null
-    };
+    return { project_id };
   }
 
   if (type === "email") {

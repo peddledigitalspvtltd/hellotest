@@ -8938,7 +8938,7 @@ export function TestCasesPage() {
             <DisplayIdBadge value={selectedTestCaseId} />
           </span>
         ) : null}
-        <h1 className="test-case-workspace-title">
+        <h1 className="test-case-workspace-title" title={(isCreating ? caseDraft.title : readableCaseTitle).trim() || undefined}>
           {(isCreating ? caseDraft.title : readableCaseTitle).trim() || (isCreating ? "Untitled test case" : isSelectedTestCaseDetailPending ? "Loading test case…" : "Test case")}
         </h1>
       </div>
@@ -11234,6 +11234,24 @@ export function TestCasesPage() {
                               />
                             </FormField>
                           </div>
+                          <FormField className="test-case-description-field" label="Description">
+                            <RichTextEditor
+                              appearance="canonical"
+                              aiRephraseContext={{
+                                entityType: "test case",
+                                entityId: selectedTestCase?.id,
+                                entityTitle: caseDraft.title,
+                                fieldLabel: "Description",
+                                appTypeId,
+                                requirementId: caseDraft.requirement_id || undefined,
+                                moduleId: caseDraft.module_id || undefined
+                              }}
+                              aiRephraseTitle="Rephrase test case description with AI"
+                              rows={4}
+                              value={caseDraft.description}
+                              onChange={(description) => setCaseDraft((current) => ({ ...current, description }))}
+                            />
+                          </FormField>
                           <FormField className="form-field--compact-enum test-case-status-field" label="Status">
                             <select
                               value={caseDraft.status}
@@ -11375,24 +11393,6 @@ export function TestCasesPage() {
                             />
                           </div>
                         </div>
-                        <FormField label="Description">
-                          <RichTextEditor
-                            appearance="canonical"
-                            aiRephraseContext={{
-                              entityType: "test case",
-                              entityId: selectedTestCase?.id,
-                              entityTitle: caseDraft.title,
-                              fieldLabel: "Description",
-                              appTypeId,
-                              requirementId: caseDraft.requirement_id || undefined,
-                              moduleId: caseDraft.module_id || undefined
-                            }}
-                            aiRephraseTitle="Rephrase test case description with AI"
-                            rows={4}
-                            value={caseDraft.description}
-                            onChange={(description) => setCaseDraft((current) => ({ ...current, description }))}
-                          />
-                        </FormField>
                         <ExternalReferencesField
                           value={caseDraft.externalReferencesText}
                           onChange={(externalReferencesText) => setCaseDraft((current) => ({ ...current, externalReferencesText }))}
@@ -11661,6 +11661,8 @@ export function TestCasesPage() {
                     </EditorAccordionSection>
                   ) : (
                     <GherkinEditor
+                      exampleColumns={activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.columns : []}
+                      exampleRows={activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.rows : []}
                       featureTitle={caseDraft.title}
                       onChange={(gherkin_document) => setCaseDraft((current) => ({ ...current, gherkin_document }))}
                       parameterValues={resolvedScopedParameterValues}

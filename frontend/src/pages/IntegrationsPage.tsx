@@ -47,8 +47,6 @@ type IntegrationDraft = {
   api_key: string;
   model: string;
   llm_project_id: string;
-  embedding_model: string;
-  embedding_base_url: string;
   project_key: string;
   username: string;
   is_active: boolean;
@@ -215,8 +213,6 @@ const buildEmptyDraft = (
     api_key: "",
     model: "",
     llm_project_id: "",
-    embedding_model: "",
-    embedding_base_url: "",
     project_key: "",
     username: "",
     is_active: true,
@@ -577,8 +573,6 @@ function getDraftFromIntegration(
     api_key: integration.api_key || "",
     model: integration.model || "",
     llm_project_id: typeof config.project_id === "string" ? config.project_id : "",
-    embedding_model: typeof config.embedding_model === "string" ? config.embedding_model : "",
-    embedding_base_url: typeof config.embedding_base_url === "string" ? config.embedding_base_url : "",
     project_key: integration.project_key || "",
     username: integration.username || "",
     is_active: integration.is_active,
@@ -736,9 +730,7 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
 
   if (draft.type === "llm") {
     return {
-      ...(draft.llm_project_id.trim() ? { project_id: draft.llm_project_id.trim() } : {}),
-      embedding_model: draft.embedding_model.trim() || null,
-      embedding_base_url: draft.embedding_base_url.trim() || null
+      ...(draft.llm_project_id.trim() ? { project_id: draft.llm_project_id.trim() } : {})
     };
   }
 
@@ -1838,45 +1830,9 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       </FormField>
                     </div>
 
-                    <section className="integration-knowledge-embedding-panel" aria-labelledby="knowledge-embedding-settings-title">
-                      <div className="integration-knowledge-embedding-heading">
-                        <div className="integration-knowledge-embedding-icon"><SparkIcon /></div>
-                        <div>
-                          <h3 id="knowledge-embedding-settings-title">Knowledge embeddings</h3>
-                          <p>Optional embedding endpoint used to turn Knowledge Repo chunks into vectors for semantic and hybrid retrieval. Server-redacted chunk text is sent to this configured provider, so review its retention and data-handling terms. This does not change the chat model above.</p>
-                        </div>
-                      </div>
-                      <div className="record-grid">
-                        <FormField
-                          hint="Use the embedding model name accepted by this provider, such as text-embedding-3-small or nomic-embed-text. Blank uses HelloTest's degraded local/keyword fallback."
-                          hintVisible
-                          label="Embedding model"
-                        >
-                          <input
-                            placeholder="e.g. text-embedding-3-small"
-                            value={draft.embedding_model}
-                            onChange={(event) => setDraft((current) => ({ ...current, embedding_model: event.target.value }))}
-                          />
-                        </FormField>
-                        <FormField
-                          hint="Optional OpenAI-compatible embedding API root. Leave blank to reuse the provider Base URL. Secrets continue to use the API Key field and are never copied here."
-                          hintVisible
-                          label="Embedding base URL"
-                        >
-                          <input
-                            inputMode="url"
-                            placeholder={draft.base_url || "https://api.openai.com/v1"}
-                            type="url"
-                            value={draft.embedding_base_url}
-                            onChange={(event) => setDraft((current) => ({ ...current, embedding_base_url: event.target.value }))}
-                          />
-                        </FormField>
-                      </div>
-                      <div className="integration-knowledge-embedding-note">
-                        <strong>{draft.embedding_model.trim() ? "Semantic indexing configured" : "Keyword/degraded fallback"}</strong>
-                        <span>{draft.embedding_model.trim() ? "Knowledge ingestion will request embeddings from the configured endpoint and preserve source citations." : "Knowledge remains searchable by exact text, but semantic recall and grounded-answer quality may be reduced."}</span>
-                      </div>
-                    </section>
+                    <div className="empty-state compact integration-helper">
+                      Knowledge retrieval reuses this LLM model, Base URL, and API key. If the provider does not expose a compatible embeddings endpoint, HelloTest gracefully falls back to local and keyword retrieval.
+                    </div>
                   </>
                 ) : null}
 

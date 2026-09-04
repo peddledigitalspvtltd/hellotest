@@ -722,6 +722,8 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_feedback_project_created ON feedback (project_id, created_at DESC)`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS bug_type TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS regression BOOLEAN NOT NULL DEFAULT FALSE`,
   `
     CREATE TABLE IF NOT EXISTS auth_verification_codes (
       id TEXT PRIMARY KEY,

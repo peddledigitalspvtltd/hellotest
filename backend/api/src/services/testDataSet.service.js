@@ -51,17 +51,26 @@ const normalizeColumns = (mode, columns = [], rows = []) => {
   return firstRow ? Object.keys(firstRow).map((column) => normalizeName(column)).filter(Boolean) : [];
 };
 
-const normalizeRows = (mode, rows = [], columns = []) => {
+const normalizeRows = (mode, rows = [], columns = [], existingRows = []) => {
   if (!Array.isArray(rows)) {
     return [];
   }
 
   if (mode === "key_value") {
+    const existingById = new Map((Array.isArray(existingRows) ? existingRows : []).map((row) => [String(row?.id || ""), row]));
     return rows
-      .map((row = {}) => ({
-        key: normalizeName(row.key || ""),
-        value: sanitizeDataSetText(row.value || "")
-      }))
+      .map((row = {}) => {
+        const id = String(row.id || row.__editor_id || "").trim() || uuid();
+        const isSecret = Boolean(row.is_secret);
+        const incomingValue = sanitizeDataSetText(row.value || "");
+        const existing = existingById.get(id);
+        return {
+          id,
+          key: normalizeName(row.key || ""),
+          value: isSecret && !incomingValue && row.has_stored_value && existing?.is_secret ? String(existing.value || "") : incomingValue,
+          is_secret: isSecret
+        };
+      })
       .filter((row) => row.key);
   }
 
@@ -82,8 +91,14 @@ const hydrateDataSet = (row) => ({
   ...row,
   mode: normalizeMode(row.mode),
   columns: parseJsonArray(row.columns).map((column) => normalizeName(column)).filter(Boolean),
-  rows: parseJsonArray(row.rows)
+  rows: parseJsonArray(row.rows).map((entry) => entry?.is_secret ? { ...entry, value: "", has_stored_value: Boolean(entry.value) } : entry)
 });
+
+const getStoredTestDataSet = async (id) => {
+  const row = await db.prepare("SELECT * FROM test_data_sets WHERE id = ?").get(id);
+  if (!row) throw new Error("Test data set not found");
+  return { ...row, mode: normalizeMode(row.mode), columns: parseJsonArray(row.columns), rows: parseJsonArray(row.rows) };
+};
 
 exports.createTestDataSet = async ({ project_id, app_type_id, name, description, mode, columns, rows }) => {
   if (!project_id || !name) {
@@ -167,7 +182,7 @@ exports.getTestDataSet = async (id) => {
 };
 
 exports.updateTestDataSet = async (id, data) => {
-  const existing = await exports.getTestDataSet(id);
+  const existing = await getStoredTestDataSet(id);
   const projectId = data.project_id ?? existing.project_id;
   const appTypeId = data.app_type_id === undefined ? existing.app_type_id : data.app_type_id || null;
 
@@ -182,7 +197,8 @@ exports.updateTestDataSet = async (id, data) => {
   const nextRows = normalizeRows(
     nextMode,
     data.rows !== undefined ? data.rows : existing.rows,
-    nextColumns
+    nextColumns,
+    existing.rows
   );
 
   await db.prepare(`

@@ -174,8 +174,8 @@ const sanitizeIntegration = (integration) => {
       ...baseIntegration,
       config: {
         project_id: config.project_id || null,
-        embedding_model: config.embedding_model || null,
-        embedding_base_url: config.embedding_base_url || null
+        model: integration.model || null,
+        base_url: integration.base_url || null
       }
     };
   }

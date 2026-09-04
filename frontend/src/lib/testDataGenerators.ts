@@ -156,7 +156,7 @@ export function evaluateTestDataTemplate(value: unknown, now = new Date()): stri
 export function materializeTestDataRows(rows: TestDataSetRow[], now = new Date()) {
   return rows.map((row) =>
     Object.entries(row).reduce<TestDataSetRow>((resolved, [key, value]) => {
-      resolved[key] = evaluateTestDataTemplate(value, now);
+      resolved[key] = typeof value === "string" ? evaluateTestDataTemplate(value, now) : value;
       return resolved;
     }, {})
   );
@@ -164,7 +164,7 @@ export function materializeTestDataRows(rows: TestDataSetRow[], now = new Date()
 
 export function countGeneratedTestDataFields(rows: TestDataSetRow[]) {
   return rows.reduce(
-    (count, row) => count + Object.values(row).filter((value) => hasTestDataGeneratorTemplate(value)).length,
+    (count, row) => count + Object.values(row).filter((value) => typeof value === "string" && hasTestDataGeneratorTemplate(value)).length,
     0
   );
 }

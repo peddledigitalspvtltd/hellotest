@@ -18,7 +18,8 @@ import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
-import { JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
+import { JiraAttachmentIcon, JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
+import { JiraCommentsPanel } from "../components/JiraCommentsPanel";
 import { JiraRequiredFields } from "../components/JiraRequiredFields";
 import { LabelsField } from "../components/LabelsField";
 import { LoadingState } from "../components/LoadingState";
@@ -106,6 +107,8 @@ type IssueDraft = {
   linked_requirement_ids: string[];
   assignee_id: string;
   root_cause: string;
+  bug_type: string;
+  regression: boolean;
   status: string;
   labelsText: string;
   sprint: string;
@@ -141,6 +144,9 @@ const ISSUE_PRIORITY_OPTIONS = [
   { value: "Lowest", label: "Lowest" }
 ];
 
+const ISSUE_ROOT_CAUSE_OPTIONS = ["Code Defect", "Requirements Gap", "Design Defect", "Configuration", "Test Data", "Environment", "Integration", "Dependency", "Deployment", "Performance / Capacity", "Security", "Human Error", "Duplicate", "Not Reproducible", "Unknown"];
+const ISSUE_BUG_TYPE_OPTIONS = ["Functional", "UI / UX", "Performance", "Security", "Accessibility", "Compatibility", "Integration", "Data", "API", "Reliability", "Localization", "Installation / Deployment", "Documentation"];
+
 const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
   title: "",
   message: "",
@@ -159,6 +165,8 @@ const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
   linked_requirement_ids: [],
   assignee_id: "",
   root_cause: "",
+  bug_type: "",
+  regression: false,
   status: defaultStatus,
   labelsText: "",
   sprint: "",
@@ -184,6 +192,8 @@ const createIssueDraftFromItem = (item: Issue, defaultStatus: string): IssueDraf
   linked_requirement_ids: item.linked_requirement_ids || [],
   assignee_id: item.assignee_id || "",
   root_cause: item.root_cause || "",
+  bug_type: item.bug_type || "",
+  regression: Boolean(item.regression),
   status: item.status || defaultStatus,
   labelsText: (item.labels || []).join(", "),
   sprint: item.sprint || "",
@@ -275,6 +285,8 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     linked_requirement_ids: linkedRequirementIds,
     assignee_id: "",
     root_cause: "",
+    bug_type: "",
+    regression: false,
     status: defaultStatus,
     labelsText: "",
     sprint: searchParams.get("sprint") || "",
@@ -285,6 +297,15 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
 
 const optionalDraftValue = (value: string) => {
   return value.trim();
+};
+
+const bugTitleSimilarity = (left: string, right: string) => {
+  const words = (value: string) => new Set(value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((word) => word.length > 2));
+  const leftWords = words(left);
+  const rightWords = words(right);
+  if (!leftWords.size || !rightWords.size) return 0;
+  const overlap = [...leftWords].filter((word) => rightWords.has(word)).length;
+  return overlap / Math.min(leftWords.size, rightWords.size);
 };
 
 const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string) => ({
@@ -307,6 +328,8 @@ const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string)
   linked_requirement_ids: draft.linked_requirement_ids,
   assignee_id: optionalDraftValue(draft.assignee_id),
   root_cause: optionalDraftValue(draft.root_cause),
+  bug_type: optionalDraftValue(draft.bug_type),
+  regression: draft.regression,
   status: draft.status,
   labels: draft.labelsText.split(",").map((value) => value.trim()).filter(Boolean),
   sprint: optionalDraftValue(draft.sprint),
@@ -388,9 +411,14 @@ function ImpactCheckboxPicker({
   };
 
   return (
-    <div className="form-field impact-checkbox-field">
-      <div className="impact-checkbox-heading">
+    <details className="form-field impact-checkbox-field impact-select-dropdown">
+      <summary className="impact-select-summary">
         <span className="form-field-label" id={labelId}>{label}</span>
+        <span>{selectedIds.length ? `${selectedIds.length} selected` : "Select…"}</span>
+      </summary>
+      <div className="impact-select-popover">
+      <div className="impact-checkbox-heading">
+        <span>{selectedIds.length} selected</span>
         <div className="impact-checkbox-actions">
           <button
             className="impact-checkbox-action"
@@ -446,7 +474,8 @@ function ImpactCheckboxPicker({
           {!visibleItems.length ? <div className="empty-state compact">{items.length ? "No records match this search." : emptyText}</div> : null}
         </div>
       </div>
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -538,6 +567,11 @@ export function IssuesPage() {
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const [isPendingAttachmentDragActive, setIsPendingAttachmentDragActive] = useState(false);
+  const pendingAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<Issue[]>([]);
+  const [duplicateReviewAccepted, setDuplicateReviewAccepted] = useState(false);
   const [activeBugDeliveryPrefill, setActiveBugDeliveryPrefill] = useState<DeliveryScopePrefillInput | null>(null);
   const appliedBugDeliveryPrefillRef = useRef<{ key: string; release: string; sprint: string } | null>(null);
   const seededIssueDraftKeyRef = useRef("");
@@ -604,6 +638,12 @@ export function IssuesPage() {
     enabled: Boolean(projectId && shouldLoadBugContext),
     staleTime: 30_000
   });
+  const testEnvironmentsQuery = useQuery({
+    queryKey: ["test-environments", projectId, "bug-scope"],
+    queryFn: () => api.testEnvironments.list({ project_id: projectId }),
+    enabled: Boolean(projectId && shouldLoadBugContext),
+    staleTime: 30_000
+  });
   const requirementIterationsQuery = useQuery({
     queryKey: ["requirement-iterations", projectId, "bug-scope"],
     queryFn: () => api.requirementIterations.list({ project_id: projectId }),
@@ -640,6 +680,11 @@ export function IssuesPage() {
     () => Array.from(new Set(items.flatMap((item) => item.labels || []).map((label) => label.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
     [items]
   );
+  const bugStatusBreakdown = useMemo(() => Object.entries(items.reduce<Record<string, number>>((counts, item) => {
+    const status = formatTileCardLabel(item.status, "Open");
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {})).map(([status, count]) => `${status} ${count}`).join(" · "), [items]);
   const userItems = asArray(users.data);
   const executionItems = asArray(executions.data);
   const testCaseItems = asArray<TestCase>(testCases.data);
@@ -648,6 +693,11 @@ export function IssuesPage() {
   const requirementItems = asArray<Requirement>(requirements.data);
   const requirementIterationItems = asArray<RequirementIteration>(requirementIterationsQuery.data);
   const requirementReleaseItems = asArray<RequirementRelease>(requirementReleasesQuery.data);
+  const environmentOptions = useMemo(() => Array.from(new Set([
+    ...asArray(testEnvironmentsQuery.data).map((environment) => String(environment.name || "").trim()),
+    ...items.map((item) => String(item.environment || "").trim()),
+    draft.environment.trim()
+  ].filter(Boolean))).sort((left, right) => left.localeCompare(right)), [draft.environment, items, testEnvironmentsQuery.data]);
   const deliveryScopeCatalog = useMemo<DeliveryScopeCatalogInput>(() => ({
     releases: requirementReleaseItems,
     iterations: requirementIterationItems,
@@ -690,13 +740,19 @@ export function IssuesPage() {
     const autoSuiteIds = selectedCases.flatMap((testCase) => testCase?.suite_ids || (testCase?.suite_id ? [testCase.suite_id] : []));
     const autoModuleIds = selectedCases.flatMap((testCase) => testCase?.module_ids || []);
 
-    setDraft((current) => ({
-      ...current,
-      linked_test_case_ids: uniqueIds,
-      linked_test_suite_ids: [...new Set([...current.linked_test_suite_ids, ...autoSuiteIds])],
-      linked_module_ids: [...new Set([...current.linked_module_ids, ...autoModuleIds])],
-      linked_requirement_ids: [...new Set([...current.linked_requirement_ids, ...autoRequirementIds])]
-    }));
+    setDraft((current) => {
+      const previousCases = current.linked_test_case_ids.map((testCaseId) => testCaseById.get(testCaseId)).filter(Boolean);
+      const previousSuiteIds = new Set(previousCases.flatMap((testCase) => testCase?.suite_ids || (testCase?.suite_id ? [testCase.suite_id] : [])));
+      const previousModuleIds = new Set(previousCases.flatMap((testCase) => testCase?.module_ids || []));
+      const previousRequirementIds = new Set(requirementIdsFromTestCases(current.linked_test_case_ids));
+      return {
+        ...current,
+        linked_test_case_ids: uniqueIds,
+        linked_test_suite_ids: [...new Set([...current.linked_test_suite_ids.filter((id) => !previousSuiteIds.has(id)), ...autoSuiteIds])],
+        linked_module_ids: [...new Set([...current.linked_module_ids.filter((id) => !previousModuleIds.has(id)), ...autoModuleIds])],
+        linked_requirement_ids: [...new Set([...current.linked_requirement_ids.filter((id) => !previousRequirementIds.has(id)), ...autoRequirementIds])]
+      };
+    });
   };
   const updateDraftLinkedSuites = (nextIds: string[]) => {
     const uniqueIds = [...new Set(nextIds)];
@@ -1373,6 +1429,9 @@ export function IssuesPage() {
     appliedBugDeliveryPrefillRef.current = null;
     setHasAppliedBugContextDefaults(true);
     setMessage("");
+    setPendingAttachments([]);
+    setDuplicateCandidates([]);
+    setDuplicateReviewAccepted(false);
   };
 
   const openAiBugReport = () => {
@@ -1603,6 +1662,13 @@ export function IssuesPage() {
       labelsText: candidate.labels.join(", "),
       sprint: resolvedActiveBugDeliveryPrefill?.sprint || "",
       release: resolvedActiveBugDeliveryPrefill?.release || "",
+      bug_type: "Functional",
+      regression: false,
+      root_cause: "",
+      assignee_id: "",
+      jira_bug_key: "",
+      status: defaultIssueStatus,
+      additional_fields: {},
       linked_test_run_id: candidate.linked_test_run_id,
       linked_test_case_ids: isHierarchyScopedContext ? [] : candidate.linked_test_case_ids,
       linked_test_suite_ids: parseQueryIdList(searchParams.get("linked_test_suite_ids"), searchParams.get("suite")),
@@ -1737,10 +1803,27 @@ export function IssuesPage() {
     }
 
     if (isCreating || !selectedItem) {
+      const duplicateScope = items.filter((item) => {
+        const sameCase = draft.linked_test_case_ids.some((id) => (item.linked_test_case_ids || []).includes(id));
+        const sameModule = draft.linked_module_ids.some((id) => (item.linked_module_ids || []).includes(id));
+        return (sameCase || sameModule) && bugTitleSimilarity(item.title, draft.title) >= 0.6;
+      });
+      if (duplicateScope.length && !duplicateReviewAccepted) {
+        setDuplicateCandidates(duplicateScope);
+        setMessageTone("error");
+        setMessage(`${duplicateScope.length} possible duplicate Bug${duplicateScope.length === 1 ? "" : "s"} found in the selected Test Case or Module scope. Review them or continue creating.`);
+        return;
+      }
       const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id, projectId));
+      if (pendingAttachments.length) {
+        await Promise.all(pendingAttachments.map((file) => api.attachments.upload({ project_id: projectId, entity_type: "issue", entity_id: response.id }, file)));
+      }
       syncIssueSearchParams(response.id);
       setSelectedIssueId(response.id);
       setIsCreating(false);
+      setPendingAttachments([]);
+      setDuplicateCandidates([]);
+      setDuplicateReviewAccepted(false);
       return;
     }
 
@@ -2278,7 +2361,7 @@ export function IssuesPage() {
             {
               label: "Open bugs",
               value: issues.isLoading ? "—" : openIssueCount,
-              detail: issues.isLoading ? "Loading workflow status" : `${Math.max(0, bugCatalogMetrics.total - openIssueCount)} resolved`
+              detail: issues.isLoading ? "Loading workflow status" : bugStatusBreakdown || "No Bugs"
             },
             {
               label: "Priority risks",
@@ -2453,6 +2536,7 @@ export function IssuesPage() {
                           <BugIcon size={16} strokeWidth={1.8} />
                           <DisplayIdBadge value={item.display_id || item.jira_bug_key || item.id} />
                         </span>
+                        <TileCardStatusIndicator title={issueStatus} tone={issueTone} />
                       </div>
                       <div className="tile-card-header">
                         <button
@@ -2470,7 +2554,6 @@ export function IssuesPage() {
                             ].filter(Boolean).join(" · ") || item.user_name || item.user_email || item.user_id}
                           </span>
                         </button>
-                        <TileCardStatusIndicator title={issueStatus} tone={issueTone} />
                       </div>
                       <RichTextContent className="tile-card-description" value={item.message} />
                       <div className="tile-card-progress-stack issue-tile-progress-stack">
@@ -2514,12 +2597,6 @@ export function IssuesPage() {
                           tone={isAssigned ? "success" : "warning"}
                           value={isAssigned ? "Assigned" : "Unassigned"}
                         />
-                      </div>
-                      <div className="issue-card-footer">
-                        <span className="count-pill">{issueStatus}</span>
-                        {item.build ? <span className="count-pill">Build {item.build}</span> : null}
-                        {item.linked_test_run_id ? <span className="count-pill">{runLabelById.get(item.linked_test_run_id) || item.linked_test_run_id}</span> : null}
-                        <span className="count-pill">{assigneeLabel}</span>
                       </div>
                     </div>
                   </article>
@@ -2675,7 +2752,10 @@ export function IssuesPage() {
 
                   <div className="issue-form-compact-grid issue-form-context-grid">
                     <FormField className="bug-field-environment" label="Environment">
-                      <input placeholder="QA, UAT, iOS 18, Chrome" value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))} />
+                      <select value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))}>
+                        <option value="">No environment</option>
+                        {environmentOptions.map((environment) => <option key={environment} value={environment}>{environment}</option>)}
+                      </select>
                     </FormField>
                     <FormField className="bug-field-build" label="Build">
                       <input placeholder="2026.07.02" value={draft.build} onChange={(event) => setDraft((current) => ({ ...current, build: event.target.value }))} />
@@ -2740,6 +2820,16 @@ export function IssuesPage() {
                     <strong>Classification</strong>
                   </div>
                   <div className="issue-form-grid issue-form-grid--triple">
+                    <FormField label="Bug Type">
+                      <select value={draft.bug_type} onChange={(event) => setDraft((current) => ({ ...current, bug_type: event.target.value }))}>
+                        <option value="">Not set</option>
+                        {ISSUE_BUG_TYPE_OPTIONS.map((bugType) => <option key={bugType} value={bugType}>{bugType}</option>)}
+                      </select>
+                    </FormField>
+                    <label className="checkbox-field bug-regression-field">
+                      <input checked={draft.regression} onChange={(event) => setDraft((current) => ({ ...current, regression: event.target.checked }))} type="checkbox" />
+                      <span>Regression</span>
+                    </label>
                     <LabelsField
                       options={issueLabelOptions}
                       placeholder="Select or add label"
@@ -2767,7 +2857,7 @@ export function IssuesPage() {
                 </section>
 
                 {(isCreating ? bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError : bugEditMetadataQuery.isLoading || bugEditMetadataQuery.isError) || requiredJiraBugFields.length ? (
-                  <section className="issue-form-section">
+                  <section className="issue-form-section issue-form-section--required-fields">
                     <div className="issue-form-section-head">
                       <strong>Required Bug fields</strong>
                       <span>
@@ -2791,7 +2881,7 @@ export function IssuesPage() {
                   </section>
                 ) : null}
 
-                <section className="issue-form-section">
+                <section className="issue-form-section issue-form-section--evidence">
                   <div className="issue-form-section-head">
                     <strong>Failure evidence</strong>
                     <span>Description, reproduction steps, expected result, and actual result.</span>
@@ -2833,20 +2923,41 @@ export function IssuesPage() {
                   </div>
                 </section>
 
-	                <section className="issue-form-section">
-	                  <div className="issue-form-section-head">
-	                    <strong>Resolution tracking</strong>
-	                    <span>Root cause details for closure readiness.</span>
-	                  </div>
-	                  <FormField label="Root Cause">
-	                    <RichTextEditor
-	                      appearance="canonical"
-	                      rows={4}
-	                      value={draft.root_cause}
-	                      onChange={(root_cause) => setDraft((current) => ({ ...current, root_cause }))}
-	                    />
-	                  </FormField>
-	                </section>
+                <section className="issue-form-section issue-form-section--root-cause">
+                  <FormField label="Root Cause">
+                    <select value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
+                      <option value="">Not determined</option>
+                      {ISSUE_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
+                    </select>
+                  </FormField>
+                </section>
+                {isCreating && canCreateAttachments ? (
+                  <section className="jira-attachment-panel" aria-label="Attachments for new Bug">
+                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{pendingAttachments.length} ready to upload when this Bug is created</span></div></div>
+                    <div
+                      className={isPendingAttachmentDragActive ? "jira-attachment-dropzone is-dragging" : "jira-attachment-dropzone"}
+                      onDragEnter={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(true); }}
+                      onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsPendingAttachmentDragActive(false); }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(false); setPendingAttachments((current) => [...current, ...Array.from(event.dataTransfer.files)].slice(0, 10)); }}
+                    >
+                      <input hidden multiple onChange={(event) => setPendingAttachments((current) => [...current, ...Array.from(event.target.files || [])].slice(0, 10))} ref={pendingAttachmentInputRef} type="file" />
+                      <JiraAttachmentIcon />
+                      <span>Drop files to attach or</span>
+                      <button className="jira-attachment-browse-button" onClick={() => pendingAttachmentInputRef.current?.click()} type="button">Browse</button>
+                    </div>
+                    <div className="jira-attachment-grid">
+                      {pendingAttachments.map((file, index) => (
+                        <article className="jira-attachment-card" key={`${file.name}-${file.size}-${index}`}>
+                          <div className="jira-attachment-preview"><JiraAttachmentIcon /></div>
+                          <div className="jira-attachment-copy"><strong title={file.name}>{file.name}</strong><span>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · pending</span></div>
+                          <div className="jira-attachment-actions"><button className="ghost-button compact danger" onClick={() => setPendingAttachments((current) => current.filter((_, fileIndex) => fileIndex !== index))} type="button">Remove</button></div>
+                        </article>
+                      ))}
+                    </div>
+                    {!pendingAttachments.length ? <div className="empty-state compact">No attachments yet.</div> : null}
+                  </section>
+                ) : null}
                 {!isCreating && selectedItem ? (
                   <JiraAttachmentPanel
                     canDelete={canDeleteAttachments}
@@ -2857,6 +2968,18 @@ export function IssuesPage() {
                     issueKey={selectedItem.jira_bug_key || selectedItem.id}
                     projectId={projectId}
                   />
+                ) : null}
+                {!isCreating && selectedItem ? (
+                  <JiraCommentsPanel canComment={canManageBugs} entityId={selectedItem.id} entityType="issue" issueKey={selectedItem.display_id || selectedItem.id} projectId={projectId} />
+                ) : null}
+                {isCreating && duplicateCandidates.length ? (
+                  <section className="issue-duplicate-review" role="alert">
+                    <strong>{duplicateCandidates.length} possible duplicate Bug{duplicateCandidates.length === 1 ? "" : "s"}</strong>
+                    <div className="action-row">
+                      <button onClick={() => duplicateCandidates.forEach((candidate) => window.open(`/issues?issue=${encodeURIComponent(candidate.id)}`, "_blank", "noopener,noreferrer"))} type="button">Open all in new tabs</button>
+                      <button className="primary-button" onClick={(event) => { const form = event.currentTarget.closest("form"); setDuplicateReviewAccepted(true); setDuplicateCandidates([]); window.setTimeout(() => form?.requestSubmit(), 0); }} type="button">Continue and Create</button>
+                    </div>
+                  </section>
                 ) : null}
                 </div>
                 {isCreating ? (
@@ -2877,10 +3000,10 @@ export function IssuesPage() {
                       <BugIcon />
                       <span>
                         {createIssue.isPending
-                          ? "Saving…"
+                          ? "Creating…"
                           : bugCreateMetadataQuery.isLoading
                             ? "Checking Bug fields…"
-                            : "Save Bug"}
+                            : "Create"}
                       </span>
                     </button>
                   </footer>

@@ -597,6 +597,20 @@ export function DesignPage() {
     });
     return map;
   }, [testCaseModules]);
+  const suitePickerModuleIdByCaseId = useMemo(() => {
+    const map: Record<string, string> = {};
+    testCaseModules.forEach((module) => {
+      (module.test_case_ids || []).forEach((testCaseId) => {
+        map[testCaseId] = module.id;
+      });
+    });
+    allTestCases.forEach((testCase) => {
+      if (!map[testCase.id] && testCase.module_ids?.[0]) {
+        map[testCase.id] = testCase.module_ids[0];
+      }
+    });
+    return map;
+  }, [allTestCases, testCaseModules]);
 
   const suiteCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1217,7 +1231,7 @@ export function DesignPage() {
     }
   };
 
-  const beginCreateCase = () => {
+  const beginCreateCase = (moduleId = "") => {
     if (!selectedSuiteId) {
       setMessageTone("error");
       setMessage("Select a suite first before creating a test case.");
@@ -1234,6 +1248,9 @@ export function DesignPage() {
     }
     params.set("create", "1");
     params.set("suite", selectedSuiteId);
+    if (moduleId) {
+      params.set("module", moduleId);
+    }
 
     navigate(`/test-cases?${params.toString()}`);
   };
@@ -1789,6 +1806,34 @@ export function DesignPage() {
     }
   };
 
+  const handleReorderModule = async (moduleName: string, direction: "up" | "down") => {
+    if (!selectedSuiteId) return;
+    const groups = Array.from(orderedSuiteCases.reduce<Map<string, TestCase[]>>((result, testCase) => {
+      const name = suitePickerModuleLabelByCaseId[testCase.id] || "Unassigned module";
+      result.set(name, [...(result.get(name) || []), testCase]);
+      return result;
+    }, new Map()));
+    const currentIndex = groups.findIndex(([name]) => name === moduleName);
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= groups.length) return;
+    const reorderedGroups = [...groups];
+    const [movedGroup] = reorderedGroups.splice(currentIndex, 1);
+    reorderedGroups.splice(targetIndex, 0, movedGroup);
+    try {
+      await reorderSuiteCasesMutation.mutateAsync({
+        suiteId: selectedSuiteId,
+        testCaseIds: reorderedGroups.flatMap(([, groupCases]) => groupCases.map((testCase) => testCase.id))
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["design-test-cases", appTypeId] }),
+        queryClient.invalidateQueries({ queryKey: ["suite-test-case-mappings", selectedSuiteId] })
+      ]);
+      showSuccess("Module order updated.");
+    } catch (error) {
+      showError(error, "Unable to reorder modules");
+    }
+  };
+
   const handleUnlinkSuiteCases = async (testCaseIds: string[]) => {
     if (!selectedSuiteId || !selectedSuite || !canUpdateSuites || !testCaseIds.length) {
       return false;
@@ -1966,6 +2011,7 @@ export function DesignPage() {
             requirements={requirements}
             stepCountByCaseId={stepCountByCaseId}
             moduleLabelByCaseId={suitePickerModuleLabelByCaseId}
+            moduleIdByCaseId={suitePickerModuleIdByCaseId}
             onSearch={setSearchTerm}
             onStatusFilter={setStatusFilter}
             onCasePriorityFilter={setCasePriorityFilter}
@@ -1981,6 +2027,7 @@ export function DesignPage() {
             canUnlinkCases={canUpdateSuites}
             isUnlinkingCases={assignSuiteCasesMutation.isPending}
             onReorderCases={handleReorderCases}
+            onReorderModule={handleReorderModule}
             onUnlinkCases={handleUnlinkSuiteCases}
             viewMode={suiteCaseCatalogViewMode}
             onViewModeChange={setSuiteCaseCatalogViewMode}
@@ -2552,6 +2599,7 @@ function TestCaseList({
   requirements,
   stepCountByCaseId,
   moduleLabelByCaseId,
+  moduleIdByCaseId,
   onSearch,
   onStatusFilter,
   onCasePriorityFilter,
@@ -2564,6 +2612,7 @@ function TestCaseList({
   canUnlinkCases,
   isUnlinkingCases,
   onReorderCases,
+  onReorderModule,
   onUnlinkCases,
   viewMode,
   onViewModeChange
@@ -2587,18 +2636,20 @@ function TestCaseList({
   requirements: Requirement[];
   stepCountByCaseId: Record<string, number>;
   moduleLabelByCaseId: Record<string, string>;
+  moduleIdByCaseId: Record<string, string>;
   onSearch: (value: string) => void;
   onStatusFilter: (value: string) => void;
   onCasePriorityFilter: (value: string) => void;
   onCaseStepFilter: (value: SuiteCaseStepFilter) => void;
   onCaseRunFilter: (value: SuiteCaseRunFilter) => void;
   onSelectCase: (testCaseId: string) => void;
-  onCreateCase: () => void;
+  onCreateCase: (moduleId?: string) => void;
   onOpenCaseEditor: (testCaseId?: string) => void;
   canOpenCaseEditor: boolean;
   canUnlinkCases: boolean;
   isUnlinkingCases: boolean;
   onReorderCases: (fromCaseId: string, toCaseId: string) => void;
+  onReorderModule: (moduleName: string, direction: "up" | "down") => void;
   onUnlinkCases: (testCaseIds: string[]) => Promise<boolean>;
   viewMode: "tile" | "list";
   onViewModeChange: (value: "tile" | "list") => void;
@@ -2648,6 +2699,8 @@ function TestCaseList({
       && module.cases.every((testCase) => selectedCaseIdSet.has(testCase.id));
     const areSomeModuleCasesSelected = !areAllModuleCasesSelected
       && module.cases.some((testCase) => selectedCaseIdSet.has(testCase.id));
+    const moduleIndex = moduleGroups.findIndex((item) => item.name === module.name);
+    const moduleId = module.cases.map((testCase) => moduleIdByCaseId[testCase.id]).find(Boolean) || "";
 
     return (
       <div className="suite-module-group-header">
@@ -2680,6 +2733,17 @@ function TestCaseList({
             </label>
           ) : null}
         </span>
+        {selectedSuite ? (
+          <span className="suite-module-group-actions" role="group" aria-label={`Actions for ${module.name}`}>
+            {moduleId ? (
+              <button className="ghost-button compact" onClick={(event) => { event.stopPropagation(); onCreateCase(moduleId); }} title={`Create test case in ${module.name}`} type="button">
+                <AddIcon size={14} /><span>Create test case</span>
+              </button>
+            ) : null}
+            <button aria-label={`Move ${module.name} up`} className="ghost-button compact" disabled={moduleIndex === 0} onClick={(event) => { event.stopPropagation(); onReorderModule(module.name, "up"); }} title="Move module up" type="button">↑</button>
+            <button aria-label={`Move ${module.name} down`} className="ghost-button compact" disabled={moduleIndex === moduleGroups.length - 1} onClick={(event) => { event.stopPropagation(); onReorderModule(module.name, "down"); }} title="Move module down" type="button">↓</button>
+          </span>
+        ) : null}
       </div>
     );
   };
@@ -2806,8 +2870,26 @@ function TestCaseList({
   ], [defaultCaseStatus, historyByCaseId, moduleLabelByCaseId, requirements, stepCountByCaseId]);
 
   const suiteCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => {
+    const reorderColumn: DataTableColumn<TestCase> = {
+      key: "order",
+      label: "Order",
+      canToggle: false,
+      canReorder: false,
+      canResize: false,
+      width: 72,
+      render: (testCase) => {
+        const module = moduleGroups.find((item) => item.cases.some((itemCase) => itemCase.id === testCase.id));
+        const caseIndex = module?.cases.findIndex((itemCase) => itemCase.id === testCase.id) ?? -1;
+        return (
+          <span className="suite-case-reorder-actions" role="group" aria-label={`Reorder ${testCase.title}`}>
+            <button aria-label={`Move ${testCase.title} up`} className="ghost-button compact" disabled={caseIndex <= 0} onClick={(event) => { event.stopPropagation(); if (module && caseIndex > 0) onReorderCases(testCase.id, module.cases[caseIndex - 1].id); }} title="Move test case up" type="button">↑</button>
+            <button aria-label={`Move ${testCase.title} down`} className="ghost-button compact" disabled={!module || caseIndex < 0 || caseIndex >= module.cases.length - 1} onClick={(event) => { event.stopPropagation(); if (module && caseIndex < module.cases.length - 1) onReorderCases(testCase.id, module.cases[caseIndex + 1].id); }} title="Move test case down" type="button">↓</button>
+          </span>
+        );
+      }
+    };
     if (!canUnlinkCases) {
-      return suiteCaseDataColumns;
+      return [reorderColumn, ...suiteCaseDataColumns];
     }
 
     const areSomeVisibleCasesSelected = !areAllVisibleCasesSelected
@@ -2858,9 +2940,10 @@ function TestCaseList({
           </label>
         )
       },
+      reorderColumn,
       ...suiteCaseDataColumns
     ];
-  }, [areAllVisibleCasesSelected, canUnlinkCases, cases, selectedCaseIdSet, suiteCaseDataColumns]);
+  }, [areAllVisibleCasesSelected, canUnlinkCases, cases, moduleGroups, onReorderCases, selectedCaseIdSet, suiteCaseDataColumns]);
 
   const suiteCaseListRowGroups: Array<DataTableRowGroup<TestCase>> = moduleGroups.map((module) => ({
     key: module.name,
@@ -2963,7 +3046,7 @@ function TestCaseList({
           </div>
           <div className="catalog-toolbar-actions" aria-label="Suite case actions">
             {toolbarActions}
-            <button className="primary-button" onClick={onCreateCase} type="button"><AddIcon />New Test Case</button>
+            <button className="primary-button" onClick={() => onCreateCase()} type="button"><AddIcon />New Test Case</button>
             {selectedSuite && canUnlinkCases ? (
               <button
                 className="ghost-button danger catalog-selection-button"
@@ -2992,7 +3075,7 @@ function TestCaseList({
             ) : (
               <div className="empty-state compact">
                 <div>No reusable test cases exist in this scope yet.</div>
-                <button className="primary-button" onClick={onCreateCase} type="button">Create first case</button>
+                <button className="primary-button" onClick={() => onCreateCase()} type="button">Create first case</button>
               </div>
             )
           ) : null}

@@ -912,6 +912,8 @@ export type Issue = {
   assignee_name?: string | null;
   assignee_email?: string | null;
   root_cause?: string | null;
+  bug_type?: string | null;
+  regression?: boolean;
   status: string | null;
   status_category?: string | null;
   revision?: number;

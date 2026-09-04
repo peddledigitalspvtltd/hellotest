@@ -1,4 +1,9 @@
 import { useState, type ReactNode } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useAuth } from "../auth/AuthContext";
+import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { api } from "../lib/api";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { DialogCloseButton } from "./DialogCloseButton";
 import { FormField } from "./FormField";
@@ -59,6 +64,11 @@ export function StepParameterDialog({
   onReset?: (name: string) => void;
   onRefreshPreviews?: () => void;
 }) {
+  const { session } = useAuth();
+  const [projectId] = useCurrentProject();
+  const [appTypeId] = useCurrentAppType(projectId);
+  const { getLlmIntegrationId, getPrompt } = useAiPromptRegistry(Boolean(session));
+  const generateAiData = useMutation({ mutationFn: api.testDataSets.previewAiData });
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     t: false,
@@ -156,8 +166,33 @@ export function StepParameterDialog({
     setActiveUtilityParameter("");
   };
 
-  const applyUtilityTemplate = (parameterName: string) => {
+  const resolveAiDataTemplate = async (parameterName: string, template: string) => {
+    const match = template.trim().match(/^\{\{\s*aiData\s*:\s*([^}]+)\}\}$/i);
+    if (!match || !projectId) return false;
+    const criterion = match[1].trim();
+    setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: `Generating ${criterion} with the configured LLM…` }));
+    try {
+      const preview = await generateAiData.mutateAsync({
+        project_id: projectId,
+        app_type_id: appTypeId || undefined,
+        prompt: criterion,
+        field_context: parameterName,
+        sample_count: 8,
+        prompt_instruction: getPrompt("ai.test_data.synthetic") || undefined,
+        integration_id: getLlmIntegrationId("ai.test_data.synthetic") || undefined
+      });
+      onChange(parameterName, preview.randomized_template);
+      setUtilityDrafts((current) => ({ ...current, [parameterName]: preview.randomized_template }));
+      setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: preview.fallback_used ? "The LLM was unavailable; a safe reviewed fallback pool will randomize each run." : `${preview.suggestions.length} LLM-generated values reviewed and saved as a randomized run-time pool.` }));
+    } catch (error) {
+      setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: error instanceof Error ? error.message : "Unable to generate AI data." }));
+    }
+    return true;
+  };
+
+  const applyUtilityTemplate = async (parameterName: string) => {
     const template = utilityDrafts[parameterName] || "";
+    if (await resolveAiDataTemplate(parameterName, template)) return;
     const sampleValue = evaluateTestDataTemplate(template);
 
     onChange(parameterName, template);
@@ -285,6 +320,7 @@ export function StepParameterDialog({
                                   placeholder={inputState.placeholder || `Value for ${parameter.token}`}
                                   value={currentValue}
                                   onChange={(event) => onChange(parameter.name, event.target.value)}
+                                  onBlur={(event) => { void resolveAiDataTemplate(parameter.name, event.target.value); }}
                                 />
                                 <label className="step-parameter-utility-select">
                                   <span aria-hidden="true" className="step-parameter-utility-select-icon"><TestDataIcon size={17} /></span>
@@ -363,8 +399,8 @@ export function StepParameterDialog({
                                     value={utilityDrafts[parameter.name] || ""}
                                   />
                                   <div className="step-parameter-utility-footer">
-                                    <button className="primary-button" onClick={() => applyUtilityTemplate(parameter.name)} title="Save the template so every run resolves a fresh value" type="button">
-                                      Randomize each run
+                                    <button className="primary-button" disabled={generateAiData.isPending} onClick={() => void applyUtilityTemplate(parameter.name)} title="Save the template so every run resolves a fresh value" type="button">
+                                      {generateAiData.isPending ? "Generating…" : "Generate / randomize each run"}
                                     </button>
                                     <button className="ghost-button" onClick={() => applyUtilityStaticValue(parameter.name)} title="Resolve the template now and save the generated value as static data" type="button">
                                       Use static sample

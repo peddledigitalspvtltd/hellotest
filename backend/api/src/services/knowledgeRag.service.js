@@ -323,13 +323,12 @@ const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}
     integration = null;
   }
   assertLlmIntegrationProjectScope(integration, projectId);
-  const integrationConfig = asObject(integration?.config);
-  const model = normalizeText(integrationConfig.embedding_model, 255);
-  const baseUrl = normalizeText(integrationConfig.embedding_base_url, 2_000) || normalizeText(integration?.base_url, 2_000);
+  const model = normalizeText(integration?.model, 255);
+  const baseUrl = normalizeText(integration?.base_url, 2_000);
   if (!integration || !model || !baseUrl || !integration.api_key) {
     return { configured: false, integration: null, model: LOCAL_EMBEDDING_MODEL, provider: "HelloTest local hash embedding" };
   }
-  return { configured: true, integration, model, baseUrl, provider: integration.name || "Configured embedding provider" };
+  return { configured: true, integration, model, baseUrl, provider: integration.name || "Configured LLM provider" };
 };
 
 const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {

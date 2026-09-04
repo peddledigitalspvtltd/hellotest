@@ -249,9 +249,15 @@ const EXECUTION_IMPACT_LEVEL_OPTIONS = freezeOptions([
 
 const FEEDBACK_STATUS_OPTIONS = freezeOptions([
   { value: "open", label: "Open" },
-  { value: "reviewed", label: "Reviewed" },
-  { value: "planned", label: "Planned" },
-  { value: "closed", label: "Closed" }
+  { value: "triaged", label: "Triaged" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "resolved", label: "Resolved" },
+  { value: "reopened", label: "Reopened" },
+  { value: "verified", label: "Verified" },
+  { value: "closed", label: "Closed" },
+  { value: "deferred", label: "Deferred" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "wont_fix", label: "Won't Fix" }
 ]);
 const ISSUE_STATUS_OPTIONS = FEEDBACK_STATUS_OPTIONS;
 

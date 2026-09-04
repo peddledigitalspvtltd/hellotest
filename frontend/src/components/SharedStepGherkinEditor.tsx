@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AddIcon, TrashIcon } from "./AppIcons";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { extractStepParameterMatches } from "../lib/stepParameters";
+import { resolveGherkinParameterText } from "../lib/gherkin";
 
 type SharedGherkinKeyword = "Given" | "When" | "Then" | "And" | "But";
 
@@ -11,7 +12,7 @@ type SharedGherkinStep = {
 };
 
 const SHARED_GHERKIN_KEYWORDS: SharedGherkinKeyword[] = ["Given", "When", "Then", "And", "But"];
-const SHARED_GHERKIN_STEP_PATTERN = /^\s*(Given|When|Then|And|But)\s*(.*)$/i;
+const SHARED_GHERKIN_STEP_PATTERN = /^\s*(Given|When|Then|And|But)(?:[ \t])?(.*)$/i;
 
 const normalizeKeyword = (value: string): SharedGherkinKeyword =>
   SHARED_GHERKIN_KEYWORDS.find((keyword) => keyword.toLowerCase() === value.toLowerCase()) || "And";
@@ -30,7 +31,7 @@ export function composeSharedStepGherkin(groupName: string, steps: SharedGherkin
     `Feature: ${name}`,
     "",
     `  Scenario: ${name}`,
-    ...steps.map((step) => `    ${step.keyword} ${step.text}`.trimEnd())
+    ...steps.map((step) => `    ${step.keyword} ${step.text}`)
   ].join("\n");
 }
 
@@ -53,6 +54,7 @@ export function SharedStepGherkinEditor({
   parameterValues?: Record<string, string>;
   value: string;
 }) {
+  const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
   const parsedSteps = useMemo(() => parseSharedStepGherkin(value), [value]);
   const steps = parsedSteps.length ? parsedSteps : starterSteps();
 
@@ -95,9 +97,7 @@ export function SharedStepGherkinEditor({
 
       <div className="shared-gherkin-step-list">
         {steps.map((step, index) => {
-          const parameters = Array.from(
-            new Map(extractStepParameterMatches(step.text).map((parameter) => [parameter.name, parameter])).values()
-          );
+          const parameters = extractStepParameterMatches(step.text);
           const keywordTone = step.keyword.toLowerCase();
 
           return (
@@ -116,25 +116,17 @@ export function SharedStepGherkinEditor({
               <div className="shared-gherkin-step-content">
                 <input
                   aria-label={`Shared Gherkin step ${index + 1}`}
+                  className={editingStepIndex === index ? "is-editing" : ""}
+                  onBlur={() => setEditingStepIndex(null)}
                   onChange={(event) => updateStep(index, { text: event.target.value })}
+                  onFocus={() => setEditingStepIndex(index)}
                   placeholder={step.keyword === "Given" ? "the reusable setup, including @t.parameters" : step.keyword === "Then" ? "the expected reusable outcome" : "the reusable action"}
                   value={step.text}
                 />
-                {step.text ? (
-                  <div className="shared-gherkin-step-preview">
-                    <span>Preview</span>
-                    <StepParameterizedText text={step.text} values={parameterValues} />
-                  </div>
-                ) : null}
                 {parameters.length ? (
-                  <div aria-label={`Parameters used by shared step ${index + 1}`} className="shared-gherkin-parameter-values">
-                    {parameters.map((parameter) => (
-                      <span className={parameterValues?.[parameter.name] !== undefined ? "is-resolved" : "is-unresolved"} key={parameter.name}>
-                        <code>{parameter.token}</code>
-                        <strong>{parameterValues?.[parameter.name] || "Value not set"}</strong>
-                      </span>
-                    ))}
-                  </div>
+                  <span aria-hidden="true" className={`shared-gherkin-inline-value${editingStepIndex === index ? " is-hidden" : ""}`}>
+                    <StepParameterizedText fallback={resolveGherkinParameterText(step.text, parameterValues) || step.text} text={step.text} values={parameterValues} />
+                  </span>
                 ) : null}
               </div>
               <div className="shared-gherkin-step-actions">

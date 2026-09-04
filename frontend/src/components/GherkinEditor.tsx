@@ -18,6 +18,8 @@ type GherkinEditorProps = {
   parameterValues?: Record<string, string>;
   compact?: boolean;
   readOnly?: boolean;
+  exampleColumns?: string[];
+  exampleRows?: Array<Record<string, string>>;
 };
 
 type GherkinSectionSurfaceProps = {
@@ -188,7 +190,15 @@ function GherkinSectionSurface({ actions, autoFocus = false, description, emptyM
   );
 }
 
-export function GherkinEditor({ value, onChange, featureTitle, parameterValues = {}, compact = false, readOnly = false }: GherkinEditorProps) {
+const escapeExampleCell = (value: string) => String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+
+const composeLinkedExamples = (columns: string[], rows: Array<Record<string, string>>) => [
+  "Examples:",
+  `  | ${columns.map(escapeExampleCell).join(" | ")} |`,
+  ...rows.map((row) => `  | ${columns.map((column) => escapeExampleCell(row[column] || "")).join(" | ")} |`)
+].join("\n");
+
+export function GherkinEditor({ value, onChange, featureTitle, parameterValues = {}, compact = false, readOnly = false, exampleColumns = [], exampleRows = [] }: GherkinEditorProps) {
   const editorId = useId().replace(/:/g, "");
   const [editingSection, setEditingSection] = useState("");
   const [focusTarget, setFocusTarget] = useState("");
@@ -218,6 +228,17 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
     setEditingSection("");
     setFocusTarget("");
   }, [parsedSections, value]);
+
+  useEffect(() => {
+    if (readOnly || !exampleColumns.length || !exampleRows.length || !sections.scenarios.length) return;
+    const examples = composeLinkedExamples(exampleColumns, exampleRows);
+    const nextScenarios = sections.scenarios.map((item) => ({
+      scenario: item.scenario.replace(/^(\s*)Scenario\s*:/im, "$1Scenario Outline:"),
+      examples
+    }));
+    if (nextScenarios.every((item, index) => item.scenario === sections.scenarios[index].scenario && item.examples === sections.scenarios[index].examples)) return;
+    commit({ ...sections, scenarios: nextScenarios });
+  }, [exampleColumns, exampleRows, readOnly, sections]);
 
   const updateFeatureName = (name: string) => {
     const nextPreamble = [...preambleLines];

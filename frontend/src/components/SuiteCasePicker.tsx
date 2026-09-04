@@ -318,12 +318,10 @@ function OrderedSelectionPicker({
     [itemById, selectedIds]
   );
   const orderedItems = useMemo(
-    () => showCaseFilters
-      ? filteredItems
-      : [
-          ...selectedItems.filter((item) => allVisibleItemIds.includes(item.id)),
-          ...filteredItems.filter((item) => !selectedIds.includes(item.id))
-        ],
+    () => [
+      ...selectedItems.filter((item) => allVisibleItemIds.includes(item.id)),
+      ...filteredItems.filter((item) => !selectedIds.includes(item.id))
+    ],
     [allVisibleItemIds, filteredItems, selectedIds, selectedItems, showCaseFilters]
   );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);

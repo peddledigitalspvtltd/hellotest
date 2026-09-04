@@ -4182,7 +4182,7 @@ p.eyebrow {
   position: absolute;
   top: calc(100% + 0.6rem);
   right: 0;
-  z-index: 80;
+  z-index: 1300;
   width: min(22rem, calc(100vw - 3rem));
   max-width: calc(100vw - 1.5rem);
   max-height: calc(100dvh - 1.5rem);
@@ -50943,6 +50943,10 @@ body,
 }
 
 .impact-checkbox-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   min-width: 0;
   min-height: 0;
   padding: 0;
@@ -50952,6 +50956,8 @@ body,
   font: inherit;
   cursor: pointer;
 }
+
+.impact-checkbox-action svg { display: block; flex: 0 0 auto; }
 
 .impact-checkbox-action:hover:not(:disabled),
 .impact-checkbox-action:focus-visible {
@@ -51495,6 +51501,109 @@ body,
     forced-color-adjust: auto;
   }
 }
+
+/* Compact, text-first Test Case and Gherkin authoring surfaces. */
+.test-case-workspace-shell .test-case-workspace-header {
+  min-height: 52px;
+  padding: 6px 14px;
+}
+
+.test-case-workspace-identity { gap: 7px; }
+.test-case-workspace-identity .workspace-back-button {
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 6px !important;
+}
+.test-case-workspace-record-id,
+.test-case-detail-record-id {
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.test-case-workspace-identity .display-id-badge,
+.test-case-detail-record-id .display-id-badge {
+  min-height: 20px;
+  padding: 0 4px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+.test-case-workspace-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: clamp(0.95rem, 1.5vw, 1.15rem);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.test-case-detail-grid.editor-accordion {
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  padding: 16px;
+}
+.test-case-detail-primary,
+.test-case-detail-sidebar { gap: 14px; }
+.test-case-detail-identity-card {
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.test-case-detail-primary .gherkin-editor {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-editor-toolbar {
+  min-height: 42px;
+  padding: 4px 0 7px;
+  border-bottom: 1px solid var(--line);
+}
+.test-case-detail-primary .gherkin-section-grid {
+  gap: 8px;
+  padding: 8px 0 0;
+}
+.test-case-detail-primary .gherkin-feature-bar {
+  min-height: 38px;
+  padding: 0;
+}
+.test-case-detail-primary .gherkin-feature-bar input {
+  min-height: 30px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-section-card,
+.test-case-detail-primary .gherkin-scenario-region {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-section-card > header,
+.test-case-detail-primary .gherkin-scenario-region-head {
+  min-height: 36px;
+  padding: 3px 0;
+  background: transparent;
+}
+.test-case-detail-primary .gherkin-scenario-list {
+  gap: 7px;
+  padding: 7px 0;
+}
+.test-case-detail-primary .gherkin-scenario-block { gap: 4px; }
+.test-case-detail-primary .gherkin-scenario-block > .gherkin-section-card.is-examples {
+  margin-left: 18px;
+  border-left: 2px solid color-mix(in srgb, var(--gherkin-value) 35%, var(--line));
+}
+.test-case-detail-primary .gherkin-editor-status { padding-inline: 0; }
 
 /* Persistent page identity remains visible when a catalog opens a focused
    record workspace, while yielding vertical space to the active editor. */
@@ -52171,6 +52280,11 @@ button:active:not(:disabled) .explorer-toggle-glyph {
   height: 1.25rem;
 }
 
+.test-case-title-field,
+.test-case-description-field {
+  grid-column: 1 / -1;
+}
+
 .suite-module-groups,
 .execution-module-tree--list {
   display: grid;
@@ -52192,12 +52306,27 @@ button:active:not(:disabled) .explorer-toggle-glyph {
 
 .suite-module-group-header {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
   min-height: 3.75rem;
   padding: 0.65rem 0.8rem;
   background: var(--ds-background-neutral-subtle, var(--panel-muted));
+}
+
+.suite-module-group-actions,
+.suite-case-reorder-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  white-space: nowrap;
+}
+
+.suite-module-group-actions .ghost-button,
+.suite-case-reorder-actions .ghost-button {
+  min-width: 1.75rem;
+  padding-inline: 0.35rem;
 }
 
 .suite-module-group-icon {
@@ -52296,7 +52425,7 @@ button:active:not(:disabled) .explorer-toggle-glyph {
 
 @media (max-width: 760px) {
   .suite-module-group-header {
-    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
   }
 
   .execution-module-scope-header {
@@ -53127,6 +53256,14 @@ button:active:not(:disabled) .explorer-toggle-glyph {
 
 .test-case-workspace-record-id,
 .test-case-detail-record-id {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid color-mix(in srgb, #0c66e4 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, #0c66e4 7%, var(--panel-strong));
   color: #0c66e4;
 }
 
@@ -53158,6 +53295,8 @@ button:active:not(:disabled) .explorer-toggle-glyph {
 }
 
 .test-case-workspace-title {
+  flex: 1 1 18rem;
+  max-width: min(52rem, 48vw);
   min-width: 0;
   margin: 0;
   overflow: hidden;
@@ -57583,7 +57722,11 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   overflow-x: hidden !important;
   overflow-y: auto !important;
   overscroll-behavior: auto !important;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   scroll-padding-block: 1rem 4.5rem;
+  scrollbar-gutter: stable;
 }
 
 .resource-modal-card--configuration .configuration-matrix-table-wrap {
@@ -57605,10 +57748,8 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 }
 
 .resource-form--configuration .resource-table-shell--key-value .table-wrap {
-  max-height: min(34dvh, 22rem);
-  overflow: auto;
-  overscroll-behavior: auto;
-  scrollbar-gutter: stable both-edges;
+  max-height: none;
+  overflow: visible;
 }
 
 /* Shared Step Group Gherkin is intentionally a behavior-step group, not a
@@ -57686,14 +57827,14 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 
 .shared-gherkin-step-row {
   display: grid;
-  grid-template-columns: 2rem 7.75rem minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 0.6rem;
+  grid-template-columns: 1.25rem 5.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
   min-width: 0;
-  padding: 0.68rem;
-  border: 1px solid var(--line, #d8e0ec);
-  border-radius: 10px;
-  background: var(--panel-strong, #fff);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .shared-gherkin-step-number {
@@ -57701,19 +57842,30 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   width: 1.75rem;
   height: 1.75rem;
   place-items: center;
-  border-radius: 999px;
-  background: var(--panel-muted, #f1f5f9);
+  border-radius: 0;
+  background: transparent;
   color: var(--text-secondary, #64748b);
   font-size: 0.72rem;
   font-weight: 850;
 }
 
+.shared-gherkin-step-list { gap: 0.2rem; }
+.shared-gherkin-step-row + .shared-gherkin-step-row { padding-top: 0; border-top: 0; }
+.shared-gherkin-step-row .shared-gherkin-step-number { width: 1.45rem; height: 1.45rem; }
+.shared-gherkin-step-row .shared-gherkin-keyword select,
+.shared-gherkin-step-row .shared-gherkin-step-content > input { min-height: 1.75rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.shared-gherkin-step-row .shared-gherkin-step-actions { gap: 0.1rem; }
+
 .shared-gherkin-keyword select {
-  width: 100%;
-  min-height: 2.75rem;
-  border-width: 1px;
-  border-style: solid;
-  border-radius: 8px;
+  width: auto;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
   font-family: "Inter", "Segoe UI", sans-serif;
   font-size: 0.88rem;
   font-weight: 850;
@@ -57721,39 +57873,75 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 }
 
 .shared-gherkin-keyword.is-given select {
-  border-color: rgba(37, 99, 235, 0.28);
-  background: rgba(37, 99, 235, 0.08);
+  border-color: transparent;
+  background: transparent;
   color: #1d4ed8;
 }
 
 .shared-gherkin-keyword.is-when select,
 .shared-gherkin-keyword.is-and select,
 .shared-gherkin-keyword.is-but select {
-  border-color: rgba(124, 58, 237, 0.26);
-  background: rgba(124, 58, 237, 0.08);
+  border-color: transparent;
+  background: transparent;
   color: #6d28d9;
 }
 
 .shared-gherkin-keyword.is-then select {
-  border-color: rgba(5, 150, 105, 0.25);
-  background: rgba(5, 150, 105, 0.08);
+  border-color: transparent;
+  background: transparent;
   color: #047857;
 }
 
 .shared-gherkin-step-content {
-  display: grid;
-  gap: 0.48rem;
+  position: relative;
+  display: block;
   min-width: 0;
 }
 
 .shared-gherkin-step-content input {
   width: 100%;
-  min-height: 2.75rem;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-primary, #172033);
   font-family: "Inter", "Segoe UI", sans-serif;
   font-size: 0.88rem;
   font-weight: 560;
   line-height: 1.4;
+}
+
+.shared-gherkin-step-content input:not(.is-editing):has(+ .shared-gherkin-inline-value) {
+  color: transparent;
+  caret-color: transparent;
+}
+
+.shared-gherkin-inline-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  color: var(--text-primary, #172033);
+  font-size: 0.88rem;
+  font-weight: 560;
+  line-height: 1.4;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-gherkin-inline-value.is-hidden { display: none; }
+.shared-gherkin-inline-value .step-parameter-token {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #047857;
+  font: inherit;
 }
 
 .shared-gherkin-step-preview {
@@ -57796,22 +57984,22 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 }
 
 :root[data-theme="dark"] .shared-gherkin-keyword.is-given select {
-  border-color: rgba(121, 192, 255, 0.42);
-  background: rgba(121, 192, 255, 0.13);
+  border-color: transparent;
+  background: transparent;
   color: #9acbff;
 }
 
 :root[data-theme="dark"] .shared-gherkin-keyword.is-when select,
 :root[data-theme="dark"] .shared-gherkin-keyword.is-and select,
 :root[data-theme="dark"] .shared-gherkin-keyword.is-but select {
-  border-color: rgba(216, 180, 254, 0.4);
-  background: rgba(216, 180, 254, 0.12);
+  border-color: transparent;
+  background: transparent;
   color: #d8b4fe;
 }
 
 :root[data-theme="dark"] .shared-gherkin-keyword.is-then select {
-  border-color: rgba(126, 231, 135, 0.38);
-  background: rgba(126, 231, 135, 0.11);
+  border-color: transparent;
+  background: transparent;
   color: #8ee89a;
 }
 
@@ -57839,15 +58027,23 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 }
 
 .shared-gherkin-step-actions .ghost-button {
-  width: 2rem;
-  min-width: 2rem;
-  min-height: 2rem;
+  width: auto;
+  min-width: 1.25rem;
+  min-height: 1.5rem;
   padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .shared-gherkin-add-step {
   width: fit-content;
   gap: 0.4rem;
+  min-height: 1.5rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* Test Params follows Test Data's plain field-and-utility workflow. */
@@ -57972,5 +58168,89 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
     border-color: CanvasText;
     background: Canvas;
     color: CanvasText;
+  }
+}
+
+/* Final compact authority for the Test Case identity and sectioned Gherkin editor. */
+.test-case-workspace-shell > .panel-head {
+  min-height: 52px !important;
+  padding: 6px 14px !important;
+}
+.test-case-workspace-shell .test-case-workspace-identity { gap: 7px; }
+.test-case-workspace-shell .test-case-workspace-identity .workspace-back-button {
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 6px !important;
+}
+.test-case-workspace-shell :is(.test-case-workspace-record-id, .test-case-detail-record-id) {
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.test-case-workspace-shell .test-case-workspace-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: clamp(0.95rem, 1.5vw, 1.15rem);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.test-case-workspace-shell .test-case-detail-grid.editor-accordion {
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  padding: 16px;
+}
+.test-case-workspace-shell :is(.test-case-detail-primary, .test-case-detail-sidebar) { gap: 14px; }
+.test-case-workspace-shell .test-case-detail-identity-card {
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-editor {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-editor-toolbar { min-height: 42px; padding: 4px 0 7px; }
+.test-case-detail-primary .gherkin-section-grid { gap: 8px; padding: 8px 0 0; }
+.test-case-detail-primary .gherkin-feature-bar { min-height: 38px; padding: 0; }
+.test-case-detail-primary .gherkin-feature-bar input {
+  min-height: 30px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary :is(.gherkin-section-card, .gherkin-scenario-region) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary :is(.gherkin-section-card > header, .gherkin-scenario-region-head) {
+  min-height: 36px;
+  padding: 3px 0;
+  background: transparent;
+}
+.test-case-detail-primary .gherkin-scenario-list { gap: 7px; padding: 7px 0; }
+.test-case-detail-primary .gherkin-scenario-block { gap: 4px; }
+.test-case-detail-primary .gherkin-scenario-block > .gherkin-section-card.is-examples {
+  margin-left: 18px;
+  border-left: 2px solid color-mix(in srgb, var(--gherkin-value) 35%, var(--line));
+}
+.test-case-detail-primary .gherkin-editor-status { padding-inline: 0; }
+
+@media (max-width: 980px) {
+  .test-case-workspace-shell .test-case-detail-grid.editor-accordion {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
   }
 }

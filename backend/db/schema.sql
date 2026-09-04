@@ -477,6 +477,8 @@ CREATE TABLE feedback (
   release TEXT,
   assignee_id TEXT,
   root_cause TEXT,
+  bug_type TEXT,
+  regression BOOLEAN NOT NULL DEFAULT FALSE,
   retest_result TEXT,
   status TEXT DEFAULT 'open',
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -559,6 +561,8 @@ ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_dev_id TEXT
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_qa_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS bug_type TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS regression BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
 
 CREATE TABLE requirement_defects (

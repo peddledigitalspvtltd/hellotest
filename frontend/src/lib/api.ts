@@ -352,6 +352,8 @@ type IssuePayload = {
   linked_requirement_ids?: string[];
   assignee_id?: string;
   root_cause?: string;
+  bug_type?: string;
+  regression?: boolean;
   status?: string;
   labels?: string[];
   sprint?: string;
